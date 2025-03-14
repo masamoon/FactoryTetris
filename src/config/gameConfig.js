@@ -44,8 +44,8 @@ export const GAME_CONFIG = {
             id: 'processor-a',
             name: 'Processor A',
             shape: [
-                [1, 1],
-                [0, 1]
+                [1, 1, 1],
+                [1, 0, 0]
             ],
             inputTypes: ['raw-resource', 'copper-ore'],
             outputTypes: ['product-a'],
@@ -57,8 +57,8 @@ export const GAME_CONFIG = {
             id: 'processor-b',
             name: 'Processor B',
             shape: [
-                [1, 1],
-                [1, 0]
+                [0, 1, 0],
+                [1, 1, 1]
             ],
             inputTypes: ['raw-resource', 'iron-ore'],
             outputTypes: ['product-b'],
@@ -70,6 +70,7 @@ export const GAME_CONFIG = {
             id: 'advanced-processor',
             name: 'Advanced Processor',
             shape: [
+                [0, 1, 0],
                 [1, 1, 1],
                 [0, 1, 0]
             ],

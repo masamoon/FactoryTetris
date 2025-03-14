@@ -524,6 +524,13 @@ export default class GameScene extends Phaser.Scene {
         if (this.factoryGrid.isInBounds(machine.x, machine.y)) {
             const gridPosition = this.factoryGrid.worldToGrid(machine.x, machine.y);
             
+            // Make sure machine has a direction property
+            if (!machine.direction) {
+                machine.direction = this.getDirectionFromRotation(machine.rotation);
+            }
+            
+            console.log(`Preview: direction=${machine.direction}, rotation=${machine.rotation}`);
+            
             // Check if placement is valid
             const canPlace = this.factoryGrid.canPlaceMachine(
                 machineType, 
@@ -532,7 +539,7 @@ export default class GameScene extends Phaser.Scene {
                 machine.rotation
             );
             
-            // Get the rotated shape
+            // Get the rotated shape - use the exact same method as the one used for actual placement
             const shape = this.factoryGrid.getRotatedShape(machineType.shape, machine.rotation);
             
             // Calculate the correct origin position based on the shape's center
@@ -549,6 +556,12 @@ export default class GameScene extends Phaser.Scene {
             // Set color based on validity
             this.placementPreview.lineStyle(2, canPlace ? 0x00ff00 : 0xff0000);
             this.placementPreview.fillStyle(canPlace ? 0x00ff00 : 0xff0000, 0.3);
+            
+            // Debug shape output
+            console.log(`Preview shape for ${machine.direction} direction:`);
+            for (let y = 0; y < shape.length; y++) {
+                console.log(shape[y].join(' '));
+            }
             
             // Draw each cell of the machine shape
             for (let y = 0; y < shape.length; y++) {

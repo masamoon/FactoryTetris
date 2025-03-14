@@ -19,9 +19,10 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         this.name = 'Advanced Processor';
         this.description = 'Combines Products A and B with coal to create Product C';
         this.shape = [
+            [0, 1, 0],
             [1, 1, 1],
             [0, 1, 0]
-        ]; // T-shape
+        ]; // Cross-shape Tetris piece
         this.inputTypes = ['product-a', 'product-b', 'coal'];
         this.outputTypes = ['product-c'];
         this.processingTime = 5000; // 5 seconds
@@ -56,83 +57,137 @@ export default class AdvancedProcessorMachine extends BaseMachine {
      * Override the createVisuals method to customize the processor appearance
      */
     createVisuals() {
-        // Calculate the center position of the machine
-        const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
-        const cellSize = this.grid.cellSize;
+        // Skip visual creation if we don't have a grid reference
+        if (!this.grid) {
+            console.warn('Cannot create visuals for machine: grid reference is missing');
+            return;
+        }
         
-        // Create a container for all visual elements
+        // Calculate world position for the top-left corner of the machine
+        const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
+        
+        // Create container for machine parts
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
         
-        // Base machine body - larger for the T shape
-        this.body = this.scene.add.rectangle(0, 0, cellSize * 2.8, cellSize * 1.8, 0x4a6fb5);
-        this.body.setStrokeStyle(2, 0x333333);
-        this.container.add(this.body);
+        // Store references to input and output squares
+        this.inputSquare = null;
+        this.outputSquare = null;
         
-        // Cut out the corners to make the T shape
-        this.cornerCutout1 = this.scene.add.rectangle(
-            -cellSize * 0.9, -cellSize * 0.45, 
-            cellSize * 0.9, cellSize * 0.9, 
-            0x1a2e3b
+        // Determine input and output positions based on direction
+        let inputPos = { x: -1, y: -1 };
+        let outputPos = { x: -1, y: -1 };
+        
+        if (this.direction !== 'none') {
+            // For cross-shape, we'll put input and output on opposite ends
+            switch (this.direction) {
+                case 'right':
+                    // Input on left side, output on right side
+                    inputPos = { x: 0, y: 1 };
+                    outputPos = { x: this.shape[0].length - 1, y: 1 };
+                    break;
+                case 'down':
+                    // Input on top side, output on bottom side
+                    inputPos = { x: 1, y: 0 };
+                    outputPos = { x: 1, y: this.shape.length - 1 };
+                    break;
+                case 'left':
+                    // Input on right side, output on left side
+                    inputPos = { x: this.shape[0].length - 1, y: 1 };
+                    outputPos = { x: 0, y: 1 };
+                    break;
+                case 'up':
+                    // Input on bottom side, output on top side
+                    inputPos = { x: 1, y: this.shape.length - 1 };
+                    outputPos = { x: 1, y: 0 };
+                    break;
+            }
+        }
+        
+        // Calculate cell size for consistent sizing
+        const cellSize = this.grid.cellSize;
+        
+        // Create machine parts based on shape
+        for (let y = 0; y < this.shape.length; y++) {
+            for (let x = 0; x < this.shape[y].length; x++) {
+                if (this.shape[y][x] === 1) {
+                    // Calculate part position relative to top-left corner
+                    const partX = x * cellSize + cellSize / 2;
+                    const partY = y * cellSize + cellSize / 2;
+                    
+                    // Determine part color based on whether it's an input, output, or regular part
+                    let partColor = 0x44ff44; // Default green color (same as when dragging)
+                    
+                    if (x === inputPos.x && y === inputPos.y) {
+                        partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
+                        // Add a visual indicator for input
+                        const inputIndicator = this.scene.add.text(partX, partY, "IN", {
+                            fontFamily: 'Arial',
+                            fontSize: 10,
+                            color: '#ffffff'
+                        }).setOrigin(0.5);
+                        this.container.add(inputIndicator);
+                    } else if (x === outputPos.x && y === outputPos.y) {
+                        partColor = 0xffa520; // Brighter orange for output (same as when dragging)
+                        // Add a visual indicator for output
+                        const outputIndicator = this.scene.add.text(partX, partY, "OUT", {
+                            fontFamily: 'Arial',
+                            fontSize: 9,
+                            color: '#ffffff'
+                        }).setOrigin(0.5);
+                        this.container.add(outputIndicator);
+                    }
+                    
+                    // Make the center piece a different color to indicate it's the processing core
+                    if (x === 1 && y === 1) {
+                        partColor = 0xffaa44; // Brighter reddish-orange for the center
+                    }
+                    
+                    // Create machine part
+                    const part = this.scene.add.rectangle(partX, partY, cellSize - 4, cellSize - 4, partColor);
+                    part.setStrokeStyle(2, 0x000000);
+                    this.container.add(part);
+                    
+                    // Store references to input and output squares
+                    if (x === inputPos.x && y === inputPos.y) {
+                        this.inputSquare = part;
+                    } else if (x === outputPos.x && y === outputPos.y) {
+                        this.outputSquare = part;
+                    }
+                }
+            }
+        }
+        
+        // Calculate the machine center for indicators and labels
+        const centerX = (this.shape[0].length * cellSize) / 2;
+        const centerY = (this.shape.length * cellSize) / 2;
+        
+        // Add machine type indicator at the center of the machine
+        const machineLabel = this.scene.add.text(centerX, centerY, "C", {
+            fontFamily: 'Arial',
+            fontSize: 14,
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        this.container.add(machineLabel);
+        
+        // Add processing progress bar
+        this.progressBar = this.scene.add.rectangle(
+            centerX, 
+            centerY + cellSize / 4, 
+            cellSize - 10, 
+            4, 
+            0x00ff00
         );
-        this.container.add(this.cornerCutout1);
+        this.progressBar.scaleX = 0;
+        this.container.add(this.progressBar);
         
-        this.cornerCutout2 = this.scene.add.rectangle(
-            cellSize * 0.9, -cellSize * 0.45, 
-            cellSize * 0.9, cellSize * 0.9, 
-            0x1a2e3b
-        );
-        this.container.add(this.cornerCutout2);
-        
-        // Processing mechanism in the center
-        this.processorCore = this.scene.add.circle(0, 0, cellSize * 0.4, 0xffaa00);
-        this.processorCore.setStrokeStyle(2, 0xcc8800);
-        this.container.add(this.processorCore);
-        
-        // Input indicators (blue)
-        this.inputSquare1 = this.scene.add.rectangle(
-            -cellSize * 0.9, cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0x3498db
-        );
-        this.inputSquare1.setStrokeStyle(1, 0x000000);
-        this.container.add(this.inputSquare1);
-        
-        this.inputSquare2 = this.scene.add.rectangle(
-            0, cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0x3498db
-        );
-        this.inputSquare2.setStrokeStyle(1, 0x000000);
-        this.container.add(this.inputSquare2);
-        
-        this.inputSquare3 = this.scene.add.rectangle(
-            cellSize * 0.9, cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0x3498db
-        );
-        this.inputSquare3.setStrokeStyle(1, 0x000000);
-        this.container.add(this.inputSquare3);
-        
-        // Output indicator (orange)
-        this.outputSquare = this.scene.add.rectangle(
-            0, -cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0xff9500
-        );
-        this.outputSquare.setStrokeStyle(1, 0x000000);
-        this.container.add(this.outputSquare);
-        
-        // Create direction indicator
-        this.createDirectionIndicator(0, 0);
-        
-        // Add resource type indicators
-        this.addResourceTypeIndicators();
+        // Add direction indicator if not a cargo loader
+        if (this.direction !== 'none') {
+            this.directionIndicator = this.createDirectionIndicator(centerX, centerY);
+            this.container.add(this.directionIndicator);
+        }
         
         // Add placement animation
         this.addPlacementAnimation();
-        
-        // Add interactivity
-        this.addInteractivity();
         
         // Adjust container position based on shape and rotation
         this.adjustContainerPosition();
@@ -144,8 +199,115 @@ export default class AdvancedProcessorMachine extends BaseMachine {
     adjustContainerPosition() {
         const cellSize = this.grid.cellSize;
         
-        // Rotate the container to match the machine rotation
-        this.container.rotation = this.rotation;
+        // Adjust based on rotation
+        switch (this.direction) {
+            case 'right': // Default cross shape
+                // No adjustment needed for right
+                break;
+            case 'down': // Rotated 90 degrees clockwise
+                // For down rotation of cross shape
+                break;
+            case 'left': // Rotated 180 degrees
+                // For left rotation of cross shape
+                break;
+            case 'up': // Rotated 270 degrees clockwise (90 counter-clockwise)
+                // For up rotation of cross shape
+                break;
+        }
+        
+        // Don't apply rotation to the container since we're using rotated shapes from the grid
+        // The input/output positions are handled based on direction
+    }
+    
+    /**
+     * Create a new advanced processor machine preview sprite
+     * @param {Phaser.Scene} scene - The scene to create the sprite in
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @returns {Phaser.GameObjects.Container} The preview container
+     */
+    static getPreviewSprite(scene, x, y) {
+        // Create a container for the preview
+        const container = scene.add.container(x, y);
+        
+        // Get the default shape from game config
+        const shape = [
+            [0, 1, 0],
+            [1, 1, 1],
+            [0, 1, 0]
+        ]; // Cross-shape Tetris piece
+        
+        // Base machine body
+        const cellSize = 24; // Use a smaller size for previews
+        
+        // Calculate dimensions
+        const width = shape[0].length * cellSize;
+        const height = shape.length * cellSize;
+        
+        // Draw each cell based on the shape
+        for (let y = 0; y < shape.length; y++) {
+            for (let x = 0; x < shape[0].length; x++) {
+                if (shape[y][x] === 1) {
+                    // Calculate position
+                    const cellX = (x * cellSize) - (width / 2) + (cellSize / 2);
+                    const cellY = (y * cellSize) - (height / 2) + (cellSize / 2);
+                    
+                    // Determine if this is an input or output cell
+                    let color = 0x4a6fb5; // Default blue
+                    
+                    // Input is on the left of the middle row
+                    if (x === 0 && y === 1) {
+                        color = 0x0055ff; // Bright blue for input
+                        // Add a visual indicator for input
+                        const inputIndicator = scene.add.text(cellX, cellY, "IN", {
+                            fontFamily: 'Arial',
+                            fontSize: 8,
+                            color: '#ffffff'
+                        }).setOrigin(0.5);
+                        container.add(inputIndicator);
+                    } 
+                    // Output is on the right of the middle row
+                    else if (x === shape[0].length - 1 && y === 1) {
+                        color = 0xff3300; // Bright orange/red for output
+                        // Add a visual indicator for output
+                        const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
+                            fontFamily: 'Arial',
+                            fontSize: 7,
+                            color: '#ffffff'
+                        }).setOrigin(0.5);
+                        container.add(outputIndicator);
+                    }
+                    // Center piece is a different color
+                    else if (x === 1 && y === 1) {
+                        color = 0xff5500; // Reddish-orange for the center
+                    }
+                    
+                    const rect = scene.add.rectangle(cellX, cellY, cellSize - 2, cellSize - 2, color);
+                    rect.setStrokeStyle(2, 0x000000);
+                    container.add(rect);
+                }
+            }
+        }
+        
+        // Add a simple label
+        const label = scene.add.text(0, 0, "C", {
+            fontFamily: 'Arial',
+            fontSize: 14,
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        container.add(label);
+        
+        // Add a simple direction indicator (pointing right by default)
+        const directionIndicator = scene.add.triangle(
+            width / 2 - cellSize / 2, 0,
+            -4, -6,
+            -4, 6,
+            8, 0,
+            0xffffff
+        );
+        container.add(directionIndicator);
+        
+        return container;
     }
     
     /**
@@ -164,16 +326,9 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             this.processingProgress += delta;
             
             // Update visual feedback
-            if (this.processorCore) {
+            if (this.progressBar) {
                 const progress = this.processingProgress / this.processingTime;
-                this.processorCore.alpha = 0.5 + (progress * 0.5);
-                this.processorCore.scale = 1 + (progress * 0.3);
-                
-                // Add pulsing effect
-                if (progress > 0.5) {
-                    const pulseIntensity = Math.sin(progress * 10) * 0.2 + 0.8;
-                    this.processorCore.alpha = pulseIntensity;
-                }
+                this.progressBar.scaleX = progress;
             }
             
             // If we've reached the processing time, complete the processing
@@ -220,10 +375,10 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         this.processingProgress = 0;
         
         // Visual feedback for processing
-        if (this.processorCore) {
+        if (this.progressBar) {
             this.scene.tweens.add({
-                targets: this.processorCore,
-                angle: 360,
+                targets: this.progressBar,
+                scaleX: 1,
                 duration: this.processingTime,
                 ease: 'Linear'
             });
@@ -244,98 +399,10 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         this.processingProgress = 0;
         
         // Reset visual feedback
-        if (this.processorCore) {
-            this.processorCore.alpha = 1;
-            this.processorCore.scale = 1;
-            this.processorCore.angle = 0;
+        if (this.progressBar) {
+            this.progressBar.scaleX = 0;
         }
         
         console.log('Advanced Processor completed processing, produced 1 product-c');
-    }
-    
-    /**
-     * Get a preview sprite for this machine type
-     * @param {Phaser.Scene} scene - The scene to create the sprite in
-     * @param {number} x - The x position
-     * @param {number} y - The y position
-     * @returns {Phaser.GameObjects.Container} The preview sprite
-     */
-    getPreviewSprite(scene, x, y) {
-        // Create a container for the preview
-        const container = scene.add.container(x, y);
-        
-        // Base machine body
-        const cellSize = 20; // Use a smaller size for previews
-        
-        // Base machine body - T shape
-        const body = scene.add.rectangle(0, 0, cellSize * 2.8, cellSize * 1.8, 0x4a6fb5);
-        body.setStrokeStyle(2, 0x333333);
-        container.add(body);
-        
-        // Cut out the corners to make the T shape
-        const cornerCutout1 = scene.add.rectangle(
-            -cellSize * 0.9, -cellSize * 0.45, 
-            cellSize * 0.9, cellSize * 0.9, 
-            0x1a2e3b
-        );
-        container.add(cornerCutout1);
-        
-        const cornerCutout2 = scene.add.rectangle(
-            cellSize * 0.9, -cellSize * 0.45, 
-            cellSize * 0.9, cellSize * 0.9, 
-            0x1a2e3b
-        );
-        container.add(cornerCutout2);
-        
-        // Processing mechanism in the center
-        const processorCore = scene.add.circle(0, 0, cellSize * 0.4, 0xffaa00);
-        processorCore.setStrokeStyle(2, 0xcc8800);
-        container.add(processorCore);
-        
-        // Input indicators (blue)
-        const inputSquare1 = scene.add.rectangle(
-            -cellSize * 0.9, cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0x3498db
-        );
-        inputSquare1.setStrokeStyle(1, 0x000000);
-        container.add(inputSquare1);
-        
-        const inputSquare2 = scene.add.rectangle(
-            0, cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0x3498db
-        );
-        inputSquare2.setStrokeStyle(1, 0x000000);
-        container.add(inputSquare2);
-        
-        const inputSquare3 = scene.add.rectangle(
-            cellSize * 0.9, cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0x3498db
-        );
-        inputSquare3.setStrokeStyle(1, 0x000000);
-        container.add(inputSquare3);
-        
-        // Output indicator (orange)
-        const outputSquare = scene.add.rectangle(
-            0, -cellSize * 0.45, 
-            cellSize * 0.3, cellSize * 0.3, 
-            0xff9500
-        );
-        outputSquare.setStrokeStyle(1, 0x000000);
-        container.add(outputSquare);
-        
-        // Add a simple direction indicator
-        const directionIndicator = scene.add.triangle(
-            0, -cellSize * 0.45,
-            -cellSize * 0.1, -cellSize * 0.25,
-            cellSize * 0.1, -cellSize * 0.25,
-            0, -cellSize * 0.35,
-            0xffffff
-        );
-        container.add(directionIndicator);
-        
-        return container;
     }
 } 

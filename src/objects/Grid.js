@@ -410,88 +410,106 @@ export default class Grid {
         const epsilon = 0.1;  // Use a slightly larger epsilon for better tolerance
         
         // Check if rotation is close to 0, 90, 180, or 270 degrees
-        // No rotation (0 degrees or close to 0)
+        // No rotation (0 degrees or close to 0) - Right direction
         if (Math.abs(normalizedRotation) < epsilon || Math.abs(normalizedRotation - 2 * Math.PI) < epsilon) {
             console.log("Grid.getRotatedShape: No rotation (0 degrees/right)");
-            return shape;
+            // Return the original shape for right direction
+            return JSON.parse(JSON.stringify(shape)); // Return a deep copy to avoid mutations
         }
         
         // 90 degrees (down)
         if (Math.abs(normalizedRotation - Math.PI / 2) < epsilon) {
             console.log("Grid.getRotatedShape: 90 degrees rotation (down)");
-            return this.rotateShapeClockwise(shape);
+            // Correctly transform for down direction (90 degrees clockwise)
+            return this.rotate90Degrees(shape);
         }
         
         // 180 degrees (left)
         if (Math.abs(normalizedRotation - Math.PI) < epsilon) {
             console.log("Grid.getRotatedShape: 180 degrees rotation (left)");
+            // Correctly transform for left direction (180 degrees)
             return this.rotateShape180(shape);
         }
         
         // 270 degrees (up)
         if (Math.abs(normalizedRotation - 3 * Math.PI / 2) < epsilon) {
             console.log("Grid.getRotatedShape: 270 degrees rotation (up)");
-            return this.rotateShapeCounterClockwise(shape);
+            // Correctly transform for up direction (270 degrees clockwise)
+            return this.rotate270Degrees(shape);
         }
         
         // Default: no rotation if not close to a cardinal direction
         console.log(`Grid.getRotatedShape: Rotation ${normalizedRotation} not close to a cardinal direction, using default`);
-        return shape;
+        return JSON.parse(JSON.stringify(shape)); // Return a deep copy to avoid mutations
     }
     
     // Rotate a shape 90 degrees clockwise
     rotate90Degrees(shape) {
+        if (!shape || shape.length === 0) return shape;
+        
         const height = shape.length;
         const width = shape[0].length;
         const rotated = [];
         
-        for (let x = 0; x < width; x++) {
-            rotated[x] = [];
-            for (let y = 0; y < height; y++) {
-                rotated[x][height - y - 1] = shape[y][x];
+        for (let i = 0; i < width; i++) {
+            rotated[i] = [];
+            for (let j = 0; j < height; j++) {
+                rotated[i][j] = shape[height - 1 - j][i];
             }
         }
         
+        console.log("Rotated 90 degrees (down):");
+        rotated.forEach(row => console.log(row.join(' ')));
         return rotated;
     }
     
     // Rotate a shape 180 degrees
     rotateShape180(shape) {
+        if (!shape || shape.length === 0) return shape;
+        
         const height = shape.length;
         const width = shape[0].length;
         const rotated = [];
         
-        for (let y = 0; y < height; y++) {
-            rotated[height - y - 1] = shape[y].slice().reverse();
+        for (let i = 0; i < height; i++) {
+            rotated[i] = [];
+            for (let j = 0; j < width; j++) {
+                rotated[i][j] = shape[height - 1 - i][width - 1 - j];
+            }
         }
         
+        console.log("Rotated 180 degrees (left):");
+        rotated.forEach(row => console.log(row.join(' ')));
         return rotated;
     }
     
-    // Rotate a shape counterclockwise
-    rotateShapeCounterClockwise(shape) {
+    // Rotate a shape 270 degrees clockwise (or 90 counterclockwise)
+    rotate270Degrees(shape) {
+        if (!shape || shape.length === 0) return shape;
+        
         const height = shape.length;
         const width = shape[0].length;
         const rotated = [];
         
-        for (let x = 0; x < width; x++) {
-            rotated[width - x - 1] = shape.slice().reverse().map(row => row[x]);
+        for (let i = 0; i < width; i++) {
+            rotated[i] = [];
+            for (let j = 0; j < height; j++) {
+                rotated[i][j] = shape[j][width - 1 - i];
+            }
         }
         
+        console.log("Rotated 270 degrees (up):");
+        rotated.forEach(row => console.log(row.join(' ')));
         return rotated;
     }
     
-    // Rotate a shape clockwise
+    // These original methods were causing issues, keep them for compatibility but use the newer methods
     rotateShapeClockwise(shape) {
-        const height = shape.length;
-        const width = shape[0].length;
-        const rotated = [];
-        
-        for (let x = 0; x < width; x++) {
-            rotated[width - x - 1] = shape.slice().map(row => row[height - x - 1]);
-        }
-        
-        return rotated;
+        return this.rotate90Degrees(shape);
+    }
+    
+    rotateShapeCounterClockwise(shape) {
+        return this.rotate270Degrees(shape);
     }
     
     // Remove a machine from the grid

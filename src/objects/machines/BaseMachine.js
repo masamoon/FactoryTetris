@@ -221,33 +221,34 @@ export default class BaseMachine {
         // Create machine parts based on shape
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
+                // Only create visuals for cells with value 1 (occupied)
                 if (this.shape[y][x] === 1) {
                     // Calculate part position relative to top-left corner
                     const partX = x * this.grid.cellSize + this.grid.cellSize / 2;
                     const partY = y * this.grid.cellSize + this.grid.cellSize / 2;
                     
                     // Determine part color based on whether it's an input, output, or regular part
-                    let partColor = 0x4a6fb5; // Default blue color
+                    let partColor = 0x44ff44; // Default green color (same as when dragging)
                     
                     // For extractors, only color the output
                     if (this.id === 'extractor') {
                         if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xd35400; // Darker orange for extractor output
+                            partColor = 0xffa520; // Brighter orange for extractor output (same as when dragging)
                         }
                     } 
                     // For cargo loaders, only color the inputs
                     else if (this.id === 'cargo-loader') {
                         // For cargo loader, all sides can be input
                         if ((x === 0 || x === this.shape[0].length - 1 || y === 0 || y === this.shape.length - 1)) {
-                            partColor = 0x3498db; // Blue for input
+                            partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         }
                     }
                     // For all other machines with direction
                     else if (this.direction !== 'none') {
                         if (x === inputPos.x && y === inputPos.y) {
-                            partColor = 0x3498db; // Blue for input
+                            partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         } else if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xff9500; // Orange for output
+                            partColor = 0xffa520; // Brighter orange for output (same as when dragging)
                         }
                     }
                     
