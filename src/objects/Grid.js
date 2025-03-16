@@ -364,47 +364,28 @@ export default class Grid {
         // Check if this is an extractor machine
         const isExtractor = machineIdStr === 'extractor';
         
-        // Check if the machine's shape is already rotated correctly
-        let shape;
-        if (machineType.direction === direction) {
-            // If the machine already has the correct direction, use its shape as is
-            shape = machineType.shape;
-        } else {
-            // Otherwise, apply rotation
-            shape = this.getRotatedShape(machineType.shape, direction);
-        }
+        // Get the original non-rotated shape
+        const originalShape = machineType.shape;
+        
+        // Get the rotated shape
+        const shape = this.getRotatedShape(originalShape, direction);
         
         // Validate shape has valid dimensions
         if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0]) || shape[0].length === 0) {
             return false;
         }
         
-        // Get shape dimensions
+        // Get shape dimensions after rotation
         const shapeWidth = shape[0].length;
         const shapeHeight = shape.length;
         
-        // Get the origin from the machine type if available, otherwise calculate it
-        let originX, originY;
-        try {
-            if (machineType.getOrigin) {
-                const origin = machineType.getOrigin(shape);
-                originX = origin.x;
-                originY = origin.y;
-            } else {
-                // Fallback to calculation (for backwards compatibility)
-                originX = (shapeWidth - 1) / 2;
-                originY = (shapeHeight - 1) / 2;
-            }
-            
-            // Validate that origin values are valid numbers
-            if (isNaN(originX) || isNaN(originY)) {
-                originX = (shapeWidth - 1) / 2;
-                originY = (shapeHeight - 1) / 2;
-            }
-        } catch (error) {
-            originX = (shapeWidth - 1) / 2;
-            originY = (shapeHeight - 1) / 2;
-        }
+        // Calculate center point for the rotated shape
+        const centerX = gridX;
+        const centerY = gridY;
+        
+        // Calculate offset from center to top-left corner of the shape's bounding box
+        const offsetX = Math.floor(shapeWidth / 2);
+        const offsetY = Math.floor(shapeHeight / 2);
         
         // Flag to track if we found at least one resource node (for extractors)
         let foundResourceNode = false;
@@ -415,8 +396,9 @@ export default class Grid {
                 // Only check cells with value 1 (occupied by the machine)
                 if (shape[y][x] === 1) {
                     // Calculate grid coordinates for this shape cell
-                    const cellX = Math.floor(gridX + (x - originX));
-                    const cellY = Math.floor(gridY + (y - originY));
+                    // Using the center of the shape as a reference point
+                    const cellX = Math.floor(centerX + (x - offsetX));
+                    const cellY = Math.floor(centerY + (y - offsetY));
                     
                     // Check if cell is within grid bounds before checking content
                     if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
@@ -455,6 +437,29 @@ export default class Grid {
     }
     
     /**
+     * Helper method to convert rotation in degrees to a direction string
+     * @param {number} degrees - The rotation in degrees
+     * @returns {string} The direction as a string ('right', 'down', 'left', 'up')
+     */
+    convertDegreesToDirection(degrees) {
+        if (typeof degrees !== 'number') {
+            return 'right'; // Default
+        }
+        
+        const normalizedRotation = ((degrees % 360) + 360) % 360; // Normalize to 0-359
+        
+        if (normalizedRotation >= 315 || normalizedRotation < 45) {
+            return 'right';
+        } else if (normalizedRotation >= 45 && normalizedRotation < 135) {
+            return 'down';
+        } else if (normalizedRotation >= 135 && normalizedRotation < 225) {
+            return 'left';
+        } else { // 225 to 315
+            return 'up';
+        }
+    }
+    
+    /**
      * Places a machine on the grid
      * @param {object} machine - The machine to place
      * @param {number} gridX - The X coordinate on the grid
@@ -485,16 +490,14 @@ export default class Grid {
                 return false;
             }
             
-            // IMPORTANT: The machine's shape has already been rotated in BaseMachine constructor
-            // Get the current shape but ensure we don't rotate it again
+            // Get the rotated shape
             let shape;
             
-            // Check if the machine's current direction matches the requested direction
+            // If the machine's current direction matches the requested direction, use existing shape
             if (machine.direction === direction) {
-                // If directions match, just use the existing rotated shape
                 shape = machine.shape;
             } else {
-                // If directions don't match, we need to rotate the shape
+                // Otherwise, get a newly rotated shape
                 shape = this.getRotatedShape(machine.shape, direction);
             }
             
@@ -503,28 +506,17 @@ export default class Grid {
                 return false;
             }
             
-            // Get the origin from the machine if available, otherwise calculate it
-            let originX, originY;
-            try {
-                if (machine.getOrigin) {
-                    const origin = machine.getOrigin(shape);
-                    originX = origin.x;
-                    originY = origin.y;
-                } else {
-                    // Fallback to calculation (for backwards compatibility)
-                    originX = (shape[0].length - 1) / 2;
-                    originY = (shape.length - 1) / 2;
-                }
-                
-                // Validate that origin values are valid numbers
-                if (isNaN(originX) || isNaN(originY)) {
-                    originX = (shape[0].length - 1) / 2;
-                    originY = (shape.length - 1) / 2;
-                }
-            } catch (error) {
-                originX = (shape[0].length - 1) / 2;
-                originY = (shape.length - 1) / 2;
-            }
+            // Get the dimensions of the rotated shape
+            const shapeWidth = shape[0].length;
+            const shapeHeight = shape.length;
+            
+            // Calculate center point for the rotated shape
+            const centerX = gridX;
+            const centerY = gridY;
+            
+            // Calculate offset from center to top-left corner of the shape's bounding box
+            const offsetX = Math.floor(shapeWidth / 2);
+            const offsetY = Math.floor(shapeHeight / 2);
             
             // Register the machine on the grid
             this.machines.push({
@@ -535,11 +527,13 @@ export default class Grid {
             });
             
             // Mark cells as occupied by this machine
-            for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[0].length; x++) {
+            for (let y = 0; y < shapeHeight; y++) {
+                for (let x = 0; x < shapeWidth; x++) {
                     if (shape[y][x] === 1) {
-                        const cellX = Math.floor(gridX + (x - originX));
-                        const cellY = Math.floor(gridY + (y - originY));
+                        // Calculate grid coordinates for this shape cell
+                        // Using the center of the shape as a reference point
+                        const cellX = Math.floor(centerX + (x - offsetX));
+                        const cellY = Math.floor(centerY + (y - offsetY));
                         
                         // Verify cell is within grid bounds before accessing
                         if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
@@ -790,26 +784,28 @@ export default class Grid {
                 return;
             }
             
-            // Get the origin from the machine if available, otherwise calculate it
-            let originX, originY;
-            if (machine.getOrigin) {
-                const origin = machine.getOrigin(shape);
-                originX = gridX - origin.x;
-                originY = gridY - origin.y;
-            } else {
-                // Fallback to calculation (for backwards compatibility)
-                originX = gridX - (shape[0].length - 1) / 2;
-                originY = gridY - (shape.length - 1) / 2;
-            }
+            // Get the dimensions of the shape
+            const shapeWidth = shape[0].length;
+            const shapeHeight = shape.length;
+            
+            // Calculate center point for the shape
+            const centerX = gridX;
+            const centerY = gridY;
+            
+            // Calculate offset from center to top-left corner of the shape's bounding box
+            const offsetX = Math.floor(shapeWidth / 2);
+            const offsetY = Math.floor(shapeHeight / 2);
             
             let markedCells = 0;
             
             // Mark cells as occupied by the machine
-            for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[y].length; x++) {
+            for (let y = 0; y < shapeHeight; y++) {
+                for (let x = 0; x < shapeWidth; x++) {
                     if (shape[y][x] === 1) {
-                        const cellX = originX + x;
-                        const cellY = originY + y;
+                        // Calculate grid coordinates for this shape cell
+                        // Using the center of the shape as a reference point
+                        const cellX = Math.floor(centerX + (x - offsetX));
+                        const cellY = Math.floor(centerY + (y - offsetY));
                         
                         // Ensure we're within grid bounds
                         if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
@@ -909,18 +905,28 @@ export default class Grid {
                 return;
             }
             
-            // Calculate the origin position based on the shape's center
-            const originX = gridX - Math.floor(shape[0].length / 2);
-            const originY = gridY - Math.floor(shape.length / 2);
+            // Get the dimensions of the rotated shape
+            const shapeWidth = shape[0].length;
+            const shapeHeight = shape.length;
+            
+            // Calculate center point for the rotated shape
+            const centerX = gridX;
+            const centerY = gridY;
+            
+            // Calculate offset from center to top-left corner of the shape's bounding box
+            const offsetX = Math.floor(shapeWidth / 2);
+            const offsetY = Math.floor(shapeHeight / 2);
             
             let foundResourceNode = null;
             
             // Check each cell occupied by the machine
-            for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[y].length; x++) {
+            for (let y = 0; y < shapeHeight; y++) {
+                for (let x = 0; x < shapeWidth; x++) {
                     if (shape[y][x] === 1) {
-                        const cellX = originX + x;
-                        const cellY = originY + y;
+                        // Calculate grid coordinates for this shape cell
+                        // Using the center of the shape as a reference point
+                        const cellX = Math.floor(centerX + (x - offsetX));
+                        const cellY = Math.floor(centerY + (y - offsetY));
                         
                         // Check if we're within grid bounds
                         if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
