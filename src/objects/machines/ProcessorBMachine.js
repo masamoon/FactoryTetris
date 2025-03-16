@@ -12,16 +12,31 @@ export default class ProcessorBMachine extends BaseMachine {
      * @param {Object} config - Configuration object
      */
     constructor(scene, config) {
+        // Call the parent constructor first
         super(scene, config);
         
+        // Store the config for later use
+        this.config = config;
+        
+        // Everything else is handled by the initialization hooks in the base class
+        // and our overridden initMachineProperties method
+    }
+    
+    /**
+     * Override the base class method to define processor-specific properties
+     */
+    initMachineProperties() {
         // Override base machine properties with processor-specific values
         this.id = 'processor-b';
         this.name = 'Processor B';
         this.description = 'Processes raw resources into Product B';
+        
+        // Define the original shape - a T-shaped Tetris piece
         this.shape = [
             [0, 1, 0],
             [1, 1, 1]
-        ]; // T-shaped Tetris piece
+        ];
+        
         this.inputTypes = ['raw-resource', 'iron-ore'];
         this.outputTypes = ['product-b'];
         this.processingTime = 3000; // 3 seconds
@@ -35,8 +50,13 @@ export default class ProcessorBMachine extends BaseMachine {
             'iron-ore': 1
         };
         
-        // Apply shape rotation if needed
-        this.shape = config.shape || (this.grid ? this.grid.getRotatedShape(this.shape, this.rotation) : this.shape);
+        // Note: We don't need to rotate the shape here anymore.
+        // The BaseMachine constructor will apply rotation to the shape 
+        // right before calling createVisuals, based on this.rotation value.
+        
+        // Log for debugging
+        console.log(`[ProcessorBMachine.initMachineProperties] Machine name: ${this.name}`);
+        console.log(`[ProcessorBMachine.initMachineProperties] Original shape dimensions: ${this.shape[0].length}x${this.shape.length}`);
         
         // Initialize inventories
         this.inputInventory = {};
@@ -60,6 +80,14 @@ export default class ProcessorBMachine extends BaseMachine {
             console.warn('Cannot create visuals for machine: grid reference is missing');
             return;
         }
+        
+        // Log critical information about the machine's properties
+        console.log(`[ProcessorBMachine.createVisuals] Machine data:`);
+        console.log(`  ID: ${this.id}`);
+        console.log(`  Direction: ${this.direction}`);
+        console.log(`  Rotation: ${this.rotation} radians (${this.rotation * 180 / Math.PI} degrees)`);
+        console.log(`  Shape: ${JSON.stringify(this.shape)}`);
+        console.log(`  Shape dimensions: ${this.shape[0].length}x${this.shape.length}`);
         
         // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
@@ -113,8 +141,25 @@ export default class ProcessorBMachine extends BaseMachine {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
                     // Calculate part position relative to container center (0,0)
-                    const partX = (x - shapeCenterX) * cellSize;
-                    const partY = (y - shapeCenterY) * cellSize;
+                   let partX = 0;
+                    let partY = 0;
+                    // Calculate part position relative to container center (0,0)
+                    if (this.direction === 'none') {
+                         partX = ((x - shapeCenterX) * cellSize) ;
+                         partY = ((y - shapeCenterY) * cellSize) ;
+                    } else if (this.direction === 'right') {
+                        partX = ((x - shapeCenterX) * cellSize) ;
+                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
+                    } else if (this.direction === 'down') {
+                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
+                        partY = ((y - shapeCenterY) * cellSize) ;
+                    } else if (this.direction === 'left') {
+                        partX = ((x - shapeCenterX) * cellSize) ;
+                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
+                    } else if (this.direction === 'up') {
+                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
+                        partY = ((y - shapeCenterY) * cellSize) ;
+                    }
                     
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
@@ -240,67 +285,60 @@ export default class ProcessorBMachine extends BaseMachine {
         // Base machine body
         const cellSize = 24; // Use a smaller size for previews
         
-        // Calculate dimensions
-        const width = shape[0].length * cellSize;
-        const height = shape.length * cellSize;
+        // Calculate the shape center in terms of cells (same as in createVisuals)
+        const shapeCenterX = (shape[0].length - 1) / 2;
+        const shapeCenterY = (shape.length - 1) / 2;
         
         // Draw each cell based on the shape
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[0].length; x++) {
                 if (shape[y][x] === 1) {
-                    // Calculate position relative to center (0,0)
-                    const cellX = x * cellSize - (width / 2) + (cellSize / 2);
-                    const cellY = y * cellSize - (height / 2) + (cellSize / 2);
+                    // Calculate part position relative to container center
+                    const partX = (x - shapeCenterX) * cellSize;
+                    const partY = (y - shapeCenterY) * cellSize;
                     
-                    // Determine if this is an input or output cell
-                    let color = 0x44ff44; // Default green color (same as when dragging)
+                    // Determine part color based on position in the shape
+                    let partColor = 0x44ff44; // Default green
                     
-                    // Input is on the left of the bottom row
+                    // Input position (left edge of base)
                     if (x === 0 && y === 1) {
-                        color = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                        // Add a visual indicator for input
-                        const inputIndicator = scene.add.text(cellX, cellY, "IN", {
-                            fontFamily: 'Arial',
-                            fontSize: 8,
-                            color: '#ffffff'
-                        }).setOrigin(0.5);
-                        container.add(inputIndicator);
-                    } 
-                    // Output is on the right of the bottom row
+                        partColor = 0x4aa8eb; // Blue for input
+                    }
+                    // Output position (right edge of base)
                     else if (x === shape[0].length - 1 && y === 1) {
-                        color = 0xffa520; // Brighter orange for output (same as when dragging)
-                        // Add a visual indicator for output
-                        const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
-                            fontFamily: 'Arial',
-                            fontSize: 7,
-                            color: '#ffffff'
-                        }).setOrigin(0.5);
-                        container.add(outputIndicator);
+                        partColor = 0xffa520; // Orange for output
                     }
                     
-                    const rect = scene.add.rectangle(cellX, cellY, cellSize - 2, cellSize - 2, color);
-                    rect.setStrokeStyle(2, 0x000000);
-                    container.add(rect);
+                    // Create machine part
+                    const part = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, partColor);
+                    part.setStrokeStyle(1, 0x000000);
+                    container.add(part);
                 }
             }
         }
         
-        // Add a simple label at the center (0,0)
-        const label = scene.add.text(0, 0, "B", {
+        // Add machine type indicator at the center
+        const machineLabel = scene.add.text(0, 0, "B", {
             fontFamily: 'Arial',
-            fontSize: 14,
+            fontSize: 12,
             color: '#ffffff'
         }).setOrigin(0.5);
-        container.add(label);
+        container.add(machineLabel);
         
-        // Add a simple direction indicator (pointing right by default)
+        // Add direction indicator
+        const indicatorColor = 0xff9500;
         const directionIndicator = scene.add.triangle(
-            width / 4, 0,  // Position at 1/4 width to the right of center
-            -4, -6,
-            -4, 6,
-            8, 0,
-            0xffffff
-        );
+            0,        // Center X
+            0,        // Center Y
+            -4, -5,   // Left top
+            -4, 5,    // Left bottom
+            8, 0,     // Right point
+            indicatorColor
+        ).setOrigin(0, 0);
+        
+        // Position the indicator to make it visually appealing
+        directionIndicator.x = cellSize * 0.5;
+        directionIndicator.y = -cellSize * 0.5;
         container.add(directionIndicator);
         
         return container;

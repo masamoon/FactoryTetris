@@ -733,14 +733,17 @@ export default class GameScene extends Phaser.Scene {
             return; // Pointer is outside the grid
         }
 
+        // Get the direction from the rotation
+        const direction = this.getDirectionFromRotation(machine.rotation);
+
         // Create a minimal machineType object for canPlaceMachine if it doesn't exist
         const machineTypeForCheck = {
             shape: rotatedShape,
-            id: machine.id || (machine.machineType ? machine.machineType.id : 'unknown')
+            id: machine.id || (machine.machineType ? machine.machineType.id : 'unknown'),
+            direction: direction // Add the direction to prevent double rotation
         };
-
         // Check if we can place the machine here
-        const canPlace = this.factoryGrid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y,this.getDirectionFromRotation(machine.rotation));
+        const canPlace = this.factoryGrid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y, direction);
 
         // Get the world position of the center of the grid cell
         const centerWorldPos = this.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
@@ -761,15 +764,16 @@ export default class GameScene extends Phaser.Scene {
             for (let x = 0; x < rotatedShape[y].length; x++) {
                 // Only draw cells with value 1 (occupied)
                 if (rotatedShape[y][x] === 1) {
-                    // Calculate grid coordinates for this cell
-                    const cellGridX = gridPos.x + (x - Math.floor(rotatedShape[0].length / 2));
-                    const cellGridY = gridPos.y + (y - Math.floor(rotatedShape.length / 2));
+                    // Calculate grid coordinates for this cell using the same method as Grid.js
+                    // Using the center of the shape as a reference point
+                    const offsetX = Math.floor(rotatedShape[0].length / 2);
+                    const offsetY = Math.floor(rotatedShape.length / 2);
+                    
+                    const cellGridX = Math.floor(gridPos.x + (x - offsetX));
+                    const cellGridY = Math.floor(gridPos.y + (y - offsetY));
                     
                     // Get world coordinates for this exact cell
                     const cellWorldPos = this.factoryGrid.gridToWorld(cellGridX, cellGridY);
-
-                    // Log each cell position for debugging
-                    //console.log(`[PLACEMENT PREVIEW] Cell at shape(${x},${y}) -> grid(${cellGridX},${cellGridY}) -> world(${cellWorldPos.x},${cellWorldPos.y})`);
 
                     // Determine cell color based on position in the shape
                     let cellColor = 0x44ff44; // Default green
