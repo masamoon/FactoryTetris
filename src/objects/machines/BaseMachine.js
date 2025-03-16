@@ -39,25 +39,50 @@ export default class BaseMachine {
             this.direction = config.direction || 'right';
         }
         
-        // Initialize machine properties
-        this.id = 'base-machine';
-        this.name = 'Base Machine';
-        this.description = 'Base machine class';
-        this.shape = [[1]]; // Default 1x1 shape
-        this.inputTypes = [];
-        this.outputTypes = [];
-        this.processingTime = 1000; // Default 1 second
-        this.processingProgress = 0;
+        // Set up initial state for tracking
         this.isProcessing = false;
+        this.processingProgress = 0;
         this.isSelected = false;
         
+        // Initialize with base properties
+        this.initBaseProperties();
+        
+        // Let child classes define their specific properties
+        this.initMachineProperties();
+        
         // Initialize inventories
-        this.inputInventory = {};
-        this.outputInventory = {};
+        this.initInventories();
         
         // Only create visuals and add interactivity if not in preview mode
-        // and we have a valid scene
+        // and we have a valid scene - AFTER properties are initialized
         if (!this.isPreview && this.scene) {
+            // Ensure shape is properly rotated based on the rotation value
+            if (this.grid && this.shape) {
+                // Log the shape before rotation
+                console.log(`[BaseMachine] Before rotation - Shape: ${JSON.stringify(this.shape)}, Rotation: ${this.rotation}, Direction: ${this.direction}`);
+                
+                // Apply the rotation to the shape if it wasn't already done in the child class
+                if (this.rotation) {
+                    // Convert rotation from radians to degrees for Grid.getRotatedShape
+                    // Grid.getRotatedShape expects either a direction string or rotation in degrees, not radians
+                    const rotationDegrees = (this.rotation * 180 / Math.PI) % 360;
+                    console.log(`[BaseMachine] Converting rotation from ${this.rotation} radians to ${rotationDegrees} degrees`);
+                    
+                    // Get the rotated shape using degrees
+                    this.shape = this.grid.getRotatedShape(this.shape, rotationDegrees);
+                    
+                    // Ensure direction property is updated to match the rotation
+                    // This ensures consistency between shape and direction
+                    const directionFromRotation = this.getDirectionFromRotation(this.rotation);
+                    if (this.direction !== directionFromRotation) {
+                        console.log(`[BaseMachine] Updating direction from ${this.direction} to ${directionFromRotation} to match rotation`);
+                        this.direction = directionFromRotation;
+                    }
+                    
+                    console.log(`[BaseMachine] After rotation - Shape: ${JSON.stringify(this.shape)}, Direction: ${this.direction}`);
+                }
+            }
+            
             // Create visual representation
             this.createVisuals();
             
@@ -66,6 +91,53 @@ export default class BaseMachine {
             
             // Initialize keyboard controls
             this.initKeyboardControls();
+        }
+    }
+    
+    /**
+     * Initialize base machine properties
+     * This gets called first during construction
+     */
+    initBaseProperties() {
+        // Initialize machine properties with defaults
+        this.id = 'base-machine';
+        this.name = 'Base Machine';
+        this.description = 'Base machine class';
+        this.shape = [[1]]; // Default 1x1 shape
+        this.inputTypes = [];
+        this.outputTypes = [];
+        this.processingTime = 1000; // Default 1 second
+    }
+    
+    /**
+     * Initialize machine-specific properties
+     * Child classes should override this method to set their specific properties
+     */
+    initMachineProperties() {
+        // This is intentionally empty in the base class
+        // Child classes will override this method
+    }
+    
+    /**
+     * Initialize inventory objects based on input and output types
+     */
+    initInventories() {
+        // Initialize inventories
+        this.inputInventory = {};
+        this.outputInventory = {};
+        
+        // Add slots for each input type
+        if (this.inputTypes && Array.isArray(this.inputTypes)) {
+            this.inputTypes.forEach(type => {
+                this.inputInventory[type] = 0;
+            });
+        }
+        
+        // Add slots for each output type
+        if (this.outputTypes && Array.isArray(this.outputTypes)) {
+            this.outputTypes.forEach(type => {
+                this.outputInventory[type] = 0;
+            });
         }
     }
     
@@ -179,11 +251,16 @@ export default class BaseMachine {
      * This method can be overridden by subclasses to customize appearance
      */
     createVisuals() {
+
+        console.log("BaseMachine createVisuals START");
+
         // Skip visual creation if we don't have a grid reference
         if (!this.grid) {
             console.warn('Cannot create visuals for machine: grid reference is missing');
             return;
         }
+
+        
         
         // Calculate world position for the machine - gridToWorld now returns the center of the cell
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
@@ -1065,4 +1142,6 @@ export default class BaseMachine {
             }
         }
     }
+    
+    
 } 

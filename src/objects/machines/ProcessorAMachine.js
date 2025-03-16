@@ -12,17 +12,33 @@ export default class ProcessorAMachine extends BaseMachine {
      * @param {Object} config - Configuration object
      */
     constructor(scene, config) {
+        // Call the parent constructor first
         super(scene, config);
         
-        // Override base machine properties with processor-specific values
+        // Store the config for later use
+        this.config = config;
+        
+        // Everything else is handled by the initialization hooks in the base class
+        // and our overridden initMachineProperties method
+    }
+    
+    /**
+     * Override the base class method to define processor-specific properties
+     */
+    initMachineProperties() {
+        // Define machine identifier properties
         this.id = 'processor-a';
         this.name = 'Processor A';
         this.description = 'Processes basic resources into advanced resources';
-        this.shape = [
+        
+        // Define the original shape - a J-shaped Tetris piece
+        const originalShape = [
             [1, 1],
             [1, 0],
             [1, 0]
-        ]; // Proper J-shaped Tetris piece (2 cells wide)
+        ];
+        
+        // Set input/output types
         this.inputTypes = ['basic-resource'];
         this.outputTypes = ['advanced-resource'];
         this.processingTime = 3000; // 3 seconds
@@ -35,8 +51,16 @@ export default class ProcessorAMachine extends BaseMachine {
             'basic-resource': 1
         };
         
-        // Apply shape rotation if needed
-        this.shape = config.shape || (this.grid ? this.grid.getRotatedShape(this.shape, this.rotation) : this.shape);
+        // Set the original shape - rotation will be applied by BaseMachine before createVisuals
+        this.shape = originalShape;
+        
+        // Note: We don't need to rotate the shape here anymore.
+        // The BaseMachine constructor will apply rotation to the shape 
+        // right before calling createVisuals, based on this.rotation value.
+        
+        // Log for debugging
+        console.log(`[ProcessorAMachine.initMachineProperties] Machine name: ${this.name}`);
+        console.log(`[ProcessorAMachine.initMachineProperties] Original shape dimensions: ${this.shape[0].length}x${this.shape.length}`);
         
         // Initialize inventories
         this.inputInventory = {};
@@ -52,14 +76,46 @@ export default class ProcessorAMachine extends BaseMachine {
     }
     
     /**
+     * Get the origin point of the machine's shape
+     * @param {Array<Array<number>>} shape - The shape array to find the origin for
+     * @returns {Object} The origin point as {x, y}
+     */
+    getOrigin(shape) {
+        // Use the shape provided or fall back to the machine's shape
+        const shapeToUse = shape || this.shape;
+        
+        // For the L-shaped processor, we want to define a specific origin
+        // that matches our visual representation
+        const width = shapeToUse[0].length;
+        const height = shapeToUse.length;
+        
+        // We want the origin to be at the center of the L shape
+        
+        return {
+            x: (width - 1) / 2,
+            y: (height - 1) / 2
+        };
+    }
+    
+    /**
      * Override the createVisuals method to customize the processor appearance
      */
     createVisuals() {
+
+
         // Skip visual creation if we don't have a grid reference
         if (!this.grid) {
             console.warn('Cannot create visuals for machine: grid reference is missing');
             return;
         }
+        
+        // Log critical information about the machine's properties
+        console.log(`[ProcessorAMachine.createVisuals] Machine data:`);
+        console.log(`  ID: ${this.id}`);
+        console.log(`  Direction: ${this.direction}`);
+        console.log(`  Rotation: ${this.rotation} radians (${this.rotation * 180 / Math.PI} degrees)`);
+        console.log(`  Shape: ${JSON.stringify(this.shape)}`);
+        console.log(`  Shape dimensions: ${this.shape[0].length}x${this.shape.length}`);
         
         // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
@@ -112,15 +168,33 @@ export default class ProcessorAMachine extends BaseMachine {
         const shapeCenterY = (this.shape.length - 1) / 2;
         
         console.log(`[ProcessorAMachine] Shape center: (${shapeCenterX}, ${shapeCenterY})`);
-        
+        console.log(`[ProcessorAMachine] Shape name: ${this.name}`);
+
+
         // Create machine parts based on shape with consistent colors
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
+                    let partX = 0;
+                    let partY = 0;
                     // Calculate part position relative to container center (0,0)
-                    const partX = (x - shapeCenterX) * cellSize;
-                    const partY = (y - shapeCenterY) * cellSize;
-                    
+                    if (this.direction === 'none') {
+                         partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
+                         partY = ((y - shapeCenterY) * cellSize) ;
+                    } else if (this.direction === 'right') {
+                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
+                        partY = ((y - shapeCenterY) * cellSize) ;
+                    } else if (this.direction === 'down') {
+                        partX = ((x - shapeCenterX) * cellSize) ;
+                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
+                    } else if (this.direction === 'left') {
+                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
+                        partY = ((y - shapeCenterY) * cellSize) ;
+                    } else if (this.direction === 'up') {
+                        partX = ((x - shapeCenterX) * cellSize) ;
+                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
+                    }
+
                     console.log(`[ProcessorAMachine] Part at shape(${x},${y}) -> relative(${partX},${partY})`);
                     
                     // Determine part color based on whether it's an input, output, or regular part
@@ -219,6 +293,8 @@ export default class ProcessorAMachine extends BaseMachine {
         
         // Add placement animation
         this.addPlacementAnimation();
+
+        this.adjustContainerPosition();
     }
     
     /**

@@ -13,7 +13,13 @@ export default class AdvancedProcessorMachine extends BaseMachine {
      */
     constructor(scene, config) {
         super(scene, config);
-        
+    }
+
+    /**
+     * Initialize machine-specific properties
+     * Override this method to set properties for specific machine types
+     */
+    initMachineProperties() {
         // Override base machine properties with processor-specific values
         this.id = 'advanced-processor';
         this.name = 'Advanced Processor';

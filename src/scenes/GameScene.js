@@ -85,14 +85,14 @@ export default class GameScene extends Phaser.Scene {
         
         // Debug: Add a button to directly place a machine
         this.createDebugButton(GAME_CONFIG.width - 150, GAME_CONFIG.height - 50, 'Place Machine', () => {
-            console.log('[DEBUG] Attempting to place machine directly');
+            //console.log('[DEBUG] Attempting to place machine directly');
             
             // Create a proper machine type object
             const machineType = { id: 'processor-a' };
             
             // Try to place a processor-a machine at position (5, 5) with rotation 0
             const success = this.placeMachine(machineType, 5, 5, 0);
-            console.log('[DEBUG] Machine placement result:', success);
+            //console.log('[DEBUG] Machine placement result:', success);
         });
         
         // Initialize game state
@@ -186,13 +186,13 @@ export default class GameScene extends Phaser.Scene {
         
         // Rotate button
         this.createButton(width * 0.9, height * 0.15, 'ROTATE', () => {
-            console.log("[ROTATE BUTTON] Rotate button clicked - DIRECT LOG");
-            console.log("[ROTATE BUTTON] Rotate button clicked");
+            //console.log("[ROTATE BUTTON] Rotate button clicked - DIRECT LOG");
+            //console.log("[ROTATE BUTTON] Rotate button clicked");
             if (this.machineFactory && this.machineFactory.selectedMachineType) {
-                console.log("[ROTATE BUTTON] Calling rotateMachine");
+                //console.log("[ROTATE BUTTON] Calling rotateMachine");
                 this.machineFactory.rotateMachine();
             } else {
-                console.log("[ROTATE BUTTON] No machine selected to rotate");
+                //console.log("[ROTATE BUTTON] No machine selected to rotate");
             }
         });
     }
@@ -361,7 +361,7 @@ export default class GameScene extends Phaser.Scene {
                     if (canPlace) {
                         try {
                             // Place machine is specifically designed to work with lastPreviewPosition
-                            console.log(`[dragend] Placing machine at grid (${gridPosition.x}, ${gridPosition.y}) with rotation ${currentRotation}`);
+                            //console.log(`[dragend] Placing machine at grid (${gridPosition.x}, ${gridPosition.y}) with rotation ${currentRotation}`);
                             const placedMachine = this.placeMachine(gameObject.machineType, gridPosition.x, gridPosition.y, currentRotation);
                             
                             if (placedMachine) {
@@ -475,12 +475,12 @@ export default class GameScene extends Phaser.Scene {
         
         // Handle rotation key press
         this.input.keyboard.on('keydown-R', () => {
-            console.log("[ROTATION KEY] R key pressed - DIRECT LOG");
-            console.log("[ROTATION KEY] R key pressed");
+            //console.log("[ROTATION KEY] R key pressed - DIRECT LOG");
+            //console.log("[ROTATION KEY] R key pressed");
             try {
                 // If we have a machine factory with a selected machine type, rotate it
                 if (this.machineFactory && this.machineFactory.selectedMachineType) {
-                    console.log("[ROTATION KEY] Rotating selected machine type");
+                    //console.log("[ROTATION KEY] Rotating selected machine type");
                     this.machineFactory.rotateMachine();
                     return;
                 }
@@ -498,7 +498,7 @@ export default class GameScene extends Phaser.Scene {
                 
                 if (machineToRotate) {
                     // Debug rotation
-                    console.log("[ROTATION] === ROTATION DEBUG ===");
+                    //console.log("[ROTATION] === ROTATION DEBUG ===");
                     this.debugRotation("BEFORE", machineToRotate);
                     
                     try {
@@ -507,7 +507,7 @@ export default class GameScene extends Phaser.Scene {
                         if (currentRotation < 0) {
                             // Convert negative rotation to equivalent positive rotation in [0, 2π]
                             currentRotation = (2 * Math.PI + (currentRotation % (2 * Math.PI))) % (2 * Math.PI);
-                            console.log(`[ROTATION] Normalized negative rotation ${machineToRotate.rotation} to positive ${currentRotation}`);
+                            //console.log(`[ROTATION] Normalized negative rotation ${machineToRotate.rotation} to positive ${currentRotation}`);
                             
                             // Update the rotation to the normalized value
                             machineToRotate.rotation = currentRotation;
@@ -541,7 +541,7 @@ export default class GameScene extends Phaser.Scene {
                                 break;
                         }
                         
-                        console.log(`[ROTATION] Rotating from ${oldDirection} to ${newDirection} (${newRotation.toFixed(4)} rad)`);
+                        //console.log(`[ROTATION] Rotating from ${oldDirection} to ${newDirection} (${newRotation.toFixed(4)} rad)`);
                         
                         // Set the new rotation
                         machineToRotate.rotation = newRotation;
@@ -640,7 +640,7 @@ export default class GameScene extends Phaser.Scene {
         if (!machine) {
             machine = this.selectedMachine;
             if (!machine) {
-                console.log('[PREVIEW] No machine to preview, creating empty preview');
+                //console.log('[PREVIEW] No machine to preview, creating empty preview');
                 return;
             }
         }
@@ -649,18 +649,18 @@ export default class GameScene extends Phaser.Scene {
         this.updatePlacementPreview(machine);
         
         const machineName = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
-        console.log(`[PREVIEW] Created placement preview for ${machineName}`);
+        //console.log(`[PREVIEW] Created placement preview for ${machineName}`);
     }
     
     /**
      * Updates the placement preview graphics
      */
     updatePlacementPreview(machine) {
-        console.log('[PLACEMENT PREVIEW] updatePlacementPreview called - DIRECT LOG');
+        //console.log('[PLACEMENT PREVIEW] updatePlacementPreview called - DIRECT LOG');
         
         // If placementPreview doesn't exist, create it first
         if (!this.placementPreview) {
-            console.log('[PLACEMENT PREVIEW] Creating new placement preview graphics');
+            //console.log('[PLACEMENT PREVIEW] Creating new placement preview graphics');
             this.createPlacementPreview(machine);
             return; // createPlacementPreview will call updatePlacementPreview again
         }
@@ -675,22 +675,22 @@ export default class GameScene extends Phaser.Scene {
 
         // Still no machine? Early return
         if (!machine) {
-            console.log('[PLACEMENT PREVIEW] No machine to preview');
+            //console.log('[PLACEMENT PREVIEW] No machine to preview');
                 return;
             }
             
         // Log the machine object for debugging
-        console.log('[PLACEMENT PREVIEW] Machine object:', JSON.stringify({
+        /*console.log('[PLACEMENT PREVIEW] Machine object:', JSON.stringify({
             id: machine.id,
             type: machine.type,
             shape: machine.shape,
             direction: machine.direction,
             rotation: machine.rotation
-        }));
+        }));*/
 
         // Make sure the machine has a shape, and it's an array
         if (!machine.shape || !Array.isArray(machine.shape)) {
-            console.log('[PLACEMENT PREVIEW] Machine shape is missing or invalid, using default 1x1 shape');
+            //console.log('[PLACEMENT PREVIEW] Machine shape is missing or invalid, using default 1x1 shape');
             machine.shape = [[1]];
         }
 
@@ -704,11 +704,11 @@ export default class GameScene extends Phaser.Scene {
             if (typeof machine.rotation === 'number') {
                 // Check if it's in radians (0-2π) or degrees (0-360)
                 if (machine.rotation < 10) { // Likely radians
-                    console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in radians: ${machine.rotation}`);
+                    //console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in radians: ${machine.rotation}`);
                     // Convert to degrees for grid
                     rotationValue = Math.round(machine.rotation * 180 / Math.PI);
                 } else { // Likely degrees
-                    console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in degrees: ${machine.rotation}`);
+                    //console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in degrees: ${machine.rotation}`);
                     rotationValue = Math.round(machine.rotation);
                 }
             } else {
@@ -716,11 +716,11 @@ export default class GameScene extends Phaser.Scene {
                 rotationValue = machine.direction || 'right';
             }
             
-            console.log(`[PLACEMENT PREVIEW] Using rotation value: ${rotationValue}`);
+            //console.log(`[PLACEMENT PREVIEW] Using rotation value: ${rotationValue}`);
             rotatedShape = this.factoryGrid.getRotatedShape(machine.shape, rotationValue);
             
             // Log the rotated shape
-            console.log('[PLACEMENT PREVIEW] Rotated shape:', JSON.stringify(rotatedShape));
+            //console.log('[PLACEMENT PREVIEW] Rotated shape:', JSON.stringify(rotatedShape));
         } catch (error) {
             console.error('[PLACEMENT PREVIEW] Error getting rotated shape:', error);
             // If we can't get the rotated shape, use the original shape as fallback
@@ -769,7 +769,7 @@ export default class GameScene extends Phaser.Scene {
                     const cellWorldPos = this.factoryGrid.gridToWorld(cellGridX, cellGridY);
 
                     // Log each cell position for debugging
-                    console.log(`[PLACEMENT PREVIEW] Cell at shape(${x},${y}) -> grid(${cellGridX},${cellGridY}) -> world(${cellWorldPos.x},${cellWorldPos.y})`);
+                    //console.log(`[PLACEMENT PREVIEW] Cell at shape(${x},${y}) -> grid(${cellGridX},${cellGridY}) -> world(${cellWorldPos.x},${cellWorldPos.y})`);
 
                     // Determine cell color based on position in the shape
                     let cellColor = 0x44ff44; // Default green
@@ -791,7 +791,7 @@ export default class GameScene extends Phaser.Scene {
         this.placementPreview.strokeCircle(centerWorldPos.x, centerWorldPos.y, 3);
         
         // Add more detailed logging
-        console.log(`[PLACEMENT PREVIEW] Machine center at grid (${gridPos.x}, ${gridPos.y}), world (${centerWorldPos.x}, ${centerWorldPos.y})`);
+        //console.log(`[PLACEMENT PREVIEW] Machine center at grid (${gridPos.x}, ${gridPos.y}), world (${centerWorldPos.x}, ${centerWorldPos.y})`);
     }
     
     // Remove the placement preview
@@ -829,7 +829,7 @@ export default class GameScene extends Phaser.Scene {
             
             // Ensure resourceNodes is initialized
             if (!this.resourceNodes) {
-                console.log('[GAME] Initializing resourceNodes array');
+                //console.log('[GAME] Initializing resourceNodes array');
                 this.resourceNodes = [];
             }
         
@@ -863,7 +863,7 @@ export default class GameScene extends Phaser.Scene {
             this.resourceNodes.push(node);
             this.factoryGrid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
             
-            console.log(`[GAME] Created resource node at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`);
+            //console.log(`[GAME] Created resource node at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`);
         } catch (error) {
             console.error('[GAME] Error creating resource node:', error);
         }
@@ -1357,7 +1357,7 @@ export default class GameScene extends Phaser.Scene {
     
     // Play background music if audio is available
     playBackgroundMusic() {
-        console.log('Attempting to play background music');
+        //console.log('Attempting to play background music');
         // Check if audio is available from registry
         this.audioAvailable = this.registry.get('audioAvailable') || false;
         
@@ -1367,14 +1367,14 @@ export default class GameScene extends Phaser.Scene {
                     loop: true,
                     volume: 0.5
                 });
-                console.log('Background music started');
+                //console.log('Background music started');
             } catch (error) {
                 console.error('Failed to play background music:', error);
                 this.audioAvailable = false;
                 this.registry.set('audioAvailable', false);
             }
         } else {
-            console.log('Audio not available, skipping background music');
+            //console.log('Audio not available, skipping background music');
         }
     }
     
@@ -1407,7 +1407,7 @@ export default class GameScene extends Phaser.Scene {
             
             // Get the direction from rotation
             const direction = this.getDirectionFromRotation(rotation);
-            console.log(`[DEBUG] Direction: ${direction}`);
+            //console.log(`[DEBUG] Direction: ${direction}`);
             
             // Get the machine type from the factory
             const machineTypeObj = this.machineFactory.getMachineTypeById(machineType.id);
@@ -1564,7 +1564,7 @@ export default class GameScene extends Phaser.Scene {
     standardizeColors(machine) {
         if (!machine || !machine.container || !machine.container.list) return;
         
-        console.log(`[DEBUG] Standardizing colors for machine: ${machine.id}`);
+        //console.log(`[DEBUG] Standardizing colors for machine: ${machine.id}`);
         
         // Get all parts that are rectangles (the visual building blocks)
         const rectangleParts = machine.container.list.filter(part => 
@@ -1573,7 +1573,7 @@ export default class GameScene extends Phaser.Scene {
             !part.isResourceIndicator
         );
         
-        console.log(`[DEBUG] Found ${rectangleParts.length} rectangle parts to standardize`);
+        //console.log(`[DEBUG] Found ${rectangleParts.length} rectangle parts to standardize`);
         
         // Determine which parts are input/output based on their position in the container
         // or based on references if available
@@ -1637,18 +1637,18 @@ export default class GameScene extends Phaser.Scene {
         const rotationDeg = (rotationRad * 180 / Math.PI).toFixed(1);
         const direction = machine.direction || this.getDirectionFromRotation(rotationRad);
         
-        console.log(`[ROTATION] ${label}: rotation=${rotationRad.toFixed(4)} rad (${rotationDeg}°), direction=${direction}`);
+        //console.log(`[ROTATION] ${label}: rotation=${rotationRad.toFixed(4)} rad (${rotationDeg}°), direction=${direction}`);
         
         if (machine.machineType) {
-            console.log(`[ROTATION] ${label}: machineType=${machine.machineType.id || 'unknown'}`);
+            //console.log(`[ROTATION] ${label}: machineType=${machine.machineType.id || 'unknown'}`);
         }
         
         if (machine.gridX !== undefined && machine.gridY !== undefined) {
-            console.log(`[ROTATION] ${label}: gridPos=(${machine.gridX}, ${machine.gridY})`);
+            //console.log(`[ROTATION] ${label}: gridPos=(${machine.gridX}, ${machine.gridY})`);
         }
         
         if (machine.x !== undefined && machine.y !== undefined) {
-            console.log(`[ROTATION] ${label}: worldPos=(${machine.x.toFixed(1)}, ${machine.y.toFixed(1)})`);
+            //console.log(`[ROTATION] ${label}: worldPos=(${machine.x.toFixed(1)}, ${machine.y.toFixed(1)})`);
         }
     }
 
@@ -1656,10 +1656,10 @@ export default class GameScene extends Phaser.Scene {
     fixMachineInputOutputReferences(machine) {
         if (!machine || !machine.container || !machine.container.list) return;
         
-        console.log(`[DEBUG] Fixing input/output references for ${machine.id}`);
-        console.log(`[DEBUG] Machine shape:`, machine.shape);
-        console.log(`[DEBUG] Machine direction: ${machine.direction}`);
-        console.log(`[DEBUG] Total parts in container:`, machine.container.list.length);
+        //console.log(`[DEBUG] Fixing input/output references for ${machine.id}`);
+        //console.log(`[DEBUG] Machine shape:`, machine.shape);
+        //console.log(`[DEBUG] Machine direction: ${machine.direction}`);
+        //console.log(`[DEBUG] Total parts in container:`, machine.container.list.length);
         
         // Determine input and output positions based on direction
         let inputPos = { x: -1, y: -1 };
@@ -1691,8 +1691,8 @@ export default class GameScene extends Phaser.Scene {
             }
         }
         
-        console.log(`[DEBUG] Expected input position: (${inputPos.x}, ${inputPos.y})`);
-        console.log(`[DEBUG] Expected output position: (${outputPos.x}, ${outputPos.y})`);
+        //console.log(`[DEBUG] Expected input position: (${inputPos.x}, ${inputPos.y})`);
+        //console.log(`[DEBUG] Expected output position: (${outputPos.x}, ${outputPos.y})`);
         
         // Reset inputSquare and outputSquare references
         machine.inputSquare = null;
@@ -1705,9 +1705,9 @@ export default class GameScene extends Phaser.Scene {
         
         // Log each part first for debugging
         machine.container.list.forEach((part, index) => {
-            console.log(`[DEBUG] Part ${index}:`, part.type, 
+            /*console.log(`[DEBUG] Part ${index}:`, part.type, 
                         part.fillColor ? part.fillColor.toString(16) : 'no fillColor',
-                        part.x, part.y);
+                        part.x, part.y);*/
         });
         
         // Collect all rectangle parts - be more inclusive
@@ -1720,7 +1720,7 @@ export default class GameScene extends Phaser.Scene {
                     x: Math.round(part.x / cellSize),
                     y: Math.round(part.y / cellSize)
                 });
-                console.log(`[DEBUG] Found part at calculated position (${Math.round(part.x / cellSize)}, ${Math.round(part.y / cellSize)})`);
+                //console.log(`[DEBUG] Found part at calculated position (${Math.round(part.x / cellSize)}, ${Math.round(part.y / cellSize)})`);
             }
         });
         
@@ -1734,7 +1734,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (leftmost) {
                 machine.inputSquare = leftmost.part;
-                console.log(`[DEBUG] Set input square to leftmost part at (${leftmost.x}, ${leftmost.y})`);
+                //console.log(`[DEBUG] Set input square to leftmost part at (${leftmost.x}, ${leftmost.y})`);
             }
             
             // Find the rightmost part for output
@@ -1746,7 +1746,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (rightmost) {
                 machine.outputSquare = rightmost.part;
-                console.log(`[DEBUG] Set output square to rightmost part at (${rightmost.x}, ${rightmost.y})`);
+                //console.log(`[DEBUG] Set output square to rightmost part at (${rightmost.x}, ${rightmost.y})`);
             }
         }
         // Find the topmost part for input (down direction)
@@ -1759,7 +1759,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (topmost) {
                 machine.inputSquare = topmost.part;
-                console.log(`[DEBUG] Set input square to topmost part at (${topmost.x}, ${topmost.y})`);
+                //console.log(`[DEBUG] Set input square to topmost part at (${topmost.x}, ${topmost.y})`);
             }
             
             // Find the bottommost part for output
@@ -1771,7 +1771,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (bottommost) {
                 machine.outputSquare = bottommost.part;
-                console.log(`[DEBUG] Set output square to bottommost part at (${bottommost.x}, ${bottommost.y})`);
+                //console.log(`[DEBUG] Set output square to bottommost part at (${bottommost.x}, ${bottommost.y})`);
             }
         }
         // Find the rightmost part for input (left direction)
@@ -1784,7 +1784,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (rightmost) {
                 machine.inputSquare = rightmost.part;
-                console.log(`[DEBUG] Set input square to rightmost part at (${rightmost.x}, ${rightmost.y})`);
+                //console.log(`[DEBUG] Set input square to rightmost part at (${rightmost.x}, ${rightmost.y})`);
             }
             
             // Find the leftmost part for output
@@ -1796,7 +1796,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (leftmost) {
                 machine.outputSquare = leftmost.part;
-                console.log(`[DEBUG] Set output square to leftmost part at (${leftmost.x}, ${leftmost.y})`);
+                //console.log(`[DEBUG] Set output square to leftmost part at (${leftmost.x}, ${leftmost.y})`);
             }
         }
         // Find the bottommost part for input (up direction)
@@ -1809,7 +1809,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (bottommost) {
                 machine.inputSquare = bottommost.part;
-                console.log(`[DEBUG] Set input square to bottommost part at (${bottommost.x}, ${bottommost.y})`);
+                //console.log(`[DEBUG] Set input square to bottommost part at (${bottommost.x}, ${bottommost.y})`);
             }
             
             // Find the topmost part for output
@@ -1821,7 +1821,7 @@ export default class GameScene extends Phaser.Scene {
             });
             if (topmost) {
                 machine.outputSquare = topmost.part;
-                console.log(`[DEBUG] Set output square to topmost part at (${topmost.x}, ${topmost.y})`);
+                //console.log(`[DEBUG] Set output square to topmost part at (${topmost.x}, ${topmost.y})`);
             }
         }
     }
@@ -1957,7 +1957,7 @@ export default class GameScene extends Phaser.Scene {
                 }
             }
             
-            console.log('[PLACEMENT] Exited machine placement mode');
+            //console.log('[PLACEMENT] Exited machine placement mode');
         } catch (error) {
             console.error('[EXIT] Unhandled error in exitMachinePlacementMode:', error);
             // Force reset state
@@ -2002,7 +2002,7 @@ export default class GameScene extends Phaser.Scene {
                 console.warn('[ENTER] Machine factory not available, cannot create ghost machine');
             }
             
-            console.log(`[PLACEMENT] Entered machine placement mode with type: ${machineType.id}`);
+            //console.log(`[PLACEMENT] Entered machine placement mode with type: ${machineType.id}`);
         } catch (error) {
             console.error('[ENTER] Unhandled error in enterMachinePlacementMode:', error);
             // Try to clean up
@@ -2019,19 +2019,19 @@ export default class GameScene extends Phaser.Scene {
             const machineType = this.uiSelectedMachine;
             
             // Log the machineType for debugging
-            console.log('[DRAG] Machine type selected:', JSON.stringify({
+            /*console.log('[DRAG] Machine type selected:', JSON.stringify({
                 id: machineType.id,
                 shape: machineType.shape,
                 defaultDirection: machineType.defaultDirection
-            }));
+            }));*/
             
             // Ensure the shape is valid
             let shape = machineType.shape;
             if (!shape || !Array.isArray(shape)) {
-                console.log('[DRAG] Creating default shape for machine');
+                //console.log('[DRAG] Creating default shape for machine');
                 shape = [[1]]; // Default 1x1 shape
             } else {
-                console.log('[DRAG] Using shape from machineType:', JSON.stringify(shape));
+                //console.log('[DRAG] Using shape from machineType:', JSON.stringify(shape));
             }
             
             this.selectedMachine = {
@@ -2052,12 +2052,12 @@ export default class GameScene extends Phaser.Scene {
             };
             
             // Log the created selectedMachine
-            console.log('[DRAG] Created selectedMachine:', JSON.stringify({
+            /*console.log('[DRAG] Created selectedMachine:', JSON.stringify({
                 type: this.selectedMachine.type,
                 shape: this.selectedMachine.shape,
                 direction: this.selectedMachine.direction,
                 rotation: this.selectedMachine.rotation
-            }));
+            }));*/
             
             // Create placement preview
             this.createPlacementPreview(this.selectedMachine);
@@ -2096,7 +2096,7 @@ export default class GameScene extends Phaser.Scene {
                 }
                 
                 // Log rotation
-                console.log(`[DRAG] Machine rotated: ${this.selectedMachine.rotation}° (${this.selectedMachine.direction})`);
+                //console.log(`[DRAG] Machine rotated: ${this.selectedMachine.rotation}° (${this.selectedMachine.direction})`);
                 
                 // Update the placement preview after rotation
                 this.updatePlacementPreview(this.selectedMachine);
@@ -2127,7 +2127,7 @@ export default class GameScene extends Phaser.Scene {
                     );
                     
                     if (placementResult.success) {
-                        console.log(`Machine placed at grid (${gridPos.x}, ${gridPos.y})`);
+                        //console.log(`Machine placed at grid (${gridPos.x}, ${gridPos.y})`);
                         
                         // Create the machine in the world
                         this.createMachine(
@@ -2140,7 +2140,7 @@ export default class GameScene extends Phaser.Scene {
                         // Play placement sound
                         this.sound.play('place', { volume: 0.5 });
                     } else {
-                        console.log(`Cannot place machine: ${placementResult.reason}`);
+                        //console.log(`Cannot place machine: ${placementResult.reason}`);
                         
                         // Play error sound
                         this.sound.play('error', { volume: 0.3 });

@@ -14,6 +14,17 @@ export default class ConveyorMachine extends BaseMachine {
     constructor(scene, config) {
         super(scene, config);
         
+        // Initialize conveyor-specific properties
+        this.transportSpeed = 1.5; // Speed multiplier for resource movement
+        this.maxCapacity = 3; // Maximum number of resources on the conveyor at once
+        this.currentItems = []; // Items currently on the conveyor
+    }
+
+    /**
+     * Initialize machine-specific properties
+     * Override this method to set properties for specific machine types
+     */
+    initMachineProperties() {
         // Override base machine properties with conveyor-specific values
         this.id = 'conveyor';
         this.name = 'Conveyor Belt';
@@ -23,26 +34,8 @@ export default class ConveyorMachine extends BaseMachine {
         this.outputTypes = ['basic-resource', 'advanced-resource'];
         this.processingTime = 1000; // 1 second
         this.defaultDirection = 'right';
-        
-        // Initialize conveyor-specific properties
-        this.transportSpeed = 1.5; // Speed multiplier for resource movement
-        this.maxCapacity = 3; // Maximum number of resources on the conveyor at once
-        this.currentItems = []; // Items currently on the conveyor
-        
-        // Apply shape rotation if needed
-        this.shape = config.shape || (this.grid ? this.grid.getRotatedShape(this.shape, this.rotation) : this.shape);
-        
-        // Initialize inventories
-        this.inputInventory = {};
-        this.outputInventory = {};
-        
-        this.inputTypes.forEach(type => {
-            this.inputInventory[type] = 0;
-        });
-        
-        this.outputTypes.forEach(type => {
-            this.outputInventory[type] = 0;
-        });
+
+        console.log(`[${this.name}] Initialized with shape dimensions: ${this.shape.length}x${this.shape[0].length}`);
     }
     
     /**
