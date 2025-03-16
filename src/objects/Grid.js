@@ -163,7 +163,6 @@ export default class Grid {
         try {
             // Validate inputs
             if (worldX === undefined || worldY === undefined) {
-                console.error(`[GRID] isInBounds called with invalid coordinates: (${worldX}, ${worldY})`);
                 return false;
             }
             
@@ -182,7 +181,6 @@ export default class Grid {
             const gridPos = this.worldToGrid(worldX, worldY);
             return gridPos.x >= 0 && gridPos.x < this.width && gridPos.y >= 0 && gridPos.y < this.height;
         } catch (error) {
-            console.error(`[GRID] Error in isInBounds:`, error);
             return false;
         }
     }
@@ -247,7 +245,6 @@ export default class Grid {
         
         // Check if coordinates are valid numbers
         if (isNaN(x) || isNaN(y)) {
-            console.warn(`[GRID] getCell called with invalid coordinates: (${gridX}, ${gridY})`);
             return null;
         }
         
@@ -258,7 +255,6 @@ export default class Grid {
         
         // Make sure the cells array and the row exist before accessing
         if (!this.cells || !Array.isArray(this.cells) || !this.cells[y]) {
-            console.warn(`[GRID] getCell: Row ${y} doesn't exist in the grid`);
             return null;
         }
         
@@ -286,7 +282,6 @@ export default class Grid {
         try {
             // Check if grid cells are initialized
             if (!this.cells || !Array.isArray(this.cells) || this.cells.length === 0) {
-                console.error('[GRID] findEmptyCell: Grid cells not properly initialized');
                 return null;
             }
 
@@ -296,7 +291,6 @@ export default class Grid {
             const y = Phaser.Math.Between(0, this.height - 1);
             
                 if (this.cells[y] && this.cells[y][x] && this.cells[y][x].type === 'empty') {
-                    //console.log(`[GRID] findEmptyCell: Found empty cell at (${x}, ${y})`);
                 return { x, y };
             }
         }
@@ -306,17 +300,14 @@ export default class Grid {
                 if (this.cells[y]) {
             for (let x = 0; x < this.width; x++) {
                         if (this.cells[y][x] && this.cells[y][x].type === 'empty') {
-                            //console.log(`[GRID] findEmptyCell: Found empty cell at (${x}, ${y}) (systematic search)`);
                     return { x, y };
                         }
                 }
             }
         }
         
-            console.warn('[GRID] findEmptyCell: No empty cells found in grid');
         return null; // No empty cells found
         } catch (error) {
-            console.error('[GRID] Error in findEmptyCell:', error);
             return null;
         }
     }
@@ -326,7 +317,6 @@ export default class Grid {
      * @param {MachineFactory} factory - The machine factory
      */
     setFactory(factory) {
-        //console.log('[GRID] Setting factory reference');
         this.factory = factory;
     }
     
@@ -339,23 +329,18 @@ export default class Grid {
      * @returns {boolean} Whether the machine can be placed
      */
     canPlaceMachine(machineId, gridX, gridY, direction) {
-        console.log(`[GRID] canPlaceMachine checking: ${typeof machineId === 'object' ? machineId.id || 'unknown' : machineId} at (${gridX}, ${gridY}), direction: ${direction}`);
-        
         // Ensure gridX and gridY are valid numbers
         if (gridX === undefined || gridY === undefined || isNaN(Number(gridX)) || isNaN(Number(gridY))) {
-            console.log(`[GRID] canPlaceMachine: Invalid grid coordinates (${gridX}, ${gridY}), returning false`);
             return false;
         }
         
         // Check if coordinates are within grid bounds
         if (gridX < 0 || gridX >= this.width || gridY < 0 || gridY >= this.height) {
-            console.log(`[GRID] canPlaceMachine: Grid coordinates (${gridX}, ${gridY}) are out of bounds, returning false`);
             return false;
         }
         
         // Check if we have a valid factory reference
         if (!this.factory) {
-            console.log(`[GRID] canPlaceMachine: Factory reference is missing, returning false`);
             return false;
         }
         
@@ -373,34 +358,30 @@ export default class Grid {
         
         // Check if we have a valid machine config
         if (!machineType || !machineType.shape) {
-            console.log(`[GRID] canPlaceMachine: Invalid machine config for ${machineIdStr}, returning false`);
             return false;
         }
+        
+        // Check if this is an extractor machine
+        const isExtractor = machineIdStr === 'extractor';
         
         // Check if the machine's shape is already rotated correctly
         let shape;
         if (machineType.direction === direction) {
             // If the machine already has the correct direction, use its shape as is
-            console.log(`[GRID] canPlaceMachine: Using already rotated shape - direction: ${direction}`);
             shape = machineType.shape;
         } else {
             // Otherwise, apply rotation
-            console.log(`[GRID] canPlaceMachine: Applying rotation for direction: ${direction}`);
             shape = this.getRotatedShape(machineType.shape, direction);
         }
         
-        console.log(`[GRID] canPlaceMachine: Final shape for placement check: ${JSON.stringify(shape)}`);
-        
         // Validate shape has valid dimensions
         if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0]) || shape[0].length === 0) {
-            console.log(`[GRID] canPlaceMachine: Invalid shape format, returning false`);
             return false;
         }
         
         // Get shape dimensions
         const shapeWidth = shape[0].length;
         const shapeHeight = shape.length;
-        //console.log(`[GRID] canPlaceMachine: Shape dimensions: ${shapeWidth}x${shapeHeight}`);
         
         // Get the origin from the machine type if available, otherwise calculate it
         let originX, originY;
@@ -417,18 +398,16 @@ export default class Grid {
             
             // Validate that origin values are valid numbers
             if (isNaN(originX) || isNaN(originY)) {
-                //console.log(`[GRID] canPlaceMachine: Invalid origin values (${originX}, ${originY}), using defaults`);
                 originX = (shapeWidth - 1) / 2;
                 originY = (shapeHeight - 1) / 2;
             }
         } catch (error) {
-            //console.log(`[GRID] canPlaceMachine: Error getting origin, using defaults: ${error.message}`);
             originX = (shapeWidth - 1) / 2;
             originY = (shapeHeight - 1) / 2;
         }
         
-        //console.log(`[GRID] canPlaceMachine: Shape origin (center): (${originX}, ${originY})`);
-        //console.log(`[GRID] canPlaceMachine: Grid dimensions: ${this.width}x${this.height}`);
+        // Flag to track if we found at least one resource node (for extractors)
+        let foundResourceNode = false;
         
         // Check each cell in the shape
         for (let y = 0; y < shapeHeight; y++) {
@@ -439,31 +418,39 @@ export default class Grid {
                     const cellX = Math.floor(gridX + (x - originX));
                     const cellY = Math.floor(gridY + (y - originY));
                     
-                    //console.log(`[GRID] Checking shape cell (${x},${y}) maps to grid cell (${cellX},${cellY})`);
-                    
                     // Check if cell is within grid bounds before checking content
                     if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
-                        //console.log(`[GRID] FAIL: Cell (${cellX},${cellY}) is out of grid bounds`);
                         return false;
                     }
                     
                     // Check if cell is already occupied - using try/catch to prevent errors
                     try {
+                        const cell = this.getCell(cellX, cellY);
+                        
+                        // Special case for extractors: allow placement on resource nodes
+                        if (isExtractor && cell && cell.type === 'node') {
+                            foundResourceNode = true;
+                            continue; // Skip further checks for this cell
+                        }
+                        
+                        // For all other cases, check if the cell is occupied
                         const cellContent = this.getCellContent(cellX, cellY);
                         if (cellContent) {
-                            //console.log(`[GRID] FAIL: Cell (${cellX},${cellY}) is already occupied by ${cellContent.type}`);
                             return false;
                         }
                     } catch (error) {
-                        console.error(`[GRID] Error checking cell content at (${cellX},${cellY}): ${error.message}`);
                         return false;
                     }
                 }
             }
         }
         
+        // For extractors, require at least one resource node to be found
+        if (isExtractor && !foundResourceNode) {
+            return false;
+        }
+        
         // If we've reached here, all cells are valid for placement
-        //console.log(`[GRID] SUCCESS: Machine ${machineIdStr} can be placed at (${gridX}, ${gridY})`);
         return true;
     }
     
@@ -476,23 +463,18 @@ export default class Grid {
      * @returns {boolean} Whether the machine was placed successfully
      */
     placeMachine(machine, gridX, gridY, direction) {
-        console.log(`[GRID] Attempting to place ${machine.id} at (${gridX}, ${gridY}) with direction: ${direction}`);
-        
         // Validate input parameters
         if (!machine) {
-            console.log(`[GRID] placeMachine: No machine provided`);
             return false;
         }
         
         // Ensure gridX and gridY are valid numbers
         if (gridX === undefined || gridY === undefined || isNaN(Number(gridX)) || isNaN(Number(gridY))) {
-            console.log(`[GRID] placeMachine: Invalid grid coordinates (${gridX}, ${gridY}), returning false`);
             return false;
         }
         
         // Check if coordinates are within grid bounds
         if (gridX < 0 || gridX >= this.width || gridY < 0 || gridY >= this.height) {
-            console.log(`[GRID] placeMachine: Grid coordinates (${gridX}, ${gridY}) are out of bounds, returning false`);
             return false;
         }
         
@@ -500,7 +482,6 @@ export default class Grid {
             // Check if the machine can be placed
             const machineId = machine.machineType?.id || machine.id || machine.type;
             if (!this.canPlaceMachine(machineId, gridX, gridY, direction)) {
-                console.log(`[GRID] Cannot place machine ${machine.id} at (${gridX}, ${gridY})`);
                 return false;
             }
             
@@ -511,19 +492,14 @@ export default class Grid {
             // Check if the machine's current direction matches the requested direction
             if (machine.direction === direction) {
                 // If directions match, just use the existing rotated shape
-                console.log(`[GRID] Using already rotated shape for placement - direction: ${direction}`);
                 shape = machine.shape;
             } else {
                 // If directions don't match, we need to rotate the shape
-                console.log(`[GRID] Direction mismatch - machine: ${machine.direction}, requested: ${direction}. Rotating shape.`);
                 shape = this.getRotatedShape(machine.shape, direction);
             }
             
-            console.log(`[GRID] Placing machine with shape: ${JSON.stringify(shape)}`);
-            
             // Validate shape has valid dimensions
             if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0]) || shape[0].length === 0) {
-                console.log(`[GRID] placeMachine: Invalid shape format, returning false`);
                 return false;
             }
             
@@ -542,12 +518,10 @@ export default class Grid {
                 
                 // Validate that origin values are valid numbers
                 if (isNaN(originX) || isNaN(originY)) {
-                    console.log(`[GRID] placeMachine: Invalid origin values (${originX}, ${originY}), using defaults`);
                     originX = (shape[0].length - 1) / 2;
                     originY = (shape.length - 1) / 2;
                 }
             } catch (error) {
-                console.log(`[GRID] placeMachine: Error getting origin, using defaults: ${error.message}`);
                 originX = (shape[0].length - 1) / 2;
                 originY = (shape.length - 1) / 2;
             }
@@ -566,16 +540,18 @@ export default class Grid {
                     if (shape[y][x] === 1) {
                         const cellX = Math.floor(gridX + (x - originX));
                         const cellY = Math.floor(gridY + (y - originY));
-                        //console.log(`[GRID] Occupying cell (${cellX}, ${cellY}) with machine ${machine.id}`);
                         
                         // Verify cell is within grid bounds before accessing
                         if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
-                            //console.log(`[GRID] Warning: Cell (${cellX}, ${cellY}) is out of grid bounds`);
                             continue;
                         }
                         
                         const cell = this.getCell(cellX, cellY);
                         if (cell) {
+                            // If this is an extractor being placed on a resource node, preserve the node reference
+                            const isExtractor = machine.id === 'extractor';
+                            const resourceNode = (isExtractor && cell.type === 'node') ? cell.object : null;
+                            
                             // Update the cell with machine data
                             cell.type = 'machine';  // Set the cell type to 'machine'
                             cell.machine = machine; // Store a reference to the machine
@@ -585,17 +561,23 @@ export default class Grid {
                                 machineLocalX: x,
                                 machineLocalY: y
                             };
-                        } else {
-                            console.log(`[GRID] Warning: Cell (${cellX}, ${cellY}) does not exist`);
+                            
+                            // If this was a resource node, keep a reference to it for the extractor
+                            if (resourceNode) {
+                                cell.resourceNode = resourceNode;
+                            }
                         }
                     }
                 }
             }
             
-            //console.log(`[GRID] Successfully placed machine ${machine.id} at (${gridX}, ${gridY})`);
+            // If this is an extractor, set up the connection to resource nodes
+            if (machine.id === 'extractor') {
+                this.placeExtractor(machine, gridX, gridY);
+            }
+            
             return true;
         } catch (error) {
-            console.error(`[GRID] Error in placeMachine: ${error.message}`);
             return false;
         }
     }
@@ -609,7 +591,6 @@ export default class Grid {
     getRotatedShape(shape, direction) {
         // Handle undefined shape
         if (!shape) {
-            console.log("[GRID] getRotatedShape: Shape is undefined, using default 1x1");
             return [[1]];
         }
         
@@ -618,21 +599,14 @@ export default class Grid {
         if (typeof shape === 'string') {
             try {
                 parsedShape = JSON.parse(shape);
-                console.log(`[GRID] Parsed shape from string: ${JSON.stringify(parsedShape)}`);
             } catch (error) {
-                console.log(`[GRID] Error parsing shape string, using default 1x1`);
                 return [[1]];
             }
         }
         
-        // For debugging, log the initial shape
-       // console.log(`[GRID] Original shape for rotation: ${JSON.stringify(parsedShape)}`);
-       // console.log(`[GRID] Direction/rotation value: ${direction}, Type: ${typeof direction}`);
-        
         // Handle numeric rotation values (degrees)
         if (typeof direction === 'number') {
             const normalizedRotation = ((direction % 360) + 360) % 360; // Normalize to 0-359
-          //  console.log(`[GRID] Numeric rotation: ${direction} normalized to ${normalizedRotation} degrees`);
             
             // Convert rotation to direction string
             let directionStr = 'right'; // Default
@@ -645,7 +619,6 @@ export default class Grid {
             } else if (normalizedRotation === 270) {
                 directionStr = 'up';
             } else {
-                console.log(`[GRID] Non-standard rotation value: ${normalizedRotation}, finding nearest cardinal direction`);
                 // Find closest cardinal direction
                 if (normalizedRotation > 315 || normalizedRotation <= 45) {
                     directionStr = 'right';
@@ -657,17 +630,14 @@ export default class Grid {
                     directionStr = 'up';
                 }
             }
-            console.log(`[GRID] Numeric rotation ${normalizedRotation}° converted to direction: "${directionStr}"`);
             direction = directionStr;
         }
         
         // Normalize string direction
         const normalizedDirection = typeof direction === 'string' ? direction.toLowerCase() : 'right';
-        console.log(`[GRID] Using normalized direction: "${normalizedDirection}"`);
         
         // No rotation needed for right direction
         if (normalizedDirection === 'right') {
-            console.log(`[GRID] No rotation needed for "right" direction`);
             return parsedShape;
         }
         
@@ -675,20 +645,16 @@ export default class Grid {
         // Handle different rotations based on direction
         if (normalizedDirection === 'down') {
             resultShape = this.rotateShapeClockwise(parsedShape);
-            console.log(`[GRID] Rotated shape 90° for "down", result: ${JSON.stringify(resultShape)}`);
             return resultShape;
         } else if (normalizedDirection === 'left') {
             resultShape = this.rotateShapeClockwise(this.rotateShapeClockwise(parsedShape));
-            console.log(`[GRID] Rotated shape 180° for "left", result: ${JSON.stringify(resultShape)}`);
             return resultShape;
         } else if (normalizedDirection === 'up') {
             resultShape = this.rotateShapeClockwise(this.rotateShapeClockwise(this.rotateShapeClockwise(parsedShape)));
-            console.log(`[GRID] Rotated shape 270° for "up", result: ${JSON.stringify(resultShape)}`);
             return resultShape;
         }
         
         // Default to original shape if direction is unrecognized
-        console.log(`[GRID] Unrecognized direction: ${normalizedDirection}, using original shape`);
         return parsedShape;
     }
     
@@ -698,16 +664,12 @@ export default class Grid {
      * @returns {Array<Array<number>>} The rotated shape
      */
     rotateShapeClockwise(shape) {
-        console.log(`[GRID] rotateShapeClockwise - Input shape: ${JSON.stringify(shape)}`);
-        
         if (!shape || !Array.isArray(shape) || shape.length === 0) {
-            console.log(`[GRID] rotateShapeClockwise - Invalid shape, returning default 1x1`);
             return [[1]];
         }
         
         const height = shape.length;
         const width = shape[0].length;
-        console.log(`[GRID] rotateShapeClockwise - Original dimensions: ${width}x${height}`);
         
         // Create a new matrix with flipped dimensions (width becomes height, height becomes width)
         const rotated = Array(width).fill().map(() => Array(height).fill(0));
@@ -718,12 +680,8 @@ export default class Grid {
                 const newRow = col;
                 const newCol = height - 1 - row;
                 rotated[newRow][newCol] = shape[row][col];
-                console.log(`[GRID] Rotating cell: (${row},${col}) -> (${newRow},${newCol}), value: ${shape[row][col]}`);
             }
         }
-        
-        console.log(`[GRID] rotateShapeClockwise - Output shape: ${JSON.stringify(rotated)}`);
-        console.log(`[GRID] rotateShapeClockwise - New dimensions: ${rotated.length}x${rotated[0].length}`);
         
         return rotated;
     }
@@ -743,8 +701,6 @@ export default class Grid {
             }
         }
         
-        //console.log("Rotated 180 degrees (left):");
-        //rotated180.forEach(row => console.log(row.join(' ')));
         return rotated180;
     }
     
@@ -763,8 +719,6 @@ export default class Grid {
             }
         }
         
-        //console.log("Rotated 270 degrees (up):");
-        //rotated270.forEach(row => console.log(row.join(' ')));
         return rotated270;
     }
     
@@ -820,7 +774,6 @@ export default class Grid {
             }
         }
         
-        //console.log(`[Grid] Found ${allMachines.length} unique machines in the grid`);
         return allMachines;
     }
     
@@ -904,7 +857,6 @@ export default class Grid {
     clearMachineFromGrid(machine) {
         try {
             if (!machine) {
-                console.warn('[GRID] clearMachineFromGrid called with undefined machine');
                 return;
             }
             
@@ -926,12 +878,9 @@ export default class Grid {
             const index = this.machines.indexOf(machine);
             if (index !== -1) {
                 this.machines.splice(index, 1);
-                //console.log(`[GRID] Removed machine from grid's machines list, remaining: ${this.machines.length}`);
             }
-            
-            //console.log(`[GRID] Cleared ${cellsCleared} cells for machine ${machine.id || 'unknown'}`);
         } catch (error) {
-            console.error('[GRID] Error in clearMachineFromGrid:', error);
+            // Error handling
         }
     }
     
@@ -944,7 +893,6 @@ export default class Grid {
     placeExtractor(machine, gridX, gridY) {
         try {
             if (!machine) {
-                console.warn('[GRID] placeExtractor called with undefined machine');
                 return;
             }
             
@@ -952,14 +900,12 @@ export default class Grid {
                                 (machine.machineType && machine.machineType.id === 'extractor');
             
             if (!isExtractor) {
-                console.warn('[GRID] placeExtractor called with non-extractor machine');
                 return;
             }
             
             // Check for resource nodes under the machine
             const shape = machine.shape;
             if (!shape || !Array.isArray(shape)) {
-                console.error('[GRID] Extractor missing valid shape');
                 return;
             }
             
@@ -1013,11 +959,9 @@ export default class Grid {
                     machine.outputTypes.push(foundResourceNode.resourceType.id);
                     machine.outputInventory[foundResourceNode.resourceType.id] = 0;
                 }
-            } else {
-                console.warn(`[GRID] No resource node found for extractor at (${gridX}, ${gridY})`);
             }
         } catch (error) {
-            console.error('[GRID] Error in placeExtractor:', error);
+            // Error handling
         }
     }
 } 
