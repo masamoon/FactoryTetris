@@ -40,7 +40,7 @@ export default class ResourceNode {
     createVisuals() {
         // Create container for node parts
         const cellSize = this.scene.factoryGrid.cellSize;
-        this.container = this.scene.add.container(this.x + cellSize / 2, this.y + cellSize / 2);
+        this.container = this.scene.add.container(this.x, this.y);
         
         // Set color based on resource type
         let nodeColor;

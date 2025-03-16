@@ -61,10 +61,10 @@ export default class ProcessorBMachine extends BaseMachine {
             return;
         }
         
-        // Calculate world position for the top-left corner of the machine
+        // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
-        // Create container for machine parts
+        // Create container for machine parts at the cell center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
         
         // Store references to input and output squares
@@ -104,13 +104,17 @@ export default class ProcessorBMachine extends BaseMachine {
         // Calculate cell size for consistent sizing
         const cellSize = this.grid.cellSize;
         
+        // Calculate the shape center in terms of cells
+        const shapeCenterX = (this.shape[0].length - 1) / 2;
+        const shapeCenterY = (this.shape.length - 1) / 2;
+        
         // Create machine parts based on shape
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
-                    // Calculate part position relative to top-left corner
-                    const partX = x * cellSize + cellSize / 2;
-                    const partY = y * cellSize + cellSize / 2;
+                    // Calculate part position relative to container center (0,0)
+                    const partX = (x - shapeCenterX) * cellSize;
+                    const partY = (y - shapeCenterY) * cellSize;
                     
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
@@ -150,12 +154,8 @@ export default class ProcessorBMachine extends BaseMachine {
             }
         }
         
-        // Calculate the machine center for indicators and labels
-        const centerX = (this.shape[0].length * cellSize) / 2;
-        const centerY = (this.shape.length * cellSize) / 2;
-        
-        // Add machine type indicator at the center of the machine
-        const machineLabel = this.scene.add.text(centerX, centerY, "B", {
+        // Add machine type indicator at the center of the container (0,0)
+        const machineLabel = this.scene.add.text(0, 0, "B", {
             fontFamily: 'Arial',
             fontSize: 14,
             color: '#ffffff'
@@ -164,8 +164,8 @@ export default class ProcessorBMachine extends BaseMachine {
         
         // Add processing progress bar
         this.progressBar = this.scene.add.rectangle(
-            centerX, 
-            centerY + cellSize / 4, 
+            0, 
+            cellSize / 4, 
             cellSize - 10, 
             4, 
             0x00ff00
@@ -175,8 +175,42 @@ export default class ProcessorBMachine extends BaseMachine {
         
         // Add direction indicator if not a cargo loader
         if (this.direction !== 'none') {
-            this.directionIndicator = this.createDirectionIndicator(centerX, centerY);
-            this.container.add(this.directionIndicator);
+            // Get the absolute position of the machine in the world
+            const absoluteX = this.container.x;
+            const absoluteY = this.container.y;
+            
+            // Create the direction indicator directly in the scene, not in the container
+            const indicatorColor = 0xff9500;
+            
+            this.directionIndicator = this.scene.add.triangle(
+                absoluteX,  // Place exactly at machine center X
+                absoluteY,  // Place exactly at machine center Y
+                -4, -6,     // left top
+                -4, 6,      // left bottom
+                8, 0,       // right point
+                indicatorColor
+            ).setOrigin(0.5, 0.5);
+            
+            // Rotate based on direction
+            switch (this.direction) {
+                case 'right':
+                    this.directionIndicator.rotation = 0; // Point right (0 degrees)
+                    break;
+                case 'down':
+                    this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
+                    break;
+                case 'left':
+                    this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
+                    break;
+                case 'up':
+                    this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                    break;
+            }
+            
+            // Set the depth to ensure it appears above the machine
+            this.directionIndicator.setDepth(this.container.depth + 1);
+            
+            console.log(`Direction indicator created at absolute position (${absoluteX}, ${absoluteY})`);
         }
         
         // Add placement animation
@@ -214,16 +248,16 @@ export default class ProcessorBMachine extends BaseMachine {
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[0].length; x++) {
                 if (shape[y][x] === 1) {
-                    // Calculate position
-                    const cellX = (x * cellSize) - (width / 2) + (cellSize / 2);
-                    const cellY = (y * cellSize) - (height / 2) + (cellSize / 2);
+                    // Calculate position relative to center (0,0)
+                    const cellX = x * cellSize - (width / 2) + (cellSize / 2);
+                    const cellY = y * cellSize - (height / 2) + (cellSize / 2);
                     
                     // Determine if this is an input or output cell
-                    let color = 0x4a6fb5; // Default blue
+                    let color = 0x44ff44; // Default green color (same as when dragging)
                     
                     // Input is on the left of the bottom row
                     if (x === 0 && y === 1) {
-                        color = 0x0055ff; // Bright blue for input
+                        color = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         // Add a visual indicator for input
                         const inputIndicator = scene.add.text(cellX, cellY, "IN", {
                             fontFamily: 'Arial',
@@ -234,7 +268,7 @@ export default class ProcessorBMachine extends BaseMachine {
                     } 
                     // Output is on the right of the bottom row
                     else if (x === shape[0].length - 1 && y === 1) {
-                        color = 0xff3300; // Bright orange/red for output
+                        color = 0xffa520; // Brighter orange for output (same as when dragging)
                         // Add a visual indicator for output
                         const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
                             fontFamily: 'Arial',
@@ -251,7 +285,7 @@ export default class ProcessorBMachine extends BaseMachine {
             }
         }
         
-        // Add a simple label
+        // Add a simple label at the center (0,0)
         const label = scene.add.text(0, 0, "B", {
             fontFamily: 'Arial',
             fontSize: 14,
@@ -261,7 +295,7 @@ export default class ProcessorBMachine extends BaseMachine {
         
         // Add a simple direction indicator (pointing right by default)
         const directionIndicator = scene.add.triangle(
-            width / 2 - cellSize / 2, 0,
+            width / 4, 0,  // Position at 1/4 width to the right of center
             -4, -6,
             -4, 6,
             8, 0,
@@ -372,7 +406,17 @@ export default class ProcessorBMachine extends BaseMachine {
      * Adjust the container position based on the shape and rotation
      */
     adjustContainerPosition() {
+        // Skip adjustment if we have a preset position - this is crucial for accurate placement
+        if (this.presetPosition) {
+            console.log(`[ProcessorBMachine] SKIPPED adjustContainerPosition - using preset position (${this.presetPosition.x}, ${this.presetPosition.y})`);
+            return;
+        }
+        
         const cellSize = this.grid.cellSize;
+        const originalX = this.container.x;
+        const originalY = this.container.y;
+        
+        console.log(`[ProcessorBMachine] adjustContainerPosition BEFORE - pos: (${originalX}, ${originalY}), direction: ${this.direction}`);
         
         // Adjust based on rotation
         switch (this.direction) {
@@ -394,6 +438,8 @@ export default class ProcessorBMachine extends BaseMachine {
                 this.container.y += cellSize * 0.5;
                 break;
         }
+        
+        console.log(`[ProcessorBMachine] adjustContainerPosition AFTER - pos: (${this.container.x}, ${this.container.y}), adjustment: (${this.container.x - originalX}, ${this.container.y - originalY})`);
         
         // Don't apply rotation to the container since we're using rotated shapes from the grid
         // The input/output positions are handled based on direction

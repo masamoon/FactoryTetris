@@ -17,13 +17,14 @@ export default class ProcessorAMachine extends BaseMachine {
         // Override base machine properties with processor-specific values
         this.id = 'processor-a';
         this.name = 'Processor A';
-        this.description = 'Processes raw resources into Product A';
+        this.description = 'Processes basic resources into advanced resources';
         this.shape = [
-            [1, 1, 1],
-            [1, 0, 0]
-        ]; // J-shaped Tetris piece
-        this.inputTypes = ['raw-resource', 'copper-ore'];
-        this.outputTypes = ['product-a'];
+            [1, 1],
+            [1, 0],
+            [1, 0]
+        ]; // Proper J-shaped Tetris piece (2 cells wide)
+        this.inputTypes = ['basic-resource'];
+        this.outputTypes = ['advanced-resource'];
         this.processingTime = 3000; // 3 seconds
         this.defaultDirection = 'right';
         
@@ -31,8 +32,7 @@ export default class ProcessorAMachine extends BaseMachine {
         this.isProcessing = false;
         this.processingProgress = 0;
         this.requiredInputs = {
-            'raw-resource': 1,
-            'copper-ore': 1
+            'basic-resource': 1
         };
         
         // Apply shape rotation if needed
@@ -61,11 +61,12 @@ export default class ProcessorAMachine extends BaseMachine {
             return;
         }
         
-        // Calculate world position for the top-left corner of the machine
+        // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
-        // Create container for machine parts
+        // Create container for machine parts at the cell center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
+        console.log(`[ProcessorAMachine] Created container at world position (${worldPos.x}, ${worldPos.y})`);
         
         // Store references to input and output squares
         this.inputSquare = null;
@@ -106,13 +107,21 @@ export default class ProcessorAMachine extends BaseMachine {
         // Calculate cell size for consistent sizing
         const cellSize = this.grid.cellSize;
         
-        // Create machine parts based on shape
+        // Calculate the shape center in terms of cells
+        const shapeCenterX = (this.shape[0].length - 1) / 2;
+        const shapeCenterY = (this.shape.length - 1) / 2;
+        
+        console.log(`[ProcessorAMachine] Shape center: (${shapeCenterX}, ${shapeCenterY})`);
+        
+        // Create machine parts based on shape with consistent colors
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
-                    // Calculate part position relative to top-left corner
-                    const partX = x * cellSize + cellSize / 2;
-                    const partY = y * cellSize + cellSize / 2;
+                    // Calculate part position relative to container center (0,0)
+                    const partX = (x - shapeCenterX) * cellSize;
+                    const partY = (y - shapeCenterY) * cellSize;
+                    
+                    console.log(`[ProcessorAMachine] Part at shape(${x},${y}) -> relative(${partX},${partY})`);
                     
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
@@ -152,12 +161,9 @@ export default class ProcessorAMachine extends BaseMachine {
             }
         }
         
-        // Calculate the machine center for indicators and labels
-        const centerX = (this.shape[0].length * cellSize) / 2;
-        const centerY = (this.shape.length * cellSize) / 2;
-        
-        // Add machine type indicator at the center of the machine
-        const machineLabel = this.scene.add.text(centerX, centerY, "A", {
+        // Position the machine label at the center of the container (0,0)
+        // since the container itself is already positioned at the machine's center
+        const machineLabel = this.scene.add.text(0, 0, "A", {
             fontFamily: 'Arial',
             fontSize: 14,
             color: '#ffffff'
@@ -166,8 +172,8 @@ export default class ProcessorAMachine extends BaseMachine {
         
         // Add processing progress bar
         this.progressBar = this.scene.add.rectangle(
-            centerX, 
-            centerY + cellSize / 4, 
+            0, 
+            cellSize / 4, 
             cellSize - 10, 
             4, 
             0x00ff00
@@ -177,8 +183,38 @@ export default class ProcessorAMachine extends BaseMachine {
         
         // Add direction indicator if not a cargo loader
         if (this.direction !== 'none') {
-            this.directionIndicator = this.createDirectionIndicator(centerX, centerY);
+            // Create the direction indicator as part of the container, not in the scene
+            const indicatorColor = 0xff9500;
+            
+            this.directionIndicator = this.scene.add.triangle(
+                0,      // Center relative to container (x=0)
+                0,      // Center relative to container (y=0)
+                -4, -6, // left top
+                -4, 6,  // left bottom
+                8, 0,   // right point
+                indicatorColor
+            ).setOrigin(0.5, 0.5);
+            
+            // Add the indicator to the container instead of directly to the scene
             this.container.add(this.directionIndicator);
+            
+            // Rotate based on direction
+            switch (this.direction) {
+                case 'right':
+                    this.directionIndicator.rotation = 0; // Point right (0 degrees)
+                    break;
+                case 'down':
+                    this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
+                    break;
+                case 'left':
+                    this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
+                    break;
+                case 'up':
+                    this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                    break;
+            }
+            
+            console.log(`[ProcessorAMachine] Direction indicator created in container with direction ${this.direction}`);
         }
         
         // Add placement animation
@@ -189,30 +225,15 @@ export default class ProcessorAMachine extends BaseMachine {
      * Adjust the container position based on the shape and rotation
      */
     adjustContainerPosition() {
-        const cellSize = this.grid.cellSize;
+        // Skip adjustment completely - our container position is already correct
+        // Container is positioned at the grid cell center and all parts are relative to it
         
-        // Adjust based on rotation
-        switch (this.direction) {
-            case 'right': // Default J shape
-                // No adjustment needed for right
-                break;
-            case 'down': // Rotated 90 degrees clockwise
-                // For down rotation of J shape, we need different adjustments
-                this.container.x += cellSize * 0.5;
-                this.container.y -= cellSize * 0.5;
-                break;
-            case 'left': // Rotated 180 degrees
-                // For left rotation of J shape
-                this.container.x += cellSize;
-                break;
-            case 'up': // Rotated 270 degrees clockwise (90 counter-clockwise)
-                // For up rotation of J shape
-                this.container.y += cellSize;
-                break;
-        }
+        // Log that we're not making any adjustments
+        const originalX = this.container.x;
+        const originalY = this.container.y;
         
-        // Don't apply rotation to the container since we're using rotated shapes from the grid
-        // The input/output positions are handled based on direction
+        console.log(`[ProcessorAMachine] adjustContainerPosition - SKIPPED. Container remains at (${originalX}, ${originalY})`);
+        console.log(`[ProcessorAMachine] Using center-relative positioning for all parts, no adjustment needed.`);
     }
     
     /**
@@ -260,7 +281,7 @@ export default class ProcessorAMachine extends BaseMachine {
         }
         
         // Check if there's room in the output inventory
-        if (this.outputInventory['product-a'] >= 5) { // Limit output storage
+        if (this.outputInventory['advanced-resource'] >= 5) { // Limit output storage
             return false;
         }
         
@@ -298,7 +319,7 @@ export default class ProcessorAMachine extends BaseMachine {
      */
     completeProcessing() {
         // Add the product to the output inventory
-        this.outputInventory['product-a']++;
+        this.outputInventory['advanced-resource']++;
         
         // Reset processing state
         this.isProcessing = false;
@@ -311,11 +332,11 @@ export default class ProcessorAMachine extends BaseMachine {
             this.processorCore.angle = 0;
         }
         
-        console.log('Processor A completed processing, produced 1 product-a');
+        console.log('Processor A completed processing, produced 1 advanced-resource');
     }
     
     /**
-     * Create a new processor A machine preview sprite
+     * Create a new processor machine preview sprite
      * @param {Phaser.Scene} scene - The scene to create the sprite in
      * @param {number} x - X position
      * @param {number} y - Y position
@@ -327,31 +348,32 @@ export default class ProcessorAMachine extends BaseMachine {
         
         // Get the default shape from game config
         const shape = [
-            [1, 1, 1],
-            [1, 0, 0]
-        ]; // J-shaped Tetris piece
+            [1, 1],
+            [1, 0],
+            [1, 0]
+        ]; // Proper J-shaped Tetris piece (2 cells wide)
         
         // Base machine body
         const cellSize = 24; // Use a smaller size for previews
         
-        // Calculate dimensions
-        const width = shape[0].length * cellSize;
-        const height = shape.length * cellSize;
+        // Calculate the shape center in terms of cells (same as in createVisuals)
+        const shapeCenterX = (shape[0].length - 1) / 2;
+        const shapeCenterY = (shape.length - 1) / 2;
         
-        // Draw each cell based on the shape
+        // Draw each cell based on the shape using center-relative positioning
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[0].length; x++) {
                 if (shape[y][x] === 1) {
-                    // Calculate position
-                    const cellX = (x * cellSize) - (width / 2) + (cellSize / 2);
-                    const cellY = (y * cellSize) - (height / 2) + (cellSize / 2);
+                    // Calculate position relative to center (0,0) - same formula as createVisuals
+                    const cellX = (x - shapeCenterX) * cellSize;
+                    const cellY = (y - shapeCenterY) * cellSize;
                     
                     // Determine if this is an input or output cell
-                    let color = 0x4a6fb5; // Default blue
+                    let color = 0x44ff44; // Default green color (same as when dragging)
                     
                     // Input is on the left
                     if (x === 0 && y === 0) {
-                        color = 0x0055ff; // Bright blue for input
+                        color = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         // Add a visual indicator for input
                         const inputIndicator = scene.add.text(cellX, cellY, "IN", {
                             fontFamily: 'Arial',
@@ -362,7 +384,7 @@ export default class ProcessorAMachine extends BaseMachine {
                     } 
                     // Output is on the right
                     else if (x === shape[0].length - 1 && y === 0) {
-                        color = 0xff3300; // Bright orange/red for output
+                        color = 0xffa520; // Brighter orange for output (same as when dragging)
                         // Add a visual indicator for output
                         const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
                             fontFamily: 'Arial',
@@ -379,7 +401,7 @@ export default class ProcessorAMachine extends BaseMachine {
             }
         }
         
-        // Add a simple label
+        // Add a simple label at the center (0,0)
         const label = scene.add.text(0, 0, "A", {
             fontFamily: 'Arial',
             fontSize: 14,
@@ -389,7 +411,7 @@ export default class ProcessorAMachine extends BaseMachine {
         
         // Add a simple direction indicator (pointing right by default)
         const directionIndicator = scene.add.triangle(
-            width / 2 - cellSize / 2, 0,
+            0, 0,  // Center of container
             -4, -6,
             -4, 6,
             8, 0,

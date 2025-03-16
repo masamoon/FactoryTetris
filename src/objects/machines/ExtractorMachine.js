@@ -20,7 +20,7 @@ export default class ExtractorMachine extends BaseMachine {
         this.description = 'Extracts resources from nodes';
         this.shape = [[1]]; // 1x1 shape
         this.inputTypes = [];
-        this.outputTypes = ['raw-resource', 'copper-ore', 'iron-ore', 'coal'];
+        this.outputTypes = ['basic-resource', 'advanced-resource'];
         this.processingTime = 2000; // 2 seconds
         this.defaultDirection = 'down';
         
@@ -69,14 +69,10 @@ export default class ExtractorMachine extends BaseMachine {
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         const cellSize = this.grid.cellSize;
         
-        // Create a container for all visual elements
+        // Create a container for all visual elements - gridToWorld now returns the center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
         
-        // Position the container at the center of the cell, not the top-left corner
-        this.container.x += cellSize / 2;
-        this.container.y += cellSize / 2;
-        
-        // Base machine body
+        // Base machine body - positioned at (0,0) which is the center of the container
         this.body = this.scene.add.rectangle(0, 0, cellSize * 0.9, cellSize * 0.9, 0x555555);
         this.body.setStrokeStyle(2, 0x333333);
         this.container.add(this.body);
@@ -99,13 +95,48 @@ export default class ExtractorMachine extends BaseMachine {
         this.outputSquare = this.scene.add.rectangle(
             0, cellSize * 0.3, 
             cellSize * 0.3, cellSize * 0.3, 
-            0xd35400
+            0xffa520  // Updated to brighter orange to match dragging preview
         );
         this.outputSquare.setStrokeStyle(1, 0x000000);
         this.container.add(this.outputSquare);
         
         // Create direction indicator
-        this.createDirectionIndicator(0, 0);
+        // Get the absolute position of the machine in the world
+        const absoluteX = this.container.x;
+        const absoluteY = this.container.y;
+        
+        // Create the direction indicator directly in the scene, not in the container
+        const indicatorColor = 0xffffff; // White for extractors
+        
+        this.directionIndicator = this.scene.add.triangle(
+            absoluteX,  // Place exactly at machine center X
+            absoluteY,  // Place exactly at machine center Y
+            -4, -6,     // left top
+            -4, 6,      // left bottom
+            8, 0,       // right point
+            indicatorColor
+        ).setOrigin(0.5, 0.5);
+        
+        // Rotate based on direction
+        switch (this.direction) {
+            case 'right':
+                this.directionIndicator.rotation = 0; // Point right (0 degrees)
+                break;
+            case 'down':
+                this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
+                break;
+            case 'left':
+                this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
+                break;
+            case 'up':
+                this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                break;
+        }
+        
+        // Set the depth to ensure it appears above the machine
+        this.directionIndicator.setDepth(this.container.depth + 1);
+        
+        console.log(`Direction indicator created at absolute position (${absoluteX}, ${absoluteY})`);
         
         // Add resource type indicators
         this.addResourceTypeIndicators();
@@ -510,15 +541,15 @@ export default class ExtractorMachine extends BaseMachine {
         // Get resource color from config
         const resourceColor = GAME_CONFIG.resourceColors[resourceType] || 0xffffff;
         
-        // Calculate start and end positions - use the center of the cells
+        // Calculate start and end positions - gridToWorld now returns the center of the cell
         const startWorldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         const endWorldPos = this.grid.gridToWorld(targetMachine.gridX, targetMachine.gridY);
         
-        // Add half a cell size to get to the center of the cell
-        const startX = startWorldPos.x + this.grid.cellSize / 2;
-        const startY = startWorldPos.y + this.grid.cellSize / 2;
-        const endX = endWorldPos.x + this.grid.cellSize / 2;
-        const endY = endWorldPos.y + this.grid.cellSize / 2;
+        // No need to add half cell size since gridToWorld now returns the center
+        const startX = startWorldPos.x;
+        const startY = startWorldPos.y;
+        const endX = endWorldPos.x;
+        const endY = endWorldPos.y;
         
         //console.log*(`Creating resource transfer effect from (${startX}, ${startY}) to (${endX}, ${endY})`);
         
@@ -596,13 +627,13 @@ export default class ExtractorMachine extends BaseMachine {
     }
     
     /**
-     * Get a preview sprite for this machine type
+     * Get a preview sprite for the machine selection panel
      * @param {Phaser.Scene} scene - The scene to create the sprite in
-     * @param {number} x - The x position
-     * @param {number} y - The y position
-     * @returns {Phaser.GameObjects.Container} The preview sprite
+     * @param {number} x - X position
+     * @param {number} y - Y position
+     * @returns {Phaser.GameObjects.Container} The preview container
      */
-    getPreviewSprite(scene, x, y) {
+    static getPreviewSprite(scene, x, y) {
         // Create a container for the preview
         const container = scene.add.container(x, y);
         
@@ -636,6 +667,14 @@ export default class ExtractorMachine extends BaseMachine {
         );
         container.add(directionIndicator);
         
+        // Add a simple label at the center
+        const label = scene.add.text(0, 0, "E", {
+            fontFamily: 'Arial',
+            fontSize: 14,
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        container.add(label);
+        
         return container;
     }
     
@@ -646,7 +685,7 @@ export default class ExtractorMachine extends BaseMachine {
         // Remove existing tooltip if any
         this.hideTooltip();
         
-        // Calculate the center position of the machine
+        // Calculate the center position of the machine - use direct container coordinates
         const centerX = this.container.x;
         const centerY = this.container.y - 40; // Position above the machine
         

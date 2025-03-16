@@ -19,6 +19,9 @@ export default class Grid {
         
         // Machines placed on the grid
         this.machines = [];
+        
+        // Factory reference (needs to be set later)
+        this.factory = null;
     }
     
     createGrid() {
@@ -145,43 +148,95 @@ export default class Grid {
     
     update() {
         // Update all machines
-        this.machines.forEach(machine => machine.update());
+        this.machines.forEach(machineObj => {
+            if (machineObj.machine && typeof machineObj.machine.update === 'function') {
+                machineObj.machine.update();
+            }
+        });
         
         // Redraw grid
         this.drawGrid();
     }
     
-    // Convert world coordinates to grid coordinates
-    worldToGrid(worldX, worldY) {
-        const gridWidth = this.width * this.cellSize;
-        const gridHeight = this.height * this.cellSize;
-        const startX = this.x - gridWidth / 2;
-        const startY = this.y - gridHeight / 2;
-        
-        const gridX = Math.floor((worldX - startX) / this.cellSize);
-        const gridY = Math.floor((worldY - startY) / this.cellSize);
-        
-        return { x: gridX, y: gridY };
+    // Check if world coordinates are within grid bounds
+    isInBounds(worldX, worldY) {
+        try {
+            // Validate inputs
+            if (worldX === undefined || worldY === undefined) {
+                console.error(`[GRID] isInBounds called with invalid coordinates: (${worldX}, ${worldY})`);
+                return false;
+            }
+            
+            const gridWidth = this.width * this.cellSize;
+            const gridHeight = this.height * this.cellSize;
+            const startX = this.x - gridWidth / 2;
+            const startY = this.y - gridHeight / 2;
+            
+            // Quick check using raw world coordinates
+            if (worldX < startX || worldX >= startX + gridWidth || 
+                worldY < startY || worldY >= startY + gridHeight) {
+                return false;
+            }
+            
+            // Convert to grid coordinates for a more precise check
+            const gridPos = this.worldToGrid(worldX, worldY);
+            return gridPos.x >= 0 && gridPos.x < this.width && gridPos.y >= 0 && gridPos.y < this.height;
+        } catch (error) {
+            console.error(`[GRID] Error in isInBounds:`, error);
+            return false;
+        }
     }
     
-    // Convert grid coordinates to world coordinates
+    /**
+     * Convert world coordinates to grid coordinates
+     * @param {number} worldX - X coordinate in world space
+     * @param {number} worldY - Y coordinate in world space 
+     * @returns {Object} Grid coordinates
+     */
+    worldToGrid(worldX, worldY) {
+        try {
+            // Validate inputs
+            if (worldX === undefined || worldY === undefined) {
+                return { x: undefined, y: undefined };
+            }
+            
+            const gridWidth = this.width * this.cellSize;
+            const gridHeight = this.height * this.cellSize;
+            const startX = this.x - gridWidth / 2;
+            const startY = this.y - gridHeight / 2;
+            
+            // Calculate grid coordinates
+            let gridX = Math.floor((worldX - startX) / this.cellSize);
+            let gridY = Math.floor((worldY - startY) / this.cellSize);
+            
+            // Add proper boundary checking to clamp values within grid range
+            gridX = Math.max(0, Math.min(gridX, this.width - 1));
+            gridY = Math.max(0, Math.min(gridY, this.height - 1));
+            
+            return { x: gridX, y: gridY };
+        } catch (error) {
+            return { x: undefined, y: undefined };
+        }
+    }
+    
+    /**
+     * Convert grid coordinates to world coordinates
+     * @param {number} gridX - X coordinate in grid space
+     * @param {number} gridY - Y coordinate in grid space
+     * @returns {Object} World coordinates (center of the cell)
+     */
     gridToWorld(gridX, gridY) {
         const gridWidth = this.width * this.cellSize;
         const gridHeight = this.height * this.cellSize;
         const startX = this.x - gridWidth / 2;
         const startY = this.y - gridHeight / 2;
         
-        // Return the top-left corner of the grid cell instead of the center
-        const worldX = startX + gridX * this.cellSize;
-        const worldY = startY + gridY * this.cellSize;
+        // Return the center of the grid cell (not the top-left corner)
+        // Add half a cell size to x and y to get the center
+        const worldX = startX + gridX * this.cellSize + (this.cellSize / 2);
+        const worldY = startY + gridY * this.cellSize + (this.cellSize / 2);
         
         return { x: worldX, y: worldY };
-    }
-    
-    // Check if world coordinates are within grid bounds
-    isInBounds(worldX, worldY) {
-        const gridPos = this.worldToGrid(worldX, worldY);
-        return gridPos.x >= 0 && gridPos.x < this.width && gridPos.y >= 0 && gridPos.y < this.height;
     }
     
     // Get cell at grid coordinates
@@ -190,6 +245,15 @@ export default class Grid {
             return this.cells[gridY][gridX];
         }
         return null;
+    }
+    
+    // Get cell content at grid coordinates (used by canPlaceMachine)
+    getCellContent(gridX, gridY) {
+        const cell = this.getCell(gridX, gridY);
+        if (!cell) {
+            return null;
+        }
+        return cell.type === 'empty' ? null : cell;
     }
     
     // Set cell at grid coordinates
@@ -201,265 +265,323 @@ export default class Grid {
     
     // Find an empty cell in the grid
     findEmptyCell() {
-        // Try random positions first for better distribution
-        for (let attempts = 0; attempts < 10; attempts++) {
-            const x = Phaser.Math.Between(0, this.width - 1);
-            const y = Phaser.Math.Between(0, this.height - 1);
-            
-            if (this.cells[y][x].type === 'empty') {
-                return { x, y };
+        try {
+            // Check if grid cells are initialized
+            if (!this.cells || !Array.isArray(this.cells) || this.cells.length === 0) {
+                console.error('[GRID] findEmptyCell: Grid cells not properly initialized');
+                return null;
             }
-        }
-        
-        // If random attempts fail, check systematically
-        for (let y = 0; y < this.height; y++) {
-            for (let x = 0; x < this.width; x++) {
-                if (this.cells[y][x].type === 'empty') {
+
+            // Try random positions first for better distribution
+            for (let attempts = 0; attempts < 10; attempts++) {
+                const x = Phaser.Math.Between(0, this.width - 1);
+                const y = Phaser.Math.Between(0, this.height - 1);
+                
+                if (this.cells[y] && this.cells[y][x] && this.cells[y][x].type === 'empty') {
+                    console.log(`[GRID] findEmptyCell: Found empty cell at (${x}, ${y})`);
                     return { x, y };
                 }
             }
-        }
-        
-        return null; // No empty cells found
-    }
-    
-    // Check if a machine can be placed at the given position
-    canPlaceMachine(machineType, gridX, gridY, rotation) {
-        const shape = this.getRotatedShape(machineType.shape, rotation);
-        
-        // Calculate the correct origin position based on the shape's center
-        const originX = gridX - Math.floor(shape[0].length / 2);
-        const originY = gridY - Math.floor(shape.length / 2);
-        
-        // For extractors, check if at least one cell overlaps with a resource node
-        let overlapsResourceNode = false;
-        const isExtractor = machineType.id === 'extractor';
-        
-        // Check each cell of the machine shape
-        for (let y = 0; y < shape.length; y++) {
-            for (let x = 0; x < shape[y].length; x++) {
-                if (shape[y][x] === 1) {
-                    const cellX = originX + x;
-                    const cellY = originY + y;
-                    
-                    // Check if cell is within grid bounds
-                    if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
-                        return false;
-                    }
-                    
-                    // Get the cell type
-                    const cellType = this.cells[cellY][cellX].type;
-                    
-                    // For extractors, check if it overlaps with a resource node
-                    if (isExtractor && cellType === 'node') {
-                        overlapsResourceNode = true;
-                    }
-                    
-                    // Check if cell is empty or (for extractors) a resource node
-                    if (cellType !== 'empty' && !(isExtractor && cellType === 'node')) {
-                        return false;
+            
+            // If random attempts fail, check systematically
+            for (let y = 0; y < this.height; y++) {
+                if (this.cells[y]) {
+                    for (let x = 0; x < this.width; x++) {
+                        if (this.cells[y][x] && this.cells[y][x].type === 'empty') {
+                            console.log(`[GRID] findEmptyCell: Found empty cell at (${x}, ${y}) (systematic search)`);
+                            return { x, y };
+                        }
                     }
                 }
             }
+            
+            console.warn('[GRID] findEmptyCell: No empty cells found in grid');
+            return null; // No empty cells found
+        } catch (error) {
+            console.error('[GRID] Error in findEmptyCell:', error);
+            return null;
         }
+    }
+    
+    /**
+     * Sets the machine factory reference
+     * @param {MachineFactory} factory - The machine factory
+     */
+    setFactory(factory) {
+        console.log('[GRID] Setting factory reference');
+        this.factory = factory;
+    }
+    
+    /**
+     * Checks if a machine can be placed at the given grid coordinates
+     * @param {string|object} machineId - The ID of the machine to place or machine object
+     * @param {number} gridX - The X coordinate on the grid
+     * @param {number} gridY - The Y coordinate on the grid
+     * @param {string} direction - The direction the machine is facing
+     * @returns {boolean} Whether the machine can be placed
+     */
+    canPlaceMachine(machineId, gridX, gridY, direction) {
+        console.log(`--------- PLACEMENT CHECK ---------`);
+        console.log(`[GRID] canPlaceMachine checking: ${typeof machineId === 'object' ? machineId.id || 'unknown' : machineId} at (${gridX}, ${gridY}), direction: ${direction}`);
         
-        // For extractors, ensure at least one cell overlaps with a resource node
-        if (isExtractor && !overlapsResourceNode) {
+        if (!this.factory) {
+            console.log(`[GRID] canPlaceMachine: Factory reference is missing, returning false`);
             return false;
         }
+
+        // Handle both object and ID string
+        const machineIdStr = typeof machineId === 'object' ? machineId.id || machineId.machineId || machineId.type : machineId;
+        console.log(`[GRID] Using machine ID: ${machineIdStr}`);
+
+        // Get the machine's shape from the factory
+        const machineConfig = this.factory.getMachineTypeById(machineIdStr);
+        if (!machineConfig || !machineConfig.shape) {
+            console.log(`[GRID] canPlaceMachine: Invalid machine config for ${machineIdStr}, returning false`);
+            return false;
+        }
+
+        // Get the shape with proper rotation
+        const shape = this.getRotatedShape(machineConfig.shape, direction);
+        console.log(`[GRID] canPlaceMachine: Final rotated shape for placement check: ${JSON.stringify(shape)}`);
         
+        const shapeHeight = shape.length;
+        const shapeWidth = shape[0].length;
+        console.log(`[GRID] canPlaceMachine: Shape dimensions: ${shapeWidth}x${shapeHeight}`);
+
+        // Calculate the "origin" based on the shape's center
+        const originX = Math.floor(shapeWidth / 2);
+        const originY = Math.floor(shapeHeight / 2);
+        console.log(`[GRID] canPlaceMachine: Shape origin (center): (${originX}, ${originY})`);
+        
+        // Grid dimensions check
+        console.log(`[GRID] canPlaceMachine: Grid dimensions: ${this.width}x${this.height}`);
+        
+        // Check each cell of the shape
+        for (let y = 0; y < shapeHeight; y++) {
+            for (let x = 0; x < shapeWidth; x++) {
+                // Skip empty cells in the shape
+                if (shape[y][x] !== 1) {
+                    continue;
+                }
+
+                // Calculate the actual grid position for this cell
+                const cellX = gridX + (x - originX);
+                const cellY = gridY + (y - originY);
+                console.log(`[GRID] Checking shape cell (${x},${y}) maps to grid cell (${cellX},${cellY})`);
+
+                // Boundary check
+                if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
+                    console.log(`[GRID] FAIL: Cell (${cellX},${cellY}) is out of grid bounds`);
+                    return false;
+                }
+
+                // Check if the cell is already occupied by another machine
+                const cellContent = this.getCellContent(cellX, cellY);
+                if (cellContent && cellContent.type === 'machine') {
+                    console.log(`[GRID] FAIL: Cell (${cellX},${cellY}) is already occupied by machine: ${cellContent.id}`);
+                    return false;
+                }
+
+                // Check if there's a resource node that can't be built on
+                if (cellContent && cellContent.type === 'node' && !cellContent.canBuildOn) {
+                    console.log(`[GRID] FAIL: Cell (${cellX},${cellY}) contains node that cannot be built on`);
+                    return false;
+                }
+            }
+        }
+
+        console.log(`[GRID] SUCCESS: Machine ${machineIdStr} can be placed at (${gridX},${gridY})`);
+        console.log(`---------------------------------`);
         return true;
     }
     
-    // Place a machine on the grid
-    placeMachine(machineOrType, gridX, gridY, rotationOrShape) {
-        // Check if we're being called with a machine instance or a machine type
-        const isMachineInstance = typeof machineOrType.type === 'object' || typeof machineOrType.id === 'string';
+    /**
+     * Places a machine on the grid
+     * @param {object} machine - The machine to place
+     * @param {number} gridX - The X coordinate on the grid
+     * @param {number} gridY - The Y coordinate on the grid
+     * @param {string} direction - The direction the machine is facing
+     * @returns {boolean} Whether the machine was placed successfully
+     */
+    placeMachine(machine, gridX, gridY, direction) {
+        console.log(`[GRID] Attempting to place ${machine.id} at (${gridX}, ${gridY}) with direction: ${direction}`);
         
-        let machine, shape;
-        
-        if (isMachineInstance) {
-            // We were passed a machine instance
-            machine = machineOrType;
-            shape = rotationOrShape; // In this case, rotationOrShape is the shape
-            
-            // Set the machine's grid position
-            machine.gridX = gridX;
-            machine.gridY = gridY;
-            
-            // Update the machine's world position
-            const worldPos = this.gridToWorld(gridX, gridY);
-            machine.x = worldPos.x;
-            machine.y = worldPos.y;
-            
-            console.log(`Grid.placeMachine: Placing existing machine at grid position (${gridX}, ${gridY}), world position (${worldPos.x}, ${worldPos.y})`);
-        } else {
-            // This code path should no longer be used - machines should be created by GameScene.placeMachine
-            console.warn('Grid.placeMachine called with machine type instead of machine instance. This is deprecated.');
-            return null;
+        // Check if the machine can be placed
+        const machineId = machine.machineType?.id || machine.id || machine.type;
+        if (!this.canPlaceMachine(machineId, gridX, gridY, direction)) {
+            console.log(`[GRID] Cannot place machine ${machine.id} at (${gridX}, ${gridY})`);
+            return false;
         }
         
-        // Check if this is an extractor machine
-        const isExtractor = (isMachineInstance && 
-            ((machine.type && machine.type.id === 'extractor') || // Old machine system
-             (machine.id === 'extractor'))) || // New machine system
-            (!isMachineInstance && machineOrType.id === 'extractor');
+        // Get the shape with proper rotation
+        const shape = this.getRotatedShape(machine.shape, direction);
+        console.log(`[GRID] Placing machine with shape: ${JSON.stringify(shape)}`);
         
-        console.log(`Grid.placeMachine: Machine is extractor: ${isExtractor}`);
+        // Calculate origin based on the center of the shape
+        const shapeWidth = shape[0].length;
+        const shapeHeight = shape.length;
+        const originX = Math.floor(shapeWidth / 2);
+        const originY = Math.floor(shapeHeight / 2);
         
-        // Calculate the origin position based on the shape's center
-        const originX = gridX - Math.floor(shape[0].length / 2);
-        const originY = gridY - Math.floor(shape.length / 2);
+        // Register the machine on the grid
+        this.machines.push({
+            machine: machine,
+            gridX: gridX,
+            gridY: gridY,
+            direction: direction
+        });
         
-        // Set the machine's rotation if it has one
-        if (machine.rotation !== undefined) {
-            // Ensure the direction is set based on rotation
-            machine.direction = this.scene.getDirectionFromRotation(machine.rotation);
-            console.log(`Grid.placeMachine: Set machine direction to ${machine.direction} with rotation ${machine.rotation}`);
-            
-            // Update direction indicator if it exists
-            if (machine.directionIndicator) {
-                this.scene.updateDirectionIndicator(machine, machine.direction);
-            }
-        }
-        
-        // Check for resource nodes before placing the machine
-        if (isExtractor) {
-            console.log(`Grid.placeMachine: Checking for resource nodes at extractor position (${gridX}, ${gridY})`);
-            
-            // Check the cell directly at the extractor's position
-            const cell = this.getCell(gridX, gridY);
-            if (cell && cell.type === 'node' && cell.object) {
-                const resourceNode = cell.object;
-                console.log(`Grid.placeMachine: Found resource node at (${gridX}, ${gridY}), type: ${resourceNode.resourceType.id}`);
-                
-                // Set the extractor's resourceNode property directly
-                machine.resourceNode = resourceNode;
-                machine.resourceType = resourceNode.resourceType;
-                
-                console.log(`Grid.placeMachine: Set extractor's resourceNode directly to node at (${gridX}, ${gridY})`);
-            }
-        }
-        
-        // Mark cells as occupied by the machine
-        for (let y = 0; y < shape.length; y++) {
-            for (let x = 0; x < shape[y].length; x++) {
+        // Mark cells as occupied by this machine
+        for (let y = 0; y < shapeHeight; y++) {
+            for (let x = 0; x < shapeWidth; x++) {
                 if (shape[y][x] === 1) {
-                    const cellX = originX + x;
-                    const cellY = originY + y;
+                    const cellX = gridX + (x - originX);
+                    const cellY = gridY + (y - originY);
+                    console.log(`[GRID] Occupying cell (${cellX}, ${cellY}) with machine ${machine.id}`);
                     
-                    // Ensure we're within grid bounds
-                    if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
-                        // If this is an extractor and the cell has a resource node, preserve the node info
-                        const currentCell = this.cells[cellY][cellX];
-                        let resourceNode = null;
-                        
-                        // Check if the current cell has a resource node
-                        if (isExtractor && currentCell.type === 'node') {
-                            resourceNode = currentCell.object;
-                            console.log(`Grid.placeMachine: Found resource node at (${cellX}, ${cellY}) when placing extractor`);
-                        }
-                        
-                        // Create the new cell data
-                        this.cells[cellY][cellX] = {
+                    const cell = this.getCell(cellX, cellY);
+                    if (cell) {
+                        // Update the cell with machine data
+                        cell.type = 'machine';  // Set the cell type to 'machine'
+                        cell.machine = machine; // Store a reference to the machine
+                        cell.occupiedBy = {
                             type: 'machine',
-                            machine: machine,
-                            localX: x,
-                            localY: y
+                            id: machine.id,
+                            machineLocalX: x,
+                            machineLocalY: y
                         };
-                        
-                        // If there was a resource node, store it in the cell data
-                        if (resourceNode) {
-                            this.cells[cellY][cellX].resourceNode = resourceNode;
-                            console.log(`Grid.placeMachine: Preserved resource node in cell data at (${cellX}, ${cellY})`);
-                            
-                            // If this is an extractor, also set its resourceNode property directly
-                            if (isExtractor && machine.id === 'extractor') {
-                                machine.resourceNode = resourceNode;
-                                machine.resourceType = resourceNode.resourceType;
-                                console.log(`Grid.placeMachine: Set extractor's resourceNode directly to node at (${cellX}, ${cellY})`);
-                                
-                                // Make sure the resource type is in the extractor's output types
-                                if (machine.outputTypes && !machine.outputTypes.includes(resourceNode.resourceType.id)) {
-                                    machine.outputTypes.push(resourceNode.resourceType.id);
-                                    machine.outputInventory[resourceNode.resourceType.id] = 0;
-                                    console.log(`Grid.placeMachine: Added resource type ${resourceNode.resourceType.id} to extractor's output types`);
-                                }
-                            }
-                        }
+                    } else {
+                        console.log(`[GRID] Warning: Cell (${cellX}, ${cellY}) does not exist`);
                     }
                 }
             }
         }
         
-        // Add machine to the list if it's not already there
-        if (!this.machines.includes(machine)) {
-            this.machines.push(machine);
-        }
-        
-        return machine;
+        console.log(`[GRID] Successfully placed machine ${machine.id} at (${gridX}, ${gridY})`);
+        return true;
     }
     
-    // Get the shape of a machine rotated by a certain amount
-    getRotatedShape(shape, rotation) {
-        // Normalize rotation to 0-2π range
-        const normalizedRotation = ((rotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-        console.log(`Grid.getRotatedShape: Normalizing rotation ${rotation} to ${normalizedRotation}`);
-        
-        // Define epsilon for floating point comparison
-        const epsilon = 0.1;  // Use a slightly larger epsilon for better tolerance
-        
-        // Check if rotation is close to 0, 90, 180, or 270 degrees
-        // No rotation (0 degrees or close to 0) - Right direction
-        if (Math.abs(normalizedRotation) < epsilon || Math.abs(normalizedRotation - 2 * Math.PI) < epsilon) {
-            console.log("Grid.getRotatedShape: No rotation (0 degrees/right)");
-            // Return the original shape for right direction
-            return JSON.parse(JSON.stringify(shape)); // Return a deep copy to avoid mutations
+    /**
+     * Returns a shape with the appropriate rotation
+     * @param {Array<Array<number>>|string} shape - The shape to rotate, or a JSON string representation
+     * @param {string|number} direction - The direction to rotate to (string) or rotation in degrees (number)
+     * @returns {Array<Array<number>>} The rotated shape
+     */
+    getRotatedShape(shape, direction) {
+        // Handle undefined shape
+        if (!shape) {
+            console.log("[GRID] getRotatedShape: Shape is undefined, using default 1x1");
+            return [[1]];
         }
         
-        // 90 degrees (down)
-        if (Math.abs(normalizedRotation - Math.PI / 2) < epsilon) {
-            console.log("Grid.getRotatedShape: 90 degrees rotation (down)");
-            // Correctly transform for down direction (90 degrees clockwise)
-            return this.rotate90Degrees(shape);
-        }
-        
-        // 180 degrees (left)
-        if (Math.abs(normalizedRotation - Math.PI) < epsilon) {
-            console.log("Grid.getRotatedShape: 180 degrees rotation (left)");
-            // Correctly transform for left direction (180 degrees)
-            return this.rotateShape180(shape);
-        }
-        
-        // 270 degrees (up)
-        if (Math.abs(normalizedRotation - 3 * Math.PI / 2) < epsilon) {
-            console.log("Grid.getRotatedShape: 270 degrees rotation (up)");
-            // Correctly transform for up direction (270 degrees clockwise)
-            return this.rotate270Degrees(shape);
-        }
-        
-        // Default: no rotation if not close to a cardinal direction
-        console.log(`Grid.getRotatedShape: Rotation ${normalizedRotation} not close to a cardinal direction, using default`);
-        return JSON.parse(JSON.stringify(shape)); // Return a deep copy to avoid mutations
-    }
-    
-    // Rotate a shape 90 degrees clockwise
-    rotate90Degrees(shape) {
-        if (!shape || shape.length === 0) return shape;
-        
-        const height = shape.length;
-        const width = shape[0].length;
-        const rotated = [];
-        
-        for (let i = 0; i < width; i++) {
-            rotated[i] = [];
-            for (let j = 0; j < height; j++) {
-                rotated[i][j] = shape[height - 1 - j][i];
+        // Parse the shape if it's a string
+        let parsedShape = shape;
+        if (typeof shape === 'string') {
+            try {
+                parsedShape = JSON.parse(shape);
+                console.log(`[GRID] Parsed shape from string: ${JSON.stringify(parsedShape)}`);
+            } catch (error) {
+                console.log(`[GRID] Error parsing shape string, using default 1x1`);
+                return [[1]];
             }
         }
         
-        console.log("Rotated 90 degrees (down):");
-        rotated.forEach(row => console.log(row.join(' ')));
+        // For debugging, log the initial shape
+        console.log(`[GRID] Original shape: ${JSON.stringify(parsedShape)}`);
+        
+        // Handle numeric rotation values (degrees)
+        if (typeof direction === 'number') {
+            const normalizedRotation = ((direction % 360) + 360) % 360; // Normalize to 0-359
+            console.log(`[GRID] Numeric rotation: ${direction} normalized to ${normalizedRotation} degrees`);
+            
+            // Convert rotation to direction string
+            let directionStr = 'right'; // Default
+            if (normalizedRotation === 0) {
+                directionStr = 'right';
+            } else if (normalizedRotation === 90) {
+                directionStr = 'down';
+            } else if (normalizedRotation === 180) {
+                directionStr = 'left';
+            } else if (normalizedRotation === 270) {
+                directionStr = 'up';
+            } else {
+                console.log(`[GRID] Non-standard rotation value: ${normalizedRotation}, finding nearest cardinal direction`);
+                // Find closest cardinal direction
+                if (normalizedRotation > 315 || normalizedRotation <= 45) {
+                    directionStr = 'right';
+                } else if (normalizedRotation > 45 && normalizedRotation <= 135) {
+                    directionStr = 'down';
+                } else if (normalizedRotation > 135 && normalizedRotation <= 225) {
+                    directionStr = 'left';
+                } else {
+                    directionStr = 'up';
+                }
+            }
+            console.log(`[GRID] Numeric rotation ${normalizedRotation}° converted to direction: "${directionStr}"`);
+            direction = directionStr;
+        }
+        
+        // Normalize string direction
+        const normalizedDirection = typeof direction === 'string' ? direction.toLowerCase() : 'right';
+        console.log(`[GRID] Using normalized direction: "${normalizedDirection}"`);
+        
+        // No rotation needed for right direction
+        if (normalizedDirection === 'right') {
+            console.log(`[GRID] No rotation needed for "right" direction`);
+            return parsedShape;
+        }
+        
+        let resultShape;
+        // Handle different rotations based on direction
+        if (normalizedDirection === 'down') {
+            resultShape = this.rotateShapeClockwise(parsedShape);
+            console.log(`[GRID] Rotated shape 90° for "down", result: ${JSON.stringify(resultShape)}`);
+            return resultShape;
+        } else if (normalizedDirection === 'left') {
+            resultShape = this.rotateShapeClockwise(this.rotateShapeClockwise(parsedShape));
+            console.log(`[GRID] Rotated shape 180° for "left", result: ${JSON.stringify(resultShape)}`);
+            return resultShape;
+        } else if (normalizedDirection === 'up') {
+            resultShape = this.rotateShapeClockwise(this.rotateShapeClockwise(this.rotateShapeClockwise(parsedShape)));
+            console.log(`[GRID] Rotated shape 270° for "up", result: ${JSON.stringify(resultShape)}`);
+            return resultShape;
+        }
+        
+        // Default to original shape if direction is unrecognized
+        console.log(`[GRID] Unrecognized direction: ${normalizedDirection}, using original shape`);
+        return parsedShape;
+    }
+    
+    /**
+     * Rotates a shape 90 degrees clockwise
+     * @param {Array<Array<number>>} shape - The shape to rotate
+     * @returns {Array<Array<number>>} The rotated shape
+     */
+    rotateShapeClockwise(shape) {
+        console.log(`[GRID] rotateShapeClockwise - Input shape: ${JSON.stringify(shape)}`);
+        
+        if (!shape || !Array.isArray(shape) || shape.length === 0) {
+            console.log(`[GRID] rotateShapeClockwise - Invalid shape, returning default 1x1`);
+            return [[1]];
+        }
+        
+        const width = shape[0].length;
+        const height = shape.length;
+        console.log(`[GRID] rotateShapeClockwise - Original dimensions: ${width}x${height}`);
+        
+        // Create a new matrix with flipped dimensions
+        const rotated = Array(width).fill().map(() => Array(height).fill(0));
+        
+        // Perform rotation: (row, col) -> (col, height - 1 - row)
+        for (let row = 0; row < height; row++) {
+            for (let col = 0; col < width; col++) {
+                rotated[col][height - 1 - row] = shape[row][col];
+            }
+        }
+        
+        console.log(`[GRID] rotateShapeClockwise - Output shape: ${JSON.stringify(rotated)}`);
+        console.log(`[GRID] rotateShapeClockwise - New dimensions: ${rotated[0].length}x${rotated.length}`);
+        
         return rotated;
     }
     
@@ -504,10 +626,6 @@ export default class Grid {
     }
     
     // These original methods were causing issues, keep them for compatibility but use the newer methods
-    rotateShapeClockwise(shape) {
-        return this.rotate90Degrees(shape);
-    }
-    
     rotateShapeCounterClockwise(shape) {
         return this.rotate270Degrees(shape);
     }
@@ -561,5 +679,194 @@ export default class Grid {
         
         console.log(`[Grid] Found ${allMachines.length} unique machines in the grid`);
         return allMachines;
+    }
+    
+    /**
+     * Marks grid cells as occupied by a machine
+     * @param {number} gridX - The x coordinate on the grid
+     * @param {number} gridY - The y coordinate on the grid
+     * @param {Array<Array<number>>} shape - The shape of the machine
+     * @param {Machine} machine - The machine instance
+     */
+    markGridCellsOccupied(gridX, gridY, shape, machine) {
+        try {
+            if (!shape || !Array.isArray(shape) || shape.length === 0 || !machine) {
+                return;
+            }
+            
+            // Calculate the origin position based on the shape's center
+            const originX = gridX - Math.floor(shape[0].length / 2);
+            const originY = gridY - Math.floor(shape.length / 2);
+            
+            let markedCells = 0;
+            
+            // Mark cells as occupied by the machine
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x] === 1) {
+                        const cellX = originX + x;
+                        const cellY = originY + y;
+                        
+                        // Ensure we're within grid bounds
+                        if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
+                            // Preserve resource node information for extractors
+                            let resourceNode = null;
+                            const currentCell = this.cells[cellY][cellX];
+                            
+                            // Check if current cell has a resource node
+                            if (currentCell.type === 'node') {
+                                resourceNode = currentCell.object;
+                            }
+                            
+                            // Create the new cell data
+                            this.cells[cellY][cellX] = {
+                                type: 'machine',
+                                machine: machine,
+                                localX: x,
+                                localY: y
+                            };
+                            
+                            markedCells++;
+                            
+                            // If there was a resource node, store it in the cell data
+                            if (resourceNode) {
+                                this.cells[cellY][cellX].resourceNode = resourceNode;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Add machine to the list if it's not already there
+            if (!this.machines.includes(machine)) {
+                this.machines.push(machine);
+            }
+        } catch (error) {
+            throw error; // Rethrow to allow caller to handle cleanup
+        }
+    }
+    
+    /**
+     * Clears a machine from the grid
+     * @param {Machine} machine - The machine to clear
+     */
+    clearMachineFromGrid(machine) {
+        try {
+            if (!machine) {
+                console.warn('[GRID] clearMachineFromGrid called with undefined machine');
+                return;
+            }
+            
+            let cellsCleared = 0;
+            
+            // Remove machine from cells
+            for (let y = 0; y < this.height; y++) {
+                for (let x = 0; x < this.width; x++) {
+                    const cell = this.cells[y][x];
+                    if (cell && cell.type === 'machine' && cell.machine === machine) {
+                        // Restore to empty cell
+                        this.cells[y][x] = { type: 'empty' };
+                        cellsCleared++;
+                    }
+                }
+            }
+            
+            // Remove from machines list
+            const index = this.machines.indexOf(machine);
+            if (index !== -1) {
+                this.machines.splice(index, 1);
+                console.log(`[GRID] Removed machine from grid's machines list, remaining: ${this.machines.length}`);
+            }
+            
+            console.log(`[GRID] Cleared ${cellsCleared} cells for machine ${machine.id || 'unknown'}`);
+        } catch (error) {
+            console.error('[GRID] Error in clearMachineFromGrid:', error);
+        }
+    }
+    
+    /**
+     * Sets up an extractor on a resource node
+     * @param {Machine} machine - The extractor machine
+     * @param {number} gridX - The x coordinate on the grid
+     * @param {number} gridY - The y coordinate on the grid
+     */
+    placeExtractor(machine, gridX, gridY) {
+        try {
+            if (!machine) {
+                console.warn('[GRID] placeExtractor called with undefined machine');
+                return;
+            }
+            
+            const isExtractor = machine.type === 'extractor' || 
+                                (machine.machineType && machine.machineType.id === 'extractor');
+            
+            if (!isExtractor) {
+                console.warn('[GRID] placeExtractor called with non-extractor machine');
+                return;
+            }
+            
+            // Check for resource nodes under the machine
+            const shape = machine.shape;
+            if (!shape || !Array.isArray(shape)) {
+                console.error('[GRID] Extractor missing valid shape');
+                return;
+            }
+            
+            // Calculate the origin position based on the shape's center
+            const originX = gridX - Math.floor(shape[0].length / 2);
+            const originY = gridY - Math.floor(shape.length / 2);
+            
+            let foundResourceNode = null;
+            
+            // Check each cell occupied by the machine
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x] === 1) {
+                        const cellX = originX + x;
+                        const cellY = originY + y;
+                        
+                        // Check if we're within grid bounds
+                        if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
+                            // Check the cell for a resource node
+                            const cell = this.cells[cellY][cellX];
+                            
+                            if (cell.type === 'node' && cell.object) {
+                                foundResourceNode = cell.object;
+                                break;
+                            } else if (cell.type === 'machine' && cell.resourceNode) {
+                                foundResourceNode = cell.resourceNode;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (foundResourceNode) break;
+            }
+            
+            // Connect the extractor to the resource node if found
+            if (foundResourceNode) {
+                machine.resourceNode = foundResourceNode;
+                machine.resourceType = foundResourceNode.resourceType;
+                
+                // Initialize output inventory for this resource type
+                if (!machine.outputInventory) {
+                    machine.outputInventory = {};
+                }
+                
+                if (!machine.outputTypes) {
+                    machine.outputTypes = [];
+                }
+                
+                // Make sure the resource type is in the output types
+                if (!machine.outputTypes.includes(foundResourceNode.resourceType.id)) {
+                    machine.outputTypes.push(foundResourceNode.resourceType.id);
+                    machine.outputInventory[foundResourceNode.resourceType.id] = 0;
+                }
+            } else {
+                console.warn(`[GRID] No resource node found for extractor at (${gridX}, ${gridY})`);
+            }
+        } catch (error) {
+            console.error('[GRID] Error in placeExtractor:', error);
+        }
     }
 } 

@@ -140,10 +140,49 @@ export default class MachineRegistry {
     }
     
     /**
-     * Get all machine configurations
-     * @returns {Array<Object>} Array of machine configurations
+     * Get the configuration object for all registered machine types
+     * @returns {Array<Object>} Array of machine configuration objects
      */
     getAllMachineConfigs() {
-        return this.getMachineTypeIds().map(id => this.getMachineConfig(id));
+        // Get all machine IDs
+        const machineIds = this.getMachineTypeIds();
+        
+        // Map each ID to its configuration
+        const configs = machineIds.map(id => {
+            try {
+                const config = this.getMachineConfig(id);
+                
+                // Ensure each machine has a valid shape
+                if (!config.shape || !Array.isArray(config.shape)) {
+                    console.warn(`Machine ${id} is missing a valid shape, using default 1x1 shape`);
+                    if (id === 'conveyor') {
+                        config.shape = [[1]]; // 1x1 shape for conveyor
+                    } else if (id === 'extractor') {
+                        config.shape = [[1, 1], [1, 1]]; // 2x2 shape for extractor
+                    } else if (id === 'processor-a' || id === 'processor-b') {
+                        config.shape = [[1, 1], [1, 1]]; // 2x2 shape for processors
+                    } else if (id === 'advanced-processor') {
+                        config.shape = [[1, 1, 1], [1, 1, 1]]; // 3x2 shape for advanced processor
+                    } else if (id === 'cargo-loader') {
+                        config.shape = [[1, 1], [1, 1]]; // 2x2 shape for cargo loader
+                    } else {
+                        config.shape = [[1]]; // Default 1x1 shape as fallback
+                    }
+                }
+                
+                return config;
+                
+            } catch (error) {
+                console.error(`Error getting config for machine type ${id}:`, error);
+                // Return a minimal config
+                return {
+                    id,
+                    name: id.charAt(0).toUpperCase() + id.slice(1).replace('-', ' '),
+                    shape: [[1]] // Default 1x1 shape
+                };
+            }
+        });
+        
+        return configs;
     }
 } 

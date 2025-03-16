@@ -22,7 +22,7 @@ export default class CargoLoaderMachine extends BaseMachine {
             [1, 1],
             [1, 1]
         ]; // Square Tetris piece (2x2)
-        this.inputTypes = ['product-a', 'product-b', 'product-c'];
+        this.inputTypes = ['basic-resource', 'advanced-resource'];
         this.outputTypes = [];
         this.processingTime = 2000; // 2 seconds
         this.defaultDirection = 'none';
@@ -52,10 +52,10 @@ export default class CargoLoaderMachine extends BaseMachine {
             return;
         }
         
-        // Calculate world position for the top-left corner of the machine
+        // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
-        // Create container for machine parts
+        // Create container for machine parts at the cell center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
         
         // Store references to input squares
@@ -70,21 +70,25 @@ export default class CargoLoaderMachine extends BaseMachine {
         // Calculate cell size for consistent sizing
         const cellSize = this.grid.cellSize;
         
+        // Calculate the shape center in terms of cells
+        const shapeCenterX = (this.shape[0].length - 1) / 2;
+        const shapeCenterY = (this.shape.length - 1) / 2;
+        
         // Create machine parts based on shape
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
-                    // Calculate part position relative to top-left corner
-                    const partX = x * cellSize + cellSize / 2;
-                    const partY = y * cellSize + cellSize / 2;
+                    // Calculate part position relative to container center (0,0)
+                    const partX = (x - shapeCenterX) * cellSize;
+                    const partY = (y - shapeCenterY) * cellSize;
                     
                     // Determine part color based on whether it's an input or regular part
-                    let partColor = 0x4a6fb5; // Default blue color
+                    let partColor = 0x44ff44; // Updated to green to match our color scheme
                     
                     // Check if this is an input position
                     const isInput = inputPositions.some(pos => pos.x === x && pos.y === y);
                     if (isInput) {
-                        partColor = 0x3498db; // Blue for input
+                        partColor = 0x4aa8eb; // Updated to brighter blue for input (same as when dragging)
                     }
                     
                     // Create machine part
@@ -237,14 +241,11 @@ export default class CargoLoaderMachine extends BaseMachine {
         // Get the resource color based on type
         let resourceColor;
         switch (resourceType) {
-            case 'product-a':
+            case 'basic-resource':
                 resourceColor = 0xff0000; // Red
                 break;
-            case 'product-b':
+            case 'advanced-resource':
                 resourceColor = 0x00ff00; // Green
-                break;
-            case 'product-c':
-                resourceColor = 0xffff00; // Yellow
                 break;
             default:
                 resourceColor = 0xcccccc; // Gray
@@ -304,9 +305,9 @@ export default class CargoLoaderMachine extends BaseMachine {
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[0].length; x++) {
                 if (shape[y][x] === 1) {
-                    // Calculate position
-                    const cellX = (x * cellSize) - (width / 2) + (cellSize / 2);
-                    const cellY = (y * cellSize) - (height / 2) + (cellSize / 2);
+                    // Calculate position relative to center (0,0)
+                    const cellX = x * cellSize - (width / 2) + (cellSize / 2);
+                    const cellY = y * cellSize - (height / 2) + (cellSize / 2);
                     
                     // Determine if this is an input cell
                     const isInput = inputPositions.some(pos => pos.x === x && pos.y === y);
@@ -319,7 +320,7 @@ export default class CargoLoaderMachine extends BaseMachine {
             }
         }
         
-        // Add a simple label
+        // Add a simple label at the center (0,0)
         const label = scene.add.text(0, 0, "CL", {
             fontFamily: 'Arial',
             fontSize: 14,

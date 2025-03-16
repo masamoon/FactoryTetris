@@ -18,8 +18,15 @@ export default class BaseMachine {
         // Check if this is a preview instance (no grid needed)
         this.isPreview = config.preview === true;
         
+        // Store preset position if provided (for exact positioning)
+        if (config.presetPosition) {
+            this.presetPosition = config.presetPosition;
+            console.log(`[BaseMachine] Constructor received preset position: (${this.presetPosition.x}, ${this.presetPosition.y})`);
+        }
+        
         // Only set grid-related properties if not in preview mode
         if (!this.isPreview) {
+            //console.log(`[BaseMachine] Setting grid properties: `+this.gridX+ ` `+this.gridY+ ` `+this.rotation);
             this.grid = config.grid;
             this.gridX = config.gridX !== undefined ? config.gridX : 0;
             this.gridY = config.gridY !== undefined ? config.gridY : 0;
@@ -178,11 +185,33 @@ export default class BaseMachine {
             return;
         }
         
-        // Calculate world position for the top-left corner of the machine
+        // Calculate world position for the machine - gridToWorld now returns the center of the cell
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
+        // Add more detailed logging to track positions
+        console.log(`[BaseMachine VISUALS START]`);
+        console.log(`  Machine type: ${this.id}`);
+        console.log(`  Grid position: (${this.gridX}, ${this.gridY})`);
+        console.log(`  Calculated world position: (${worldPos.x}, ${worldPos.y})`);
+        
         // Create container for machine parts
-        this.container = this.scene.add.container(worldPos.x, worldPos.y);
+        if (this.presetPosition) {
+            // If a preset position was provided in the config, use it directly
+            console.log(`  Using PRESET position: (${this.presetPosition.x}, ${this.presetPosition.y})`);
+            this.container = this.scene.add.container(this.presetPosition.x, this.presetPosition.y);
+        } else {
+            // Use the calculated grid position (gridToWorld now returns the center)
+            console.log(`  Using calculated position: (${worldPos.x}, ${worldPos.y})`);
+            this.container = this.scene.add.container(worldPos.x, worldPos.y);
+        }
+        
+        // Now that we've created the container, set a reference to it in the scene for debugging
+        if (!this.scene.machineContainers) {
+            this.scene.machineContainers = [];
+        }
+        this.scene.machineContainers.push(this.container);
+        
+        console.log(`[BaseMachine VISUALS END]`);
         
         // Store references to input and output squares
         this.inputSquare = null;
@@ -218,14 +247,21 @@ export default class BaseMachine {
             }
         }
         
+        // Calculate the center point of the shape in terms of cell coordinates
+        const shapeCenterX = (this.shape[0].length - 1) / 2;
+        const shapeCenterY = (this.shape.length - 1) / 2;
+        
         // Create machine parts based on shape
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 // Only create visuals for cells with value 1 (occupied)
                 if (this.shape[y][x] === 1) {
-                    // Calculate part position relative to top-left corner
-                    const partX = x * this.grid.cellSize + this.grid.cellSize / 2;
-                    const partY = y * this.grid.cellSize + this.grid.cellSize / 2;
+                    // Calculate part position relative to container center
+                    // Since the container is now positioned at cell center, we need to offset parts correctly
+                    const offsetX = (x - shapeCenterX) * this.grid.cellSize;
+                    const offsetY = (y - shapeCenterY) * this.grid.cellSize;
+                    const partX = offsetX;
+                    const partY = offsetY;
                     
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
@@ -267,9 +303,15 @@ export default class BaseMachine {
         }
         
         // Add machine type indicator at the center of the machine
-        const centerX = (this.shape[0].length * this.grid.cellSize) / 2;
-        const centerY = (this.shape.length * this.grid.cellSize) / 2;
+        // Use a distinctive background to make it stand out
+        const centerX = 0;
+        const centerY = 0;
         
+        // Create a background circle for the label
+        const labelBackground = this.scene.add.circle(centerX, centerY, 10, 0x000000, 0.3);
+        this.container.add(labelBackground);
+        
+        // Create the machine label
         const machineLabel = this.scene.add.text(centerX, centerY, this.id.charAt(0).toUpperCase(), {
             fontFamily: 'Arial',
             fontSize: 14,
@@ -288,10 +330,46 @@ export default class BaseMachine {
         this.progressBar.scaleX = 0;
         this.container.add(this.progressBar);
         
-        // Add direction indicator if not a cargo loader
+        // COMPLETELY NEW APPROACH FOR DIRECTION INDICATOR
+        // Instead of adding it to the container, add it directly to the scene
+        // at the absolute position where the machine is
         if (this.direction !== 'none') {
-            this.directionIndicator = this.createDirectionIndicator(centerX, centerY);
-            this.container.add(this.directionIndicator);
+            // Get the absolute position of the machine in the world
+            const absoluteX = this.container.x;
+            const absoluteY = this.container.y;
+            
+            // Create the direction indicator directly in the scene, not in the container
+            const indicatorColor = (this.id === 'extractor') ? 0xffffff : 0xff9500;
+            
+            this.directionIndicator = this.scene.add.triangle(
+                absoluteX,  // Place exactly at machine center X
+                absoluteY,  // Place exactly at machine center Y
+                -4, -6,     // left top
+                -4, 6,      // left bottom
+                8, 0,       // right point
+                indicatorColor
+            ).setOrigin(0.5, 0.5);
+            
+            // Rotate based on direction
+            switch (this.direction) {
+                case 'right':
+                    this.directionIndicator.rotation = 0; // Point right (0 degrees)
+                    break;
+                case 'down':
+                    this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
+                    break;
+                case 'left':
+                    this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
+                    break;
+                case 'up':
+                    this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                    break;
+            }
+            
+            // Set the depth to ensure it appears above the machine
+            this.directionIndicator.setDepth(this.container.depth + 1);
+            
+            console.log(`Direction indicator created at absolute position (${absoluteX}, ${absoluteY})`);
         }
         
         // Add input/output indicators
@@ -308,58 +386,16 @@ export default class BaseMachine {
     }
     
     /**
-     * Create a direction indicator for the machine
-     * @param {number} centerX - X coordinate of the center of the machine
-     * @param {number} centerY - Y coordinate of the center of the machine
-     * @returns {Phaser.GameObjects.Container} The direction indicator container
-     */
-    createDirectionIndicator(centerX, centerY) {
-        // Determine color based on machine type
-        let indicatorColor = 0xff9500;  // Default orange color
-        
-        // Use a contrasting color for extractors
-        if (this.id === 'extractor') {
-            indicatorColor = 0xffffff;  // White for extractors
-        }
-        
-        // Create a triangle pointing in the direction of output
-        const indicator = this.scene.add.triangle(
-            0, 
-            0, 
-            -4, -6,  // left top
-            -4, 6,   // left bottom
-            8, 0,    // right point
-            indicatorColor
-        ).setOrigin(0.5, 0.5);
-        
-        // Create a container for the triangle at the specified position
-        const container = this.scene.add.container(centerX, centerY, [indicator]);
-        
-        // Rotate based on direction
-        switch (this.direction) {
-            case 'right':
-                container.rotation = 0; // Point right (0 degrees)
-                break;
-            case 'down':
-                container.rotation = Math.PI / 2; // Point down (90 degrees)
-                break;
-            case 'left':
-                container.rotation = Math.PI; // Point left (180 degrees)
-                break;
-            case 'up':
-                container.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
-                break;
-        }
-        
-        return container;
-    }
-    
-    /**
      * Add resource type indicators to the machine
      */
     addResourceTypeIndicators() {
+        // Calculate width and height based on shape
         const width = this.shape[0].length * this.grid.cellSize;
         const height = this.shape.length * this.grid.cellSize;
+        
+        // Since the container is now at the center, positions need to be relative to the center
+        const halfWidth = width / 2;
+        const halfHeight = height / 2;
         
         // Add a more prominent input indicator
         if (this.inputTypes.length > 0 && this.id !== 'extractor') {
@@ -374,22 +410,23 @@ export default class BaseMachine {
             
             // Create input indicator at the appropriate edge
             if (inputDirection !== 'none') {
-                let indicatorX = width / 2;
-                let indicatorY = height / 2;
+                // Position the indicator at the edge based on input direction, relative to center
+                let indicatorX = 0; // Center by default
+                let indicatorY = 0; // Center by default
                 
                 // Position the indicator at the edge based on input direction
                 switch (inputDirection) {
                     case 'right': 
-                        indicatorX = width - 8;
+                        indicatorX = halfWidth - 8;
                         break;
                     case 'down': 
-                        indicatorY = height - 8;
+                        indicatorY = halfHeight - 8;
                         break;
                     case 'left': 
-                        indicatorX = 8;
+                        indicatorX = -halfWidth + 8;
                         break;
                     case 'up': 
-                        indicatorY = 8;
+                        indicatorY = -halfHeight + 8;
                         break;
                 }
                 
@@ -476,9 +513,11 @@ export default class BaseMachine {
         const width = this.shape[0].length * this.grid.cellSize;
         const height = this.shape.length * this.grid.cellSize;
         
-        // Create a proper hit area for the container
+        // Create a proper hit area for the container - centered around (0,0)
+        const halfWidth = width / 2;
+        const halfHeight = height / 2;
         this.container.setInteractive(new Phaser.Geom.Rectangle(
-            0, 0, width, height
+            -halfWidth, -halfHeight, width, height
         ), Phaser.Geom.Rectangle.Contains);
         
         // Add hover effect
@@ -490,17 +529,17 @@ export default class BaseMachine {
                     if (part === this.inputSquare || part === this.outputSquare) {
                         // Just make them slightly brighter
                         if (part === this.inputSquare) {
-                            part.fillColor = 0x4aa8eb; // Brighter blue for input
+                            part.fillColor = 0x55c4ff; // Even brighter blue for input hover
                         } else {
-                            // For extractor output, use a brighter version of the darker orange
+                            // For extractor output, use a brighter version of the orange
                             if (this.id === 'extractor') {
-                                part.fillColor = 0xff6b22; // Brighter dark orange
+                                part.fillColor = 0xffb640; // Brighter orange for hover
                             } else {
-                                part.fillColor = 0xffa520; // Regular bright orange
+                                part.fillColor = 0xffb640; // Brighter orange for hover
                             }
                         }
                     } else {
-                        part.fillColor = 0x5a8fd5; // Regular highlight color
+                        part.fillColor = 0x55ff55; // Brighter green for hover
                     }
                 }
             });
@@ -510,20 +549,20 @@ export default class BaseMachine {
         });
         
         this.container.on('pointerout', () => {
-            // Remove highlight
+            // Remove highlight - restore to the same colors used in createVisuals (green scheme)
             this.container.list.forEach(part => {
                 if (part.type === 'Rectangle' && part !== this.progressBar && !part.isResourceIndicator) {
-                    // Restore original colors
+                    // Restore original colors (matching the green scheme from createVisuals)
                     if (part === this.inputSquare) {
-                        part.fillColor = 0x3498db; // Blue for input
+                        part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                     } else if (part === this.outputSquare) {
                         if (this.id === 'extractor') {
-                            part.fillColor = 0xd35400; // Darker orange for extractor output
+                            part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                         } else {
-                            part.fillColor = 0xff9500; // Orange for output
+                            part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                         }
                     } else {
-                        part.fillColor = 0x4a6fb5; // Default blue
+                        part.fillColor = 0x44ff44; // Default green (same as when dragging)
                     }
                 }
             });
@@ -554,14 +593,31 @@ export default class BaseMachine {
         // Remove existing tooltip if any
         this.hideTooltip();
         
-        // Calculate the center position of the machine
-        const centerX = this.container.x + (this.shape[0].length * this.grid.cellSize) / 2;
-        const centerY = this.container.y - 40; // Position above the machine
+        // Get the machine's position in the world
+        let tooltipX, tooltipY;
+        
+        if (this.container) {
+            // Use the container's direct x and y coordinates instead of transform matrix
+            tooltipX = this.container.x;
+            tooltipY = this.container.y - 40; // Position above the machine
+            console.log(`[TOOLTIP] Positioning at container coords: (${tooltipX}, ${tooltipY})`);
+        } else if (this.grid && this.gridX !== undefined && this.gridY !== undefined) {
+            // Fall back to grid position if container is not available
+            const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
+            tooltipX = worldPos.x;
+            tooltipY = worldPos.y - 40; // Position above the machine
+            console.log(`[TOOLTIP] Positioning at grid-based world coords: (${tooltipX}, ${tooltipY})`);
+        } else {
+            // Fallback for preview or other cases
+            tooltipX = 0;
+            tooltipY = -40;
+            console.log(`[TOOLTIP] Using fallback position: (${tooltipX}, ${tooltipY})`);
+        }
         
         // Create tooltip background
         const tooltipBg = this.scene.add.rectangle(
-            centerX, 
-            centerY, 
+            tooltipX, 
+            tooltipY, 
             250, 
             80, 
             0x000000, 
@@ -576,24 +632,24 @@ export default class BaseMachine {
         if (this.isProcessing) {
             const progressPercent = Math.floor((this.processingProgress / this.processingTime) * 100);
             tooltipContent += `\nProcessing: ${progressPercent}%`;
-        } else if (this.canProcess && this.canProcess()) {
+        } else if (this.canProcess()) {
             tooltipContent += '\nReady to process';
         } else {
             tooltipContent += '\nWaiting for resources';
         }
         
         // Add inventory info
-        if (this.inputTypes.length > 0) {
+        if (this.inputTypes && this.inputTypes.length > 0) {
             tooltipContent += '\nInputs: ';
-            this.inputTypes.forEach((type, index) => {
+            this.inputTypes.forEach(type => {
                 const count = this.inputInventory[type] || 0;
                 tooltipContent += `${type}(${count}) `;
             });
         }
         
-        if (this.outputTypes.length > 0) {
+        if (this.outputTypes && this.outputTypes.length > 0) {
             tooltipContent += '\nOutputs: ';
-            this.outputTypes.forEach((type, index) => {
+            this.outputTypes.forEach(type => {
                 const count = this.outputInventory[type] || 0;
                 tooltipContent += `${type}(${count}) `;
             });
@@ -601,8 +657,8 @@ export default class BaseMachine {
         
         // Create tooltip text
         const tooltipText = this.scene.add.text(
-            centerX, 
-            centerY, 
+            tooltipX, 
+            tooltipY, 
             tooltipContent, 
             {
                 fontFamily: 'Arial',
@@ -651,11 +707,150 @@ export default class BaseMachine {
     }
     
     /**
-     * Update the machine state
+     * Update method called by the scene
+     * @param {number} time - The current time
+     * @param {number} delta - The time since the last update
      */
-    update() {
-        // Implementation will be similar to the original Machine class
-        // This is a placeholder for now
+    update(time, delta) {
+        try {
+            // Call animation update if defined
+            if (this.animateUpdate && typeof this.animateUpdate === 'function') {
+                try {
+                    this.animateUpdate(time, delta);
+                } catch (animationError) {
+                    console.error(`[${this.id || 'UnknownMachine'}] Animation error:`, animationError);
+                    // Disable animation to prevent continuous errors
+                    this.animateUpdate = null;
+                }
+            }
+            
+            // Update items on the machine
+            if (this.items && this.items.length > 0) {
+                try {
+                    this.updateItems(delta);
+                } catch (itemsError) {
+                    console.error(`[${this.id || 'UnknownMachine'}] Items update error:`, itemsError);
+                }
+            }
+            
+            // Update indicators
+            if (this.directionIndicator) {
+                try {
+                    // Check if the method exists either on this object or in the scene
+                    if (typeof this.updateDirectionIndicator === 'function') {
+                        this.updateDirectionIndicator();
+                    } else if (this.scene && typeof this.scene.updateDirectionIndicator === 'function') {
+                        this.scene.updateDirectionIndicator(this, this.direction);
+                    }
+                } catch (indicatorError) {
+                    console.error(`[${this.id || 'UnknownMachine'}] Direction indicator update error:`, indicatorError);
+                }
+            }
+        } catch (error) {
+            console.error(`[${this.id || 'UnknownMachine'}] Unhandled error in update method:`, error);
+        }
+    }
+    
+    /**
+     * Updates the items on this machine
+     * @param {number} delta - The time since the last update
+     */
+    updateItems(delta) {
+        if (!this.items || this.items.length === 0) {
+            return;
+        }
+        
+        // Calculate movement speed based on delta time (milliseconds)
+        const moveSpeed = 0.05 * delta;
+        
+        // Process each item on the machine
+        for (let i = this.items.length - 1; i >= 0; i--) {
+            const item = this.items[i];
+            
+            if (!item) {
+                console.warn(`[${this.id}] Null item found at index ${i}, removing`);
+                this.items.splice(i, 1);
+                continue;
+            }
+            
+            try {
+                // Update item position based on machine type and direction
+                this.moveItemOnMachine(item, moveSpeed);
+                
+                // Check if item has reached the output position
+                if (this.hasItemReachedOutput(item)) {
+                    // Try to transfer to the next machine
+                    const transferred = this.transferItemToNextMachine(item);
+                    
+                    if (transferred) {
+                        // Item transferred successfully, remove from this machine
+                        this.items.splice(i, 1);
+                    }
+                }
+            } catch (itemError) {
+                console.error(`[${this.id}] Error updating item:`, itemError);
+                // Remove problematic item to prevent continuous errors
+                this.items.splice(i, 1);
+            }
+        }
+    }
+    
+    /**
+     * Moves an item along the machine based on type and direction
+     * @param {object} item - The item to move
+     * @param {number} speed - Movement speed
+     */
+    moveItemOnMachine(item, speed) {
+        // Default implementation - subclasses should override for specific behavior
+        if (!item || !item.sprite) {
+            return;
+        }
+        
+        // For machines like conveyors, move along the direction
+        switch (this.direction) {
+            case 'right':
+                item.sprite.x += speed;
+                break;
+            case 'down':
+                item.sprite.y += speed;
+                break;
+            case 'left':
+                item.sprite.x -= speed;
+                break;
+            case 'up':
+                item.sprite.y -= speed;
+                break;
+        }
+    }
+    
+    /**
+     * Checks if an item has reached the output position
+     * @param {object} item - The item to check
+     * @returns {boolean} True if the item has reached the output position
+     */
+    hasItemReachedOutput(item) {
+        if (!item || !item.sprite || !this.outputPosition) {
+            return false;
+        }
+        
+        // Check distance to output position
+        const dx = item.sprite.x - this.outputPosition.x;
+        const dy = item.sprite.y - this.outputPosition.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Item has reached output if close enough to output position
+        return distance < 5;
+    }
+    
+    /**
+     * Attempts to transfer an item to the connected machine
+     * @param {object} item - The item to transfer
+     * @returns {boolean} True if the transfer was successful
+     */
+    transferItemToNextMachine(item) {
+        // This would require grid and factory logic to find the next machine
+        // Default implementation - subclasses or factory should handle this
+        return false;
     }
     
     /**
@@ -739,7 +934,7 @@ export default class BaseMachine {
         const container = scene.add.container(x, y);
         
         // Create a simple rectangle as a placeholder
-        const rect = scene.add.rectangle(0, 0, 24, 24, 0x4a6fb5);
+        const rect = scene.add.rectangle(0, 0, 24, 24, 0x44ff44); // Default green color (same as when dragging)
         container.add(rect);
         
         // Add a label
@@ -805,6 +1000,68 @@ export default class BaseMachine {
             if (this.selectionHighlight) {
                 this.selectionHighlight.destroy();
                 this.selectionHighlight = null;
+            }
+        }
+    }
+    
+    /**
+     * Adjust the container position based on the shape and direction
+     * This is a base implementation that does nothing - child classes should override
+     * to provide machine-specific adjustments
+     */
+    adjustContainerPosition() {
+        // Skip adjustment if we have a preset position - this is crucial for accurate placement
+        if (this.presetPosition) {
+            console.log(`[adjustContainerPosition] SKIPPED for ${this.id || 'unknown'} - using preset position`);
+            return;
+        }
+        
+        // Base implementation does nothing
+        // Child classes should override this method to provide machine-specific adjustments
+        console.log(`BaseMachine.adjustContainerPosition: Base implementation called for ${this.id || 'unknown'} machine`);
+        
+        // Get the shape for this machine
+        const shape = this.shape || (this.machineType && this.machineType.shape);
+        if (!shape) return;
+        
+        // Calculate the cell size
+        const cellSize = this.grid ? this.grid.cellSize : 32;
+        
+        // Calculate center offsets based on shape dimensions
+        const width = shape[0].length;
+        const height = shape.length;
+        
+        console.log(`Adjusting container for ${width}x${height} shape with direction ${this.direction}`);
+        
+        // No adjustments in the base class
+        // Specific machine classes should override this method as needed
+    }
+    
+    /**
+     * Updates the direction indicator sprite based on the current direction
+     * Delegates to the scene's updateDirectionIndicator method
+     */
+    updateDirectionIndicator() {
+        if (this.scene && typeof this.scene.updateDirectionIndicator === 'function') {
+            this.scene.updateDirectionIndicator(this, this.direction);
+        } else {
+            // Fallback implementation if scene method is not available
+            if (this.directionIndicator) {
+                // Update rotation based on direction
+                switch (this.direction) {
+                    case 'right':
+                        this.directionIndicator.rotation = 0; // 0 degrees
+                        break;
+                    case 'down':
+                        this.directionIndicator.rotation = Math.PI / 2; // 90 degrees
+                        break;
+                    case 'left':
+                        this.directionIndicator.rotation = Math.PI; // 180 degrees
+                        break;
+                    case 'up':
+                        this.directionIndicator.rotation = 3 * Math.PI / 2; // 270 degrees
+                        break;
+                }
             }
         }
     }

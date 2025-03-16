@@ -4,21 +4,27 @@ export const GRID_CONFIG = {
     factoryWidth: 10,
     factoryHeight: 10,
     cargoBayWidth: 6,
-    cargoBayHeight: 10
+    cargoBayHeight: 10,
+    x: 200, // Update x position to center in the factory area (width*0.05 + width*0.4/2)
+    y: 250, // Update y position to center in the factory area (height*0.1 + height*0.6/2)
+    width: 10, // Add width in cells
+    height: 10 // Add height in cells
 };
 
 // Game configuration
 export const GAME_CONFIG = {
+    // Canvas dimensions
+    width: 800,
+    height: 600,
+    
     // Game time limit in seconds (30 minutes)
     gameTimeLimit: 1800,
     
     // Resource generation
     resourceGenerationRate: 2000, // ms
     resourceTypes: [
-        { id: 'raw-resource', name: 'Raw Resource', color: 0x00aa44 },
-        { id: 'copper-ore', name: 'Copper Ore', color: 0xd2691e },
-        { id: 'iron-ore', name: 'Iron Ore', color: 0xa19d94 },
-        { id: 'coal', name: 'Coal', color: 0x36454f }
+        { id: 'basic-resource', name: 'Basic Resource', color: 0x00aa44 },
+        { id: 'advanced-resource', name: 'Advanced Resource', color: 0xd2691e }
     ],
     
     // Resource nodes
@@ -35,7 +41,7 @@ export const GAME_CONFIG = {
                 [1]
             ],
             inputTypes: [],
-            outputTypes: ['raw-resource', 'copper-ore', 'iron-ore', 'coal'],
+            outputTypes: ['basic-resource', 'advanced-resource'],
             processingTime: 2000, // ms
             direction: 'down', // Default output direction
             description: 'Extracts resources from nodes'
@@ -47,11 +53,11 @@ export const GAME_CONFIG = {
                 [1, 1, 1],
                 [1, 0, 0]
             ],
-            inputTypes: ['raw-resource', 'copper-ore'],
-            outputTypes: ['product-a'],
+            inputTypes: ['basic-resource'],
+            outputTypes: ['advanced-resource'],
             processingTime: 3000, // ms
             direction: 'right', // Default output direction
-            description: 'Processes raw resources into Product A'
+            description: 'Processes basic resources into advanced resources'
         },
         {
             id: 'processor-b',
@@ -60,11 +66,11 @@ export const GAME_CONFIG = {
                 [0, 1, 0],
                 [1, 1, 1]
             ],
-            inputTypes: ['raw-resource', 'iron-ore'],
-            outputTypes: ['product-b'],
+            inputTypes: ['basic-resource'],
+            outputTypes: ['advanced-resource'],
             processingTime: 3000, // ms
             direction: 'right', // Default output direction
-            description: 'Processes raw resources into Product B'
+            description: 'Processes basic resources into advanced resources'
         },
         {
             id: 'advanced-processor',
@@ -74,11 +80,11 @@ export const GAME_CONFIG = {
                 [1, 1, 1],
                 [0, 1, 0]
             ],
-            inputTypes: ['product-a', 'product-b', 'coal'],
-            outputTypes: ['product-c'],
+            inputTypes: ['basic-resource', 'advanced-resource'],
+            outputTypes: ['advanced-resource'],
             processingTime: 5000, // ms
             direction: 'down', // Default output direction
-            description: 'Combines Products A and B with coal to create Product C'
+            description: 'Combines basic and advanced resources'
         },
         {
             id: 'conveyor',
@@ -86,8 +92,8 @@ export const GAME_CONFIG = {
             shape: [
                 [1, 1]
             ],
-            inputTypes: ['raw-resource', 'copper-ore', 'iron-ore', 'coal', 'product-a', 'product-b', 'product-c'],
-            outputTypes: ['raw-resource', 'copper-ore', 'iron-ore', 'coal', 'product-a', 'product-b', 'product-c'],
+            inputTypes: ['basic-resource', 'advanced-resource'],
+            outputTypes: ['basic-resource', 'advanced-resource'],
             processingTime: 1000, // ms
             direction: 'right', // Default direction, can be rotated
             description: 'Transports resources between machines'
@@ -99,7 +105,7 @@ export const GAME_CONFIG = {
                 [1, 1],
                 [1, 1]
             ],
-            inputTypes: ['product-a', 'product-b', 'product-c'],
+            inputTypes: ['basic-resource', 'advanced-resource'],
             outputTypes: [],
             processingTime: 2000, // ms
             direction: 'none', // No output direction, sends to cargo bay
@@ -109,9 +115,8 @@ export const GAME_CONFIG = {
     
     // Product requirements for cargo bay
     productRequirements: [
-        { type: 'product-a', count: 3, points: 100 },
-        { type: 'product-b', count: 3, points: 100 },
-        { type: 'product-c', count: 1, points: 300 }
+        { type: 'basic-resource', count: 5, points: 50 },
+        { type: 'advanced-resource', count: 3, points: 150 }
     ],
     
     // Combo multipliers for clearing multiple rows at once
@@ -124,12 +129,7 @@ export const GAME_CONFIG = {
     
     // Resource colors for visualization
     resourceColors: {
-        'raw-resource': 0x00aa44,
-        'copper-ore': 0xd2691e,
-        'iron-ore': 0xa19d94,
-        'coal': 0x36454f,
-        'product-a': 0xff0000,
-        'product-b': 0x0000ff,
-        'product-c': 0xffaa00
+        'basic-resource': 0x00aa44,
+        'advanced-resource': 0xd2691e
     }
 }; 

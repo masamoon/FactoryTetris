@@ -16,61 +16,51 @@ export default class GameScene extends Phaser.Scene {
         this.gameTime = 0; // in seconds
         this.gameOver = false;
         this.paused = false;
+        
+        // Initialize collections
+        this.resourceNodes = [];
+        this.machines = [];
     }
-
+        
     create() {
+        // Create game objects
+        this.createBackground();
+        this.grid = new Grid(this, GRID_CONFIG);
+        // Add a reference to the grid as factoryGrid for compatibility with existing code
+        this.factoryGrid = this.grid;
+        
+        // Initialize MachineFactory in the machine selection area, not at the grid position
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
-        
-        // Check if audio is available
-        this.audioAvailable = this.registry.get('audioAvailable') || false;
-        
-        // Initialize the machine registry
-        this.machineRegistry = new MachineRegistry();
-        
-        // Initialize machines array
-        this.machines = [];
-        
-        // Create background
-        this.createBackground();
-        
-        // Create factory grid
-        this.factoryGrid = new Grid(this, {
-            x: width * 0.25,
-            y: height * 0.5,
-            width: GRID_CONFIG.factoryWidth,
-            height: GRID_CONFIG.factoryHeight,
-            cellSize: GRID_CONFIG.cellSize
-        });
-        
-        // Create cargo bay
-        this.cargoBay = new CargoBay(this, {
-            x: width * 0.75,
-            y: height * 0.5,
-            width: GRID_CONFIG.cargoBayWidth,
-            height: GRID_CONFIG.cargoBayHeight,
-            cellSize: GRID_CONFIG.cellSize
-        });
-        
-        // Create machine factory
+        // Position the MachineFactory in the machine selection area (center of it)
+        const machineFactoryX = width * 0.05 + (width * 0.4) / 2;
+        const machineFactoryY = height * 0.70 + (height * 0.25) / 2;
         this.machineFactory = new MachineFactory(this, {
-            x: width * 0.25,
-            y: height * 0.9,
-            width: GRID_CONFIG.factoryWidth * GRID_CONFIG.cellSize,
-            height: GRID_CONFIG.cellSize * 3
+            x: machineFactoryX,
+            y: machineFactoryY,
+            width: 10,
+            height: 5,
+            cellSize: GRID_CONFIG.cellSize
         });
         
-        // Create resource nodes
-        this.resourceNodes = [];
-        this.createInitialResourceNodes();
+        // Connect the Grid to the MachineFactory
+        this.grid.setFactory(this.machineFactory);
+        
+        this.cargoBay = new CargoBay(this, GAME_CONFIG.width - 150, 100);
+        
+        // Setup input handlers
+        this.setupInput();
         
         // Create UI elements
         this.createUI();
         
-        // Set up input handlers
-        this.setupInput();
+        // Add decorative elements
+        this.addDecorations();
         
-        // Start game timer
+        // Create initial resource nodes
+        this.createInitialResourceNodes();
+        
+        // Setup game timers
         this.gameTimer = this.time.addEvent({
             delay: 1000,
             callback: this.updateGameTime,
@@ -78,24 +68,40 @@ export default class GameScene extends Phaser.Scene {
             loop: true
         });
         
-        // Resource generation timer
         this.resourceTimer = this.time.addEvent({
-            delay: GAME_CONFIG.resourceGenerationRate,
+            delay: 5000,
             callback: this.generateResources,
             callbackScope: this,
             loop: true
         });
         
-        // Resource node spawn timer
-        this.nodeSpawnTimer = this.time.addEvent({
-            delay: GAME_CONFIG.nodeSpawnRate,
-            callback: this.spawnResourceNode,
+        // Setup difficulty timer
+        this.difficultyTimer = this.time.addEvent({
+            delay: 30000, // 30 seconds
+            callback: this.updateDifficulty,
             callbackScope: this,
             loop: true
         });
         
-        // Initialize test utilities
-        this.testUtils = new TestUtils(this);
+        // Debug: Add a button to directly place a machine
+        this.createDebugButton(GAME_CONFIG.width - 150, GAME_CONFIG.height - 50, 'Place Machine', () => {
+            console.log('[DEBUG] Attempting to place machine directly');
+            
+            // Create a proper machine type object
+            const machineType = { id: 'processor-a' };
+            
+            // Try to place a processor-a machine at position (5, 5) with rotation 0
+            const success = this.placeMachine(machineType, 5, 5, 0);
+            console.log('[DEBUG] Machine placement result:', success);
+        });
+        
+        // Initialize game state
+        this.score = 0;
+        this.gameTime = 0;
+        this.gameOver = false;
+        
+        // Play background music
+        this.playBackgroundMusic();
     }
     
     update() {
@@ -177,11 +183,23 @@ export default class GameScene extends Phaser.Scene {
         this.createButton(width * 0.9, height * 0.05, 'PAUSE', () => {
             this.togglePause();
         });
+        
+        // Rotate button
+        this.createButton(width * 0.9, height * 0.15, 'ROTATE', () => {
+            console.log("[ROTATE BUTTON] Rotate button clicked - DIRECT LOG");
+            console.log("[ROTATE BUTTON] Rotate button clicked");
+            if (this.machineFactory && this.machineFactory.selectedMachineType) {
+                console.log("[ROTATE BUTTON] Calling rotateMachine");
+                this.machineFactory.rotateMachine();
+            } else {
+                console.log("[ROTATE BUTTON] No machine selected to rotate");
+            }
+        });
     }
     
     setupInput() {
         // Set up drag and drop for machine placement
-        this.input.on('dragstart', (pointer, gameObject) => {
+        /*this.input.on('dragstart', (pointer, gameObject) => {
             // Store original position for returning if placement fails
             gameObject.input.dragStartX = gameObject.x;
             gameObject.input.dragStartY = gameObject.y;
@@ -239,7 +257,7 @@ export default class GameScene extends Phaser.Scene {
             
             // Create placement preview
             this.createPlacementPreview(gameObject);
-        });
+        });*/
         
         // Add ESC key handler to clear selection
         this.input.keyboard.on('keydown-ESC', () => {
@@ -248,235 +266,330 @@ export default class GameScene extends Phaser.Scene {
             }
         });
         
-        this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
-            // Update the machine position to follow the cursor exactly
-            gameObject.x = pointer.x;
-            gameObject.y = pointer.y;
-            
-            // Update placement preview
-            this.updatePlacementPreview(gameObject);
-        });
-        
-        this.input.on('dragend', (pointer, gameObject) => {
-            // Reset tint on all rectangle parts
-            if (gameObject.list) {
-                gameObject.list.forEach(part => {
-                    if (part.type === 'Rectangle') {
-                        // Keep input/output colors but make them reddish
-                        if (part === gameObject.inputSquare) {
-                            part.fillColor = 0x9a3434; // Reddish blue for input
-                        } else if (part === gameObject.outputSquare) {
-                            part.fillColor = 0xff4444; // Reddish orange for output
-                        } else {
-                            part.fillColor = 0xff4444; // Red for regular parts
-                        }
+        /*this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
+            try {
+                // Validate the gameObject
+                if (!gameObject) {
+                    console.error('[DRAG] Invalid game object in drag event');
+                    return;
+                }
+                
+                // Ensure valid pointer position
+                if (!pointer || typeof pointer.x !== 'number' || typeof pointer.y !== 'number') {
+                    console.error('[DRAG] Invalid pointer in drag event');
+                    return;
+                }
+                
+                // Update the machine position to follow the cursor exactly
+                gameObject.x = pointer.x;
+                gameObject.y = pointer.y;
+                
+                // Update placement preview - handle errors within the method
+                if (gameObject.machineType || gameObject.isGhost) {
+                    try {
+                        this.updatePlacementPreview(gameObject);
+                    } catch (previewError) {
+                        console.error('[DRAG] Error updating preview:', previewError);
                     }
-                });
+                }
+            } catch (error) {
+                console.error('[DRAG] Unhandled error in drag event:', error);
             }
-            
-            // Remove placement preview
-            this.removePlacementPreview();
-            
-            // Check if the machine is dropped on the factory grid
-            if (this.factoryGrid.isInBounds(gameObject.x, gameObject.y)) {
-                const gridPosition = this.factoryGrid.worldToGrid(gameObject.x, gameObject.y);
+        });*/
+        
+        /*this.input.on('dragend', (pointer, gameObject) => {
+            try {
+                // Validate the gameObject and pointer
+                if (!gameObject) {
+                    console.error('[DRAGEND] Invalid game object in dragend event');
+                    return;
+                }
                 
-                // Store the current direction and rotation for consistency
-                const currentRotation = gameObject.rotation;
-                const currentDirection = this.getDirectionFromRotation(currentRotation);
+                if (!pointer || typeof pointer.x !== 'number' || typeof pointer.y !== 'number') {
+                    console.error('[DRAGEND] Invalid pointer in dragend event');
+                    // Try to return object to original position if available
+                    if (gameObject.input && typeof gameObject.input.dragStartX === 'number' && typeof gameObject.input.dragStartY === 'number') {
+                        gameObject.x = gameObject.input.dragStartX;
+                        gameObject.y = gameObject.input.dragStartY;
+                    }
+                    return;
+                }
                 
-                // Try to place the machine
-                if (this.factoryGrid.canPlaceMachine(gameObject.machineType, gridPosition.x, gridPosition.y, currentRotation)) {
-                    // Place the machine
-                    const placedMachine = this.factoryGrid.placeMachine(gameObject.machineType, gridPosition.x, gridPosition.y, currentRotation);
-                    
-                    // Ensure the direction indicator is correctly set
-                    if (placedMachine && placedMachine.directionIndicator) {
-                        // Use the same direction as the dragged machine
-                        placedMachine.direction = currentDirection;
-                        this.updateDirectionIndicator(placedMachine, currentDirection);
+                // Check if the machine is dropped on the factory grid
+                let isInBounds = false;
+                try {
+                    isInBounds = this.factoryGrid.isInBounds(gameObject.x, gameObject.y);
+                } catch (boundsError) {
+                    console.error('[DRAGEND] Error checking bounds:', boundsError);
+                    isInBounds = false;
+                }
+                
+                if (isInBounds) {
+                    let gridPosition;
+                    try {
+                        gridPosition = this.factoryGrid.worldToGrid(gameObject.x, gameObject.y);
+                    } catch (gridError) {
+                        console.error('[DRAGEND] Error converting to grid position:', gridError);
+                        this.returnMachineToOriginalPosition(gameObject);
+                        return;
                     }
                     
-                    // Play sound if available
-                    if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
+                    // Store the current direction and rotation for consistency
+                    const currentRotation = gameObject.rotation !== undefined ? gameObject.rotation : 0;
+                    
+                    // Check if machine type exists
+                    if (!gameObject.machineType) {
+                        console.error('[DRAGEND] Machine object has no machineType');
+                        this.returnMachineToOriginalPosition(gameObject);
+                        return;
+                    }
+                    
+                    // Try to place the machine using the scene's placeMachine method
+                    let canPlace = false;
+                    try {
+                        canPlace = this.factoryGrid.canPlaceMachine(
+                            gameObject.machineType, 
+                            gridPosition.x, 
+                            gridPosition.y, 
+                            currentRotation
+                        );
+                    } catch (placementCheckError) {
+                        console.error('[DRAGEND] Error checking if can place:', placementCheckError);
+                        canPlace = false;
+                    }
+                    
+                    if (canPlace) {
                         try {
-                            this.sound.play('place');
-                        } catch (error) {
-                            this.audioAvailable = false;
-                            this.registry.set('audioAvailable', false);
-                        }
-                    }
-                    
-                    // Create a new machine of the same type to replace the one that was placed
-                    const machineType = gameObject.machineType;
-                    
-                    // Calculate the original position relative to the scroll container
-                    let originalX = 0;
-                    let originalY = 0;
-                    
-                    if (gameObject.wasInScrollContainer && gameObject.parentFactory) {
-                        // For machines from the selection panel, use the original index position
-                        // Find the index of this machine type in the machine types array
-                        const machineTypes = GAME_CONFIG.machineTypes;
-                        const machineTypeIndex = machineTypes.findIndex(type => type.id === machineType.id);
-                        
-                        // Calculate position based on index and fixed spacing
-                        const fixedSpacing = 120; // Same as in MachineFactory.createMachineSelectionPanel
-                        originalX = machineTypeIndex * fixedSpacing;
-                        originalY = 0; // Vertical position is always 0 in the scroll container
-                    }
-                    
-                    // Remove the dragged machine
-                    gameObject.destroy();
-                    
-                    // Create a new machine of the same type at the original position
-                    if (this.machineFactory) {
-                        const newMachine = this.machineFactory.createMachineOfType(machineType, originalX, originalY);
-                        
-                        // Make the machine preview larger (same as in createMachineSelectionPanel)
-                        if (newMachine) {
-                            newMachine.setScale(1.1);
+                            // Place machine is specifically designed to work with lastPreviewPosition
+                            console.log(`[dragend] Placing machine at grid (${gridPosition.x}, ${gridPosition.y}) with rotation ${currentRotation}`);
+                            const placedMachine = this.placeMachine(gameObject.machineType, gridPosition.x, gridPosition.y, currentRotation);
                             
-                            // Add a label below the machine
-                            const labelText = this.add.text(
-                                originalX,
-                                30, // Position closer to the machine
-                                machineType.name,
-                                {
-                                    fontFamily: 'Arial',
-                                    fontSize: 12, // Slightly smaller font size
-                                    color: '#ffffff',
-                                    align: 'center',
-                                    fontStyle: 'bold'
+                            if (placedMachine) {
+                                // Successfully placed machine, now clean up and create a new one
+                                
+                                // Calculate the original position relative to the scroll container
+                                let originalX = 0;
+                                let originalY = 0;
+                                
+                                if (gameObject.wasInScrollContainer && gameObject.parentFactory) {
+                                    try {
+                                        // For machines from the selection panel, use the original index position
+                                        // Find the index of this machine type in the machine types array
+                                        const machineTypes = GAME_CONFIG.machineTypes;
+                                        const machineTypeIndex = machineTypes.findIndex(type => type.id === gameObject.machineType.id);
+                                        
+                                        // Calculate position based on index and fixed spacing
+                                        const fixedSpacing = 120; // Same as in MachineFactory.createMachineSelectionPanel
+                                        originalX = machineTypeIndex * fixedSpacing;
+                                        originalY = 0; // Vertical position is always 0 in the scroll container
+                                    } catch (positionError) {
+                                        console.error('[DRAGEND] Error calculating original position:', positionError);
+                                        originalX = 0;
+                                        originalY = 0;
+                                    }
                                 }
-                            ).setOrigin(0.5);
-                            
-                            // Add a subtle shadow to the text for better visibility
-                            labelText.setShadow(1, 1, '#000000', 3);
-                            
-                            // Add the label to the scroll container
-                            this.machineFactory.scrollContainer.add(labelText);
-                            
-                            // Store the label with the machine
-                            newMachine.label = labelText;
-                            
-                            // Add pulse animation
-                            this.tweens.add({
-                                targets: newMachine,
-                                scaleX: newMachine.scaleX * 1.05,
-                                scaleY: newMachine.scaleY * 1.05,
-                                duration: 1500,
-                                yoyo: true,
-                                repeat: -1,
-                                ease: 'Sine.easeInOut'
-                            });
+                                
+                                // Remove the dragged machine
+                                try {
+                                    gameObject.destroy();
+                                } catch (destroyError) {
+                                    console.error('[DRAGEND] Error destroying gameObject:', destroyError);
+                                }
+                                
+                                // Create a new machine of the same type at the original position
+                                if (this.machineFactory) {
+                                    try {
+                                        const newMachine = this.machineFactory.createMachineOfType(gameObject.machineType, originalX, originalY);
+                                        
+                                        // Make the machine preview larger (same as in createMachineSelectionPanel)
+                                        if (newMachine) {
+                                            newMachine.setScale(1.1);
+                                            
+                                            // Apply consistent color scheme to the new machine
+                                            if (newMachine.list) {
+                                                newMachine.list.forEach(part => {
+                                                    if (part.type === 'Rectangle' && !part.isResourceIndicator) {
+                                                        // Apply the same color scheme as the placed machine
+                                                        if (part === newMachine.inputSquare) {
+                                                            part.fillColor = 0x4aa8eb; // Brighter blue for input
+                                                        } else if (part === newMachine.outputSquare) {
+                                                            part.fillColor = 0xffa520; // Brighter orange for output
+                                                        } else {
+                                                            part.fillColor = 0x44ff44; // Green for regular parts
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            
+                                            // Add other modifications to the new machine (label, animation, etc.)
+                                            // ...
+                                        }
+                                    } catch (createError) {
+                                        console.error('[DRAGEND] Error creating new machine:', createError);
+                                    }
+                                }
+                            } else {
+                                // Placement failed, return to original position
+                                console.error('[DRAGEND] Failed to place machine');
+                                this.returnMachineToOriginalPosition(gameObject);
+                            }
+                        } catch (placementError) {
+                            console.error('[DRAGEND] Error in machine placement:', placementError);
+                            this.returnMachineToOriginalPosition(gameObject);
                         }
+                    } else {
+                        // Can't place, return to original position with animation
+                        this.returnMachineToOriginalPosition(gameObject);
                     }
                 } else {
-                    // Return to original position with animation
+                    // Outside bounds, return to original position with animation
                     this.returnMachineToOriginalPosition(gameObject);
                 }
-            } else {
-                // Always return to original position with animation when dropped outside the grid
-                this.returnMachineToOriginalPosition(gameObject);
+                
+                // Remove placement preview AFTER placing the machine to ensure lastPreviewPosition is used
+                try {
+                    this.removePlacementPreview();
+                } catch (previewError) {
+                    console.error('[DRAGEND] Error removing placement preview:', previewError);
+                }
+                
+                // Clear the last preview position after it's been used
+                this.lastPreviewPosition = null;
+                
+            } catch (error) {
+                console.error('[DRAGEND] Unhandled error in dragend event:', error);
+                
+                // Try to clean up in case of errors
+                try {
+                    if (gameObject) {
+                        this.returnMachineToOriginalPosition(gameObject);
+                    }
+                    
+                    this.removePlacementPreview();
+                    this.lastPreviewPosition = null;
+                } catch (e) {
+                    // Ignore errors in cleanup
+                }
             }
-        });
+        });*/
         
         // Handle rotation key press
         this.input.keyboard.on('keydown-R', () => {
-            let machineToRotate = null;
-            
-            // Check if there's a dragged object with the active pointer
-            if (this.input.activePointer.isDragging && 
-                this.input.activePointer.dragData && 
-                this.input.activePointer.dragData.gameObject) {
-                machineToRotate = this.input.activePointer.dragData.gameObject;
-            }
-            
-            // If no dragged machine found, check for the placement ghost
-            if (!machineToRotate && this.machineFactory.placementGhost) {
-                machineToRotate = this.machineFactory.placementGhost;
-            }
-            
-            // Skip the rest of the code to find machines in the selection panel
-            // ...
-
-            if (machineToRotate) {
-                console.log("=== ROTATION DEBUG ===");
-                this.debugRotation("BEFORE", machineToRotate);
+            console.log("[ROTATION KEY] R key pressed - DIRECT LOG");
+            console.log("[ROTATION KEY] R key pressed");
+            try {
+                // If we have a machine factory with a selected machine type, rotate it
+                if (this.machineFactory && this.machineFactory.selectedMachineType) {
+                    console.log("[ROTATION KEY] Rotating selected machine type");
+                    this.machineFactory.rotateMachine();
+                    return;
+                }
                 
-                // Normalize any negative rotation to the positive equivalent
-                let currentRotation = machineToRotate.rotation;
-                if (currentRotation < 0) {
-                    // Convert negative rotation to equivalent positive rotation in [0, 2π]
-                    currentRotation = (2 * Math.PI + (currentRotation % (2 * Math.PI))) % (2 * Math.PI);
-                    console.log(`Normalized negative rotation ${machineToRotate.rotation} to positive ${currentRotation}`);
+                // For compatibility with existing code, still handle rotation for dragged machines
+                let machineToRotate = null;
+                
+                // Check if there's a dragged object with the active pointer
+                if (this.input.activePointer && 
+                    this.input.activePointer.isDragging && 
+                    this.input.activePointer.dragData && 
+                    this.input.activePointer.dragData.gameObject) {
+                    machineToRotate = this.input.activePointer.dragData.gameObject;
+                }
+                
+                if (machineToRotate) {
+                    // Debug rotation
+                    console.log("[ROTATION] === ROTATION DEBUG ===");
+                    this.debugRotation("BEFORE", machineToRotate);
                     
-                    // Update the rotation to the normalized value
-                    machineToRotate.rotation = currentRotation;
+                    try {
+                        // Normalize any negative rotation to the positive equivalent
+                        let currentRotation = machineToRotate.rotation !== undefined ? machineToRotate.rotation : 0;
+                        if (currentRotation < 0) {
+                            // Convert negative rotation to equivalent positive rotation in [0, 2π]
+                            currentRotation = (2 * Math.PI + (currentRotation % (2 * Math.PI))) % (2 * Math.PI);
+                            console.log(`[ROTATION] Normalized negative rotation ${machineToRotate.rotation} to positive ${currentRotation}`);
+                            
+                            // Update the rotation to the normalized value
+                            machineToRotate.rotation = currentRotation;
+                        }
+                        
+                        // Get the current direction
+                        const oldDirection = machineToRotate.direction || this.getDirectionFromRotation(machineToRotate.rotation);
+                        
+                        // Calculate the new rotation - use exact values for cardinal directions
+                        let newRotation;
+                        let newDirection;
+                        
+                        // Determine the next rotation based on the current direction
+                        switch (oldDirection) {
+                            case 'right':
+                                newRotation = Math.PI / 2; // Exactly 90 degrees (down)
+                                newDirection = 'down';
+                                break;
+                            case 'down':
+                                newRotation = Math.PI; // Exactly 180 degrees (left)
+                                newDirection = 'left';
+                                break;
+                            case 'left':
+                                newRotation = 3 * Math.PI / 2; // Exactly 270 degrees (up) - ALWAYS use 3*PI/2, never -PI/2
+                                newDirection = 'up';
+                                break;
+                            case 'up':
+                            default:
+                                newRotation = 0; // Exactly 0 degrees (right)
+                                newDirection = 'right';
+                                break;
+                        }
+                        
+                        console.log(`[ROTATION] Rotating from ${oldDirection} to ${newDirection} (${newRotation.toFixed(4)} rad)`);
+                        
+                        // Set the new rotation
+                        machineToRotate.rotation = newRotation;
+                        
+                        // Update the direction directly instead of deriving it from rotation
+                        machineToRotate.direction = newDirection;
+                        
+                        // Update direction indicator if it exists
+                        if (machineToRotate.directionIndicator) {
+                            try {
+                                this.updateDirectionIndicator(machineToRotate, newDirection);
+                            } catch (indicatorError) {
+                                console.error('[ROTATION] Error updating direction indicator:', indicatorError);
+                            }
+                        }
+                        
+                        // Update input indicator if it exists
+                        if (machineToRotate.inputIndicator) {
+                            try {
+                                this.updateInputIndicator(machineToRotate);
+                            } catch (inputError) {
+                                console.error('[ROTATION] Error updating input indicator:', inputError);
+                            }
+                        }
+                        
+                        this.debugRotation("AFTER", machineToRotate);
+                        
+                        // Update the placement preview
+                        if (machineToRotate.shape) {
+                            try {
+                                this.updatePlacementPreview(machineToRotate);
+                            } catch (previewError) {
+                                console.error('[ROTATION] Error updating placement preview:', previewError);
+                            }
+                        }
+                    } catch (rotationError) {
+                        console.error('[ROTATION] Error rotating machine:', rotationError);
+                        // Try to reset rotation to a safe value
+                        try {
+                            machineToRotate.rotation = 0;
+                            machineToRotate.direction = 'right';
+                        } catch (e) {
+                            // Ignore errors in recovery
+                        }
+                    }
                 }
-                
-                // Get the current direction
-                const oldDirection = machineToRotate.direction || this.getDirectionFromRotation(machineToRotate.rotation);
-                
-                // Calculate the new rotation - use exact values for cardinal directions
-                let newRotation;
-                let newDirection;
-                
-                // Determine the next rotation based on the current direction
-                switch (oldDirection) {
-                    case 'right':
-                        newRotation = Math.PI / 2; // Exactly 90 degrees (down)
-                        newDirection = 'down';
-                        break;
-                    case 'down':
-                        newRotation = Math.PI; // Exactly 180 degrees (left)
-                        newDirection = 'left';
-                        break;
-                    case 'left':
-                        newRotation = 3 * Math.PI / 2; // Exactly 270 degrees (up) - ALWAYS use 3*PI/2, never -PI/2
-                        newDirection = 'up';
-                        break;
-                    case 'up':
-                    default:
-                        newRotation = 0; // Exactly 0 degrees (right)
-                        newDirection = 'right';
-                        break;
-                }
-                
-                console.log(`Rotating from ${oldDirection} to ${newDirection} (${newRotation.toFixed(4)} rad)`);
-                
-                // Set the new rotation
-                machineToRotate.rotation = newRotation;
-                
-                // Update the direction directly instead of deriving it from rotation
-                machineToRotate.direction = newDirection;
-                
-                // Update direction indicator if it exists
-                if (machineToRotate.directionIndicator) {
-                    this.updateDirectionIndicator(machineToRotate, newDirection);
-                }
-                
-                // Update input indicator if it exists
-                if (machineToRotate.inputIndicator) {
-                    this.updateInputIndicator(machineToRotate);
-                }
-                
-                this.debugRotation("AFTER", machineToRotate);
-                
-                // If this is a ghost machine, update the placement preview
-                if (machineToRotate.isGhost && this.placementPreview) {
-                    this.updatePlacementPreview(machineToRotate);
-                }
-                
-                // If this is the placement ghost, also update the ghost machine in the factory
-                if (machineToRotate === this.machineFactory.placementGhost) {
-                    // Make sure the factory's ghost machine has the updated rotation and direction
-                    this.machineFactory.placementGhost.rotation = newRotation;
-                    this.machineFactory.placementGhost.direction = newDirection;
-                }
-                
-                console.log("=====================");
+            } catch (error) {
+                console.error('[ROTATION] Unhandled error in rotation handler:', error);
             }
         });
         
@@ -499,96 +612,207 @@ export default class GameScene extends Phaser.Scene {
         this.input.keyboard.on('keydown-T', () => {
             this.testDirectionIndicators();
         });
+        
+        // Add mouse click handler for machine placement
+        this.input.on('pointerdown', (pointer) => {
+            // Only handle left mouse button
+            if (pointer.leftButtonDown() && this.machineFactory && this.machineFactory.selectedMachineType) {
+                // Handle machine placement through the factory
+                this.machineFactory.handlePlaceMachine(pointer);
+            }
+        });
     }
     
     // Create a visual preview of where the machine will be placed
     createPlacementPreview(machine) {
         // Create a graphics object for the preview
         this.placementPreview = this.add.graphics();
+        
+        // Add a debug marker at the preview position to help track it
+        /*this.placementPreviewMarker = this.add.graphics();
+        this.placementPreviewMarker.lineStyle(2, 0xff0000);
+        this.placementPreviewMarker.strokeCircle(0, 0, 5);
+        this.placementPreviewMarker.lineStyle(2, 0x00ff00);
+        this.placementPreviewMarker.strokeCircle(0, 0, 10);
+        this.placementPreviewMarker.setPosition(0, 0); // Set initial position*/
+        
+        // If no machine is provided, try to use the selectedMachine property
+        if (!machine) {
+            machine = this.selectedMachine;
+            if (!machine) {
+                console.log('[PREVIEW] No machine to preview, creating empty preview');
+                return;
+            }
+        }
+        
+        // Update the preview with the available machine
         this.updatePlacementPreview(machine);
+        
+        const machineName = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
+        console.log(`[PREVIEW] Created placement preview for ${machineName}`);
     }
     
-    // Update the placement preview based on current machine position
+    /**
+     * Updates the placement preview graphics
+     */
     updatePlacementPreview(machine) {
-        if (!this.placementPreview) return;
+        console.log('[PLACEMENT PREVIEW] updatePlacementPreview called - DIRECT LOG');
         
+        // If placementPreview doesn't exist, create it first
+        if (!this.placementPreview) {
+            console.log('[PLACEMENT PREVIEW] Creating new placement preview graphics');
+            this.createPlacementPreview(machine);
+            return; // createPlacementPreview will call updatePlacementPreview again
+        }
+
+        // Clear existing preview graphics
         this.placementPreview.clear();
+
+        // If no machine provided, try to use the selectedMachine property
+        if (!machine) {
+            machine = this.selectedMachine;
+        }
+
+        // Still no machine? Early return
+        if (!machine) {
+            console.log('[PLACEMENT PREVIEW] No machine to preview');
+                return;
+            }
+            
+        // Log the machine object for debugging
+        console.log('[PLACEMENT PREVIEW] Machine object:', JSON.stringify({
+            id: machine.id,
+            type: machine.type,
+            shape: machine.shape,
+            direction: machine.direction,
+            rotation: machine.rotation
+        }));
+
+        // Make sure the machine has a shape, and it's an array
+        if (!machine.shape || !Array.isArray(machine.shape)) {
+            console.log('[PLACEMENT PREVIEW] Machine shape is missing or invalid, using default 1x1 shape');
+            machine.shape = [[1]];
+        }
+
+        // Get the rotated shape of the machine
+        let rotatedShape;
+        try {
+            // Prepare rotation value - handle both radians and degrees
+            let rotationValue;
+            
+            // If we have a numeric rotation
+            if (typeof machine.rotation === 'number') {
+                // Check if it's in radians (0-2π) or degrees (0-360)
+                if (machine.rotation < 10) { // Likely radians
+                    console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in radians: ${machine.rotation}`);
+                    // Convert to degrees for grid
+                    rotationValue = Math.round(machine.rotation * 180 / Math.PI);
+                } else { // Likely degrees
+                    console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in degrees: ${machine.rotation}`);
+                    rotationValue = Math.round(machine.rotation);
+                }
+            } else {
+                // Use direction string if no rotation
+                rotationValue = machine.direction || 'right';
+            }
+            
+            console.log(`[PLACEMENT PREVIEW] Using rotation value: ${rotationValue}`);
+            rotatedShape = this.factoryGrid.getRotatedShape(machine.shape, rotationValue);
+            
+            // Log the rotated shape
+            console.log('[PLACEMENT PREVIEW] Rotated shape:', JSON.stringify(rotatedShape));
+        } catch (error) {
+            console.error('[PLACEMENT PREVIEW] Error getting rotated shape:', error);
+            // If we can't get the rotated shape, use the original shape as fallback
+            rotatedShape = machine.shape;
+        }
+            
+            // Get the grid position from the pointer position
+            const gridPos = this.factoryGrid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
+        if (!gridPos) {
+            return; // Pointer is outside the grid
+        }
+
+        // Create a minimal machineType object for canPlaceMachine if it doesn't exist
+        const machineTypeForCheck = {
+            shape: rotatedShape,
+            id: machine.id || (machine.machineType ? machine.machineType.id : 'unknown')
+        };
+
+        // Check if we can place the machine here
+        const canPlace = this.factoryGrid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y);
+
+        // Get the world position of the center of the grid cell
+        const centerWorldPos = this.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
         
-        // Get the machine type - handle both old and new structures
-        const machineType = machine.machineType;
-        if (!machineType) {
-            return;
+        // Update the placement preview marker position
+            if (this.placementPreviewMarker) {
+                this.placementPreviewMarker.clear();
+                this.placementPreviewMarker.lineStyle(2, 0xff0000);
+                this.placementPreviewMarker.strokeCircle(0, 0, 5);
+            this.placementPreviewMarker.lineStyle(2, 0x00ff00);
+                this.placementPreviewMarker.strokeCircle(0, 0, 10);
+            this.placementPreviewMarker.setPosition(centerWorldPos.x, centerWorldPos.y);
         }
         
-        // Check if the machine is over the grid
-        if (this.factoryGrid.isInBounds(machine.x, machine.y)) {
-            const gridPosition = this.factoryGrid.worldToGrid(machine.x, machine.y);
-            
-            // Make sure machine has a direction property
-            if (!machine.direction) {
-                machine.direction = this.getDirectionFromRotation(machine.rotation);
-            }
-            
-            console.log(`Preview: direction=${machine.direction}, rotation=${machine.rotation}`);
-            
-            // Check if placement is valid
-            const canPlace = this.factoryGrid.canPlaceMachine(
-                machineType, 
-                gridPosition.x, 
-                gridPosition.y, 
-                machine.rotation
-            );
-            
-            // Get the rotated shape - use the exact same method as the one used for actual placement
-            const shape = this.factoryGrid.getRotatedShape(machineType.shape, machine.rotation);
-            
-            // Calculate the correct origin position based on the shape's center
-            const originX = gridPosition.x - Math.floor(shape[0].length / 2);
-            const originY = gridPosition.y - Math.floor(shape.length / 2);
-            
-            // Draw preview cells
-            const cellSize = this.factoryGrid.cellSize;
-            const gridWidth = this.factoryGrid.width * cellSize;
-            const gridHeight = this.factoryGrid.height * cellSize;
-            const startX = this.factoryGrid.x - gridWidth / 2;
-            const startY = this.factoryGrid.y - gridHeight / 2;
-            
-            // Set color based on validity
-            this.placementPreview.lineStyle(2, canPlace ? 0x00ff00 : 0xff0000);
-            this.placementPreview.fillStyle(canPlace ? 0x00ff00 : 0xff0000, 0.3);
-            
-            // Debug shape output
-            console.log(`Preview shape for ${machine.direction} direction:`);
-            for (let y = 0; y < shape.length; y++) {
-                console.log(shape[y].join(' '));
-            }
-            
-            // Draw each cell of the machine shape
-            for (let y = 0; y < shape.length; y++) {
-                for (let x = 0; x < shape[y].length; x++) {
-                    if (shape[y][x] === 1) {
-                        const cellX = startX + (originX + x) * cellSize;
-                        const cellY = startY + (originY + y) * cellSize;
-                        this.placementPreview.fillRect(cellX, cellY, cellSize, cellSize);
-                        this.placementPreview.strokeRect(cellX, cellY, cellSize, cellSize);
-                    }
+        // Use direct positioning instead of offsets
+        // Draw each cell at its exact grid position
+        for (let y = 0; y < rotatedShape.length; y++) {
+            for (let x = 0; x < rotatedShape[y].length; x++) {
+                // Only draw cells with value 1 (occupied)
+                if (rotatedShape[y][x] === 1) {
+                    // Calculate grid coordinates for this cell
+                    const cellGridX = gridPos.x + (x - Math.floor(rotatedShape[0].length / 2));
+                    const cellGridY = gridPos.y + (y - Math.floor(rotatedShape.length / 2));
+                    
+                    // Get world coordinates for this exact cell
+                    const cellWorldPos = this.factoryGrid.gridToWorld(cellGridX, cellGridY);
+
+                    // Log each cell position for debugging
+                    console.log(`[PLACEMENT PREVIEW] Cell at shape(${x},${y}) -> grid(${cellGridX},${cellGridY}) -> world(${cellWorldPos.x},${cellWorldPos.y})`);
+
+                    // Determine cell color based on position in the shape
+                    let cellColor = 0x44ff44; // Default green
+                    
+                    // Draw the cell directly at its world position
+                    this.placementPreview.fillStyle(cellColor, canPlace ? 0.7 : 0.3);
+                    this.placementPreview.fillRect(
+                        cellWorldPos.x - this.factoryGrid.cellSize / 2 + 2, // Add 2px margin
+                        cellWorldPos.y - this.factoryGrid.cellSize / 2 + 2, // Add 2px margin
+                        this.factoryGrid.cellSize - 4, // Account for 2px margin on each side
+                        this.factoryGrid.cellSize - 4  // Account for 2px margin on each side
+                    );
                 }
             }
-            
-            // Make the preview visible
-            this.placementPreview.setVisible(true);
-        } else {
-            // Hide the preview if not over the grid
-            this.placementPreview.setVisible(false);
         }
+
+        // Draw a marker at the center position
+        this.placementPreview.lineStyle(1, 0xffffff, 0.8);
+        this.placementPreview.strokeCircle(centerWorldPos.x, centerWorldPos.y, 3);
+        
+        // Add more detailed logging
+        console.log(`[PLACEMENT PREVIEW] Machine center at grid (${gridPos.x}, ${gridPos.y}), world (${centerWorldPos.x}, ${centerWorldPos.y})`);
     }
     
     // Remove the placement preview
     removePlacementPreview() {
-        if (this.placementPreview) {
-            this.placementPreview.clear();
-            this.placementPreview.destroy();
+        try {
+            if (this.placementPreview) {
+                this.placementPreview.clear();
+                this.placementPreview.destroy();
+                this.placementPreview = null;
+            }
+            
+            if (this.placementPreviewMarker) {
+                this.placementPreviewMarker.clear();
+                this.placementPreviewMarker.destroy();
+                this.placementPreviewMarker = null;
+            }
+        } catch (error) {
+            console.error('Error removing placement preview:', error);
+            // Make sure we still set these to null to avoid further issues
             this.placementPreview = null;
+            this.placementPreviewMarker = null;
         }
     }
     
@@ -600,16 +824,31 @@ export default class GameScene extends Phaser.Scene {
     }
     
     spawnResourceNode() {
+        try {
         if (this.gameOver || this.paused) return;
+            
+            // Ensure resourceNodes is initialized
+            if (!this.resourceNodes) {
+                console.log('[GAME] Initializing resourceNodes array');
+                this.resourceNodes = [];
+            }
         
         // Find an empty spot on the factory grid
         const emptySpot = this.factoryGrid.findEmptyCell();
-        if (emptySpot) {
+            if (!emptySpot) {
+                console.warn('[GAME] No empty cells found for resource node placement');
+                return;
+            }
+            
+            // Convert grid position to world coordinates
             const worldPos = this.factoryGrid.gridToWorld(emptySpot.x, emptySpot.y);
+            if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
+                console.error('[GAME] Invalid world position for resource node:', worldPos);
+                return;
+            }
             
             // Select a random resource type
             const resourceTypeIndex = Phaser.Math.Between(0, GAME_CONFIG.resourceTypes.length - 1);
-            const resourceType = GAME_CONFIG.resourceTypes[resourceTypeIndex];
             
             // Create a new resource node
             const node = new ResourceNode(this, {
@@ -623,6 +862,10 @@ export default class GameScene extends Phaser.Scene {
             
             this.resourceNodes.push(node);
             this.factoryGrid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
+            
+            console.log(`[GAME] Created resource node at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`);
+        } catch (error) {
+            console.error('[GAME] Error creating resource node:', error);
         }
     }
     
@@ -987,15 +1230,15 @@ export default class GameScene extends Phaser.Scene {
                                     if (part.type === 'Rectangle') {
                                         // Restore original colors
                                         if (part === gameObject.inputSquare) {
-                                            part.fillColor = 0x3498db; // Blue for input
+                                            part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                                         } else if (part === gameObject.outputSquare) {
                                             if (gameObject.machineType && gameObject.machineType.id === 'extractor') {
-                                                part.fillColor = 0xd35400; // Darker orange for extractor output
+                                                part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                                             } else {
-                                                part.fillColor = 0xff9500; // Orange for output
+                                                part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                                             }
                                         } else {
-                                            part.fillColor = 0x4a6fb5; // Default blue
+                                            part.fillColor = 0x44ff44; // Default green (same as when dragging)
                                         }
                                     }
                                 });
@@ -1051,15 +1294,15 @@ export default class GameScene extends Phaser.Scene {
                             if (part.type === 'Rectangle') {
                                 // Restore original colors
                                 if (part === gameObject.inputSquare) {
-                                    part.fillColor = 0x3498db; // Blue for input
+                                    part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                                 } else if (part === gameObject.outputSquare) {
                                     if (gameObject.machineType && gameObject.machineType.id === 'extractor') {
-                                        part.fillColor = 0xd35400; // Darker orange for extractor output
+                                        part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                                     } else {
-                                        part.fillColor = 0xff9500; // Orange for output
+                                        part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                                     }
                                 } else {
-                                    part.fillColor = 0x4a6fb5; // Default blue
+                                    part.fillColor = 0x44ff44; // Default green (same as when dragging)
                                 }
                             }
                         });
@@ -1112,64 +1355,821 @@ export default class GameScene extends Phaser.Scene {
         }
     }
     
-    placeMachine(machineType, gridX, gridY, rotation = 0) {
-        // Check if the position is valid
-        if (!this.factoryGrid.isInBounds(
-            this.factoryGrid.gridToWorld(gridX, gridY).x, 
-            this.factoryGrid.gridToWorld(gridX, gridY).y
-        )) {
-            return null;
-        }
+    // Play background music if audio is available
+    playBackgroundMusic() {
+        console.log('Attempting to play background music');
+        // Check if audio is available from registry
+        this.audioAvailable = this.registry.get('audioAvailable') || false;
         
-        // Check if the machine can be placed at this position
-        const shape = this.factoryGrid.getRotatedShape(machineType.shape, rotation);
-        if (!this.factoryGrid.canPlaceMachine(machineType, gridX, gridY, rotation)) {
-            return null;
-        }
-        
-        // Create the machine
-        let machine;
-        
-        // Use the registry to create the machine
-        if (this.machineRegistry && this.machineRegistry.hasMachineType(machineType.id)) {
-            // Create the machine with the correct grid position
-            machine = this.machineRegistry.createMachine(machineType.id, this, {
-                grid: this.factoryGrid,
-                gridX: gridX,  // Use gridX instead of x
-                gridY: gridY,  // Use gridY instead of y
-                rotation: rotation
-            });
-            
-            // Explicitly set the grid position again to ensure it's correct
-            machine.gridX = gridX;
-            machine.gridY = gridY;
-            
-            // Add the machine to the grid
-            this.factoryGrid.placeMachine(machine, gridX, gridY, shape);
-            
-            // Add the machine to the machines array
-            if (!this.machines) {
-                this.machines = [];
+        if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
+            try {
+                this.sound.play('background-music', {
+                    loop: true,
+                    volume: 0.5
+                });
+                console.log('Background music started');
+            } catch (error) {
+                console.error('Failed to play background music:', error);
+                this.audioAvailable = false;
+                this.registry.set('audioAvailable', false);
             }
-            this.machines.push(machine);
-            
-            // Play placement sound
-            this.playSound('place');
-            
-            return machine;
         } else {
+            console.log('Audio not available, skipping background music');
+        }
+    }
+    
+    /**
+     * Places a machine on the grid at the specified position
+     * @param {Object} machineType - The type of machine to place
+     * @param {number} gridX - The x coordinate on the grid
+     * @param {number} gridY - The y coordinate on the grid
+     * @param {number} rotation - The rotation of the machine in degrees
+     * @returns {Object|null} The placed machine object or null if placement failed
+     */
+    placeMachine(machineType, gridX, gridY, rotation = 0) {
+        try {
+            // Check if the position is valid
+            if (!this.factoryGrid.isInBounds(
+                this.factoryGrid.gridToWorld(gridX, gridY).x, 
+                this.factoryGrid.gridToWorld(gridX, gridY).y
+            )) {
+                return null;
+            }
+            
+            // Validate parameters
+            if (!machineType) {
+                return null;
+            }
+            
+            if (typeof machineType !== 'object' || !machineType.id) {
+                return null;
+            }
+            
+            // Get the direction from rotation
+            const direction = this.getDirectionFromRotation(rotation);
+            
+            // Get the machine type from the factory
+            const machineTypeObj = this.machineFactory.getMachineTypeById(machineType.id);
+            if (!machineTypeObj) {
+                return null;
+            }
+            
+            // Get the rotated shape
+            let shape;
+            try {
+                shape = this.factoryGrid.getRotatedShape(machineTypeObj.shape, rotation);
+                
+                // Validate the rotated shape
+                if (!Array.isArray(shape) || shape.length === 0) {
+                    return null;
+                }
+            } catch (shapeError) {
+                return null;
+            }
+            
+            // Check if we can place the machine at the current position
+            let canPlace = false;
+            try {
+                canPlace = this.factoryGrid.canPlaceMachine(machineTypeObj, gridX, gridY, rotation);
+            } catch (canPlaceError) {
+                canPlace = false;
+            }
+            
+            if (!canPlace) {
+                return null;
+            }
+            
+            // Use our simulation method to get exact same position as preview
+            let simulation;
+            try {
+                simulation = this.simulateMachinePlacement(
+                    machineTypeObj.id,
+                    gridX,
+                    gridY,
+                    direction,
+                    rotation
+                );
+            } catch (simulationError) {
+                // Create a default simulation result
+                simulation = {
+                    worldPos: this.factoryGrid.gridToWorld(gridX, gridY),
+                    adjustments: { x: 0, y: 0 }
+                };
+            }
+            
+            // Create exact position that matches the preview
+            const presetPosition = {
+                x: simulation.worldPos.x,
+                y: simulation.worldPos.y
+            };
+            
+            // Create the machine using the factory with exact position
+            let machineObj;
+            try {
+                machineObj = this.machineFactory.createMachine(
+                    machineTypeObj.id,
+                    gridX,
+                    gridY,
+                    direction,
+                    rotation,
+                    this.factoryGrid,
+                    presetPosition
+                );
+            } catch (createError) {
+                return null;
+            }
+            
+            if (!machineObj) {
+                return null;
+            }
+            
+            // Ensure the machine is visible
+            if (machineObj.container) {
+                machineObj.container.setVisible(true);
+                machineObj.container.setAlpha(1);
+                
+                // Check if the container has any children
+                if (machineObj.container.list) {
+                    // Make sure all children are visible
+                    machineObj.container.list.forEach((child, index) => {
+                        if (child) {
+                            child.setVisible(true);
+                            child.setAlpha(1);
+                        }
+                    });
+                }
+            }
+            
+            // Apply standardized colors
+            try {
+                this.standardizeColors(machineObj);
+            } catch (colorError) {
+                // Continue even if color standardization fails
+            }
+            
+            // Register the machine with the factory grid
+            try {
+                // Pass all required parameters to grid.placeMachine
+                this.factoryGrid.placeMachine(
+                    machineObj,
+                    gridX,
+                    gridY,
+                    direction
+                );
+            } catch (gridError) {
+                // Continue even if grid registration fails, as we've already created the machine
+            }
+            
+            // Add the machine to the scene
+            this.machines.push(machineObj);
+            
+            // Always play a sound when placing a machine
+            try {
+                this.playSound('place');
+            } catch (soundError) {
+                // Continue even if sound playback fails
+            }
+            
+            // Always exit machine placement mode after successful placement
+            // This ensures consistency regardless of how the machine was placed
+            if (this.isPlacingMachine) {
+                try {
+                    this.exitMachinePlacementMode();
+                } catch (modeError) {
+                    // Continue even if exit mode fails
+                }
+            }
+            
+            return machineObj;
+        } catch (error) {
+            
+            // Try to exit placement mode to recover
+            if (this.isPlacingMachine) {
+                try {
+                    this.exitMachinePlacementMode();
+                } catch (e) {
+                    // Ignore errors in error handler
+                }
+            }
+            
             return null;
         }
     }
 
-    // Add this debug method after the constructor
-    debugRotation(prefix, object) {
-        if (!object) return;
+    /**
+     * Standardize the colors of a machine to ensure visual consistency
+     * @param {BaseMachine} machine - The machine to standardize colors for
+     */
+    standardizeColors(machine) {
+        if (!machine || !machine.container || !machine.container.list) return;
         
-        const rotationRad = object.rotation || 0;
-        const direction = object.direction || this.getDirectionFromRotation(rotationRad);
-        const indicatorRotation = object.directionIndicator ? object.directionIndicator.rotation : 'no indicator';
+        console.log(`[DEBUG] Standardizing colors for machine: ${machine.id}`);
         
-        console.log(`${prefix} - rotation: ${rotationRad.toFixed(4)} rad (${(rotationRad * 180 / Math.PI).toFixed(2)}°), direction: ${direction}, indicator: ${typeof indicatorRotation === 'number' ? indicatorRotation.toFixed(4) : indicatorRotation}`);
+        // Get all parts that are rectangles (the visual building blocks)
+        const rectangleParts = machine.container.list.filter(part => 
+            part.type === 'Rectangle' && 
+            part !== machine.progressBar && 
+            !part.isResourceIndicator
+        );
+        
+        console.log(`[DEBUG] Found ${rectangleParts.length} rectangle parts to standardize`);
+        
+        // Determine which parts are input/output based on their position in the container
+        // or based on references if available
+        const hasInput = machine.inputSquare || machine.inputTypes.length > 0;
+        const hasOutput = machine.outputSquare || machine.outputTypes.length > 0;
+        
+        // Process each rectangle part
+        rectangleParts.forEach(part => {
+            // Skip special parts like progress bars
+            if (part === machine.progressBar) return;
+            
+            // For extractor: special handling
+            if (machine.id === 'extractor') {
+                if (part === machine.outputSquare) {
+                    part.fillColor = 0xffa520; // Bright orange for output
+                } else if (part === machine.body) {
+                    part.fillColor = 0x555555; // Dark gray for extractor body (special case)
+                } else if (part === machine.drillBit) {
+                    part.fillColor = 0x888888; // Gray for drill bit (special case)
+                } else {
+                    part.fillColor = 0x44ff44; // Green for all other parts
+                }
+            }
+            // For conveyor: special handling
+            else if (machine.id === 'conveyor') {
+                part.fillColor = 0x44ff44; // Green for conveyor base
+            }
+            // For all other machines
+            else {
+                // If we have explicit input/output references, use them
+                if (hasInput && part === machine.inputSquare) {
+                    part.fillColor = 0x4aa8eb; // Bright blue for input
+                } else if (hasOutput && part === machine.outputSquare) {
+                    part.fillColor = 0xffa520; // Bright orange for output
+                } else if (part.fillColor !== 0x44ff44) { // If not already green
+                    // Skip parts that should have special colors (the centered core of advanced processor)
+                    if (machine.id === 'advanced-processor' && 
+                        part.x === machine.container.x + (machine.shape[0].length * machine.grid.cellSize) / 2 && 
+                        part.y === machine.container.y + (machine.shape.length * machine.grid.cellSize) / 2) {
+                        part.fillColor = 0xffaa44; // Keep the special color for the core
+                    } else {
+                        part.fillColor = 0x44ff44; // Green for all other parts
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Helper method to debug machine rotation information
+     * @param {string} label - Label for debug information (e.g., "BEFORE" or "AFTER")
+     * @param {object} machine - The machine object being rotated
+     */
+    debugRotation(label, machine) {
+        if (!machine) {
+            console.warn(`[ROTATION] ${label}: No machine provided for debug`);
+            return;
+        }
+        
+        const rotationRad = machine.rotation !== undefined ? machine.rotation : 0;
+        const rotationDeg = (rotationRad * 180 / Math.PI).toFixed(1);
+        const direction = machine.direction || this.getDirectionFromRotation(rotationRad);
+        
+        console.log(`[ROTATION] ${label}: rotation=${rotationRad.toFixed(4)} rad (${rotationDeg}°), direction=${direction}`);
+        
+        if (machine.machineType) {
+            console.log(`[ROTATION] ${label}: machineType=${machine.machineType.id || 'unknown'}`);
+        }
+        
+        if (machine.gridX !== undefined && machine.gridY !== undefined) {
+            console.log(`[ROTATION] ${label}: gridPos=(${machine.gridX}, ${machine.gridY})`);
+        }
+        
+        if (machine.x !== undefined && machine.y !== undefined) {
+            console.log(`[ROTATION] ${label}: worldPos=(${machine.x.toFixed(1)}, ${machine.y.toFixed(1)})`);
+        }
+    }
+
+    // Add this helper method to ensure input/output references are correctly set
+    fixMachineInputOutputReferences(machine) {
+        if (!machine || !machine.container || !machine.container.list) return;
+        
+        console.log(`[DEBUG] Fixing input/output references for ${machine.id}`);
+        console.log(`[DEBUG] Machine shape:`, machine.shape);
+        console.log(`[DEBUG] Machine direction: ${machine.direction}`);
+        console.log(`[DEBUG] Total parts in container:`, machine.container.list.length);
+        
+        // Determine input and output positions based on direction
+        let inputPos = { x: -1, y: -1 };
+        let outputPos = { x: -1, y: -1 };
+        
+        if (machine.direction !== 'none') {
+            // For machines with direction, determine input and output positions
+            switch (machine.direction) {
+                case 'right':
+                    // Input on left side, output on right side
+                    inputPos = { x: 0, y: Math.floor(machine.shape.length / 2) };
+                    outputPos = { x: machine.shape[0].length - 1, y: Math.floor(machine.shape.length / 2) };
+                    break;
+                case 'down':
+                    // Input on top side, output on bottom side
+                    inputPos = { x: Math.floor(machine.shape[0].length / 2), y: 0 };
+                    outputPos = { x: Math.floor(machine.shape[0].length / 2), y: machine.shape.length - 1 };
+                    break;
+                case 'left':
+                    // Input on right side, output on left side
+                    inputPos = { x: machine.shape[0].length - 1, y: Math.floor(machine.shape.length / 2) };
+                    outputPos = { x: 0, y: Math.floor(machine.shape.length / 2) };
+                    break;
+                case 'up':
+                    // Input on bottom side, output on top side
+                    inputPos = { x: Math.floor(machine.shape[0].length / 2), y: machine.shape.length - 1 };
+                    outputPos = { x: Math.floor(machine.shape[0].length / 2), y: 0 };
+                    break;
+            }
+        }
+        
+        console.log(`[DEBUG] Expected input position: (${inputPos.x}, ${inputPos.y})`);
+        console.log(`[DEBUG] Expected output position: (${outputPos.x}, ${outputPos.y})`);
+        
+        // Reset inputSquare and outputSquare references
+        machine.inputSquare = null;
+        machine.outputSquare = null;
+        
+        // Direct approach: manually set the input and output squares
+        // First get the parts ordered by position
+        const cellSize = machine.grid.cellSize;
+        const parts = [];
+        
+        // Log each part first for debugging
+        machine.container.list.forEach((part, index) => {
+            console.log(`[DEBUG] Part ${index}:`, part.type, 
+                        part.fillColor ? part.fillColor.toString(16) : 'no fillColor',
+                        part.x, part.y);
+        });
+        
+        // Collect all rectangle parts - be more inclusive
+        machine.container.list.forEach(part => {
+            // Check if the part has a fillColor property (is a shape)
+            if (part.fillColor !== undefined && part !== machine.progressBar && !part.isResourceIndicator) {
+                // Store the part with its grid position
+                parts.push({
+                    part: part,
+                    x: Math.round(part.x / cellSize),
+                    y: Math.round(part.y / cellSize)
+                });
+                console.log(`[DEBUG] Found part at calculated position (${Math.round(part.x / cellSize)}, ${Math.round(part.y / cellSize)})`);
+            }
+        });
+        
+        // Find the leftmost part for input (right direction)
+        if (machine.direction === 'right') {
+            let leftmost = null;
+            parts.forEach(item => {
+                if (leftmost === null || item.x < leftmost.x) {
+                    leftmost = item;
+                }
+            });
+            if (leftmost) {
+                machine.inputSquare = leftmost.part;
+                console.log(`[DEBUG] Set input square to leftmost part at (${leftmost.x}, ${leftmost.y})`);
+            }
+            
+            // Find the rightmost part for output
+            let rightmost = null;
+            parts.forEach(item => {
+                if (rightmost === null || item.x > rightmost.x) {
+                    rightmost = item;
+                }
+            });
+            if (rightmost) {
+                machine.outputSquare = rightmost.part;
+                console.log(`[DEBUG] Set output square to rightmost part at (${rightmost.x}, ${rightmost.y})`);
+            }
+        }
+        // Find the topmost part for input (down direction)
+        else if (machine.direction === 'down') {
+            let topmost = null;
+            parts.forEach(item => {
+                if (topmost === null || item.y < topmost.y) {
+                    topmost = item;
+                }
+            });
+            if (topmost) {
+                machine.inputSquare = topmost.part;
+                console.log(`[DEBUG] Set input square to topmost part at (${topmost.x}, ${topmost.y})`);
+            }
+            
+            // Find the bottommost part for output
+            let bottommost = null;
+            parts.forEach(item => {
+                if (bottommost === null || item.y > bottommost.y) {
+                    bottommost = item;
+                }
+            });
+            if (bottommost) {
+                machine.outputSquare = bottommost.part;
+                console.log(`[DEBUG] Set output square to bottommost part at (${bottommost.x}, ${bottommost.y})`);
+            }
+        }
+        // Find the rightmost part for input (left direction)
+        else if (machine.direction === 'left') {
+            let rightmost = null;
+            parts.forEach(item => {
+                if (rightmost === null || item.x > rightmost.x) {
+                    rightmost = item;
+                }
+            });
+            if (rightmost) {
+                machine.inputSquare = rightmost.part;
+                console.log(`[DEBUG] Set input square to rightmost part at (${rightmost.x}, ${rightmost.y})`);
+            }
+            
+            // Find the leftmost part for output
+            let leftmost = null;
+            parts.forEach(item => {
+                if (leftmost === null || item.x < leftmost.x) {
+                    leftmost = item;
+                }
+            });
+            if (leftmost) {
+                machine.outputSquare = leftmost.part;
+                console.log(`[DEBUG] Set output square to leftmost part at (${leftmost.x}, ${leftmost.y})`);
+            }
+        }
+        // Find the bottommost part for input (up direction)
+        else if (machine.direction === 'up') {
+            let bottommost = null;
+            parts.forEach(item => {
+                if (bottommost === null || item.y > bottommost.y) {
+                    bottommost = item;
+                }
+            });
+            if (bottommost) {
+                machine.inputSquare = bottommost.part;
+                console.log(`[DEBUG] Set input square to bottommost part at (${bottommost.x}, ${bottommost.y})`);
+            }
+            
+            // Find the topmost part for output
+            let topmost = null;
+            parts.forEach(item => {
+                if (topmost === null || item.y < topmost.y) {
+                    topmost = item;
+                }
+            });
+            if (topmost) {
+                machine.outputSquare = topmost.part;
+                console.log(`[DEBUG] Set output square to topmost part at (${topmost.x}, ${topmost.y})`);
+            }
+        }
+    }
+
+    /**
+     * Simulate machine placement to calculate accurate position adjustments
+     * @param {string} machineId - The ID of the machine type
+     * @param {number} gridX - The x coordinate on the grid
+     * @param {number} gridY - The y coordinate on the grid
+     * @param {string} direction - The direction the machine is facing
+     * @param {number} rotation - The rotation of the machine in degrees
+     * @returns {Object} The world position and adjustments
+     */
+    simulateMachinePlacement(machineId, gridX, gridY, direction, rotation) {
+        try {
+            // Ensure we have valid inputs
+            if (machineId === undefined || machineId === null) {
+                machineId = 'unknown';
+            }
+            
+            // Ensure machineId is a string
+            machineId = String(machineId);
+            
+            // Validate grid position
+            if (gridX === undefined || gridY === undefined || gridX === null || gridY === null) {
+                gridX = 0;
+                gridY = 0;
+            }
+            
+            // Ensure grid coordinates are numbers
+            gridX = Number(gridX);
+            gridY = Number(gridY);
+            
+            // Handle NaN values
+            if (isNaN(gridX) || isNaN(gridY)) {
+                gridX = 0;
+                gridY = 0;
+            }
+            
+            // Ensure we have a valid direction, defaulting to 'right' if missing
+            if (!direction || typeof direction !== 'string' || !['right', 'down', 'left', 'up'].includes(direction)) {
+                direction = 'right';
+            }
+            
+            // Ensure rotation is a number, defaulting to 0 if missing or invalid
+            if (rotation === undefined || rotation === null || isNaN(Number(rotation))) {
+                rotation = 0;
+            } else {
+                rotation = Number(rotation);
+            }
+            
+            // Get base world position from grid coordinates
+            let worldPos;
+            try {
+                // This gives us the center of the grid cell
+                worldPos = this.factoryGrid.gridToWorld(gridX, gridY);
+                
+                // Validate world position
+                if (!worldPos || typeof worldPos !== 'object' || 
+                    worldPos.x === undefined || worldPos.y === undefined ||
+                    isNaN(worldPos.x) || isNaN(worldPos.y)) {
+                    throw new Error('Invalid world position returned');
+                }
+            } catch (gridError) {
+                // Create a fallback world position
+                worldPos = { 
+                    x: gridX * (this.factoryGrid.cellSize || 24), 
+                    y: gridY * (this.factoryGrid.cellSize || 24) 
+                };
+            }
+            
+            // Initialize adjustments - for most machines these should be 0
+            const adjustments = { x: 0, y: 0 };
+            
+            // Apply direction-specific adjustments based on machine type
+            const cellSize = this.factoryGrid.cellSize || 24;
+            
+            // Now ensure the position is always an integer value to avoid rounding errors
+            worldPos.x = Math.round(worldPos.x);
+            worldPos.y = Math.round(worldPos.y);
+            
+            return {
+                worldPos: worldPos,
+                adjustments: adjustments
+            };
+        } catch (error) {
+            // Provide a fallback result
+            const cellSize = this.factoryGrid ? (this.factoryGrid.cellSize || 24) : 24;
+            return {
+                worldPos: { 
+                    x: gridX * cellSize, 
+                    y: gridY * cellSize 
+                },
+                adjustments: { x: 0, y: 0 }
+            };
+        }
+    }
+
+    // Handle machine placement from UI
+    handleMachinePlacement(machineType) {
+        // Exit placement mode if already placing this machine type
+        if (this.isPlacingMachine && this.selectedMachineType === machineType) {
+            this.exitMachinePlacementMode();
+            return;
+        }
+        
+        // Enter placement mode with the selected machine type
+        this.enterMachinePlacementMode(machineType);
+    }
+    
+    // Exit machine placement mode
+    exitMachinePlacementMode() {
+        try {
+            this.isPlacingMachine = false;
+            this.selectedMachineType = null;
+            
+            // Use our robust placement preview removal method
+            try {
+                this.removePlacementPreview();
+            } catch (previewError) {
+                console.error('[EXIT] Error removing placement preview:', previewError);
+                // Force reset preview objects
+                this.placementPreview = null;
+                this.placementPreviewMarker = null;
+            }
+            
+            // Clear any ghost machines
+            if (this.machineFactory && this.machineFactory.clearGhostMachine) {
+                try {
+                    this.machineFactory.clearGhostMachine();
+                } catch (ghostError) {
+                    console.error('[EXIT] Error clearing ghost machine:', ghostError);
+                }
+            }
+            
+            console.log('[PLACEMENT] Exited machine placement mode');
+        } catch (error) {
+            console.error('[EXIT] Unhandled error in exitMachinePlacementMode:', error);
+            // Force reset state
+            this.isPlacingMachine = false;
+            this.selectedMachineType = null;
+            this.placementPreview = null;
+            this.placementPreviewMarker = null;
+        }
+    }
+    
+    // Enter machine placement mode with the given machine type
+    enterMachinePlacementMode(machineType) {
+        try {
+            // Validate machine type
+            if (!machineType) {
+                console.error('[ENTER] Missing machine type, cannot enter placement mode');
+                return;
+            }
+            
+            if (typeof machineType !== 'object' || !machineType.id) {
+                console.error('[ENTER] Invalid machine type:', machineType);
+                return;
+            }
+            
+            // First exit any existing placement mode
+            this.exitMachinePlacementMode();
+            
+            // Set the new machine type and enter placement mode
+            this.isPlacingMachine = true;
+            this.selectedMachineType = machineType;
+            
+            // Create a placement preview for the selected machine type
+            if (this.machineFactory) {
+                try {
+                    // Create a ghost machine using the factory
+                    this.machineFactory.createGhostMachine(machineType);
+                } catch (ghostError) {
+                    console.error('[ENTER] Error creating ghost machine:', ghostError);
+                    // Continue even if ghost creation fails
+                }
+            } else {
+                console.warn('[ENTER] Machine factory not available, cannot create ghost machine');
+            }
+            
+            console.log(`[PLACEMENT] Entered machine placement mode with type: ${machineType.id}`);
+        } catch (error) {
+            console.error('[ENTER] Unhandled error in enterMachinePlacementMode:', error);
+            // Try to clean up
+            this.exitMachinePlacementMode();
+        }
+    }
+
+    /**
+     * Handle mouse interactions with draggable machine
+     */
+    handleDraggableMachine() {
+        // Create a placeholder machine for preview
+        if (!this.selectedMachine && this.uiSelectedMachine) {
+            const machineType = this.uiSelectedMachine;
+            
+            // Log the machineType for debugging
+            console.log('[DRAG] Machine type selected:', JSON.stringify({
+                id: machineType.id,
+                shape: machineType.shape,
+                defaultDirection: machineType.defaultDirection
+            }));
+            
+            // Ensure the shape is valid
+            let shape = machineType.shape;
+            if (!shape || !Array.isArray(shape)) {
+                console.log('[DRAG] Creating default shape for machine');
+                shape = [[1]]; // Default 1x1 shape
+            } else {
+                console.log('[DRAG] Using shape from machineType:', JSON.stringify(shape));
+            }
+            
+            this.selectedMachine = {
+                type: machineType.id,
+                id: machineType.id,
+                shape: shape,
+                direction: machineType.defaultDirection || 'right',
+                rotation: 0,
+                // Add a machineType property to avoid errors in Grid.js
+                machineType: {
+                    id: machineType.id,
+                    shape: shape,
+                    direction: machineType.defaultDirection || 'right'
+                },
+                getRotatedShape: function() {
+                    return this.factoryGrid.getRotatedShape(this.shape, this.rotation);
+                }.bind(this)
+            };
+            
+            // Log the created selectedMachine
+            console.log('[DRAG] Created selectedMachine:', JSON.stringify({
+                type: this.selectedMachine.type,
+                shape: this.selectedMachine.shape,
+                direction: this.selectedMachine.direction,
+                rotation: this.selectedMachine.rotation
+            }));
+            
+            // Create placement preview
+            this.createPlacementPreview(this.selectedMachine);
+        }
+
+        // Update the machine preview on pointer move
+        if (this.selectedMachine) {
+            this.pointer = this.input.activePointer;
+            
+            // Handle rotation on right click
+            if (this.input.mousePointer.rightButtonDown() && !this.rightClickProcessed) {
+                this.rightClickProcessed = true;
+                
+                // Rotate 90 degrees clockwise
+                this.selectedMachine.rotation = (this.selectedMachine.rotation + 90) % 360;
+                
+                // Update the direction based on rotation
+                switch (this.selectedMachine.rotation) {
+                    case 0:
+                        this.selectedMachine.direction = 'right';
+                        break;
+                    case 90:
+                        this.selectedMachine.direction = 'down';
+                        break;
+                    case 180:
+                        this.selectedMachine.direction = 'left';
+                        break;
+                    case 270:
+                        this.selectedMachine.direction = 'up';
+                        break;
+                }
+                
+                // Also update the direction in the machineType
+                if (this.selectedMachine.machineType) {
+                    this.selectedMachine.machineType.direction = this.selectedMachine.direction;
+                }
+                
+                // Log rotation
+                console.log(`[DRAG] Machine rotated: ${this.selectedMachine.rotation}° (${this.selectedMachine.direction})`);
+                
+                // Update the placement preview after rotation
+                this.updatePlacementPreview(this.selectedMachine);
+            }
+            
+            // Reset right click processing when mouse button is released
+            if (!this.input.mousePointer.rightButtonDown()) {
+                this.rightClickProcessed = false;
+            }
+            
+            // Update the placement preview
+            this.updatePlacementPreview(this.selectedMachine);
+            
+            // Handle machine placement on left click
+            if (this.input.mousePointer.leftButtonDown() && !this.leftClickProcessed) {
+                this.leftClickProcessed = true;
+                
+                // Get grid position from pointer
+                const gridPos = this.factoryGrid.worldToGrid(this.pointer.worldX, this.pointer.worldY);
+                
+                if (gridPos) {
+                    // Try to place the machine
+                    const placementResult = this.factoryGrid.placeMachine(
+                        this.selectedMachine,
+                        gridPos.x,
+                        gridPos.y,
+                        this.selectedMachine.rotation
+                    );
+                    
+                    if (placementResult.success) {
+                        console.log(`Machine placed at grid (${gridPos.x}, ${gridPos.y})`);
+                        
+                        // Create the machine in the world
+                        this.createMachine(
+                            this.selectedMachine.id,
+                            gridPos.x,
+                            gridPos.y,
+                            this.selectedMachine.direction
+                        );
+                        
+                        // Play placement sound
+                        this.sound.play('place', { volume: 0.5 });
+                    } else {
+                        console.log(`Cannot place machine: ${placementResult.reason}`);
+                        
+                        // Play error sound
+                        this.sound.play('error', { volume: 0.3 });
+                    }
+                }
+            }
+            
+            // Reset left click processing when mouse button is released
+            if (!this.input.mousePointer.leftButtonDown()) {
+                this.leftClickProcessed = false;
+            }
+        }
+    }
+
+    // Add a debug button creation method
+    createDebugButton(x, y, text, callback) {
+        const button = this.add.text(x, y, text, { 
+            fontSize: '16px', 
+            fill: '#fff',
+            backgroundColor: '#ff0000',
+            padding: { x: 10, y: 5 }
+        })
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', callback)
+        .on('pointerover', () => button.setStyle({ fill: '#ff0' }))
+        .on('pointerout', () => button.setStyle({ fill: '#fff' }));
+        
+        // Make sure it's on top of other elements
+        button.setDepth(1000);
+        
+        return button;
     }
 } 

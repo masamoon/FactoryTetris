@@ -17,14 +17,14 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         // Override base machine properties with processor-specific values
         this.id = 'advanced-processor';
         this.name = 'Advanced Processor';
-        this.description = 'Combines Products A and B with coal to create Product C';
+        this.description = 'Combines basic and advanced resources';
         this.shape = [
             [0, 1, 0],
             [1, 1, 1],
             [0, 1, 0]
         ]; // Cross-shape Tetris piece
-        this.inputTypes = ['product-a', 'product-b', 'coal'];
-        this.outputTypes = ['product-c'];
+        this.inputTypes = ['basic-resource', 'advanced-resource'];
+        this.outputTypes = ['advanced-resource'];
         this.processingTime = 5000; // 5 seconds
         this.defaultDirection = 'down';
         
@@ -32,9 +32,8 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         this.isProcessing = false;
         this.processingProgress = 0;
         this.requiredInputs = {
-            'product-a': 1,
-            'product-b': 1,
-            'coal': 1
+            'basic-resource': 1,
+            'advanced-resource': 1
         };
         
         // Apply shape rotation if needed
@@ -63,11 +62,12 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             return;
         }
         
-        // Calculate world position for the top-left corner of the machine
+        // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
-        // Create container for machine parts
+        // Create container for machine parts at the cell center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
+        console.log(`[AdvancedProcessorMachine] Created container at world position (${worldPos.x}, ${worldPos.y})`);
         
         // Store references to input and output squares
         this.inputSquare = null;
@@ -106,13 +106,21 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         // Calculate cell size for consistent sizing
         const cellSize = this.grid.cellSize;
         
+        // Calculate the shape center in terms of cells
+        const shapeCenterX = (this.shape[0].length - 1) / 2;
+        const shapeCenterY = (this.shape.length - 1) / 2;
+        
+        console.log(`[AdvancedProcessorMachine] Shape center: (${shapeCenterX}, ${shapeCenterY})`);
+        
         // Create machine parts based on shape
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
-                    // Calculate part position relative to top-left corner
-                    const partX = x * cellSize + cellSize / 2;
-                    const partY = y * cellSize + cellSize / 2;
+                    // Calculate part position relative to container center (0,0)
+                    const partX = (x - shapeCenterX) * cellSize;
+                    const partY = (y - shapeCenterY) * cellSize;
+                    
+                    console.log(`[AdvancedProcessorMachine] Part at shape(${x},${y}) -> relative(${partX},${partY})`);
                     
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
@@ -157,12 +165,8 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             }
         }
         
-        // Calculate the machine center for indicators and labels
-        const centerX = (this.shape[0].length * cellSize) / 2;
-        const centerY = (this.shape.length * cellSize) / 2;
-        
-        // Add machine type indicator at the center of the machine
-        const machineLabel = this.scene.add.text(centerX, centerY, "C", {
+        // Add machine type indicator at the center of the machine (0,0)
+        const machineLabel = this.scene.add.text(0, 0, "C", {
             fontFamily: 'Arial',
             fontSize: 14,
             color: '#ffffff'
@@ -171,8 +175,8 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         
         // Add processing progress bar
         this.progressBar = this.scene.add.rectangle(
-            centerX, 
-            centerY + cellSize / 4, 
+            0, 
+            cellSize / 4, 
             cellSize - 10, 
             4, 
             0x00ff00
@@ -182,41 +186,57 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         
         // Add direction indicator if not a cargo loader
         if (this.direction !== 'none') {
-            this.directionIndicator = this.createDirectionIndicator(centerX, centerY);
+            // Create the direction indicator as part of the container, not in the scene
+            const indicatorColor = 0xff9500;
+            
+            this.directionIndicator = this.scene.add.triangle(
+                0,      // Center relative to container (x=0)
+                0,      // Center relative to container (y=0)
+                -4, -6, // left top
+                -4, 6,  // left bottom
+                8, 0,   // right point
+                indicatorColor
+            ).setOrigin(0.5, 0.5);
+            
+            // Add the indicator to the container instead of directly to the scene
             this.container.add(this.directionIndicator);
+            
+            // Rotate based on direction
+            switch (this.direction) {
+                case 'right':
+                    this.directionIndicator.rotation = 0; // Point right (0 degrees)
+                    break;
+                case 'down':
+                    this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
+                    break;
+                case 'left':
+                    this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
+                    break;
+                case 'up':
+                    this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                    break;
+            }
+            
+            console.log(`[AdvancedProcessorMachine] Direction indicator created in container with direction ${this.direction}`);
         }
         
         // Add placement animation
         this.addPlacementAnimation();
-        
-        // Adjust container position based on shape and rotation
-        this.adjustContainerPosition();
     }
     
     /**
      * Adjust the container position based on the shape and rotation
      */
     adjustContainerPosition() {
-        const cellSize = this.grid.cellSize;
+        // Skip adjustment completely - our container position is already correct
+        // Container is positioned at the grid cell center and all parts are relative to it
         
-        // Adjust based on rotation
-        switch (this.direction) {
-            case 'right': // Default cross shape
-                // No adjustment needed for right
-                break;
-            case 'down': // Rotated 90 degrees clockwise
-                // For down rotation of cross shape
-                break;
-            case 'left': // Rotated 180 degrees
-                // For left rotation of cross shape
-                break;
-            case 'up': // Rotated 270 degrees clockwise (90 counter-clockwise)
-                // For up rotation of cross shape
-                break;
-        }
+        // Log that we're not making any adjustments
+        const originalX = this.container.x;
+        const originalY = this.container.y;
         
-        // Don't apply rotation to the container since we're using rotated shapes from the grid
-        // The input/output positions are handled based on direction
+        console.log(`[AdvancedProcessorMachine] adjustContainerPosition - SKIPPED. Container remains at (${originalX}, ${originalY})`);
+        console.log(`[AdvancedProcessorMachine] Using center-relative positioning for all parts, no adjustment needed.`);
     }
     
     /**
@@ -240,24 +260,24 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         // Base machine body
         const cellSize = 24; // Use a smaller size for previews
         
-        // Calculate dimensions
-        const width = shape[0].length * cellSize;
-        const height = shape.length * cellSize;
+        // Calculate the shape center in terms of cells (same as in createVisuals)
+        const shapeCenterX = (shape[0].length - 1) / 2;
+        const shapeCenterY = (shape.length - 1) / 2;
         
-        // Draw each cell based on the shape
+        // Draw each cell based on the shape using center-relative positioning
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[0].length; x++) {
                 if (shape[y][x] === 1) {
-                    // Calculate position
-                    const cellX = (x * cellSize) - (width / 2) + (cellSize / 2);
-                    const cellY = (y * cellSize) - (height / 2) + (cellSize / 2);
+                    // Calculate position relative to center (0,0) - same formula as createVisuals
+                    const cellX = (x - shapeCenterX) * cellSize;
+                    const cellY = (y - shapeCenterY) * cellSize;
                     
                     // Determine if this is an input or output cell
-                    let color = 0x4a6fb5; // Default blue
+                    let color = 0x44ff44; // Default green color (same as when dragging)
                     
                     // Input is on the left of the middle row
                     if (x === 0 && y === 1) {
-                        color = 0x0055ff; // Bright blue for input
+                        color = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         // Add a visual indicator for input
                         const inputIndicator = scene.add.text(cellX, cellY, "IN", {
                             fontFamily: 'Arial',
@@ -267,8 +287,8 @@ export default class AdvancedProcessorMachine extends BaseMachine {
                         container.add(inputIndicator);
                     } 
                     // Output is on the right of the middle row
-                    else if (x === shape[0].length - 1 && y === 1) {
-                        color = 0xff3300; // Bright orange/red for output
+                    else if (x === 2 && y === 1) {
+                        color = 0xffa520; // Brighter orange for output (same as when dragging)
                         // Add a visual indicator for output
                         const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
                             fontFamily: 'Arial',
@@ -277,9 +297,9 @@ export default class AdvancedProcessorMachine extends BaseMachine {
                         }).setOrigin(0.5);
                         container.add(outputIndicator);
                     }
-                    // Center piece is a different color
+                    // Center piece
                     else if (x === 1 && y === 1) {
-                        color = 0xff5500; // Reddish-orange for the center
+                        color = 0xffaa44; // Brighter reddish-orange for the center
                     }
                     
                     const rect = scene.add.rectangle(cellX, cellY, cellSize - 2, cellSize - 2, color);
@@ -289,7 +309,7 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             }
         }
         
-        // Add a simple label
+        // Add a simple label at the center (0,0)
         const label = scene.add.text(0, 0, "C", {
             fontFamily: 'Arial',
             fontSize: 14,
@@ -297,9 +317,9 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         }).setOrigin(0.5);
         container.add(label);
         
-        // Add a simple direction indicator (pointing right by default)
+        // Add a simple direction indicator (pointing right by default) at the center
         const directionIndicator = scene.add.triangle(
-            width / 2 - cellSize / 2, 0,
+            0, 0,  // Center of container
             -4, -6,
             -4, 6,
             8, 0,
@@ -354,7 +374,7 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         }
         
         // Check if there's room in the output inventory
-        if (this.outputInventory['product-c'] >= 3) { // Limit output storage
+        if (this.outputInventory['advanced-resource'] >= 3) { // Limit output storage
             return false;
         }
         
@@ -392,7 +412,7 @@ export default class AdvancedProcessorMachine extends BaseMachine {
      */
     completeProcessing() {
         // Add the product to the output inventory
-        this.outputInventory['product-c']++;
+        this.outputInventory['advanced-resource']++;
         
         // Reset processing state
         this.isProcessing = false;
@@ -403,6 +423,6 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             this.progressBar.scaleX = 0;
         }
         
-        console.log('Advanced Processor completed processing, produced 1 product-c');
+        console.log('Advanced Processor completed processing, produced 1 advanced-resource');
     }
 } 

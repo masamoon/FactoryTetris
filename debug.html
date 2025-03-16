@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factory Tetris Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .debug-panel {
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-panel">
+        <h1>Factory Tetris Debug Panel</h1>
+        <p>Use the buttons below to test different aspects of the game:</p>
+        
+        <button id="startGame">Start Game</button>
+        <button id="placeMachine">Place Machine at (5,5)</button>
+        <button id="checkGrids">Check Grid Properties</button>
+        
+        <h2>Console Output:</h2>
+        <pre id="output">Waiting for actions...</pre>
+    </div>
+
+    <script>
+        // Helper function to append to output
+        function log(message) {
+            const output = document.getElementById('output');
+            output.textContent += '\n' + message;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // Start Game button
+        document.getElementById('startGame').addEventListener('click', function() {
+            log('Opening game in new tab...');
+            window.open('http://localhost:8084', '_blank');
+        });
+
+        // Place Machine button
+        document.getElementById('placeMachine').addEventListener('click', function() {
+            log('Attempting to place machine via console...');
+            
+            // Create a function to inject into the game page
+            const scriptToInject = `
+                (function() {
+                    console.log('[DEBUG INJECT] Attempting to place machine directly');
+                    
+                    // Get the game instance
+                    const game = window.game;
+                    if (game && game.scene.scenes) {
+                        // Find the GameScene
+                        const gameScene = game.scene.scenes.find(scene => scene.constructor.name === 'GameScene');
+                        if (gameScene) {
+                            console.log('[DEBUG INJECT] Found GameScene');
+                            
+                            // Create a proper machine type object
+                            const machineType = { id: 'processor-a' };
+                            
+                            // Try to place a processor-a machine at position (5, 5) with rotation 0
+                            try {
+                                const success = gameScene.placeMachine(machineType, 5, 5, 0);
+                                console.log('[DEBUG INJECT] Machine placement result:', success);
+                                return 'Machine placement attempted: ' + (success ? 'SUCCESS' : 'FAILED');
+                            } catch (error) {
+                                console.error('[DEBUG INJECT] Error placing machine:', error);
+                                return 'Error placing machine: ' + error.message;
+                            }
+                        } else {
+                            console.error('[DEBUG INJECT] GameScene not found');
+                            return 'GameScene not found';
+                        }
+                    } else {
+                        console.error('[DEBUG INJECT] Game instance not found');
+                        return 'Game instance not found';
+                    }
+                })();
+            `;
+            
+            // Open a new window and inject the script
+            const gameWindow = window.open('http://localhost:8084', '_blank');
+            
+            // Wait for the game to load before injecting
+            setTimeout(() => {
+                try {
+                    gameWindow.eval(scriptToInject);
+                    log('Script injected into game window');
+                } catch (error) {
+                    log('Error injecting script: ' + error.message);
+                }
+            }, 5000);
+        });
+
+        // Check Grid Properties button
+        document.getElementById('checkGrids').addEventListener('click', function() {
+            log('Checking grid properties via console...');
+            
+            // Create a function to inject into the game page
+            const scriptToInject = `
+                (function() {
+                    console.log('[DEBUG INJECT] Checking grid properties');
+                    
+                    // Get the game instance
+                    const game = window.game;
+                    if (game && game.scene.scenes) {
+                        // Find the GameScene
+                        const gameScene = game.scene.scenes.find(scene => scene.constructor.name === 'GameScene');
+                        if (gameScene) {
+                            console.log('[DEBUG INJECT] Found GameScene');
+                            
+                            // Check grid properties
+                            const gridProps = {
+                                grid: gameScene.grid ? 'exists' : 'missing',
+                                factoryGrid: gameScene.factoryGrid ? 'exists' : 'missing',
+                                gridEqualsFactoryGrid: gameScene.grid === gameScene.factoryGrid ? 'yes' : 'no'
+                            };
+                            
+                            console.log('[DEBUG INJECT] Grid properties:', gridProps);
+                            return JSON.stringify(gridProps, null, 2);
+                        } else {
+                            console.error('[DEBUG INJECT] GameScene not found');
+                            return 'GameScene not found';
+                        }
+                    } else {
+                        console.error('[DEBUG INJECT] Game instance not found');
+                        return 'Game instance not found';
+                    }
+                })();
+            `;
+            
+            // Open a new window and inject the script
+            const gameWindow = window.open('http://localhost:8084', '_blank');
+            
+            // Wait for the game to load before injecting
+            setTimeout(() => {
+                try {
+                    gameWindow.eval(scriptToInject);
+                    log('Script injected into game window');
+                } catch (error) {
+                    log('Error injecting script: ' + error.message);
+                }
+            }, 5000);
+        });
+
+        // Initial log
+        log('Debug panel initialized. Click a button to begin testing.');
+    </script>
+</body>
+</html> 

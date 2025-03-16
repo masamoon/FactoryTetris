@@ -3,38 +3,83 @@ import { GAME_CONFIG } from '../config/gameConfig';
 
 export default class Machine {
     constructor(scene, config) {
-        this.scene = scene;
-        this.grid = config.grid;
-        this.gridX = config.x;
-        this.gridY = config.y;
-        this.type = config.type;
-        this.rotation = config.rotation || 0;
-        this.shape = config.shape || this.grid.getRotatedShape(this.type.shape, this.rotation);
-        
-        // Machine state
-        this.inputInventory = {};
-        this.outputInventory = {};
-        this.processingTime = 0;
-        this.isProcessing = false;
-        this.direction = this.getDirectionFromRotation(this.rotation);
-        
-        // Initialize inventories
-        this.type.inputTypes.forEach(type => {
-            this.inputInventory[type] = 0;
-        });
-        
-        this.type.outputTypes.forEach(type => {
-            this.outputInventory[type] = 0;
-        });
-        
-        // Resource visualization
-        this.resourceSprites = {
-            input: [],
-            output: []
-        };
-        
-        // Create visual representation
-        this.createVisuals();
+        try {
+            this.scene = scene;
+            
+            // Store configuration values safely
+            this.grid = config.grid;
+            this.gridX = config.x !== undefined ? config.x : 0;
+            this.gridY = config.y !== undefined ? config.y : 0;
+            this.type = config.type;
+            this.rotation = config.rotation !== undefined ? config.rotation : 0;
+            this.direction = config.direction || this.getDirectionFromRotation(this.rotation);
+            
+            // Validate grid and required properties
+            if (!this.grid) {
+                console.error('[MACHINE] Missing grid reference');
+                throw new Error('Missing grid reference in Machine constructor');
+            }
+            
+            if (!this.type) {
+                console.error('[MACHINE] Missing machine type');
+                throw new Error('Missing machine type in Machine constructor');
+            }
+            
+            // Handle preset position if provided
+            if (config.presetPosition) {
+                this.presetPosition = config.presetPosition;
+                console.log(`[MACHINE] Using preset position: (${this.presetPosition.x}, ${this.presetPosition.y})`);
+            }
+            
+            // Get the shape based on rotation
+            try {
+                if (this.type.shape) {
+                    this.shape = config.shape || this.grid.getRotatedShape(this.type.shape, this.rotation);
+                } else {
+                    console.error('[MACHINE] Missing machine shape in type definition');
+                    throw new Error('Missing shape in machine type');
+                }
+            } catch (shapeError) {
+                console.error('[MACHINE] Error getting rotated shape:', shapeError);
+                // Use a fallback shape (1x1) if there's an error
+                this.shape = [[1]];
+            }
+            
+            // Machine state
+            this.inputInventory = {};
+            this.outputInventory = {};
+            this.processingTime = 0;
+            this.isProcessing = false;
+            
+            // Initialize inventories if input/output types are defined
+            if (this.type.inputTypes && Array.isArray(this.type.inputTypes)) {
+                this.type.inputTypes.forEach(type => {
+                    this.inputInventory[type] = 0;
+                });
+            } else {
+                this.inputInventory = {}; // Empty inventory if no types defined
+            }
+            
+            if (this.type.outputTypes && Array.isArray(this.type.outputTypes)) {
+                this.type.outputTypes.forEach(type => {
+                    this.outputInventory[type] = 0;
+                });
+            } else {
+                this.outputInventory = {}; // Empty inventory if no types defined
+            }
+            
+            // Resource visualization
+            this.resourceSprites = {
+                input: [],
+                output: []
+            };
+            
+            // Create visual representation
+            this.createVisuals();
+        } catch (error) {
+            console.error('[MACHINE] Error in constructor:', error);
+            throw error; // Re-throw to ensure callers know there was a problem
+        }
     }
     
     getDirectionFromRotation(rotation) {
@@ -84,10 +129,10 @@ export default class Machine {
     }
     
     createVisuals() {
-        // Calculate world position for the top-left corner of the machine
+        // gridToWorld now returns the center of the cell
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
-        // Create container for machine parts
+        // Create container for machine parts at the cell center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
         
         // Store references to input and output squares
@@ -133,27 +178,27 @@ export default class Machine {
                     const partY = y * this.grid.cellSize + this.grid.cellSize / 2;
                     
                     // Determine part color based on whether it's an input, output, or regular part
-                    let partColor = 0x4a6fb5; // Default blue color
+                    let partColor = 0x44ff44; // Default green color (same as when dragging)
                     
                     // For extractors, only color the output
                     if (this.type.id === 'extractor') {
                         if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xd35400; // Darker orange for extractor output
+                            partColor = 0xffa520; // Brighter orange for extractor output (same as when dragging)
                         }
                     } 
                     // For cargo loaders, only color the inputs
                     else if (this.type.id === 'cargo-loader') {
                         // For cargo loader, all sides can be input
                         if ((x === 0 || x === this.shape[0].length - 1 || y === 0 || y === this.shape.length - 1)) {
-                            partColor = 0x3498db; // Blue for input
+                            partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         }
                     }
                     // For all other machines with direction
                     else if (this.type.direction !== 'none') {
                         if (x === inputPos.x && y === inputPos.y) {
-                            partColor = 0x3498db; // Blue for input
+                            partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         } else if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xff9500; // Orange for output
+                            partColor = 0xffa520; // Brighter orange for output (same as when dragging)
                         }
                     }
                     
@@ -220,7 +265,7 @@ export default class Machine {
             -4, -6,  // left top
             -4, 6,   // left bottom
             8, 0,    // right point
-            0xff9500  // Orange color
+            0xffa520  // Brighter orange color (same as when dragging)
         );
         
         // Create a container for the triangle at the specified position
@@ -342,21 +387,13 @@ export default class Machine {
             // Highlight the machine
             this.container.list.forEach(part => {
                 if (part.type === 'Rectangle' && part !== this.progressBar && !part.isResourceIndicator) {
-                    // Don't change color of input/output squares
-                    if (part === this.inputSquare || part === this.outputSquare) {
-                        // Just make them slightly brighter
-                        if (part === this.inputSquare) {
-                            part.fillColor = 0x4aa8eb; // Brighter blue for input
-                        } else {
-                            // For extractor output, use a brighter version of the darker orange
-                            if (this.type.id === 'extractor') {
-                                part.fillColor = 0xff6b22; // Brighter dark orange
-                            } else {
-                                part.fillColor = 0xffa520; // Regular bright orange
-                            }
-                        }
+                    // Apply the consistent green color scheme
+                    if (part === this.inputSquare) {
+                        part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
+                    } else if (part === this.outputSquare) {
+                        part.fillColor = 0xffa520; // Brighter orange for output (same as when dragging)
                     } else {
-                        part.fillColor = 0x5a8fd5; // Regular highlight color
+                        part.fillColor = 0x44ff44; // Default green (same as when dragging)
                     }
                 }
             });
@@ -369,17 +406,13 @@ export default class Machine {
             // Remove highlight
             this.container.list.forEach(part => {
                 if (part.type === 'Rectangle' && part !== this.progressBar && !part.isResourceIndicator) {
-                    // Restore original colors
+                    // Apply the consistent green color scheme
                     if (part === this.inputSquare) {
-                        part.fillColor = 0x3498db; // Blue for input
+                        part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                     } else if (part === this.outputSquare) {
-                        if (this.type.id === 'extractor') {
-                            part.fillColor = 0xd35400; // Darker orange for extractor output
-                        } else {
-                            part.fillColor = 0xff9500; // Regular orange for output
-                        }
+                        part.fillColor = 0xffa520; // Brighter orange for output (same as when dragging)
                     } else {
-                        part.fillColor = 0x4a6fb5; // Default blue
+                        part.fillColor = 0x44ff44; // Default green (same as when dragging)
                     }
                 }
             });
@@ -400,8 +433,8 @@ export default class Machine {
         // Remove existing tooltip if any
         this.hideTooltip();
         
-        // Calculate the center position of the machine
-        const centerX = this.container.x + (this.shape[0].length * this.grid.cellSize) / 2;
+        // Calculate the center position of the machine - use direct container position
+        const centerX = this.container.x;
         const centerY = this.container.y - 40; // Position above the machine
         
         // Create tooltip background
@@ -461,6 +494,10 @@ export default class Machine {
             background: tooltipBg,
             text: tooltipText
         };
+        
+        // Set tooltip depth to ensure it appears above other objects
+        tooltipBg.setDepth(1000);
+        tooltipText.setDepth(1001);
     }
     
     // Hide tooltip
@@ -868,15 +905,15 @@ export default class Machine {
     }
     
     createResourceTransferEffect(resourceType, targetMachine) {
-        // Get source and target positions
+        // Get source and target positions - containers are already centered
         const sourcePos = {
-            x: this.container.x + (this.shape[0].length * this.grid.cellSize) / 2,
-            y: this.container.y + (this.shape.length * this.grid.cellSize) / 2
+            x: this.container.x,
+            y: this.container.y
         };
         
         const targetPos = {
-            x: targetMachine.container.x + (targetMachine.shape[0].length * this.grid.cellSize) / 2,
-            y: targetMachine.container.y + (targetMachine.shape.length * this.grid.cellSize) / 2
+            x: targetMachine.container.x,
+            y: targetMachine.container.y
         };
         
         // Create resource particle
@@ -948,14 +985,13 @@ export default class Machine {
                 }
                 
                 // Create a blue triangle pointing inward
-                // By default, the triangle points RIGHT (same as direction indicator)
                 const inputTriangle = this.scene.add.triangle(
                     0, 
                     0, 
                     -4, -6,  // left top
                     -4, 6,   // left bottom
                     8, 0,    // right point
-                    0x3498db  // Blue color
+                    0x4aa8eb  // Brighter blue color (same as when dragging)
                 ).setOrigin(0.5, 0.5);
                 
                 // Add a small circle at the base for better visibility
@@ -963,7 +999,7 @@ export default class Machine {
                     0,
                     0,
                     4,
-                    0x3498db  // Blue color
+                    0x4aa8eb  // Brighter blue color (same as when dragging)
                 ).setOrigin(0.5, 0.5);
                 
                 // Create a container for both shapes

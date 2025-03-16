@@ -19,8 +19,8 @@ export default class ConveyorMachine extends BaseMachine {
         this.name = 'Conveyor Belt';
         this.description = 'Transports resources between machines';
         this.shape = [[1]]; // 1x1 shape
-        this.inputTypes = ['raw-resource', 'copper-ore', 'iron-ore', 'coal', 'product-a', 'product-b', 'product-c'];
-        this.outputTypes = ['raw-resource', 'copper-ore', 'iron-ore', 'coal', 'product-a', 'product-b', 'product-c'];
+        this.inputTypes = ['basic-resource', 'advanced-resource'];
+        this.outputTypes = ['basic-resource', 'advanced-resource'];
         this.processingTime = 1000; // 1 second
         this.defaultDirection = 'right';
         
@@ -55,15 +55,15 @@ export default class ConveyorMachine extends BaseMachine {
             return;
         }
         
-        // Calculate world position for the top-left corner of the machine
+        // gridToWorld now returns the center of the cell
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         
-        // Create container for machine parts
+        // Create container for machine parts positioned at the center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
         
-        // Create the conveyor base
-        const centerX = this.grid.cellSize / 2;
-        const centerY = this.grid.cellSize / 2;
+        // Create the conveyor base - parts are now positioned relative to the center (0,0)
+        const centerX = 0;
+        const centerY = 0;
         
         // Create the conveyor base (slightly darker blue)
         const base = this.scene.add.rectangle(
@@ -71,7 +71,7 @@ export default class ConveyorMachine extends BaseMachine {
             centerY, 
             this.grid.cellSize - 4, 
             this.grid.cellSize - 4, 
-            0x3a5fa5
+            0x44ff44  // Updated to green to match our color scheme
         );
         this.container.add(base);
         
@@ -134,8 +134,42 @@ export default class ConveyorMachine extends BaseMachine {
         this.container.add(roller2);
         
         // Add direction indicator
-        this.directionIndicator = this.createDirectionIndicator(centerX, centerY);
-        this.container.add(this.directionIndicator);
+        // Get the absolute position of the machine in the world
+        const absoluteX = this.container.x;
+        const absoluteY = this.container.y;
+        
+        // Create the direction indicator directly in the scene, not in the container
+        const indicatorColor = 0xff9500;
+        
+        this.directionIndicator = this.scene.add.triangle(
+            absoluteX,  // Place exactly at machine center X
+            absoluteY,  // Place exactly at machine center Y
+            -4, -6,     // left top
+            -4, 6,      // left bottom
+            8, 0,       // right point
+            indicatorColor
+        ).setOrigin(0.5, 0.5);
+        
+        // Rotate based on direction
+        switch (this.direction) {
+            case 'right':
+                this.directionIndicator.rotation = 0; // Point right (0 degrees)
+                break;
+            case 'down':
+                this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
+                break;
+            case 'left':
+                this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
+                break;
+            case 'up':
+                this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                break;
+        }
+        
+        // Set the depth to ensure it appears above the machine
+        this.directionIndicator.setDepth(this.container.depth + 1);
+        
+        console.log(`Direction indicator created at absolute position (${absoluteX}, ${absoluteY})`);
         
         // Add machine type indicator
         const machineLabel = this.scene.add.text(centerX, centerY, 'C', {
@@ -150,45 +184,6 @@ export default class ConveyorMachine extends BaseMachine {
         
         // Add interactive features
         this.addInteractivity();
-    }
-    
-    /**
-     * Create a direction indicator for the conveyor
-     * @param {number} centerX - X coordinate of the center of the machine
-     * @param {number} centerY - Y coordinate of the center of the machine
-     * @returns {Phaser.GameObjects.Container} The direction indicator container
-     */
-    createDirectionIndicator(centerX, centerY) {
-        // Create a triangle pointing in the direction of output
-        const indicator = this.scene.add.triangle(
-            0, 
-            0, 
-            -4, -6,  // left top
-            -4, 6,   // left bottom
-            8, 0,    // right point
-            0xff9500  // Orange color
-        ).setOrigin(0.5, 0.5);
-        
-        // Create a container for the triangle at the specified position
-        const container = this.scene.add.container(centerX, centerY, [indicator]);
-        
-        // Rotate based on direction
-        switch (this.direction) {
-            case 'right':
-                container.rotation = 0; // Point right (0 degrees)
-                break;
-            case 'down':
-                container.rotation = Math.PI / 2; // Point down (90 degrees)
-                break;
-            case 'left':
-                container.rotation = Math.PI; // Point left (180 degrees)
-                break;
-            case 'up':
-                container.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
-                break;
-        }
-        
-        return container;
     }
     
     /**
@@ -314,15 +309,15 @@ export default class ConveyorMachine extends BaseMachine {
         // Get resource color from config
         const resourceColor = GAME_CONFIG.resourceColors[resourceType] || 0xffffff;
         
-        // Calculate start and end positions - use the center of the cells
+        // Calculate start and end positions - gridToWorld now returns the center of the cell
         const startWorldPos = this.grid.gridToWorld(this.gridX, this.gridY);
         const endWorldPos = this.grid.gridToWorld(targetMachine.gridX, targetMachine.gridY);
         
-        // Add half a cell size to get to the center of the cell
-        const startX = startWorldPos.x + this.grid.cellSize / 2;
-        const startY = startWorldPos.y + this.grid.cellSize / 2;
-        const endX = endWorldPos.x + this.grid.cellSize / 2;
-        const endY = endWorldPos.y + this.grid.cellSize / 2;
+        // No need to add half cell size since gridToWorld now returns the center
+        const startX = startWorldPos.x;
+        const startY = startWorldPos.y;
+        const endX = endWorldPos.x;
+        const endY = endWorldPos.y;
         
         // Create a small circle representing the resource
         const resourceSprite = this.scene.add.circle(startX, startY, 5, resourceColor);

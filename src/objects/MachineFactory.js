@@ -30,7 +30,9 @@ export default class MachineFactory {
         this.scene.input.on('pointermove', this.updateGhostPosition, this);
         
         // Listen for pointer down to place machine
-        this.scene.input.on('pointerdown', this.handlePlaceMachine, this);
+        this.scene.input.on('pointerdown', (pointer) => {
+            this.handlePlaceMachine(pointer);
+        }, this);
     }
     
     createVisuals() {
@@ -48,7 +50,7 @@ export default class MachineFactory {
         this.container.add(this.previewArea);
         
         // Add a title for the machine selection panel
-        const title = this.scene.add.text(
+        /*const title = this.scene.add.text(
             0, 
             -this.height / 2 + 15, 
             "MACHINE SELECTION", 
@@ -59,14 +61,14 @@ export default class MachineFactory {
                 fontStyle: 'bold'
             }
         ).setOrigin(0.5);
-        this.container.add(title);
+        this.container.add(title);*/
         
         // Create a container for the machine previews
         this.scrollContainer = this.scene.add.container(0, 0);
         this.container.add(this.scrollContainer);
         
         // Add some factory decorations
-        this.addDecorations();
+        //this.addDecorations();
     }
     
     addDecorations() {
@@ -99,7 +101,31 @@ export default class MachineFactory {
     }
     
     update() {
-        // Nothing to update for now
+        // Skip update if no machine is selected
+        if (!this.selectedMachineType) {
+            return;
+        }
+        
+        // Get the active pointer
+        const pointer = this.scene.input.activePointer;
+        
+        // Only update placement preview if the pointer is over the game area
+        if (!this.isPointerOverUI(pointer) && pointer.worldX && pointer.worldY) {
+            // Call updatePlacementPreview with the selected machine type
+            if (this.scene.updatePlacementPreview) {
+                // Create a dummy machine object for the preview
+                const previewMachine = {
+                    id: this.selectedMachineType.id,
+                    type: this.selectedMachineType.id,
+                    shape: this.selectedMachineType.shape,
+                    direction: this.selectedMachineType.direction || 'right',
+                    rotation: this.selectedMachineType.rotation || 0,
+                    machineType: this.selectedMachineType
+                };
+                
+                this.scene.updatePlacementPreview(previewMachine);
+            }
+        }
     }
     
     createMachineSelectionPanel() {
@@ -111,11 +137,15 @@ export default class MachineFactory {
             machineConfigs : 
             GAME_CONFIG.machineTypes;
         
+        // Reset availableMachines to ensure clean state
+        this.availableMachines = [];
+        
         // Calculate the number of machines per row
         const machinesPerRow = 3;
         const spacing = 80;
         const startX = -(machinesPerRow - 1) * spacing / 2;
-        const startY = -this.height / 4;
+        const startY = -this.height -25;
+        
         
         // Create machine previews
         machineTypes.forEach((machineType, index) => {
@@ -174,7 +204,23 @@ export default class MachineFactory {
                 this.selectMachineType(machineType);
             });
             
-            // Add to available machines
+            // Apply consistent colors to the preview
+            if (machinePreview.list) {
+                machinePreview.list.forEach(part => {
+                    if (part.type === 'Rectangle' && !part.isResourceIndicator) {
+                        // Apply consistent color scheme
+                        if (part === machinePreview.inputSquare) {
+                            part.fillColor = 0x4aa8eb; // Brighter blue for input
+                        } else if (part === machinePreview.outputSquare) {
+                            part.fillColor = 0xffa520; // Brighter orange for output
+                        } else {
+                            part.fillColor = 0x44ff44; // Default green
+                        }
+                    }
+                });
+            }
+            
+            // Add to available machines only using the new structure
             this.availableMachines.push({
                 preview: machinePreview,
                 type: machineType
@@ -195,372 +241,290 @@ export default class MachineFactory {
         return (brightenedR << 16) | (brightenedG << 8) | brightenedB;
     }
     
-    // Select a machine type and create a ghost for placement
+    /**
+     * Select a machine type and create a ghost for placement
+     * @param {Object} machineType - The machine type to select
+     */
     selectMachineType(machineType) {
-        // Clear any existing selection
+        // Deselect any previously selected machine
         this.clearSelection();
         
+        // Double check that the machine type has a proper shape
+        if (!machineType.shape || !Array.isArray(machineType.shape)) {
+            // Set appropriate default shapes based on machine type
+            switch(machineType.id) {
+                case 'extractor':
+                    machineType.shape = [[1, 1], [1, 1]]; // 2x2 shape
+                    break;
+                case 'processor-a':
+                    machineType.shape = [[1, 1, 1], [1, 0, 0]]; // 3x2 shape
+                    break;
+                case 'processor-b':
+                    machineType.shape = [[0, 1, 0], [1, 1, 1]]; // 3x2 shape
+                    break;
+                case 'advanced-processor':
+                    machineType.shape = [[0, 1, 0], [1, 1, 1], [0, 1, 0]]; // 3x3 shape
+                    break;
+                case 'conveyor':
+                    machineType.shape = [[1, 1]]; // 2x1 shape
+                    break;
+                case 'cargo-loader':
+                    machineType.shape = [[1, 1], [1, 1]]; // 2x2 shape
+                    break;
+                default:
+                    machineType.shape = [[1]]; // 1x1 shape as fallback
+            }
+        }
+        
         // Set the selected machine type
-        this.selectedMachineType = machineType.id;
+        this.selectedMachineType = machineType;
         
-        console.log(`Selected machine type: ${machineType.id}`);
+        // REMOVED GHOST MACHINE CREATION - Instead, create placement preview directly
+        // No need to create a ghost machine here, we'll use the scene's placement preview
         
-        // Highlight the selected machine in the UI
-        if (this.availableMachines && Array.isArray(this.availableMachines)) {
-            this.availableMachines.forEach(machineEntry => {
-                // Check if we have the new structure (with preview and type properties)
-                if (machineEntry.preview && machineEntry.type && machineEntry.type.id === machineType.id) {
-                    const preview = machineEntry.preview;
-                    
-                    // Highlight with a green tint
-                    if (preview.list) {
-                        preview.list.forEach(part => {
-                            if (part.type === 'Rectangle' && !part.isResourceIndicator) {
-                                part.fillColor = 0x44ff44; // Green tint
-                            }
-                        });
-                    }
-                    
-                    // Scale up slightly
-                    preview.setScale(1.2);
-                    
-                    // Add a glow effect
-                    if (!preview.glowEffect) {
-                        preview.glowEffect = this.scene.add.graphics();
-                        preview.glowEffect.fillStyle(0x44ff44, 0.3);
-                        const padding = 10;
-                        preview.glowEffect.fillRoundedRect(
-                            preview.x - 30, 
-                            preview.y - 30, 
-                            60, 
-                            60, 
-                            8
-                        );
-                        this.container.add(preview.glowEffect);
-                        preview.glowEffect.setDepth(preview.depth - 1);
-                    }
-                    
-                    // Add a pulse animation
-                    if (!preview.pulseAnimation) {
-                        preview.pulseAnimation = this.scene.tweens.add({
-                            targets: preview,
-                            scaleX: 1.3,
-                            scaleY: 1.3,
-                            duration: 800,
-                            yoyo: true,
-                            repeat: -1,
-                            ease: 'Sine.easeInOut'
-                        });
-                    }
-                }
-                // Handle the old structure (where machineEntry is the machine itself)
-                else if (machineEntry.machineTypeId === machineType.id) {
-                    // Highlight with a green tint
-                    machineEntry.list.forEach(part => {
-                        if (part.type === 'Rectangle' && !part.isResourceIndicator) {
-                            part.fillColor = 0x44ff44; // Green tint
-                        }
-                    });
-                    
-                    // Scale up slightly
-                    machineEntry.setScale(1.2);
-                    
-                    // Add a glow effect
-                    if (!machineEntry.glowEffect) {
-                        machineEntry.glowEffect = this.scene.add.graphics();
-                        machineEntry.glowEffect.fillStyle(0x44ff44, 0.3);
-                        const padding = 10;
-                        machineEntry.glowEffect.fillRoundedRect(
-                            machineEntry.x - (machineEntry.width * machineEntry.scaleX) / 2 - padding,
-                            machineEntry.y - (machineEntry.height * machineEntry.scaleY) / 2 - padding,
-                            machineEntry.width * machineEntry.scaleX + padding * 2,
-                            machineEntry.height * machineEntry.scaleY + padding * 2,
-                            8
-                        );
-                        this.container.add(machineEntry.glowEffect);
-                        machineEntry.glowEffect.setDepth(machineEntry.depth - 1);
-                    }
-                    
-                    // Add a pulse animation
-                    if (!machineEntry.pulseAnimation) {
-                        machineEntry.pulseAnimation = this.scene.tweens.add({
-                            targets: machineEntry,
-                            scaleX: 1.3,
-                            scaleY: 1.3,
-                            duration: 800,
-                            yoyo: true,
-                            repeat: -1,
-                            ease: 'Sine.easeInOut'
-                        });
-                    }
-                    
-                    // Highlight the label
-                    if (machineEntry.label) {
-                        machineEntry.label.setColor('#44ff44');
-                        machineEntry.label.setFontStyle('bold');
-                    }
-                }
+        // Highlight the selected machine preview
+        const machinePreview = this.availableMachines.find(m => m.type.id === machineType.id);
+        if (machinePreview) {
+            machinePreview.preview.setAlpha(1);
+            
+            // Add a selection indicator around the machine
+            const size = this.scene.game.config.width > 1000 ? 40 : 35;
+            const selectionGraphics = this.scene.add.graphics();
+            selectionGraphics.lineStyle(2, 0xffff00, 1);
+            selectionGraphics.strokeRect(-size/2, -size/2, size, size);
+            machinePreview.preview.add(selectionGraphics);
+            this.selectionGraphics = selectionGraphics;
+            
+            // Add a pulsating effect
+            this.scene.tweens.add({
+                targets: selectionGraphics,
+                alpha: { from: 1, to: 0.4 },
+                duration: 800,
+                yoyo: true,
+                repeat: -1
             });
         }
         
-        // Create a ghost machine for placement
-        this.createGhostMachine(machineType);
+        // Notify any listeners (e.g., the scene)
+        this.scene.events.emit('machineSelected', machineType);
         
-        // Add a temporary instruction text
-        if (!this.placementInstruction) {
-            this.placementInstruction = this.scene.add.text(
-                this.scene.cameras.main.width / 2,
-                this.scene.cameras.main.height - 50,
-                "Click to place machine, 'R' to rotate, 'ESC' to cancel",
-                {
-                    fontFamily: 'Arial',
-                    fontSize: 16,
-                    color: '#ffffff',
-                    backgroundColor: '#000000',
-                    padding: { x: 10, y: 5 }
-                }
-            ).setOrigin(0.5);
-            this.placementInstruction.setDepth(1000);
+        // Create placement preview in the scene
+        if (this.scene.createPlacementPreview) {
+            this.scene.createPlacementPreview({
+                id: machineType.id,
+                type: machineType.id,
+                shape: machineType.shape,
+                direction: machineType.defaultDirection || 'right',
+                rotation: 0,
+                machineType: machineType
+            });
         }
     }
     
     // Clear the current selection
     clearSelection() {
-        // Remove highlight from all machines
-        if (this.availableMachines && Array.isArray(this.availableMachines)) {
-            this.availableMachines.forEach(machineEntry => {
-                // Check if we have the new structure (with preview and type properties)
-                if (machineEntry.preview && machineEntry.type) {
-                    const preview = machineEntry.preview;
-                    
-                    // Reset scale
-                    preview.setScale(1);
-                    
-                    // Reset colors if the preview has a list of parts
-                    if (preview.list) {
-                        preview.list.forEach(part => {
-                            if (part.type === 'Rectangle' && !part.isResourceIndicator) {
-                                // Restore original color
-                                if (part === preview.inputSquare) {
-                                    part.fillColor = 0x3498db; // Blue for input
-                                } else if (part === preview.outputSquare) {
-                                    if (machineEntry.type.id === 'extractor') {
-                                        part.fillColor = 0xd35400; // Darker orange for extractor output
-                                    } else {
-                                        part.fillColor = 0xff9500; // Regular orange for output
-                                    }
-                                } else {
-                                    part.fillColor = 0x4a6fb5; // Default blue
-                                }
-                            }
-                        });
-                    }
-                    
-                    // Remove glow effect if it exists
-                    if (preview.glowEffect) {
-                        preview.glowEffect.destroy();
-                        preview.glowEffect = null;
-                    }
-                    
-                    // Stop pulse animation if it exists
-                    if (preview.pulseAnimation) {
-                        this.scene.tweens.remove(preview.pulseAnimation);
-                        preview.pulseAnimation = null;
-                    }
-                } 
-                // Handle the old structure (where machineEntry is the machine itself)
-                else if (machineEntry.list) {
-                    machineEntry.list.forEach(part => {
-                        if (part.type === 'Rectangle' && !part.isResourceIndicator) {
-                            // Restore original color
-                            if (part === machineEntry.inputSquare) {
-                                part.fillColor = 0x3498db; // Blue for input
-                            } else if (part === machineEntry.outputSquare) {
-                                if (machineEntry.machineTypeId === 'extractor') {
-                                    part.fillColor = 0xd35400; // Darker orange for extractor output
-                                } else {
-                                    part.fillColor = 0xff9500; // Regular orange for output
-                                }
-                            } else {
-                                part.fillColor = 0x4a6fb5; // Default blue
-                            }
-                        }
-                    });
-                    
-                    // Reset scale
-                    machineEntry.setScale(1.1);
-                    
-                    // Remove glow effect if it exists
-                    if (machineEntry.glowEffect) {
-                        machineEntry.glowEffect.destroy();
-                        machineEntry.glowEffect = null;
-                    }
-                    
-                    // Stop pulse animation if it exists
-                    if (machineEntry.pulseAnimation) {
-                        this.scene.tweens.remove(machineEntry.pulseAnimation);
-                        machineEntry.pulseAnimation = null;
-                    }
-                    
-                    // Reset label color if it exists
-                    if (machineEntry.label) {
-                        machineEntry.label.setColor('#ffffff');
-                        machineEntry.label.setFontStyle('normal');
-                    }
-                }
-            });
+        // Reset the selected machine type
+        this.selectedMachineType = null;
+        
+        // Reset all machine previews
+        this.availableMachines.forEach(machine => {
+            machine.preview.setAlpha(0.7);
+        });
+        
+        // Remove any selection graphics
+        if (this.selectionGraphics) {
+            this.selectionGraphics.destroy();
+            this.selectionGraphics = null;
         }
         
+        // Remove any existing placement preview
+        if (this.scene.removePlacementPreview) {
+            this.scene.removePlacementPreview();
+        }
+        
+        // Notify the scene about the deselection
+        this.scene.events.emit('machineDeselected');
+    }
+    
+    /**
+     * Create a ghost machine to follow the cursor
+     * @param {Object} machineType - The machine type to create
+     */
+    createGhostMachine(machineType) {
         // Clear any existing ghost machine
         if (this.placementGhost) {
             this.placementGhost.destroy();
             this.placementGhost = null;
         }
         
-        // Clear any existing placement preview
-        if (this.scene.placementPreview) {
-            this.scene.removePlacementPreview();
+        // Create a new ghost container
+        this.placementGhost = this.scene.add.container(0, 0);
+        
+        // Store the machine type for reference
+        this.placementGhost.machineType = machineType;
+        
+        // Make sure the shape is valid
+        if (!machineType.shape || !Array.isArray(machineType.shape)) {
+            machineType.shape = [[1]]; // Fallback to 1x1 shape
         }
         
-        // Clear any existing placement instruction
-        if (this.placementInstruction) {
-            this.placementInstruction.destroy();
-            this.placementInstruction = null;
-        }
+        // Set initial direction from machineType
+        this.placementGhost.direction = machineType.direction || 'right';
+        this.placementGhost.rotation = 0; // Initial rotation in degrees
         
-        // Clear the selected machine type
-        this.selectedMachineType = null;
+        // Set shape properties
+        this.placementGhost.shape = machineType.shape;
+        this.placementGhost.id = machineType.id;
+        this.placementGhost.type = machineType.id;
         
-        console.log('Selection cleared');
-    }
-    
-    // Create a ghost machine for placement
-    createGhostMachine(machineType) {
-        // Remove existing ghost if any
-        if (this.placementGhost) {
-            this.placementGhost.destroy();
-            
-            // Also remove any existing placement preview
-            if (this.scene.placementPreview) {
-                this.scene.removePlacementPreview();
-            }
-        }
+        // Draw the machine shape
+        const cellSize = 32;
+        const shapeWidth = machineType.shape[0].length;
+        const shapeHeight = machineType.shape.length;
         
-        // Create a new ghost machine
-        const pointer = this.scene.input.activePointer;
-        
-        // Try to use the registry to create the preview if available
-        if (this.machineRegistry && this.machineRegistry.hasMachineType(machineType.id)) {
-            this.placementGhost = this.machineRegistry.createMachinePreview(
-                machineType.id,
-                this.scene,
-                0,
-                0
-            );
-        } else {
-            // Fall back to the old method
-            this.placementGhost = this.createMachinePreview(machineType, 0, 0);
-        }
-        
-        if (this.placementGhost) {
-            // Add to scene (not to the UI container)
-            this.scene.add.existing(this.placementGhost);
-            
-            // Set initial position to pointer
-            this.placementGhost.x = pointer.x;
-            this.placementGhost.y = pointer.y;
-            
-            // Make semi-transparent
-            this.placementGhost.alpha = 0.7;
-            
-            // Set a flag to identify this as a ghost
-            this.placementGhost.isGhost = true;
-            
-            // Store the machine type for reference
-            this.placementGhost.machineType = machineType;
-            
-            // Create placement preview
-            this.scene.createPlacementPreview(this.placementGhost);
-            
-            console.log(`Created ghost machine of type ${machineType.id} at position ${pointer.x}, ${pointer.y}`);
-        }
-    }
-    
-    // Update ghost machine position with pointer
-    updateGhostPosition(pointer) {
-        if (this.placementGhost) {
-            // Don't update position if pointer is over the UI
-            if (this.isPointerOverUI(pointer)) {
-                // Make the ghost semi-transparent when over UI
-                this.placementGhost.alpha = 0.3;
-                
-                // Hide placement preview when over UI
-                if (this.scene.placementPreview) {
-                    this.scene.placementPreview.visible = false;
+        for (let y = 0; y < shapeHeight; y++) {
+            for (let x = 0; x < shapeWidth; x++) {
+                if (machineType.shape[y][x] === 1) {
+                    // Calculate position relative to center of shape
+                    const offsetX = (x - (shapeWidth - 1) / 2) * cellSize;
+                    const offsetY = (y - (shapeHeight - 1) / 2) * cellSize;
+                    
+                    // Create cell graphic
+                    const cell = this.scene.add.rectangle(offsetX, offsetY, cellSize - 4, cellSize - 4, 0x44ff44, 0.6);
+                    cell.setStrokeStyle(1, 0xffffff);
+                    this.placementGhost.add(cell);
                 }
-                
-                return;
             }
-            
-            // Restore normal transparency when not over UI
-            this.placementGhost.alpha = 0.7;
-            
-            // Show placement preview when not over UI
-            if (this.scene.placementPreview) {
-                this.scene.placementPreview.visible = true;
-            }
-            
-            // Update position to follow pointer
-            this.placementGhost.x = pointer.x;
-            this.placementGhost.y = pointer.y;
-            
-            // Update placement preview
-            this.scene.updatePlacementPreview(this.placementGhost);
         }
+        
+        // Add direction indicator
+        this.placementGhost.directionIndicator = this.createDirectionIndicator(0, 0, this.placementGhost.direction);
+        this.placementGhost.add(this.placementGhost.directionIndicator);
+        
+        // Initialize rotation to match direction
+        this.updateGhostRotation();
+        
+        // Notify scene that a machine has been selected
+        this.scene.events.emit('machineSelected', machineType);
     }
     
-    // Handle machine placement
-    handlePlaceMachine(pointer) {
-        // First check if pointer is over the UI panel
-        if (this.isPointerOverUI(pointer)) {
-            // If we're clicking on the UI panel, we might be selecting a machine
-            // This is handled by the individual machine's pointerdown event
+    /**
+     * Update the ghost machine position to follow the pointer
+     * @param {Phaser.Input.Pointer} pointer - The pointer to follow
+     */
+    updateGhostPosition(pointer) {
+        // Check if we have a ghost and are in placement mode
+        if (!this.placementGhost || !this.selectedMachineType) {
             return;
         }
         
-        // If we have a ghost machine, try to place it
-        if (this.placementGhost && this.selectedMachineType) {
-            // Check if the machine can be placed
-            if (this.scene.factoryGrid.isInBounds(pointer.x, pointer.y)) {
-                const gridPosition = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+        // Move the ghost to follow the pointer
+        this.placementGhost.x = pointer.x;
+        this.placementGhost.y = pointer.y;
+        
+        // Get grid position
+        if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
+            const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+            if (gridPos) {
+                // Snap to grid
+                const worldPos = this.scene.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
+                this.placementGhost.x = worldPos.x;
+                this.placementGhost.y = worldPos.y;
                 
-                // Get the machine type
-                const machineType = this.placementGhost.machineType;
-                
-                // Get the rotation (default to 0 if not set)
-                const rotation = this.placementGhost.rotation !== undefined ? this.placementGhost.rotation : 0;
-                
-                // Try to place the machine using the scene's placeMachine method
-                const placedMachine = this.scene.placeMachine(
-                    machineType,
-                    gridPosition.x,
-                    gridPosition.y,
-                    rotation
+                // Check if the machine can be placed here
+                const canPlace = this.scene.factoryGrid.canPlaceMachine(
+                    this.selectedMachineType,
+                    gridPos.x,
+                    gridPos.y,
+                    this.placementGhost.rotation || 0
                 );
                 
-                if (placedMachine) {
-                    // Clear the selection after successful placement
-                    this.clearSelection();
-                    
-                    // Set the machine's direction based on rotation
-                    const direction = this.getDirectionFromRotation(rotation);
-                    placedMachine.direction = direction;
-                    console.log(`Machine direction: ${direction}`);
-                    
-                    // Ensure the machine is not selected after placement
-                    if (placedMachine.setSelected) {
-                        placedMachine.setSelected(false);
+                // Update ghost appearance based on placement validity
+                const alpha = canPlace ? 0.8 : 0.4;
+                this.placementGhost.list.forEach(item => {
+                    if (item.type === 'Rectangle' && !item.isDirectionIndicator) {
+                        item.fillColor = canPlace ? 0x44ff44 : 0xff4444;
+                        item.alpha = alpha;
                     }
+                });
+                
+                // Update placement preview if available
+                if (this.scene.updatePlacementPreview) {
+                    // Create a dummy machine with the necessary properties
+                    const previewMachine = {
+                        id: this.selectedMachineType.id,
+                        type: this.selectedMachineType.id,
+                        shape: this.selectedMachineType.shape,
+                        direction: this.placementGhost.direction,
+                        rotation: this.placementGhost.rotation,
+                        machineType: this.selectedMachineType
+                    };
+                    
+                    this.scene.updatePlacementPreview(previewMachine);
+                }
+            }
+        } else {
+            // Pointer is outside the grid
+            this.placementGhost.list.forEach(item => {
+                if (item.type === 'Rectangle' && !item.isDirectionIndicator) {
+                    item.fillColor = 0xff4444;
+                    item.alpha = 0.4;
+                }
+            });
+        }
+    }
+    
+    /**
+     * Handle placing a machine at the pointer's current position
+     * @param {Phaser.Input.Pointer} pointer - The pointer to use for placement
+     */
+    handlePlaceMachine(pointer) {
+        // Check if we have a selected machine type
+        if (!this.selectedMachineType) {
+            return;
+        }
+        
+        // Prevent placing machines over UI elements
+        if (this.isPointerOverUI(pointer)) {
+            return;
+        }
+        
+        // Check if the pointer is over the factory grid
+        if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
+            // Get the grid position from the pointer
+            const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+            if (!gridPos) {
+                return;
+            }
+            
+            // Check if we can place the machine at the grid position
+            const canPlace = this.scene.factoryGrid.canPlaceMachine(
+                this.selectedMachineType,
+                gridPos.x,
+                gridPos.y,
+                this.selectedMachineType.rotation || 0
+            );
+            
+            if (canPlace) {
+                try {
+                    // Place the machine using the scene's placeMachine method
+                    const placedMachine = this.scene.placeMachine(
+                        this.selectedMachineType,
+                        gridPos.x,
+                        gridPos.y,
+                        this.selectedMachineType.rotation || 0
+                    );
+                    
+                    if (placedMachine) {
+                        // Play a placement sound
+                        this.scene.playSound('place');
+                        
+                        // We may NOT want to clear the selection to allow placing multiple machines
+                        // Uncomment the next line to clear selection after placement
+                        // this.clearSelection();
+                    }
+                } catch (error) {
+                    // Error during machine placement
                 }
             }
         }
@@ -625,42 +589,14 @@ export default class MachineFactory {
     // Create a machine preview for display or placement
     createMachinePreview(machineType, xOffset = 0, yOffset = 0) {
         if (!machineType || !machineType.shape) {
-            console.error('Invalid machine type:', machineType);
             return null;
         }
         
-        // Create a container for the machine preview
+        // Get cell size from grid
+        const cellSize = this.scene.factoryGrid ? this.scene.factoryGrid.cellSize : 24;
+        
+        // Create container for preview machine
         const container = this.scene.add.container(xOffset, yOffset);
-        
-        // Store machine type
-        container.machineType = machineType;
-        
-        // Set initial rotation based on the default direction
-        container.direction = machineType.direction;
-        switch (machineType.direction) {
-            case 'right':
-                container.rotation = 0;  // Point right (0 degrees)
-                break;
-            case 'down':
-                container.rotation = Math.PI / 2;  // Point down (90 degrees)
-                break;
-            case 'left':
-                container.rotation = Math.PI;  // Point left (180 degrees)
-                break;
-            case 'up':
-                container.rotation = 3 * Math.PI / 2;  // Point up (270 degrees)
-                break;
-            default:
-                container.rotation = 0;
-                break;
-        }
-        
-        // Calculate cell size based on machine shape
-        const cellSize = 24;
-        
-        // Store references to input and output squares
-        container.inputSquare = null;
-        container.outputSquare = null;
         
         // Determine input and output positions based on direction
         let inputPos = { x: -1, y: -1 };
@@ -692,36 +628,42 @@ export default class MachineFactory {
             }
         }
         
+        // Calculate the shape center in terms of cells
+        const shapeCenterX = (machineType.shape[0].length - 1) / 2;
+        const shapeCenterY = (machineType.shape.length - 1) / 2;
+        
         // Create machine parts based on shape
         for (let y = 0; y < machineType.shape.length; y++) {
             for (let x = 0; x < machineType.shape[y].length; x++) {
                 if (machineType.shape[y][x] === 1) {
-                    // Calculate part position relative to top-left corner
-                    const partX = x * cellSize + cellSize / 2;
-                    const partY = y * cellSize + cellSize / 2;
+                    // Calculate part position relative to center of the machine
+                    const offsetX = (x - shapeCenterX) * cellSize;
+                    const offsetY = (y - shapeCenterY) * cellSize;
+                    const partX = offsetX;
+                    const partY = offsetY;
                     
                     // Determine part color based on whether it's an input, output, or regular part
-                    let partColor = 0x4a6fb5; // Default blue color
+                    let partColor = 0x44ff44; // Default green color
                     
                     // For extractors, only color the output
                     if (machineType.id === 'extractor') {
                         if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xd35400; // Darker orange for extractor output
+                            partColor = 0xffa520; // Brighter orange for extractor output
                         }
                     } 
                     // For cargo loaders, only color the inputs
                     else if (machineType.id === 'cargo-loader') {
                         // For cargo loader, all sides can be input
                         if ((x === 0 || x === machineType.shape[0].length - 1 || y === 0 || y === machineType.shape.length - 1)) {
-                            partColor = 0x3498db; // Blue for input
+                            partColor = 0x4aa8eb; // Brighter blue for input
                         }
                     }
                     // For all other machines with direction
                     else if (machineType.direction !== 'none') {
                         if (x === inputPos.x && y === inputPos.y) {
-                            partColor = 0x3498db; // Blue for input
+                            partColor = 0x4aa8eb; // Brighter blue for input
                         } else if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xff9500; // Orange for output
+                            partColor = 0xffa520; // Brighter orange for output
                         }
                     }
                     
@@ -740,12 +682,9 @@ export default class MachineFactory {
         }
         
         // Add machine type indicator at the center of the machine
-        const centerX = (machineType.shape[0].length * cellSize) / 2;
-        const centerY = (machineType.shape.length * cellSize) / 2;
-        
         const machineLabel = this.scene.add.text(
-            centerX, 
-            centerY, 
+            0, 
+            0, 
             machineType.id.charAt(0).toUpperCase(), 
             {
                 fontFamily: 'Arial',
@@ -757,7 +696,7 @@ export default class MachineFactory {
         
         // Add direction indicator if not a cargo loader
         if (machineType.direction !== 'none') {
-            container.directionIndicator = this.createDirectionIndicator(centerX, centerY, machineType.direction);
+            container.directionIndicator = this.createDirectionIndicator(0, 0, machineType.direction);
             container.add(container.directionIndicator);
         }
         
@@ -772,36 +711,33 @@ export default class MachineFactory {
         // Determine color based on machine type
         let indicatorColor = 0xff9500;  // Default orange color
         
-        // Create a triangle pointing in the direction of output
+        // Create a triangle pointing in the direction of output - directly at the specified position
         const indicator = this.scene.add.triangle(
-            0, 
-            0, 
+            centerX, 
+            centerY, 
             -4, -6,  // left top
             -4, 6,   // left bottom
             8, 0,    // right point
             indicatorColor
         ).setOrigin(0.5, 0.5);
         
-        // Create a container for the triangle at the specified position
-        const container = this.scene.add.container(centerX, centerY, [indicator]);
-        
         // Rotate based on direction
         switch (direction) {
             case 'right':
-                container.rotation = 0; // Point right (0 degrees)
+                indicator.rotation = 0; // Point right (0 degrees)
                 break;
             case 'down':
-                container.rotation = Math.PI / 2; // Point down (90 degrees)
+                indicator.rotation = Math.PI / 2; // Point down (90 degrees)
                 break;
             case 'left':
-                container.rotation = Math.PI; // Point left (180 degrees)
+                indicator.rotation = Math.PI; // Point left (180 degrees)
                 break;
             case 'up':
-                container.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
+                indicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
                 break;
         }
         
-        return container;
+        return indicator;
     }
     
     // Add input and output resource indicators to the machine preview
@@ -879,27 +815,55 @@ export default class MachineFactory {
         // The output indicator is already handled by the direction indicator
     }
     
-    createMachine(type, x, y, rotation = 0) {
-        // Check if we can use the registry to create the machine
-        if (this.machineRegistry.hasMachineType(type.id)) {
+    /**
+     * Creates a machine instance
+     * @param {string|Object} typeOrId - The machine type ID or object
+     * @param {number} gridX - The x coordinate on the grid
+     * @param {number} gridY - The y coordinate on the grid
+     * @param {string} direction - The direction the machine is facing
+     * @param {number} rotation - The rotation of the machine in degrees
+     * @param {Grid} grid - The grid to place the machine on
+     * @param {Object} presetPosition - Optional exact position override
+     * @returns {BaseMachine} The created machine instance
+     */
+    createMachine(typeOrId, gridX, gridY, direction, rotation = 0, grid = null, presetPosition = null) {
+        try {
+            // Determine if we're using the new (ID string) or old (type object) format
+            const isTypeObject = typeof typeOrId === 'object' && typeOrId !== null;
+            const machineTypeId = isTypeObject ? typeOrId.id : typeOrId;
+            
+            // Ensure we have a valid grid reference
+            const gridRef = grid || this.scene.factoryGrid || this.scene.grid;
+            
+            if (!gridRef) {
+                return null;
+            }
+            
+            // Check if the registry has this machine type
+            if (!this.machineRegistry || !this.machineRegistry.hasMachineType(machineTypeId)) {
+                return null;
+            }
+            
+            // Build the configuration with all parameters
+            const config = {
+                grid: gridRef,
+                gridX: gridX,
+                gridY: gridY,
+                direction: direction,
+                rotation: rotation
+            };
+            
+            // Add preset position if provided
+            if (presetPosition) {
+                config.presetPosition = presetPosition;
+            }
+            
             // Use the registry to create the machine
-            return this.machineRegistry.createMachine(type.id, this.scene, {
-                grid: this.scene.grid,
-                x: x,
-                y: y,
-                rotation: rotation
-            });
-        } else {
-            // Fall back to the old method
-            // This will be removed once all machine types are migrated
-            const Machine = require('./Machine').default;
-            return new Machine(this.scene, {
-                grid: this.scene.grid,
-                x: x,
-                y: y,
-                type: type,
-                rotation: rotation
-            });
+            const machine = this.machineRegistry.createMachine(machineTypeId, this.scene, config);
+            
+            return machine;
+        } catch (error) {
+            return null;
         }
     }
 
@@ -1008,6 +972,220 @@ export default class MachineFactory {
         if (this.tooltip) {
             this.tooltip.destroy();
             this.tooltip = null;
+        }
+    }
+    
+    /**
+     * Create a machine of the specified type at the given position
+     * @param {Object} machineType - The machine type to create
+     * @param {number} x - X position for the machine
+     * @param {number} y - Y position for the machine
+     * @returns {Phaser.GameObjects.Container} The created machine
+     */
+    createMachineOfType(machineType, x, y) {
+        // Create the machine using the preview method
+        const machine = this.createMachinePreview(machineType, x, y);
+        
+        if (machine) {
+            // Add to container
+            this.container.add(machine);
+            
+            // Make the preview interactive
+            machine.setInteractive(new Phaser.Geom.Rectangle(
+                -30, -30, 60, 60
+            ), Phaser.Geom.Rectangle.Contains);
+            
+            // Add hover effect
+            machine.on('pointerover', () => {
+                // Scale up slightly
+                machine.setScale(1.1);
+                
+                // Show tooltip with machine info
+                this.showMachineTooltip(machineType, x, y + 40);
+            });
+            
+            machine.on('pointerout', () => {
+                // Reset scale
+                machine.setScale(1);
+                
+                // Hide tooltip
+                this.hideMachineTooltip();
+            });
+            
+            // Add click handler
+            machine.on('pointerdown', () => {
+                // Select this machine type
+                this.selectMachineType(machineType);
+            });
+            
+            // Store in available machines
+            this.availableMachines.push({
+                preview: machine,
+                type: machineType
+            });
+        }
+        
+        return machine;
+    }
+
+    /**
+     * Get machine type information by ID
+     * @param {string} id - The machine type ID
+     * @returns {Object|null} The machine type object or null if not found
+     */
+    getMachineTypeById(id) {
+        try {
+            // Check if we have a machineRegistry
+            if (this.machineRegistry && typeof this.machineRegistry.getMachineConfig === 'function') {
+                // Use the registry to get the machine configuration
+                return this.machineRegistry.getMachineConfig(id);
+            }
+            
+            // Look in the availableMachines array as a fallback
+            if (this.availableMachines && Array.isArray(this.availableMachines)) {
+                for (const machineEntry of this.availableMachines) {
+                    if (machineEntry.type && machineEntry.type.id === id) {
+                        return machineEntry.type;
+                    }
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Updates the ghost machine's rotation to match the selected machine type
+     */
+    updateGhostRotation() {
+        if (!this.placementGhost) {
+            return;
+        }
+        
+        if (!this.selectedMachineType) {
+            return;
+        }
+        
+        // Get the rotation from the selected machine type
+        let rotationDegrees = 0;
+        if (this.selectedMachineType.rotationDegrees !== undefined) {
+            rotationDegrees = this.selectedMachineType.rotationDegrees;
+        } else if (this.selectedMachineType.rotation !== undefined) {
+            // Convert from radians if needed
+            if (this.selectedMachineType.rotation < 10) { // Likely radians
+                rotationDegrees = Math.round(this.selectedMachineType.rotation * 180 / Math.PI);
+            } else { // Already in degrees
+                rotationDegrees = this.selectedMachineType.rotation;
+            }
+        }
+        
+        // Update the ghost's direction based on rotation
+        let direction;
+        switch (rotationDegrees) {
+            case 0:
+                direction = 'right';
+                break;
+            case 90:
+                direction = 'down';
+                break;
+            case 180:
+                direction = 'left';
+                break;
+            case 270:
+                direction = 'up';
+                break;
+            default:
+                direction = 'right'; // Default
+        }
+        
+        this.placementGhost.direction = direction;
+        
+        // Update the direction indicator
+        if (this.placementGhost.directionIndicator) {
+            // Remove the old indicator
+            this.placementGhost.remove(this.placementGhost.directionIndicator);
+            this.placementGhost.directionIndicator.destroy();
+            
+            // Create a new indicator with the updated direction
+            this.placementGhost.directionIndicator = this.createDirectionIndicator(0, 0, direction);
+            this.placementGhost.add(this.placementGhost.directionIndicator);
+        }
+    }
+
+    /**
+     * Rotates the currently selected machine 90 degrees clockwise
+     */
+    rotateMachine() {
+        console.log('[MACHINE_FACTORY] rotateMachine called');
+        
+        // Only rotate if we have a machine type selected
+        if (!this.selectedMachineType) {
+            console.log('[MACHINE_FACTORY] No machine selected to rotate');
+            return;
+        }
+        
+        // Instead of using radians, use degrees directly (0, 90, 180, 270)
+        // Get current rotation in degrees or default to 0
+        let currentRotationDegrees = 0;
+        
+        if (this.selectedMachineType.rotationDegrees !== undefined) {
+            currentRotationDegrees = this.selectedMachineType.rotationDegrees;
+        } else if (this.selectedMachineType.rotation !== undefined) {
+            // Convert from radians if we have that instead
+            if (this.selectedMachineType.rotation < 10) { // Likely radians
+                currentRotationDegrees = Math.round(this.selectedMachineType.rotation * 180 / Math.PI);
+            } else { // Already in degrees
+                currentRotationDegrees = this.selectedMachineType.rotation;
+            }
+        }
+        
+        // Add 90 degrees for clockwise rotation
+        let newRotationDegrees = (currentRotationDegrees + 90) % 360;
+        
+        // Store both radians and degrees for compatibility
+        const newRotationRadians = newRotationDegrees * Math.PI / 180;
+        this.selectedMachineType.rotation = newRotationRadians;
+        this.selectedMachineType.rotationDegrees = newRotationDegrees;
+        
+        // Update direction based on rotation degrees
+        let newDirection;
+        switch (newRotationDegrees) {
+            case 0:
+                newDirection = 'right';
+                break;
+            case 90:
+                newDirection = 'down';
+                break;
+            case 180:
+                newDirection = 'left';
+                break;
+            case 270:
+                newDirection = 'up';
+                break;
+            default:
+                newDirection = 'right'; // Default
+        }
+        
+        this.selectedMachineType.direction = newDirection;
+        
+        // Update the ghost machine's rotation
+        this.updateGhostRotation();
+        
+        // Update the placement preview
+        if (this.scene.updatePlacementPreview) {
+            const previewMachine = {
+                id: this.selectedMachineType.id,
+                type: this.selectedMachineType.id,
+                shape: this.selectedMachineType.shape,
+                direction: this.selectedMachineType.direction,
+                rotation: newRotationDegrees, // Pass rotation in degrees
+                rotationDegrees: newRotationDegrees, // Explicit degrees property
+                machineType: this.selectedMachineType
+            };
+            
+            this.scene.updatePlacementPreview(previewMachine);
         }
     }
 } 
