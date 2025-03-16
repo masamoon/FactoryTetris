@@ -740,7 +740,7 @@ export default class GameScene extends Phaser.Scene {
         };
 
         // Check if we can place the machine here
-        const canPlace = this.factoryGrid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y);
+        const canPlace = this.factoryGrid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y,this.getDirectionFromRotation(machine.rotation));
 
         // Get the world position of the center of the grid cell
         const centerWorldPos = this.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
@@ -1407,6 +1407,7 @@ export default class GameScene extends Phaser.Scene {
             
             // Get the direction from rotation
             const direction = this.getDirectionFromRotation(rotation);
+            console.log(`[DEBUG] Direction: ${direction}`);
             
             // Get the machine type from the factory
             const machineTypeObj = this.machineFactory.getMachineTypeById(machineType.id);
@@ -1430,7 +1431,7 @@ export default class GameScene extends Phaser.Scene {
             // Check if we can place the machine at the current position
             let canPlace = false;
             try {
-                canPlace = this.factoryGrid.canPlaceMachine(machineTypeObj, gridX, gridY, rotation);
+                canPlace = this.factoryGrid.canPlaceMachine(machineTypeObj, gridX, gridY, this.getDirectionFromRotation(rotation));
             } catch (canPlaceError) {
                 canPlace = false;
             }

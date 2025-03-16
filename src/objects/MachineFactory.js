@@ -502,7 +502,7 @@ export default class MachineFactory {
                 this.selectedMachineType,
                 gridPos.x,
                 gridPos.y,
-                this.selectedMachineType.rotation || 0
+                this.selectedMachineType.direction || 0
             );
             
             if (canPlace) {
