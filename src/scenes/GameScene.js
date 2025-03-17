@@ -678,15 +678,6 @@ export default class GameScene extends Phaser.Scene {
             //console.log('[PLACEMENT PREVIEW] No machine to preview');
                 return;
             }
-            
-        // Log the machine object for debugging
-        /*console.log('[PLACEMENT PREVIEW] Machine object:', JSON.stringify({
-            id: machine.id,
-            type: machine.type,
-            shape: machine.shape,
-            direction: machine.direction,
-            rotation: machine.rotation
-        }));*/
 
         // Make sure the machine has a shape, and it's an array
         if (!machine.shape || !Array.isArray(machine.shape)) {
@@ -716,19 +707,15 @@ export default class GameScene extends Phaser.Scene {
                 rotationValue = machine.direction || 'right';
             }
             
-            //console.log(`[PLACEMENT PREVIEW] Using rotation value: ${rotationValue}`);
             rotatedShape = this.factoryGrid.getRotatedShape(machine.shape, rotationValue);
-            
-            // Log the rotated shape
-            //console.log('[PLACEMENT PREVIEW] Rotated shape:', JSON.stringify(rotatedShape));
         } catch (error) {
             console.error('[PLACEMENT PREVIEW] Error getting rotated shape:', error);
             // If we can't get the rotated shape, use the original shape as fallback
             rotatedShape = machine.shape;
         }
             
-            // Get the grid position from the pointer position
-            const gridPos = this.factoryGrid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
+        // Get the grid position from the pointer position
+        const gridPos = this.factoryGrid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
         if (!gridPos) {
             return; // Pointer is outside the grid
         }
@@ -749,13 +736,43 @@ export default class GameScene extends Phaser.Scene {
         const centerWorldPos = this.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
         
         // Update the placement preview marker position
-            if (this.placementPreviewMarker) {
-                this.placementPreviewMarker.clear();
-                this.placementPreviewMarker.lineStyle(2, 0xff0000);
-                this.placementPreviewMarker.strokeCircle(0, 0, 5);
+        if (this.placementPreviewMarker) {
+            this.placementPreviewMarker.clear();
+            this.placementPreviewMarker.lineStyle(2, 0xff0000);
+            this.placementPreviewMarker.strokeCircle(0, 0, 5);
             this.placementPreviewMarker.lineStyle(2, 0x00ff00);
-                this.placementPreviewMarker.strokeCircle(0, 0, 10);
+            this.placementPreviewMarker.strokeCircle(0, 0, 10);
             this.placementPreviewMarker.setPosition(centerWorldPos.x, centerWorldPos.y);
+        }
+        
+        // Determine input and output positions based on direction
+        let inputPos = { x: -1, y: -1 };
+        let outputPos = { x: -1, y: -1 };
+        
+        // Don't set input/output for extractors or cargo loaders
+        if (machine.id !== 'extractor' && machine.id !== 'cargo-loader' && direction !== 'none') {
+            switch (direction) {
+                case 'right':
+                    // Input on left side, output on right side
+                    inputPos = { x: 0, y: Math.floor(rotatedShape.length / 2) };
+                    outputPos = { x: rotatedShape[0].length - 1, y: Math.floor(rotatedShape.length / 2) };
+                    break;
+                case 'down':
+                    // Input on top side, output on bottom side
+                    inputPos = { x: Math.floor(rotatedShape[0].length / 2), y: 0 };
+                    outputPos = { x: Math.floor(rotatedShape[0].length / 2), y: rotatedShape.length - 1 };
+                    break;
+                case 'left':
+                    // Input on right side, output on left side
+                    inputPos = { x: rotatedShape[0].length - 1, y: Math.floor(rotatedShape.length / 2) };
+                    outputPos = { x: 0, y: Math.floor(rotatedShape.length / 2) };
+                    break;
+                case 'up':
+                    // Input on bottom side, output on top side
+                    inputPos = { x: Math.floor(rotatedShape[0].length / 2), y: rotatedShape.length - 1 };
+                    outputPos = { x: Math.floor(rotatedShape[0].length / 2), y: 0 };
+                    break;
+            }
         }
         
         // Use direct positioning instead of offsets
@@ -778,6 +795,28 @@ export default class GameScene extends Phaser.Scene {
                     // Determine cell color based on position in the shape
                     let cellColor = 0x44ff44; // Default green
                     
+                    // Change color for input/output cells
+                    if (machine.id === 'extractor') {
+                        // For extractors, only color the output
+                        if (direction !== 'none' && x === outputPos.x && y === outputPos.y) {
+                            cellColor = 0xffa520; // Brighter orange for extractor output
+                        }
+                    } 
+                    else if (machine.id === 'cargo-loader') {
+                        // For cargo loader, all sides can be input
+                        if ((x === 0 || x === rotatedShape[0].length - 1 || y === 0 || y === rotatedShape.length - 1)) {
+                            cellColor = 0x4aa8eb; // Brighter blue for input
+                        }
+                    }
+                    else if (direction !== 'none') {
+                        // For normal processors
+                        if (x === inputPos.x && y === inputPos.y) {
+                            cellColor = 0x4aa8eb; // Brighter blue for input
+                        } else if (x === outputPos.x && y === outputPos.y) {
+                            cellColor = 0xffa520; // Brighter orange for output
+                        }
+                    }
+                    
                     // Draw the cell directly at its world position
                     this.placementPreview.fillStyle(cellColor, canPlace ? 0.7 : 0.3);
                     this.placementPreview.fillRect(
@@ -786,6 +825,22 @@ export default class GameScene extends Phaser.Scene {
                         this.factoryGrid.cellSize - 4, // Account for 2px margin on each side
                         this.factoryGrid.cellSize - 4  // Account for 2px margin on each side
                     );
+                    
+                    // If this is an input cell, draw 'IN' text
+                    if (x === inputPos.x && y === inputPos.y) {
+                        this.placementPreview.lineStyle(1, 0xffffff, 0.8);
+                        this.placementPreview.fillStyle(0x000000, 0.5);
+                        this.placementPreview.fillCircle(cellWorldPos.x, cellWorldPos.y, 8);
+                        this.placementPreview.strokeCircle(cellWorldPos.x, cellWorldPos.y, 8);
+                    }
+                    
+                    // If this is an output cell, draw 'OUT' text
+                    if (x === outputPos.x && y === outputPos.y) {
+                        this.placementPreview.lineStyle(1, 0xffffff, 0.8);
+                        this.placementPreview.fillStyle(0x000000, 0.5);
+                        this.placementPreview.fillCircle(cellWorldPos.x, cellWorldPos.y, 8);
+                        this.placementPreview.strokeCircle(cellWorldPos.x, cellWorldPos.y, 8);
+                    }
                 }
             }
         }
@@ -794,8 +849,56 @@ export default class GameScene extends Phaser.Scene {
         this.placementPreview.lineStyle(1, 0xffffff, 0.8);
         this.placementPreview.strokeCircle(centerWorldPos.x, centerWorldPos.y, 3);
         
-        // Add more detailed logging
-        //console.log(`[PLACEMENT PREVIEW] Machine center at grid (${gridPos.x}, ${gridPos.y}), world (${centerWorldPos.x}, ${centerWorldPos.y})`);
+        // Draw direction indicator if we have a direction
+        if (direction !== 'none') {
+            const indicatorColor = 0xff9500; // Orange
+            const indicatorSize = this.factoryGrid.cellSize / 3;
+            
+            // Draw a triangle pointing in the direction
+            this.placementPreview.lineStyle(2, indicatorColor, 0.9);
+            this.placementPreview.fillStyle(indicatorColor, 0.7);
+            
+            // Calculate indicator position offset from center
+            let indicatorX = centerWorldPos.x;
+            let indicatorY = centerWorldPos.y;
+            
+            // Create a triangle path for the direction indicator
+            const trianglePath = [];
+            
+            switch (direction) {
+                case 'right':
+                    trianglePath.push({ x: indicatorX + indicatorSize, y: indicatorY });
+                    trianglePath.push({ x: indicatorX - indicatorSize/2, y: indicatorY - indicatorSize/2 });
+                    trianglePath.push({ x: indicatorX - indicatorSize/2, y: indicatorY + indicatorSize/2 });
+                    break;
+                case 'down':
+                    trianglePath.push({ x: indicatorX, y: indicatorY + indicatorSize });
+                    trianglePath.push({ x: indicatorX - indicatorSize/2, y: indicatorY - indicatorSize/2 });
+                    trianglePath.push({ x: indicatorX + indicatorSize/2, y: indicatorY - indicatorSize/2 });
+                    break;
+                case 'left':
+                    trianglePath.push({ x: indicatorX - indicatorSize, y: indicatorY });
+                    trianglePath.push({ x: indicatorX + indicatorSize/2, y: indicatorY - indicatorSize/2 });
+                    trianglePath.push({ x: indicatorX + indicatorSize/2, y: indicatorY + indicatorSize/2 });
+                    break;
+                case 'up':
+                    trianglePath.push({ x: indicatorX, y: indicatorY - indicatorSize });
+                    trianglePath.push({ x: indicatorX - indicatorSize/2, y: indicatorY + indicatorSize/2 });
+                    trianglePath.push({ x: indicatorX + indicatorSize/2, y: indicatorY + indicatorSize/2 });
+                    break;
+            }
+            
+            // Draw the triangle
+            if (trianglePath.length === 3) {
+                this.placementPreview.beginPath();
+                this.placementPreview.moveTo(trianglePath[0].x, trianglePath[0].y);
+                this.placementPreview.lineTo(trianglePath[1].x, trianglePath[1].y);
+                this.placementPreview.lineTo(trianglePath[2].x, trianglePath[2].y);
+                this.placementPreview.closePath();
+                this.placementPreview.fillPath();
+                this.placementPreview.strokePath();
+            }
+        }
     }
     
     // Remove the placement preview

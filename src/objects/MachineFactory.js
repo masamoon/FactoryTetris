@@ -26,9 +26,6 @@ export default class MachineFactory {
         // Create machine selection panel
         this.createMachineSelectionPanel();
         
-        // Listen for pointer move to update ghost machine position
-        this.scene.input.on('pointermove', this.updateGhostPosition, this);
-        
         // Listen for pointer down to place machine
         this.scene.input.on('pointerdown', (pointer) => {
             this.handlePlaceMachine(pointer);
@@ -279,9 +276,6 @@ export default class MachineFactory {
         // Set the selected machine type
         this.selectedMachineType = machineType;
         
-        // REMOVED GHOST MACHINE CREATION - Instead, create placement preview directly
-        // No need to create a ghost machine here, we'll use the scene's placement preview
-        
         // Highlight the selected machine preview
         const machinePreview = this.availableMachines.find(m => m.type.id === machineType.id);
         if (machinePreview) {
@@ -344,134 +338,6 @@ export default class MachineFactory {
         
         // Notify the scene about the deselection
         this.scene.events.emit('machineDeselected');
-    }
-    
-    /**
-     * Create a ghost machine to follow the cursor
-     * @param {Object} machineType - The machine type to create
-     */
-    createGhostMachine(machineType) {
-        // Clear any existing ghost machine
-        if (this.placementGhost) {
-            this.placementGhost.destroy();
-            this.placementGhost = null;
-        }
-        
-        // Create a new ghost container
-        this.placementGhost = this.scene.add.container(0, 0);
-        
-        // Store the machine type for reference
-        this.placementGhost.machineType = machineType;
-        
-        // Make sure the shape is valid
-        if (!machineType.shape || !Array.isArray(machineType.shape)) {
-            machineType.shape = [[1]]; // Fallback to 1x1 shape
-        }
-        
-        // Set initial direction from machineType
-        this.placementGhost.direction = machineType.direction || 'right';
-        this.placementGhost.rotation = 0; // Initial rotation in degrees
-        
-        // Set shape properties
-        this.placementGhost.shape = machineType.shape;
-        this.placementGhost.id = machineType.id;
-        this.placementGhost.type = machineType.id;
-        
-        // Draw the machine shape
-        const cellSize = 32;
-        const shapeWidth = machineType.shape[0].length;
-        const shapeHeight = machineType.shape.length;
-        
-        for (let y = 0; y < shapeHeight; y++) {
-            for (let x = 0; x < shapeWidth; x++) {
-                if (machineType.shape[y][x] === 1) {
-                    // Calculate position relative to center of shape
-                    const offsetX = (x - (shapeWidth - 1) / 2) * cellSize;
-                    const offsetY = (y - (shapeHeight - 1) / 2) * cellSize;
-                    
-                    // Create cell graphic
-                    const cell = this.scene.add.rectangle(offsetX, offsetY, cellSize - 4, cellSize - 4, 0x44ff44, 0.6);
-                    cell.setStrokeStyle(1, 0xffffff);
-                    this.placementGhost.add(cell);
-                }
-            }
-        }
-        
-        // Add direction indicator
-        this.placementGhost.directionIndicator = this.createDirectionIndicator(0, 0, this.placementGhost.direction);
-        this.placementGhost.add(this.placementGhost.directionIndicator);
-        
-        // Initialize rotation to match direction
-        this.updateGhostRotation();
-        
-        // Notify scene that a machine has been selected
-        this.scene.events.emit('machineSelected', machineType);
-    }
-    
-    /**
-     * Update the ghost machine position to follow the pointer
-     * @param {Phaser.Input.Pointer} pointer - The pointer to follow
-     */
-    updateGhostPosition(pointer) {
-        // Check if we have a ghost and are in placement mode
-        if (!this.placementGhost || !this.selectedMachineType) {
-            return;
-        }
-        
-        // Move the ghost to follow the pointer
-        this.placementGhost.x = pointer.x;
-        this.placementGhost.y = pointer.y;
-        
-        // Get grid position
-        if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
-            const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
-            if (gridPos) {
-                // Snap to grid
-                const worldPos = this.scene.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
-                this.placementGhost.x = worldPos.x;
-                this.placementGhost.y = worldPos.y;
-                
-                // Check if the machine can be placed here
-                const canPlace = this.scene.factoryGrid.canPlaceMachine(
-                    this.selectedMachineType,
-                    gridPos.x,
-                    gridPos.y,
-                    this.placementGhost.rotation || 0
-                );
-                
-                // Update ghost appearance based on placement validity
-                const alpha = canPlace ? 0.8 : 0.4;
-                this.placementGhost.list.forEach(item => {
-                    if (item.type === 'Rectangle' && !item.isDirectionIndicator) {
-                        item.fillColor = canPlace ? 0x44ff44 : 0xff4444;
-                        item.alpha = alpha;
-                    }
-                });
-                
-                // Update placement preview if available
-                if (this.scene.updatePlacementPreview) {
-                    // Create a dummy machine with the necessary properties
-                    const previewMachine = {
-                        id: this.selectedMachineType.id,
-                        type: this.selectedMachineType.id,
-                        shape: this.selectedMachineType.shape,
-                        direction: this.placementGhost.direction,
-                        rotation: this.placementGhost.rotation,
-                        machineType: this.selectedMachineType
-                    };
-                    
-                    this.scene.updatePlacementPreview(previewMachine);
-                }
-            }
-        } else {
-            // Pointer is outside the grid
-            this.placementGhost.list.forEach(item => {
-                if (item.type === 'Rectangle' && !item.isDirectionIndicator) {
-                    item.fillColor = 0xff4444;
-                    item.alpha = 0.4;
-                }
-            });
-        }
     }
     
     /**
@@ -1100,18 +966,9 @@ export default class MachineFactory {
                 direction = 'right'; // Default
         }
         
-        this.placementGhost.direction = direction;
-        
-        // Update the direction indicator
-        if (this.placementGhost.directionIndicator) {
-            // Remove the old indicator
-            this.placementGhost.remove(this.placementGhost.directionIndicator);
-            this.placementGhost.directionIndicator.destroy();
-            
-            // Create a new indicator with the updated direction
-            this.placementGhost.directionIndicator = this.createDirectionIndicator(0, 0, direction);
-            this.placementGhost.add(this.placementGhost.directionIndicator);
-        }
+        // Since this method is used by rotateMachine, we'll update only necessary values
+        // and not try to manipulate the deprecated placementGhost
+        this.selectedMachineType.direction = direction;
     }
 
     /**
