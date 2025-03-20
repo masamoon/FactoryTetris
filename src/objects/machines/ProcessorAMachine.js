@@ -54,25 +54,24 @@ export default class ProcessorAMachine extends BaseMachine {
         // Set the original shape - rotation will be applied by BaseMachine before createVisuals
         this.shape = originalShape;
         
-        // Note: We don't need to rotate the shape here anymore.
-        // The BaseMachine constructor will apply rotation to the shape 
-        // right before calling createVisuals, based on this.rotation value.
+        // Initialize inventories with default values
+        this.inputInventory = {
+            'basic-resource': 0
+        };
+        this.outputInventory = {
+            'advanced-resource': 0
+        };
         
-        // Log for debugging
-        console.log(`[ProcessorAMachine.initMachineProperties] Machine name: ${this.name}`);
-        console.log(`[ProcessorAMachine.initMachineProperties] Original shape dimensions: ${this.shape[0].length}x${this.shape.length}`);
-        
-        // Initialize inventories
-        this.inputInventory = {};
-        this.outputInventory = {};
-        
-        this.inputTypes.forEach(type => {
-            this.inputInventory[type] = 0;
-        });
-        
-        this.outputTypes.forEach(type => {
-            this.outputInventory[type] = 0;
-        });
+        // Log initialization
+        console.log(`[ProcessorA] Initialized with properties:
+            Input types: ${this.inputTypes}
+            Output types: ${this.outputTypes}
+            Processing time: ${this.processingTime}ms
+            Required inputs: ${JSON.stringify(this.requiredInputs)}
+            Initial inventories: 
+            - Input: ${JSON.stringify(this.inputInventory)}
+            - Output: ${JSON.stringify(this.outputInventory)}
+        `);
     }
     
     /**
@@ -255,6 +254,12 @@ export default class ProcessorAMachine extends BaseMachine {
         this.progressBar.scaleX = 0;
         this.container.add(this.progressBar);
         
+        // Create processor core visual element
+        this.processorCore = this.scene.add.circle(0, 0, cellSize / 4, 0xff5500);
+        this.processorCore.setStrokeStyle(1, 0xffffff);
+        this.container.add(this.processorCore);
+        console.log(`[ProcessorA] Created processor core visual element`);
+        
         // Add direction indicator if not a cargo loader
         if (this.direction !== 'none') {
             // Create the direction indicator as part of the container, not in the scene
@@ -318,30 +323,52 @@ export default class ProcessorAMachine extends BaseMachine {
     update(time, delta) {
         super.update(time, delta);
         
-        // Check if we can start processing
-        if (!this.isProcessing && this.canProcess()) {
-            this.startProcessing();
+        // Ensure delta is a valid number and convert to milliseconds if needed
+        delta = Number(delta) || 16.67; // Default to 60fps if delta is invalid
+        if (delta > 0 && delta < 100) { // If delta is in seconds (Phaser can provide it in seconds)
+            delta *= 1000; // Convert to milliseconds
         }
         
         // If we're processing, update the progress
         if (this.isProcessing) {
+            // Ensure we have valid numbers
+            this.processingProgress = Number(this.processingProgress) || 0;
+            this.processingTime = Number(this.processingTime) || 3000;
+            
+            // Update progress
             this.processingProgress += delta;
+            console.log(`[ProcessorA] Processing: ${Math.round((this.processingProgress / this.processingTime) * 100)}% complete`);
+            
+            // Update progress bar
+            if (this.progressBar) {
+                const progress = Math.min(1, this.processingProgress / this.processingTime);
+                this.progressBar.scaleX = progress;
+            }
             
             // Update visual feedback
             if (this.processorCore) {
-                const progress = this.processingProgress / this.processingTime;
+                const progress = Math.min(1, this.processingProgress / this.processingTime);
                 this.processorCore.alpha = 0.5 + (progress * 0.5);
                 this.processorCore.scale = 1 + (progress * 0.2);
+                this.processorCore.angle = progress * 360;
             }
             
             // If we've reached the processing time, complete the processing
             if (this.processingProgress >= this.processingTime) {
                 this.completeProcessing();
             }
+        } else {
+            // Check if we can start processing
+            if (this.canProcess()) {
+                console.log('[ProcessorA] Starting new processing cycle');
+                this.startProcessing();
+            }
         }
         
         // Try to transfer resources to connected machines
-        this.transferResources();
+        if (this.outputInventory['advanced-resource'] > 0) {
+            this.transferResources();
+        }
     }
     
     /**
@@ -351,16 +378,19 @@ export default class ProcessorAMachine extends BaseMachine {
     canProcess() {
         // Check if we have enough of each required input
         for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            if (!this.inputInventory[resourceType] || this.inputInventory[resourceType] < amount) {
+            const currentAmount = this.inputInventory[resourceType] || 0;
+            if (currentAmount < amount) {
                 return false;
             }
         }
         
         // Check if there's room in the output inventory
-        if (this.outputInventory['advanced-resource'] >= 5) { // Limit output storage
+        const currentOutput = this.outputInventory['advanced-resource'] || 0;
+        if (currentOutput >= 5) { // Limit output storage
             return false;
         }
         
+        console.log('[ProcessorA] Can process: true');
         return true;
     }
     
@@ -368,47 +398,58 @@ export default class ProcessorAMachine extends BaseMachine {
      * Start the processing operation
      */
     startProcessing() {
+        console.log('[ProcessorA] Starting processing cycle');
+        
         // Consume the required inputs
         for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            this.inputInventory[resourceType] -= amount;
+            const currentAmount = this.inputInventory[resourceType] || 0;
+            this.inputInventory[resourceType] = Math.max(0, currentAmount - amount);
+            console.log(`[ProcessorA] Consumed ${amount} ${resourceType}, remaining: ${this.inputInventory[resourceType]}`);
         }
         
-        // Set processing state
+        // Reset and start processing
         this.isProcessing = true;
         this.processingProgress = 0;
         
-        // Visual feedback for processing
-        if (this.processorCore) {
-            this.scene.tweens.add({
-                targets: this.processorCore,
-                angle: 360,
-                duration: this.processingTime,
-                ease: 'Linear'
-            });
+        // Reset visual elements
+        if (this.progressBar) {
+            this.progressBar.scaleX = 0;
         }
         
-        console.log('Processor A started processing');
+        if (this.processorCore) {
+            this.processorCore.alpha = 0.5;
+            this.processorCore.scale = 1;
+            this.processorCore.angle = 0;
+        }
+        
+        console.log('[ProcessorA] Processing started');
     }
     
     /**
      * Complete the processing operation
      */
     completeProcessing() {
+        console.log('[ProcessorA] Completing processing cycle');
+        
         // Add the product to the output inventory
-        this.outputInventory['advanced-resource']++;
+        this.outputInventory['advanced-resource'] = (this.outputInventory['advanced-resource'] || 0) + 1;
         
         // Reset processing state
         this.isProcessing = false;
         this.processingProgress = 0;
         
-        // Reset visual feedback
+        // Reset visual elements
+        if (this.progressBar) {
+            this.progressBar.scaleX = 0;
+        }
+        
         if (this.processorCore) {
             this.processorCore.alpha = 1;
             this.processorCore.scale = 1;
             this.processorCore.angle = 0;
         }
         
-        console.log('Processor A completed processing, produced 1 advanced-resource');
+        console.log(`[ProcessorA] Processing complete. Output inventory: ${JSON.stringify(this.outputInventory)}`);
     }
     
     /**
@@ -496,5 +537,150 @@ export default class ProcessorAMachine extends BaseMachine {
         container.add(directionIndicator);
         
         return container;
+    }
+    
+    /**
+     * Get the output cell coordinates based on shape and direction
+     * @returns {{x: number, y: number}} The output cell coordinates
+     */
+    getOutputCell() {
+        let outputX = this.gridX;
+        let outputY = this.gridY;
+        
+        // The output position depends on the direction and shape
+        switch (this.direction) {
+            case 'right':
+                // Output is on the rightmost cell of the first row
+                outputX += 1; // Just one cell to the right since output is on first row
+                break;
+            case 'down':
+                // Output is on the bottom cell of the first column
+                outputY += 2; // Two cells down since shape is 3 cells tall
+                break;
+            case 'left':
+                // Output is on the leftmost cell of the first row
+                // No adjustment needed as we're already at the leftmost position
+                break;
+            case 'up':
+                // Output is on the top cell of the first column
+                outputY -= 2; // Two cells up since shape is 3 cells tall
+                break;
+        }
+        
+        return { x: outputX, y: outputY };
+    }
+    
+    /**
+     * Find connected machine in the output direction
+     * @returns {BaseMachine|null} The connected machine or null if none
+     */
+    findConnectedMachine() {
+        // Skip if there's no grid
+        if (!this.grid) return null;
+        
+        // Get the output cell position based on our shape and direction
+        let outputCell = this.getOutputCell();
+        
+        // For conveyor belts, check all adjacent cells
+        const adjacentCells = [
+            { x: outputCell.x + 1, y: outputCell.y, dir: 'right' },
+            { x: outputCell.x - 1, y: outputCell.y, dir: 'left' },
+            { x: outputCell.x, y: outputCell.y + 1, dir: 'down' },
+            { x: outputCell.x, y: outputCell.y - 1, dir: 'up' }
+        ];
+        
+        // Check each adjacent cell
+        for (const cell of adjacentCells) {
+            const cellContent = this.grid.getCellContent(cell.x, cell.y);
+            
+            // Get the machine object from the cell content
+            const machine = cellContent?.object || cellContent?.machine || (cellContent?.occupiedBy?.machine);
+            
+            if (cellContent && cellContent.type === 'machine' && machine) {
+                // Check each conveyor detection method separately
+                const constructorCheck = machine.constructor.name.toLowerCase().includes('conveyor');
+                const idCheck = machine.id?.toLowerCase().includes('conveyor');
+                const methodCheck = typeof machine.addItem === 'function';
+                
+                // If it's a conveyor belt, we can connect from any direction
+                const isConveyor = constructorCheck || idCheck || methodCheck;
+                
+                if (isConveyor) {
+                    return machine;
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Transfer resources to connected machines
+     */
+    transferResources() {
+        // Find connected machine in the output direction
+        const connectedMachine = this.findConnectedMachine();
+        
+        if (!connectedMachine) {
+            return;
+        }
+        
+        // Check if we have resources to transfer
+        const outputResourceType = 'advanced-resource';
+        if (this.outputInventory[outputResourceType] <= 0) {
+            return;
+        }
+        
+        // Try to transfer using addItem method first
+        if (typeof connectedMachine.addItem === 'function') {
+            try {
+                const success = connectedMachine.addItem(outputResourceType);
+                if (success) {
+                    this.outputInventory[outputResourceType]--;
+                    this.createResourceTransferEffect(outputResourceType, connectedMachine);
+                }
+            } catch (error) {
+                console.error(`[ProcessorA] Error during transfer:`, error);
+            }
+            return;
+        }
+        
+        // Fall back to inventory-based transfer
+        if (connectedMachine.inputInventory) {
+            this.outputInventory[outputResourceType]--;
+            connectedMachine.inputInventory[outputResourceType] = 
+                (connectedMachine.inputInventory[outputResourceType] || 0) + 1;
+            
+            this.createResourceTransferEffect(outputResourceType, connectedMachine);
+        }
+    }
+    
+    /**
+     * Create a visual effect for resource transfer
+     * @param {string} resourceType - The type of resource being transferred
+     * @param {BaseMachine} targetMachine - The machine receiving the resource
+     */
+    createResourceTransferEffect(resourceType, targetMachine) {
+        // Skip if we don't have valid scene or grid
+        if (!this.scene || !this.grid) return;
+        
+        // Get world positions
+        const sourcePos = { x: this.container.x, y: this.container.y };
+        const targetPos = { x: targetMachine.container.x, y: targetMachine.container.y };
+        
+        // Create a resource sprite
+        const resourceSprite = this.scene.add.circle(sourcePos.x, sourcePos.y, 5, 0xffa520);
+        
+        // Animate the resource transfer
+        this.scene.tweens.add({
+            targets: resourceSprite,
+            x: targetPos.x,
+            y: targetPos.y,
+            duration: 500,
+            ease: 'Cubic.easeOut',
+            onComplete: () => {
+                resourceSprite.destroy();
+            }
+        });
     }
 } 

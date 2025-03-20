@@ -678,7 +678,7 @@ export default class GameScene extends Phaser.Scene {
             //console.log('[PLACEMENT PREVIEW] No machine to preview');
                 return;
             }
-
+            
         // Make sure the machine has a shape, and it's an array
         if (!machine.shape || !Array.isArray(machine.shape)) {
             //console.log('[PLACEMENT PREVIEW] Machine shape is missing or invalid, using default 1x1 shape');
@@ -714,8 +714,8 @@ export default class GameScene extends Phaser.Scene {
             rotatedShape = machine.shape;
         }
             
-        // Get the grid position from the pointer position
-        const gridPos = this.factoryGrid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
+            // Get the grid position from the pointer position
+            const gridPos = this.factoryGrid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
         if (!gridPos) {
             return; // Pointer is outside the grid
         }
