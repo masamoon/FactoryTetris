@@ -133,28 +133,27 @@ export default class ProcessorAMachine extends BaseMachine {
         
         if (this.direction !== 'none') {
             // For machines with direction, determine input and output positions
+            // based on rotating the original input(0,0) and output(0,2) points.
             switch (this.direction) {
-                case 'right':
-                    // Input on left side, output on right side
-                    inputPos = { x: 0, y: 0 };
-                    outputPos = { x: this.shape[0].length - 1, y: 0 };
+                case 'right': // 0 deg rotation
+                    // Shape: [[1,1], [1,0], [1,0]]
+                    inputPos = { x: 0, y: 0 }; // Top-left
+                    outputPos = { x: 0, y: 2 }; // Bottom-left
                     break;
-                case 'down':
-                    // Input on top side, output on bottom side
-                    // In down rotation, the J shape should have its long part at the top
-                    // and the short part to the right
-                    inputPos = { x: 0, y: 0 };
-                    outputPos = { x: 0, y: this.shape.length - 1 };
+                case 'down': // 90 deg rotation
+                    // Shape: [[1,1,1], [0,0,1]]
+                    inputPos = { x: 0, y: 0 }; // Top-left
+                    outputPos = { x: 2, y: 0 }; // Top-right
                     break;
-                case 'left':
-                    // Input on right side, output on left side
-                    inputPos = { x: this.shape[0].length - 1, y: 0 };
-                    outputPos = { x: 0, y: 0 };
+                case 'left': // 180 deg rotation
+                    // Shape: [[0,1], [0,1], [1,1]]
+                    inputPos = { x: 1, y: 2 }; // Bottom-right
+                    outputPos = { x: 1, y: 0 }; // Top-right
                     break;
-                case 'up':
-                    // Input on bottom side, output on top side
-                    inputPos = { x: 0, y: this.shape.length - 1 };
-                    outputPos = { x: 0, y: 0 };
+                case 'up': // 270 deg rotation
+                    // Shape: [[1,0,0], [1,1,1]]
+                    inputPos = { x: 2, y: 1 }; // Bottom-right
+                    outputPos = { x: 0, y: 1 }; // Bottom-left
                     break;
             }
         }

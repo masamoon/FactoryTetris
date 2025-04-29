@@ -83,18 +83,6 @@ export default class GameScene extends Phaser.Scene {
             loop: true
         });
         
-        // Debug: Add a button to directly place a machine
-        this.createDebugButton(GAME_CONFIG.width - 150, GAME_CONFIG.height - 50, 'Place Machine', () => {
-            //console.log('[DEBUG] Attempting to place machine directly');
-            
-            // Create a proper machine type object
-            const machineType = { id: 'processor-a' };
-            
-            // Try to place a processor-a machine at position (5, 5) with rotation 0
-            const success = this.placeMachine(machineType, 5, 5, 0);
-            //console.log('[DEBUG] Machine placement result:', success);
-        });
-        
         // Initialize game state
         this.score = 0;
         this.gameTime = 0;
