@@ -362,7 +362,8 @@ export default class Grid {
         }
         
         // Check if this is an extractor machine
-        const isExtractor = machineIdStr === 'extractor';
+        // const isExtractor = machineIdStr === 'extractor';
+        const isConveyor = machineIdStr === 'conveyor'; // Added check for conveyor
         
         // Get the original non-rotated shape
         const originalShape = machineType.shape;
@@ -388,7 +389,7 @@ export default class Grid {
         const offsetY = Math.floor(shapeHeight / 2);
         
         // Flag to track if we found at least one resource node (for extractors)
-        let foundResourceNode = false;
+        // let foundResourceNode = false;
         
         // Check each cell in the shape
         for (let y = 0; y < shapeHeight; y++) {
@@ -410,9 +411,14 @@ export default class Grid {
                         const cell = this.getCell(cellX, cellY);
                         
                         // Special case for extractors: allow placement on resource nodes
-                        if (isExtractor && cell && cell.type === 'node') {
+                        /* if (isExtractor && cell && cell.type === 'node') {
                             foundResourceNode = true;
                             continue; // Skip further checks for this cell
+                        } */
+                        
+                        // Special case for conveyors: allow placement on resource nodes
+                        if (isConveyor && cell && cell.type === 'node') {
+                            continue; // Allow conveyor on node
                         }
                         
                         // For all other cases, check if the cell is occupied
@@ -428,9 +434,9 @@ export default class Grid {
         }
         
         // For extractors, require at least one resource node to be found
-        if (isExtractor && !foundResourceNode) {
+        /* if (isExtractor && !foundResourceNode) {
             return false;
-        }
+        } */
         
         // If we've reached here, all cells are valid for placement
         return true;
@@ -543,8 +549,8 @@ export default class Grid {
                         const cell = this.getCell(cellX, cellY);
                         if (cell) {
                             // If this is an extractor being placed on a resource node, preserve the node reference
-                            const isExtractor = machine.id === 'extractor';
-                            const resourceNode = (isExtractor && cell.type === 'node') ? cell.object : null;
+                            // const isExtractor = machine.id === 'extractor';
+                            // const resourceNode = (isExtractor && cell.type === 'node') ? cell.object : null;
                             
                             // Update the cell with machine data
                             cell.type = 'machine';  // Set the cell type to 'machine'
@@ -557,18 +563,18 @@ export default class Grid {
                             };
                             
                             // If this was a resource node, keep a reference to it for the extractor
-                            if (resourceNode) {
+                            /* if (resourceNode) {
                                 cell.resourceNode = resourceNode;
-                            }
+                            } */
                         }
                     }
                 }
             }
             
             // If this is an extractor, set up the connection to resource nodes
-            if (machine.id === 'extractor') {
+            /* if (machine.id === 'extractor') {
                 this.placeExtractor(machine, gridX, gridY);
-            }
+            } */
             
             return true;
         } catch (error) {
@@ -810,13 +816,13 @@ export default class Grid {
                         // Ensure we're within grid bounds
                         if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
                             // Preserve resource node information for extractors
-                            let resourceNode = null;
+                            /* let resourceNode = null;
                             const currentCell = this.cells[cellY][cellX];
                             
                             // Check if current cell has a resource node
                             if (currentCell.type === 'node') {
                                 resourceNode = currentCell.object;
-                            }
+                            } */
                             
                             // Create the new cell data
                             this.cells[cellY][cellX] = {
@@ -829,9 +835,9 @@ export default class Grid {
                             markedCells++;
                             
                             // If there was a resource node, store it in the cell data
-                            if (resourceNode) {
+                            /* if (resourceNode) {
                                 this.cells[cellY][cellX].resourceNode = resourceNode;
-                            }
+                            } */
                         }
                     }
                 }
@@ -886,88 +892,7 @@ export default class Grid {
      * @param {number} gridX - The x coordinate on the grid
      * @param {number} gridY - The y coordinate on the grid
      */
-    placeExtractor(machine, gridX, gridY) {
-        try {
-            if (!machine) {
-                return;
-            }
-            
-            const isExtractor = machine.type === 'extractor' || 
-                                (machine.machineType && machine.machineType.id === 'extractor');
-            
-            if (!isExtractor) {
-                return;
-            }
-            
-            // Check for resource nodes under the machine
-            const shape = machine.shape;
-            if (!shape || !Array.isArray(shape)) {
-                return;
-            }
-            
-            // Get the dimensions of the rotated shape
-            const shapeWidth = shape[0].length;
-            const shapeHeight = shape.length;
-            
-            // Calculate center point for the rotated shape
-            const centerX = gridX;
-            const centerY = gridY;
-            
-            // Calculate offset from center to top-left corner of the shape's bounding box
-            const offsetX = Math.floor(shapeWidth / 2);
-            const offsetY = Math.floor(shapeHeight / 2);
-            
-            let foundResourceNode = null;
-            
-            // Check each cell occupied by the machine
-            for (let y = 0; y < shapeHeight; y++) {
-                for (let x = 0; x < shapeWidth; x++) {
-                    if (shape[y][x] === 1) {
-                        // Calculate grid coordinates for this shape cell
-                        // Using the center of the shape as a reference point
-                        const cellX = Math.floor(centerX + (x - offsetX));
-                        const cellY = Math.floor(centerY + (y - offsetY));
-                        
-                        // Check if we're within grid bounds
-                        if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
-                            // Check the cell for a resource node
-                            const cell = this.cells[cellY][cellX];
-                            
-                            if (cell.type === 'node' && cell.object) {
-                                foundResourceNode = cell.object;
-                                break;
-                            } else if (cell.type === 'machine' && cell.resourceNode) {
-                                foundResourceNode = cell.resourceNode;
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (foundResourceNode) break;
-            }
-            
-            // Connect the extractor to the resource node if found
-            if (foundResourceNode) {
-                machine.resourceNode = foundResourceNode;
-                machine.resourceType = foundResourceNode.resourceType;
-                
-                // Initialize output inventory for this resource type
-                if (!machine.outputInventory) {
-                    machine.outputInventory = {};
-                }
-                
-                if (!machine.outputTypes) {
-                    machine.outputTypes = [];
-                }
-                
-                // Make sure the resource type is in the output types
-                if (!machine.outputTypes.includes(foundResourceNode.resourceType.id)) {
-                    machine.outputTypes.push(foundResourceNode.resourceType.id);
-                    machine.outputInventory[foundResourceNode.resourceType.id] = 0;
-                }
-            }
-        } catch (error) {
-            // Error handling
-        }
-    }
+    /* placeExtractor(machine, gridX, gridY) {
+       // ... entire method commented out ...
+    } */
 } 

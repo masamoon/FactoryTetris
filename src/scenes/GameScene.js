@@ -737,8 +737,8 @@ export default class GameScene extends Phaser.Scene {
         let inputPos = { x: -1, y: -1 };
         let outputPos = { x: -1, y: -1 };
         
-        // Don't set input/output for extractors or cargo loaders
-        if (machine.id !== 'extractor' && machine.id !== 'cargo-loader' && direction !== 'none') {
+        // Don't set input/output for cargo loaders
+        if (machine.id !== 'cargo-loader' && direction !== 'none') {
             switch (direction) {
                 case 'right':
                     // Input on left side, output on right side
@@ -784,13 +784,7 @@ export default class GameScene extends Phaser.Scene {
                     let cellColor = 0x44ff44; // Default green
                     
                     // Change color for input/output cells
-                    if (machine.id === 'extractor') {
-                        // For extractors, only color the output
-                        if (direction !== 'none' && x === outputPos.x && y === outputPos.y) {
-                            cellColor = 0xffa520; // Brighter orange for extractor output
-                        }
-                    } 
-                    else if (machine.id === 'cargo-loader') {
+                    if (machine.id === 'cargo-loader') {
                         // For cargo loader, all sides can be input
                         if ((x === 0 || x === rotatedShape[0].length - 1 || y === 0 || y === rotatedShape.length - 1)) {
                             cellColor = 0x4aa8eb; // Brighter blue for input
@@ -1250,7 +1244,7 @@ export default class GameScene extends Phaser.Scene {
         } else if (machine.machineType && machine.machineType.shape) {
             width = machine.machineType.shape[0].length * 24;
         } else if (machine.type && machine.type.shape) {
-            width = machine.type.shape[0].length * 24;
+            width = machine.type.shape.length * 24;
         }
         
         if (machine.originalHeight) {

@@ -180,15 +180,8 @@ export default class Machine {
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
                     
-                    // For extractors, only color the output
-                    if (this.type.id === 'extractor') {
-                        if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xffa520; // Brighter orange for extractor output (same as when dragging)
-                        }
-                    } 
-                    // For cargo loaders, only color the inputs
-                    else if (this.type.id === 'cargo-loader') {
-                        // For cargo loader, all sides can be input
+                    // For cargo loaders, color all outer edges blue
+                    if (this.type.id === 'cargo-loader') {
                         if ((x === 0 || x === this.shape[0].length - 1 || y === 0 || y === this.shape.length - 1)) {
                             partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         }
@@ -207,7 +200,7 @@ export default class Machine {
                     this.container.add(part);
                     
                     // Store references to input and output squares
-                    if (this.type.id !== 'extractor' && this.type.direction !== 'none' && x === inputPos.x && y === inputPos.y) {
+                    if (this.type.direction !== 'none' && x === inputPos.x && y === inputPos.y) {
                         this.inputSquare = part;
                     } else if (this.type.direction !== 'none' && x === outputPos.x && y === outputPos.y) {
                         this.outputSquare = part;
@@ -657,13 +650,6 @@ export default class Machine {
     }
     
     canProcess() {
-        // Extractor doesn't need inputs
-        if (this.type.id === 'extractor') {
-            // Check if we're on a resource node
-            const resourceNode = this.findResourceNodeUnderMachine();
-            return resourceNode !== null;
-        }
-        
         // Cargo loader just needs inputs
         if (this.type.id === 'cargo-loader') {
             for (const inputType of this.type.inputTypes) {
@@ -716,11 +702,6 @@ export default class Machine {
                     if (cell && cell.type === 'node') {
                         return cell.object;
                     }
-                    
-                    // Check for a preserved resource node (when extractor is placed on a node)
-                    if (cell && cell.type === 'machine' && cell.resourceNode) {
-                        return cell.resourceNode;
-                    }
                 }
             }
         }
@@ -731,11 +712,6 @@ export default class Machine {
     startProcessing() {
         this.isProcessing = true;
         this.processingTime = 0;
-        
-        // For extractors, don't consume anything
-        if (this.type.id === 'extractor') {
-            return;
-        }
         
         // For cargo loaders, don't consume yet (will be consumed on completion)
         if (this.type.id === 'cargo-loader') {
@@ -761,24 +737,7 @@ export default class Machine {
         this.progressBar.scaleX = 0;
         
         // Handle different machine types
-        if (this.type.id === 'extractor') {
-            // Extract resource from node
-            const resourceNode = this.findResourceNodeUnderMachine();
-            if (resourceNode && resourceNode.resources > 0) {
-                // Get the resource type from the node
-                const resourceType = resourceNode.resourceType.id;
-                
-                // Add to output inventory if we have space
-                if (!this.outputInventory[resourceType]) {
-                    this.outputInventory[resourceType] = 0;
-                }
-                
-                if (this.outputInventory[resourceType] < 5) {
-                    this.outputInventory[resourceType]++;
-                    resourceNode.resources--;
-                }
-            }
-        } else if (this.type.id === 'cargo-loader') {
+        if (this.type.id === 'cargo-loader') {
             // Send resources to cargo bay
             for (const inputType of this.type.inputTypes) {
                 if (this.inputInventory[inputType] > 0) {
@@ -953,7 +912,7 @@ export default class Machine {
         const height = this.shape.length * this.grid.cellSize;
         
         // Add a more prominent input indicator
-        if (this.type.inputTypes.length > 0 && this.type.id !== 'extractor') {
+        if (this.type.inputTypes.length > 0) {
             // Determine input direction (opposite of output direction)
             let inputDirection = 'none';
             switch (this.direction) {

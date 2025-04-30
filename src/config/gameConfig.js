@@ -35,18 +35,6 @@ export const GAME_CONFIG = {
     // Machine types
     machineTypes: [
         {
-            id: 'extractor',
-            name: 'Resource Extractor',
-            shape: [
-                [1]
-            ],
-            inputTypes: [],
-            outputTypes: ['basic-resource', 'advanced-resource'],
-            processingTime: 2000, // ms
-            direction: 'down', // Default output direction
-            description: 'Extracts resources from nodes'
-        },
-        {
             id: 'processor-a',
             name: 'Processor A',
             shape: [

@@ -1,5 +1,5 @@
 import ConveyorMachine from './ConveyorMachine';
-import ExtractorMachine from './ExtractorMachine';
+// import ExtractorMachine from './ExtractorMachine';
 import ProcessorAMachine from './ProcessorAMachine';
 import ProcessorBMachine from './ProcessorBMachine';
 import AdvancedProcessorMachine from './AdvancedProcessorMachine';
@@ -19,7 +19,7 @@ export default class MachineRegistry {
         
         // Register built-in machine types
         this.registerMachineType('conveyor', ConveyorMachine);
-        this.registerMachineType('extractor', ExtractorMachine);
+        // this.registerMachineType('extractor', ExtractorMachine);
         this.registerMachineType('processor-a', ProcessorAMachine);
         this.registerMachineType('processor-b', ProcessorBMachine);
         this.registerMachineType('advanced-processor', AdvancedProcessorMachine);

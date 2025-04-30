@@ -42,16 +42,6 @@ export default class TestUtils {
             // Queue up tests to run sequentially with error handling
             this.scene.time.delayedCall(500, () => {
                 try {
-                    console.log('[TestUtils] Running extractor placement test...');
-                    this.testExtractorPlacement();
-                } catch (error) {
-                    console.error('[TestUtils] Error in extractor placement test:', error);
-                    this.logTestResult('extractor-placement', false, `Error: ${error.message}`);
-                }
-            });
-
-            this.scene.time.delayedCall(1500, () => {
-                try {
                     console.log('[TestUtils] Running conveyor placement test...');
                     this.testConveyorPlacement();
                 } catch (error) {
@@ -60,7 +50,7 @@ export default class TestUtils {
                 }
             });
 
-            this.scene.time.delayedCall(2500, () => {
+            this.scene.time.delayedCall(1500, () => {
                 try {
                     console.log('[TestUtils] Running processor placement test...');
                     this.testProcessorPlacement();
@@ -70,7 +60,7 @@ export default class TestUtils {
                 }
             });
 
-            this.scene.time.delayedCall(3500, () => {
+            this.scene.time.delayedCall(2500, () => {
                 try {
                     console.log('[TestUtils] Running cargo loader placement test...');
                     this.testCargoLoaderPlacement();
@@ -80,7 +70,7 @@ export default class TestUtils {
                 }
             });
 
-            this.scene.time.delayedCall(4500, () => {
+            this.scene.time.delayedCall(3500, () => {
                 try {
                     console.log('[TestUtils] Running rotation test...');
                     this.testRotation();
@@ -109,43 +99,6 @@ export default class TestUtils {
         machines.forEach(machine => {
             this.scene.factoryGrid.removeMachine(machine);
         });
-    }
-
-    /**
-     * Test extractor placement
-     */
-    testExtractorPlacement() {
-        console.log('[TestUtils] Testing extractor placement...');
-        
-        // Create a resource node at a specific position for testing
-        const nodePosition = { x: 5, y: 5 };
-        this.createResourceNode(nodePosition.x, nodePosition.y);
-        
-        // Place an extractor over the resource node
-        const machineType = this.getMachineTypeById('extractor');
-        if (!machineType) {
-            this.logTestResult('extractor-placement', false, 'Extractor machine type not found');
-            return;
-        }
-        
-        const machine = this.placeMachine(machineType, nodePosition.x, nodePosition.y, 0);
-        if (!machine) {
-            this.logTestResult('extractor-placement', false, 'Failed to place extractor');
-            return;
-        }
-        
-        // Verify the machine was placed correctly
-        const expectedDirection = machine.direction; // Use the actual direction as expected
-        const actualDirection = machine.direction;
-        const indicatorRotation = machine.directionIndicator ? machine.directionIndicator.rotation : null;
-        
-        const directionCorrect = actualDirection === expectedDirection;
-        
-        this.logTestResult(
-            'extractor-placement', 
-            directionCorrect,
-            `Extractor placed with direction: ${actualDirection} (expected: ${expectedDirection}), indicator rotation: ${indicatorRotation}`
-        );
     }
 
     /**

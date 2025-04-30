@@ -202,7 +202,7 @@ export default class MachineFactory {
             });
             
             // Apply consistent colors to the preview
-            if (machinePreview.list) {
+            /* if (machinePreview.list) {
                 machinePreview.list.forEach(part => {
                     if (part.type === 'Rectangle' && !part.isResourceIndicator) {
                         // Apply consistent color scheme
@@ -215,7 +215,7 @@ export default class MachineFactory {
                         }
                     }
                 });
-            }
+            } */
             
             // Add to available machines only using the new structure
             this.availableMachines.push({
@@ -250,9 +250,9 @@ export default class MachineFactory {
         if (!machineType.shape || !Array.isArray(machineType.shape)) {
             // Set appropriate default shapes based on machine type
             switch(machineType.id) {
-                case 'extractor':
+                /* case 'extractor':
                     machineType.shape = [[1, 1], [1, 1]]; // 2x2 shape
-                    break;
+                    break; */
                 case 'processor-a':
                     machineType.shape = [[1, 1, 1], [1, 0, 0]]; // 3x2 shape
                     break;
@@ -512,13 +512,13 @@ export default class MachineFactory {
                     let partColor = 0x44ff44; // Default green color
                     
                     // For extractors, only color the output
-                    if (machineType.id === 'extractor') {
+                    /* if (machineType.id === 'extractor') {
                         if (x === outputPos.x && y === outputPos.y) {
                             partColor = 0xffa520; // Brighter orange for extractor output
                         }
                     } 
                     // For cargo loaders, only color the inputs
-                    else if (machineType.id === 'cargo-loader') {
+                    else */ if (machineType.id === 'cargo-loader') {
                         // For cargo loader, all sides can be input
                         if ((x === 0 || x === machineType.shape[0].length - 1 || y === 0 || y === machineType.shape.length - 1)) {
                             partColor = 0x4aa8eb; // Brighter blue for input
@@ -538,9 +538,9 @@ export default class MachineFactory {
                     container.add(part);
                     
                     // Store references to input and output squares
-                    if (machineType.id !== 'extractor' && machineType.direction !== 'none' && x === inputPos.x && y === inputPos.y) {
+                    /* if (machineType.id !== 'extractor' && machineType.direction !== 'none' && x === inputPos.x && y === inputPos.y) {
                         container.inputSquare = part;
-                    } else if (machineType.direction !== 'none' && x === outputPos.x && y === outputPos.y) {
+                    } */ if (machineType.direction !== 'none' && x === outputPos.x && y === outputPos.y) {
                         container.outputSquare = part;
                     }
                 }
@@ -612,7 +612,7 @@ export default class MachineFactory {
         const height = machineType.shape.length * cellSize;
         
         // Add a more prominent input indicator
-        if (machineType.inputTypes.length > 0 && machineType.id !== 'extractor') {
+        if (machineType.inputTypes.length > 0) {
             // Determine input direction (opposite of output direction)
             let inputDirection = 'none';
             switch (machineType.direction) {

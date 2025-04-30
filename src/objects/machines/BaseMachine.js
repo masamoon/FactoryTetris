@@ -340,39 +340,21 @@ export default class BaseMachine {
                     const partX = offsetX;
                     const partY = offsetY;
                     
-                    // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
                     
-                    // For extractors, only color the output
-                    if (this.id === 'extractor') {
-                        if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xffa520; // Brighter orange for extractor output (same as when dragging)
-                        }
-                    } 
-                    // For cargo loaders, only color the inputs
-                    else if (this.id === 'cargo-loader') {
+                    // For cargo loaders, color all outer edges blue
+                    if (this.id === 'cargo-loader') {
                         // For cargo loader, all sides can be input
                         if ((x === 0 || x === this.shape[0].length - 1 || y === 0 || y === this.shape.length - 1)) {
                             partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         }
                     }
-                    // For all other machines with direction
-                    else if (this.direction !== 'none') {
-                        if (x === inputPos.x && y === inputPos.y) {
-                            partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                        } else if (x === outputPos.x && y === outputPos.y) {
-                            partColor = 0xffa520; // Brighter orange for output (same as when dragging)
-                        }
-                    }
                     
-                    // Create machine part
                     const part = this.scene.add.rectangle(partX, partY, this.grid.cellSize - 4, this.grid.cellSize - 4, partColor);
                     this.container.add(part);
                     
                     // Store references to input and output squares
-                    if (this.id !== 'extractor' && this.direction !== 'none' && x === inputPos.x && y === inputPos.y) {
-                        this.inputSquare = part;
-                    } else if (this.direction !== 'none' && x === outputPos.x && y === outputPos.y) {
+                    if (this.direction !== 'none' && x === outputPos.x && y === outputPos.y) {
                         this.outputSquare = part;
                     }
                 }
@@ -416,7 +398,7 @@ export default class BaseMachine {
             const absoluteY = this.container.y;
             
             // Create the direction indicator directly in the scene, not in the container
-            const indicatorColor = (this.id === 'extractor') ? 0xffffff : 0xff9500;
+            const indicatorColor = 0xff9500; // Default orange color, removed extractor check
             
             this.directionIndicator = this.scene.add.triangle(
                 absoluteX,  // Place exactly at machine center X
@@ -475,7 +457,7 @@ export default class BaseMachine {
         const halfHeight = height / 2;
         
         // Add a more prominent input indicator
-        if (this.inputTypes.length > 0 && this.id !== 'extractor') {
+        if (this.inputTypes.length > 0) {
             // Determine input direction (opposite of output direction)
             let inputDirection = 'none';
             switch (this.direction) {
@@ -608,12 +590,7 @@ export default class BaseMachine {
                         if (part === this.inputSquare) {
                             part.fillColor = 0x55c4ff; // Even brighter blue for input hover
                         } else {
-                            // For extractor output, use a brighter version of the orange
-                            if (this.id === 'extractor') {
-                                part.fillColor = 0xffb640; // Brighter orange for hover
-                            } else {
-                                part.fillColor = 0xffb640; // Brighter orange for hover
-                            }
+                            part.fillColor = 0xffb640; // Brighter orange for hover
                         }
                     } else {
                         part.fillColor = 0x55ff55; // Brighter green for hover
@@ -633,11 +610,7 @@ export default class BaseMachine {
                     if (part === this.inputSquare) {
                         part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                     } else if (part === this.outputSquare) {
-                        if (this.id === 'extractor') {
-                            part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-                        } else {
-                            part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-                        }
+                        part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                     } else {
                         part.fillColor = 0x44ff44; // Default green (same as when dragging)
                     }

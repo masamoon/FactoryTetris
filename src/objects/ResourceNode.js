@@ -15,6 +15,10 @@ export default class ResourceNode {
         this.resources = Phaser.Math.Between(3, 5); // Start with 3-5 resources
         this.maxResources = 10;
         
+        // Add cooldown for pushing resources
+        this.pushCooldown = 500; // ms - Push resources every 0.5 seconds if possible
+        this.lastPushTime = 0;
+        
         //console.log*(`Created resource node at (${this.gridX}, ${this.gridY}) with ${this.resources} ${this.resourceType.id}`);
         
         // Create visual representation
@@ -149,6 +153,9 @@ export default class ResourceNode {
             }
         }
         
+        // Push resources to adjacent conveyors
+        this.pushResourcesToConveyors();
+        
         // Periodically log the node's status
         if (this.scene.time.now % 5000 < 16) { // Log every ~5 seconds
             //console.log*(`ResourceNode at (${this.gridX}, ${this.gridY}):`);
@@ -158,6 +165,98 @@ export default class ResourceNode {
         }
     }
     
+    /**
+     * Check adjacent cells and push resources to valid conveyors
+     */
+    pushResourcesToConveyors() {
+        // Check cooldown
+        const now = this.scene.time.now;
+        if (now < this.lastPushTime + this.pushCooldown) {
+            return; // Still on cooldown
+        }
+
+        // Check if we have resources to push
+        if (this.resources <= 0) {
+            return; // No resources
+        }
+
+        const adjacentOffsets = [
+            { dx: 1, dy: 0, requiredDirection: 'right' }, // Right
+            { dx: -1, dy: 0, requiredDirection: 'left' }, // Left
+            { dx: 0, dy: 1, requiredDirection: 'down' },  // Down
+            { dx: 0, dy: -1, requiredDirection: 'up' }    // Up
+        ];
+
+        // Shuffle offsets to push randomly if multiple conveyors are available
+        Phaser.Utils.Array.Shuffle(adjacentOffsets);
+
+        for (const offset of adjacentOffsets) {
+            const targetX = this.gridX + offset.dx;
+            const targetY = this.gridY + offset.dy;
+
+            // Check grid bounds
+            if (targetX < 0 || targetX >= this.scene.factoryGrid.width || targetY < 0 || targetY >= this.scene.factoryGrid.height) {
+                continue;
+            }
+
+            const cell = this.scene.factoryGrid.getCell(targetX, targetY);
+
+            // Check if cell contains a conveyor facing the required direction
+            if (cell && cell.type === 'machine' && cell.machine && 
+                cell.machine.id === 'conveyor' && cell.machine.direction === offset.requiredDirection) {
+                
+                const conveyor = cell.machine;
+
+                // Check if the conveyor can accept the resource (using a new method we'll add)
+                if (conveyor.canAcceptInput && conveyor.canAcceptInput(this.resourceType.id)) {
+                    // Try to push the resource
+                    if (conveyor.acceptResourceFromMine && conveyor.acceptResourceFromMine(this.resourceType.id)) {
+                        this.resources--; // Decrement node resources
+                        this.lastPushTime = now; // Reset cooldown
+                        
+                        // Update visual indicator immediately
+                        if (this.resourceIndicator) {
+                            this.resourceIndicator.setText(this.resources.toString());
+                        }
+                        
+                        // Optional: Add visual effect for resource transfer
+                        this.createTransferEffect(conveyor);
+                        
+                        // Only push to one conveyor per update cycle
+                        return; 
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Creates a visual effect for resource transfer
+     * @param {BaseMachine} targetMachine - The machine receiving the resource
+     */
+    createTransferEffect(targetMachine) {
+        const targetPos = targetMachine.container ? { x: targetMachine.container.x, y: targetMachine.container.y } : this.scene.factoryGrid.gridToWorld(targetMachine.gridX, targetMachine.gridY);
+        
+        const particle = this.scene.add.circle(
+            this.container.x, 
+            this.container.y, 
+            5, 
+            this.resourceType.color || 0xaaaaaa
+        );
+        particle.setDepth(this.container.depth + 1);
+        
+        this.scene.tweens.add({
+            targets: particle,
+            x: targetPos.x,
+            y: targetPos.y,
+            duration: 300, // Faster transfer effect
+            ease: 'Power1',
+            onComplete: () => {
+                particle.destroy();
+            }
+        });
+    }
+
     updateLifespan() {
         this.lifespan--;
         
@@ -179,6 +278,10 @@ export default class ResourceNode {
         // Stop timer
         if (this.lifespanTimer) {
             this.lifespanTimer.remove();
+        }
+        // Also stop the resource generation timer
+        if (this.resourceTimer) {
+            this.resourceTimer.remove();
         }
         
         // Destroy visuals

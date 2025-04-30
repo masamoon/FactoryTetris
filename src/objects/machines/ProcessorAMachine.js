@@ -480,17 +480,29 @@ export default class ProcessorAMachine extends BaseMachine {
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[0].length; x++) {
                 if (shape[y][x] === 1) {
+                    console.log(`[Preview SPRITE] Processing Shape Cell (${x}, ${y})`); // Log cell being processed
                     // Calculate position relative to center (0,0) - same formula as createVisuals
                     const cellX = (x - shapeCenterX) * cellSize;
                     const cellY = (y - shapeCenterY) * cellSize;
                     
-                    // Determine if this is an input or output cell
-                    let color = 0x44ff44; // Default green color (same as when dragging)
+                    // Determine if this is an input or output cell for the default 'right' orientation
+                    let color = 0x44ff44; // Default green color
+                    let isInput = (x === 0 && y === 0); // Top-left for 'right' orientation
+                    let isOutput = (x === 0 && y === 2); // Bottom-left for 'right' orientation
+
+                    // Remove existing indicators first if they exist outside the new conditions
+                    container.getAll().forEach(child => {
+                        if (child.text === "IN" || child.text === "OUT") {
+                            // Simple check, might need refinement if other text exists
+                            // Check if the position roughly matches this cell to avoid removing unrelated text
+                            if (Math.abs(child.x - cellX) < cellSize / 2 && Math.abs(child.y - cellY) < cellSize / 2) {
+                                child.destroy();
+                            }
+                        }
+                    });
                     
-                    // Input is on the left
-                    if (x === 0 && y === 0) {
-                        color = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                        // Add a visual indicator for input
+                    if (isInput) {
+                        color = 0x4aa8eb; // Blue for input
                         const inputIndicator = scene.add.text(cellX, cellY, "IN", {
                             fontFamily: 'Arial',
                             fontSize: 8,
@@ -498,10 +510,8 @@ export default class ProcessorAMachine extends BaseMachine {
                         }).setOrigin(0.5);
                         container.add(inputIndicator);
                     } 
-                    // Output is on the right
-                    else if (x === shape[0].length - 1 && y === 0) {
-                        color = 0xffa520; // Brighter orange for output (same as when dragging)
-                        // Add a visual indicator for output
+                    else if (isOutput) { 
+                        color = 0xffa520; // Orange for output
                         const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
                             fontFamily: 'Arial',
                             fontSize: 7,
@@ -510,9 +520,12 @@ export default class ProcessorAMachine extends BaseMachine {
                         container.add(outputIndicator);
                     }
                     
+                    console.log(`[Preview SPRITE] Cell (${x}, ${y}) -> Pos (${cellX.toFixed(1)}, ${cellY.toFixed(1)}), Color: ${color.toString(16)}`); // Log calculated pos and color
+                    
                     const rect = scene.add.rectangle(cellX, cellY, cellSize - 2, cellSize - 2, color);
                     rect.setStrokeStyle(2, 0x000000);
                     container.add(rect);
+                    console.log(`[Preview SPRITE] Added rect for Cell (${x}, ${y}) to container.`); // Log rect addition
                 }
             }
         }

@@ -420,4 +420,40 @@ export default class ConveyorMachine extends BaseMachine {
         
         return container;
     }
+
+    /**
+     * Check if the conveyor can accept a specific resource type into its input.
+     * @param {string} resourceTypeId - The ID of the resource type.
+     * @returns {boolean} True if the resource can be accepted, false otherwise.
+     */
+    canAcceptInput(resourceTypeId) {
+        // Initialize inventory if needed
+        if (this.inputInventory[resourceTypeId] === undefined) {
+            this.inputInventory[resourceTypeId] = 0;
+        }
+        // Check if input inventory has space (e.g., less than 5)
+        const inputCapacity = 5;
+        return this.inputInventory[resourceTypeId] < inputCapacity;
+    }
+
+    /**
+     * Accept a resource directly from a ResourceNode.
+     * @param {string} resourceTypeId - The ID of the resource type to accept.
+     * @returns {boolean} True if the resource was accepted, false otherwise.
+     */
+    acceptResourceFromMine(resourceTypeId) {
+        if (this.canAcceptInput(resourceTypeId)) {
+            this.inputInventory[resourceTypeId]++;
+            // Optional: Trigger a small visual effect on the conveyor
+            this.scene.tweens.add({
+                targets: this.container, // Or a specific part
+                scaleY: 1.1, // Briefly pulse
+                duration: 100,
+                yoyo: true,
+                ease: 'Sine.easeInOut'
+            });
+            return true;
+        }
+        return false;
+    }
 } 
