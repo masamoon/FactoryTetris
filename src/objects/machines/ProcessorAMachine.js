@@ -693,12 +693,27 @@ export default class ProcessorAMachine extends BaseMachine {
      * @param {BaseMachine} targetMachine - The machine receiving the resource
      */
     createResourceTransferEffect(resourceType, targetMachine) {
-        // Skip if we don't have valid scene or grid
-        if (!this.scene || !this.grid) return;
+        // --- DEBUGGING --- 
+        if (!this.container) {
+            console.error(`[${this.id}] ERROR: this.container is null or undefined in createResourceTransferEffect!`);
+            console.error(`Machine State: grid=(${this.gridX}, ${this.gridY}), direction=${this.direction}, isProcessing=${this.isProcessing}`);
+            // Optionally, try to prevent further errors by returning early
+            return; 
+        }
+        console.log(`[${this.id}] createResourceTransferEffect - Container exists. Position: (${this.container.x}, ${this.container.y})`);
+        // --- END DEBUGGING --- 
+
+        // Get source position (center of this machine)
+        const sourcePos = {
+            x: this.container.x,
+            y: this.container.y
+        };
         
-        // Get world positions
-        const sourcePos = { x: this.container.x, y: this.container.y };
-        const targetPos = { x: targetMachine.container.x, y: targetMachine.container.y };
+        // Get target position (center of target machine)
+        const targetPos = {
+            x: targetMachine.container.x,
+            y: targetMachine.container.y
+        };
         
         // Create a resource sprite
         const resourceSprite = this.scene.add.circle(sourcePos.x, sourcePos.y, 5, 0xffa520);

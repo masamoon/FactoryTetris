@@ -22,6 +22,12 @@ export default class GameScene extends Phaser.Scene {
         this.resourceNodes = [];
         this.machines = [];
         this.deliveryNodes = []; // Add deliveryNodes array
+
+        // Clear Factory ability state
+        this.lastClearTime = -Infinity; // Allow first use immediately
+        this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
+        this.clearButton = null;
+        this.clearStatusText = null;
     }
         
     create() {
@@ -93,6 +99,10 @@ export default class GameScene extends Phaser.Scene {
         
         // Play background music
         this.playBackgroundMusic();
+
+        // Initialize clear cooldown
+        this.lastClearTime = -Infinity; // Allow first use
+        this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
     }
     
     update() {
@@ -107,6 +117,9 @@ export default class GameScene extends Phaser.Scene {
         this.resourceNodes.forEach(node => node.update());
         // Update delivery nodes
         this.deliveryNodes.forEach(node => node.update());
+        
+        // Update Clear Factory Cooldown UI
+        this.updateClearCooldownUI();
         
         // Check for game over condition
         if (this.cargoBay.isOverflowing()) {
@@ -188,6 +201,23 @@ export default class GameScene extends Phaser.Scene {
                 //console.log("[ROTATE BUTTON] No machine selected to rotate");
             }
         });
+
+        // --- ADD CLEAR FACTORY UI HERE --- 
+        // Clear Factory Button
+        this.clearButton = this.createButton(width * 0.77, height * 0.9, 'CLEAR FACTORY', () => {
+            this.clearPlacedItems();
+        });
+        // Adjust button size for text
+        this.clearButton.button.width = 180; 
+        this.clearButton.text.x = this.clearButton.button.x;
+
+        // Clear Factory Status Text
+        this.clearStatusText = this.add.text(this.clearButton.button.x + this.clearButton.button.width / 2 + 10, this.clearButton.button.y, 'Ready', {
+            fontFamily: 'Arial',
+            fontSize: 16,
+            color: '#00ff00' // Green for ready
+        }).setOrigin(0, 0.5);
+        // --- END CLEAR FACTORY UI --- 
     }
     
     setupInput() {
@@ -913,7 +943,42 @@ export default class GameScene extends Phaser.Scene {
     createInitialResourceNodes() {
         // Create initial resource nodes
         for (let i = 0; i < GAME_CONFIG.initialNodeCount; i++) {
-            this.spawnResourceNode();
+            // Use the existing method to spawn resource nodes one by one
+            this.spawnResourceNode(); 
+        }
+
+        // Spawn one initial delivery node
+        try {
+            const emptySpot = this.factoryGrid.findEmptyCell();
+            if (!emptySpot) {
+                console.warn('[GAME] No empty cell found for initial delivery node placement.');
+                return;
+            }
+
+            const worldPos = this.factoryGrid.gridToWorld(emptySpot.x, emptySpot.y);
+            if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
+                console.error('[GAME] Invalid world position for initial delivery node:', worldPos);
+                return;
+            }
+
+            const deliveryNode = new DeliveryNode(this, {
+                x: worldPos.x,
+                y: worldPos.y,
+                gridX: emptySpot.x,
+                gridY: emptySpot.y,
+                lifespan: GAME_CONFIG.nodeLifespan, 
+                pointsPerResource: 10 
+            });
+            
+            // Ensure deliveryNodes array exists
+            if (!this.deliveryNodes) { this.deliveryNodes = []; }
+            
+            this.deliveryNodes.push(deliveryNode);
+            this.factoryGrid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
+            console.log(`[GAME] Created initial delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
+
+        } catch (error) {
+            console.error('[GAME] Error creating initial delivery node:', error);
         }
     }
     
@@ -2347,4 +2412,74 @@ export default class GameScene extends Phaser.Scene {
             // (More robust cleanup might be needed depending on where the error happened)
         }
     }
+
+    // --- Clear Factory Ability --- 
+
+    clearPlacedItems() {
+        if (this.paused || this.gameOver) return;
+
+        const now = this.time.now;
+        const timeRemaining = (this.lastClearTime + this.currentClearCooldown) - now;
+
+        if (timeRemaining > 0) {
+            console.log(`Clear Factory is on cooldown. ${Math.ceil(timeRemaining / 1000)}s remaining.`);
+            // Optional: Play an error/cooldown sound
+            this.playSound('error'); // Assuming an error sound exists
+            return;
+        }
+
+        console.log('Clearing all placed machines and belts...');
+
+        // Make a copy of the array to iterate over, as removeMachine modifies the original
+        const machinesToClear = [...this.machines]; 
+
+        // Iterate and remove machines
+        machinesToClear.forEach(machine => {
+            if (machine && this.factoryGrid) {
+                // removeMachine handles calling machine.destroy() and clearing grid cells
+                this.factoryGrid.removeMachine(machine); 
+            }
+        });
+
+        // Ensure the main list is empty
+        this.machines = [];
+
+        // Record last use time
+        this.lastClearTime = now;
+
+        // Calculate and set the next cooldown duration based on game time
+        this.currentClearCooldown = GAME_CONFIG.initialClearCooldown + (this.gameTime * GAME_CONFIG.clearCooldownIncreaseFactor);
+        console.log(`Clear Factory used. Next cooldown: ${this.currentClearCooldown / 1000}s`);
+
+        // Update UI immediately
+        this.updateClearCooldownUI();
+
+        // Play a success sound
+        this.playSound('clear'); // Assuming a clear sound exists
+    }
+
+    updateClearCooldownUI() {
+        if (!this.clearButton || !this.clearStatusText) return; // UI elements not ready
+
+        const now = this.time.now;
+        const timeRemaining = (this.lastClearTime + this.currentClearCooldown) - now;
+
+        if (timeRemaining <= 0) {
+            // Ready
+            this.clearStatusText.setText('Ready');
+            this.clearStatusText.setColor('#00ff00'); // Green
+            this.clearButton.button.setFillStyle(0x4a6fb5); // Default color
+            this.clearButton.button.input.enabled = true; // Enable interaction
+
+        } else {
+            // On Cooldown
+            const secondsRemaining = Math.ceil(timeRemaining / 1000);
+            this.clearStatusText.setText(`Cooldown: ${secondsRemaining}s`);
+            this.clearStatusText.setColor('#ff0000'); // Red
+            this.clearButton.button.setFillStyle(0x888888); // Greyed out
+            this.clearButton.button.input.enabled = false; // Disable interaction
+        }
+    }
+
+    // -------------------------
 } 

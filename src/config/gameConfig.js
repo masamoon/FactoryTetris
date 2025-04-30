@@ -119,5 +119,9 @@ export const GAME_CONFIG = {
     resourceColors: {
         'basic-resource': 0x00aa44,
         'advanced-resource': 0xd2691e
-    }
+    },
+
+    // Clear Factory ability
+    initialClearCooldown: 30000, // ms (30 seconds)
+    clearCooldownIncreaseFactor: 100 // ms added to cooldown per second of game time
 }; 

@@ -961,16 +961,32 @@ export default class BaseMachine {
      * Destroy the machine and clean up resources
      */
     destroy() {
+        // Destroy the main container and its children
         if (this.container) {
             this.container.destroy();
+            this.container = null; // Nullify reference
+        }
+
+        // Destroy the direction indicator (added directly to scene)
+        if (this.directionIndicator) {
+            this.directionIndicator.destroy();
+            this.directionIndicator = null; // Nullify reference
         }
         
+        // Destroy tooltip if it exists
         if (this.tooltip) {
-            this.hideTooltip();
+            this.hideTooltip(); // Should handle destroying tooltip objects
         }
         
+        // Destroy info panel if it exists
         if (this.infoPanel) {
-            this.hideDetailedInfo();
+            this.hideDetailedInfo(); // Should handle destroying info panel objects
+        }
+
+        // Remove ESC key listener to prevent memory leaks
+        if (this.escKey) {
+            this.escKey.off('down', this.handleEscKey, this);
+            this.escKey = null;
         }
     }
     
