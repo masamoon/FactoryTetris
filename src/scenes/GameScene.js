@@ -3,6 +3,7 @@ import Grid from '../objects/Grid';
 import MachineFactory from '../objects/MachineFactory';
 import CargoBay from '../objects/CargoBay';
 import ResourceNode from '../objects/ResourceNode';
+import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
 import TestUtils from '../utils/TestUtils';
 import MachineRegistry from '../objects/machines/MachineRegistry';
@@ -20,6 +21,7 @@ export default class GameScene extends Phaser.Scene {
         // Initialize collections
         this.resourceNodes = [];
         this.machines = [];
+        this.deliveryNodes = []; // Add deliveryNodes array
     }
         
     create() {
@@ -68,9 +70,10 @@ export default class GameScene extends Phaser.Scene {
             loop: true
         });
         
-        this.resourceTimer = this.time.addEvent({
-            delay: 5000,
-            callback: this.generateResources,
+        // ADD NODE SPAWN TIMER
+        this.nodeSpawnTimer = this.time.addEvent({
+            delay: GAME_CONFIG.nodeSpawnRate, // Use config value
+            callback: this.spawnNode, // Call the unified spawn method
             callbackScope: this,
             loop: true
         });
@@ -102,6 +105,8 @@ export default class GameScene extends Phaser.Scene {
         
         // Update resource nodes
         this.resourceNodes.forEach(node => node.update());
+        // Update delivery nodes
+        this.deliveryNodes.forEach(node => node.update());
         
         // Check for game over condition
         if (this.cargoBay.isOverflowing()) {
@@ -937,7 +942,7 @@ export default class GameScene extends Phaser.Scene {
             }
             
             // Select a random resource type
-            const resourceTypeIndex = Phaser.Math.Between(0, GAME_CONFIG.resourceTypes.length - 1);
+            const resourceTypeIndex = 0; // ALWAYS spawn 'basic-resource' (assuming it's index 0)
             
             // Create a new resource node
             const node = new ResourceNode(this, {
@@ -995,7 +1000,6 @@ export default class GameScene extends Phaser.Scene {
         else if (this.gameTime < 1200) {
             // Medium difficulty
             if (this.gameTime === 600) {
-                this.resourceTimer.delay = GAME_CONFIG.resourceGenerationRate * 0.8;
                 this.nodeSpawnTimer.delay = GAME_CONFIG.nodeSpawnRate * 1.2;
             }
         } 
@@ -1003,7 +1007,6 @@ export default class GameScene extends Phaser.Scene {
         else {
             // Hard difficulty
             if (this.gameTime === 1200) {
-                this.resourceTimer.delay = GAME_CONFIG.resourceGenerationRate * 0.6;
                 this.nodeSpawnTimer.delay = GAME_CONFIG.nodeSpawnRate * 1.5;
             }
         }
@@ -1020,16 +1023,16 @@ export default class GameScene extends Phaser.Scene {
         if (this.paused) {
             // Pause all timers
             this.gameTimer.paused = true;
-            this.resourceTimer.paused = true;
-            this.nodeSpawnTimer.paused = true;
+            // this.resourceTimer.paused = true; // Remove reference
+            if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
             
             // Show pause screen
             this.showPauseScreen();
         } else {
             // Resume all timers
             this.gameTimer.paused = false;
-            this.resourceTimer.paused = false;
-            this.nodeSpawnTimer.paused = false;
+            // this.resourceTimer.paused = false; // Remove reference
+            if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = false;
             
             // Hide pause screen
             this.hidePauseScreen();
@@ -1079,8 +1082,8 @@ export default class GameScene extends Phaser.Scene {
         
         // Stop all timers
         this.gameTimer.remove();
-        this.resourceTimer.remove();
-        this.nodeSpawnTimer.remove();
+        // if (this.resourceTimer) this.resourceTimer.remove(); // Remove reference
+        if (this.nodeSpawnTimer) this.nodeSpawnTimer.remove();
         
         // Transition to game over scene
         this.scene.start('GameOverScene', {
@@ -2261,5 +2264,87 @@ export default class GameScene extends Phaser.Scene {
         button.setDepth(1000);
         
         return button;
+    }
+
+    // Rename method and modify logic
+    spawnNode() { 
+        try {
+            if (this.gameOver || this.paused) return;
+            
+            // Ensure node arrays are initialized (safety check)
+            if (!this.resourceNodes) { this.resourceNodes = []; }
+            if (!this.deliveryNodes) { this.deliveryNodes = []; }
+        
+            // --- Find TWO distinct empty spots --- 
+            const emptySpot1 = this.factoryGrid.findEmptyCell();
+            if (!emptySpot1) {
+                console.warn('[GAME] No empty cells found for node pair spawning.');
+                return;
+            }
+
+            // Temporarily mark the first spot to avoid picking it again
+            this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'temp' });
+
+            const emptySpot2 = this.factoryGrid.findEmptyCell();
+
+            // Reset the first spot (we'll set it properly below)
+            this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' });
+
+            if (!emptySpot2) {
+                console.warn('[GAME] Only one empty cell found. Cannot spawn node pair.');
+                return;
+            }
+
+            // --- Spawn Resource Node --- 
+            const worldPos1 = this.factoryGrid.gridToWorld(emptySpot1.x, emptySpot1.y);
+            if (!worldPos1 || typeof worldPos1.x !== 'number' || typeof worldPos1.y !== 'number') {
+                console.error('[GAME] Invalid world position for resource node:', worldPos1);
+                // Don't proceed if position is invalid
+                return; 
+            }
+
+            const resourceTypeIndex = 0; // ALWAYS spawn 'basic-resource' (assuming it's index 0)
+            
+            const resourceNode = new ResourceNode(this, {
+                x: worldPos1.x,
+                y: worldPos1.y,
+                gridX: emptySpot1.x,
+                gridY: emptySpot1.y,
+                resourceType: resourceTypeIndex,
+                lifespan: GAME_CONFIG.nodeLifespan
+            });
+            this.resourceNodes.push(resourceNode);
+            this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
+            console.log(`[GAME] Created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`);
+
+            // --- Spawn Delivery Node --- 
+            const worldPos2 = this.factoryGrid.gridToWorld(emptySpot2.x, emptySpot2.y);
+             if (!worldPos2 || typeof worldPos2.x !== 'number' || typeof worldPos2.y !== 'number') {
+                console.error('[GAME] Invalid world position for delivery node:', worldPos2);
+                // Clean up the resource node if delivery node fails
+                this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' }); 
+                const index = this.resourceNodes.indexOf(resourceNode);
+                if (index !== -1) this.resourceNodes.splice(index, 1);
+                resourceNode.destroy(); // Ensure visuals/timers are cleaned up
+                return; 
+            }
+
+            const deliveryNode = new DeliveryNode(this, {
+                x: worldPos2.x,
+                y: worldPos2.y,
+                gridX: emptySpot2.x,
+                gridY: emptySpot2.y,
+                lifespan: GAME_CONFIG.nodeLifespan,
+                pointsPerResource: 10 
+            });
+            this.deliveryNodes.push(deliveryNode);
+            this.factoryGrid.setCell(emptySpot2.x, emptySpot2.y, { type: 'delivery-node', object: deliveryNode });
+            console.log(`[GAME] Created delivery node at grid (${emptySpot2.x}, ${emptySpot2.y})`);
+
+        } catch (error) {
+            console.error('[GAME] Error spawning node pair:', error);
+            // Attempt cleanup if error occurs mid-process
+            // (More robust cleanup might be needed depending on where the error happened)
+        }
     }
 } 

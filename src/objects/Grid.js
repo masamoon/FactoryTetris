@@ -760,6 +760,21 @@ export default class Grid {
         }
     }
     
+    // Remove a delivery node from the grid
+    removeDeliveryNode(node) {
+        // Clear the cell occupied by the node
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                // Check for the specific type 'delivery-node'
+                if (this.cells[y][x].type === 'delivery-node' && this.cells[y][x].object === node) {
+                    this.cells[y][x] = { type: 'empty' };
+                    // Assuming a node only occupies one cell
+                    return; 
+                }
+            }
+        }
+    }
+    
     // Get all machines in the grid
     getAllMachines() {
         const allMachines = [];

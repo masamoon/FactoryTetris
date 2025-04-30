@@ -774,12 +774,11 @@ export default class MachineFactory {
         ).setOrigin(0.5);
         this.tooltip.add(nameText);
         
-        // Add machine description (truncated if too long)
-        let description = machineType.description;
-        if (description.length > 60) {
-            description = description.substring(0, 57) + '...';
-        }
-        
+        // Add machine description with safety check
+        const description = machineType && typeof machineType.description === 'string' 
+                          ? machineType.description 
+                          : 'No description available.';
+
         const descText = this.scene.add.text(
             0, 
             0, 

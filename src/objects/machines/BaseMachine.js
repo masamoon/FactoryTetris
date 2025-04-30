@@ -1116,5 +1116,50 @@ export default class BaseMachine {
         }
     }
     
-    
+    /**
+     * Check if the machine can accept a specific resource type into its input.
+     * @param {string} resourceTypeId - The ID of the resource type.
+     * @returns {boolean} True if the resource can be accepted, false otherwise.
+     */
+    canAcceptInput(resourceTypeId) {
+        // Check if this machine type accepts the resource
+        if (!this.inputTypes.includes(resourceTypeId)) {
+            return false;
+        }
+        
+        // Initialize inventory if needed
+        if (this.inputInventory[resourceTypeId] === undefined) {
+            this.inputInventory[resourceTypeId] = 0;
+        }
+        
+        // Check if input inventory has space (e.g., less than a capacity of 5)
+        const inputCapacity = 5; 
+        return this.inputInventory[resourceTypeId] < inputCapacity;
+    }
+
+    /**
+     * Receive a resource from another machine or source.
+     * @param {string} resourceType - The ID of the resource being received.
+     * @param {BaseMachine} sourceMachine - The machine sending the resource (optional).
+     * @returns {boolean} True if the resource was accepted, false otherwise.
+     */
+    receiveResource(resourceType, sourceMachine = null) {
+        if (this.canAcceptInput(resourceType)) {
+            this.inputInventory[resourceType]++;
+            console.log(`[${this.name}] at (${this.gridX}, ${this.gridY}) received ${resourceType}. Input:`, this.inputInventory);
+            
+            // Optional: Trigger a visual effect
+            this.scene.tweens.add({
+                targets: this.container, // Or a specific part like inputSquare
+                scaleX: 1.05,
+                scaleY: 1.05,
+                duration: 100,
+                yoyo: true,
+                ease: 'Sine.easeInOut'
+            });
+            return true;
+        }
+        console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceType}. Input full or type mismatch.`);
+        return false;
+    }
 } 

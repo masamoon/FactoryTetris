@@ -235,144 +235,151 @@ export default class ConveyorMachine extends BaseMachine {
      * Override the transferResources method for conveyor-specific logic
      */
     transferResources() {
-        // Find connected machine in the output direction
-        const connectedMachine = this.findConnectedMachine();
-        
-        if (!connectedMachine) {
-            //console.log(`Conveyor at (${this.gridX}, ${this.gridY}): No connected machine found in direction ${this.direction}`);
-            return;
-        }
-        
-        //console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Found connected machine: ${connectedMachine.id} at (${connectedMachine.gridX}, ${connectedMachine.gridY})`);
-        
-        // Check if the connected machine can accept any of our resources
-        for (const resourceType of this.outputTypes) {
-            // If we have this resource type in our output inventory
-            if (this.outputInventory[resourceType] > 0) {
-                //console.log(`Conveyor has ${this.outputInventory[resourceType]} ${resourceType} to transfer`);
-                
-                // Get the connected machine's input types
-                let connectedInputTypes = [];
-                
-                // Try different ways to get input types (for compatibility with different machine classes)
-                if (connectedMachine.inputTypes) {
-                    connectedInputTypes = connectedMachine.inputTypes;
-                } else if (connectedMachine.getInputTypes && typeof connectedMachine.getInputTypes === 'function') {
-                    connectedInputTypes = connectedMachine.getInputTypes();
-                }
-                
-                //console.log(`Connected machine input types: ${connectedInputTypes.join(', ')}`);
-                
-                // Check if the connected machine accepts this resource type
-                if (connectedInputTypes.includes(resourceType)) {
-                    // Make sure the connected machine has an input inventory
-                    if (!connectedMachine.inputInventory) {
-                        connectedMachine.inputInventory = {};
-                    }
-                    
-                    // Initialize the resource type in the connected machine's inventory if needed
-                    if (connectedMachine.inputInventory[resourceType] === undefined) {
-                        connectedMachine.inputInventory[resourceType] = 0;
-                    }
-                    
-                    // Transfer the resource
-                    this.outputInventory[resourceType]--;
-                    connectedMachine.inputInventory[resourceType]++;
-                    
-                   // console.log(`Transferred 1 ${resourceType} from conveyor at (${this.gridX}, ${this.gridY}) to machine at (${connectedMachine.gridX}, ${connectedMachine.gridY})`);
-                    
-                    // Create a visual effect for the transfer
-                    this.createResourceTransferEffect(resourceType, connectedMachine);
-                    
-                    // Only transfer one resource per update
-                    break;
-                } else {
-                    //console.log(`Connected machine cannot accept resource type: ${resourceType}`);
-                }
-            }
-        }
-    }
-    
-    /**
-     * Create a visual effect for resource transfer
-     * @param {string} resourceType - The type of resource being transferred
-     * @param {BaseMachine} targetMachine - The machine receiving the resource
-     */
-    createResourceTransferEffect(resourceType, targetMachine) {
-        // Get resource color from config
-        const resourceColor = GAME_CONFIG.resourceColors[resourceType] || 0xffffff;
-        
-        // Calculate start and end positions - gridToWorld now returns the center of the cell
-        const startWorldPos = this.grid.gridToWorld(this.gridX, this.gridY);
-        const endWorldPos = this.grid.gridToWorld(targetMachine.gridX, targetMachine.gridY);
-        
-        // No need to add half cell size since gridToWorld now returns the center
-        const startX = startWorldPos.x;
-        const startY = startWorldPos.y;
-        const endX = endWorldPos.x;
-        const endY = endWorldPos.y;
-        
-        // Create a small circle representing the resource
-        const resourceSprite = this.scene.add.circle(startX, startY, 5, resourceColor);
-        
-        // Animate the resource moving to the target machine
-        this.scene.tweens.add({
-            targets: resourceSprite,
-            x: endX,
-            y: endY,
-            duration: 500,
-            ease: 'Sine.easeInOut',
-            onComplete: () => {
-                resourceSprite.destroy();
-            }
-        });
-    }
-    
-    /**
-     * Find a machine connected to this one in the output direction
-     * @returns {BaseMachine|null} The connected machine or null if none found
-     */
-    findConnectedMachine() {
-        if (!this.grid) {
-            console.log('No grid reference in findConnectedMachine');
-            return null;
-        }
-        
-        // Determine the target cell based on the direction
+        // Determine target cell based on direction
         let targetX = this.gridX;
         let targetY = this.gridY;
-        
+
         switch (this.direction) {
-            case 'right':
-                targetX += 1;
-                break;
-            case 'down':
-                targetY += 1;
-                break;
-            case 'left':
-                targetX -= 1;
-                break;
-            case 'up':
-                targetY -= 1;
-                break;
-            default:
-                console.log(`Unknown direction: ${this.direction}`);
-                return null;
+            case 'right': targetX += 1; break;
+            case 'down': targetY += 1; break;
+            case 'left': targetX -= 1; break;
+            case 'up': targetY -= 1; break;
         }
-        
-        // Get the cell at the target position
+
+        // Check grid bounds
+        if (!this.grid || targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+            // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Target (${targetX}, ${targetY}) is out of bounds.`);
+            return; // Target cell is out of bounds
+        }
+
+        // Get the target cell content
         const targetCell = this.grid.getCell(targetX, targetY);
-        
+
         if (!targetCell) {
-            return null;
+            // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): No cell found at target (${targetX}, ${targetY}).`);
+            return; // No cell found
         }
-        
-        // Check if the cell has a machine
+
+        // --- Check for Delivery Node FIRST ---
+        if (targetCell.type === 'delivery-node' && targetCell.object) {
+            const deliveryNode = targetCell.object;
+            
+            // Try to deliver any resource we have in output
+            for (const resourceType in this.outputInventory) {
+                if (this.outputInventory[resourceType] > 0) {
+                    // Attempt to deliver the resource
+                    if (deliveryNode.acceptResource(resourceType)) {
+                        // Decrease output inventory
+                        this.outputInventory[resourceType]--;
+                        
+                        // Optional: Create visual effect for transfer to delivery node
+                        this.createResourceTransferEffect(resourceType, deliveryNode); // Pass node as target
+                        
+                       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}) delivered ${resourceType} to DeliveryNode at (${targetX}, ${targetY})`);
+                        
+                        // Delivered one item, return for this cycle
+                        return; 
+                    } else {
+                       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): DeliveryNode at (${targetX}, ${targetY}) rejected ${resourceType}`);
+                        // Node might be full or inactive (though our current node doesn't reject)
+                    }
+                }
+            }
+            // If we reached here, either no resources in output or node rejected all
+            return; 
+        }
+
+        // --- Original Logic: Check for Connected Machine ---
         if (targetCell.type === 'machine' && targetCell.machine) {
-            return targetCell.machine;
+            const connectedMachine = targetCell.machine;
+           // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Found connected machine: ${connectedMachine.name} at (${targetX}, ${targetY})`);
+
+            // Check if the connected machine can accept any of our resources
+            for (const resourceType of this.outputTypes) {
+                // If we have this resource type in our output inventory
+                if (this.outputInventory[resourceType] > 0) {
+                    
+                    // Get the connected machine's input types
+                    let connectedInputTypes = [];
+                    if (connectedMachine.inputTypes) {
+                        connectedInputTypes = connectedMachine.inputTypes;
+                    } else if (connectedMachine.getInputTypes && typeof connectedMachine.getInputTypes === 'function') {
+                        connectedInputTypes = connectedMachine.getInputTypes();
+                    }
+                    
+                    // Check if the connected machine accepts this resource type AND can accept input now
+                    if (connectedInputTypes.includes(resourceType) && 
+                        connectedMachine.canAcceptInput && connectedMachine.canAcceptInput(resourceType)) {
+                        
+                        // Attempt to transfer the resource
+                        if (connectedMachine.receiveResource(resourceType, this)) {
+                            // Decrease our output inventory
+                            this.outputInventory[resourceType]--;
+                            
+                            // Optional: Create visual effect (already handled by receiveResource? Maybe not)
+                            // If receiveResource doesn't handle the visual, uncomment this:
+                            // this.createResourceTransferEffect(resourceType, connectedMachine);
+
+                           // console.log(`Conveyor at (${this.gridX}, ${this.gridY}) transferred ${resourceType} to ${connectedMachine.name} at (${targetX}, ${targetY})`);
+                            
+                            // Transferred one item, return for this cycle
+                            return;
+                        } else {
+                           // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): ${connectedMachine.name} at (${targetX}, ${targetY}) failed to receive ${resourceType}`);
+                        }
+                    } else {
+                       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): ${connectedMachine.name} at (${targetX}, ${targetY}) does not accept ${resourceType} or cannot accept input now.`);
+                    }
+                }
+            }
+            // If we reached here, either no transferable resources or machine rejected/can't accept
+            return;
         }
+
+       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Target cell (${targetX}, ${targetY}) is not a machine or delivery node (type: ${targetCell.type}).`);
+    }
+    
+    /**
+     * Creates a visual effect for resource transfer
+     * @param {string} resourceType - The type of resource being transferred
+     * @param {BaseMachine | DeliveryNode} target - The target machine or delivery node
+     */
+    createResourceTransferEffect(resourceType, target) {
+        // Determine target position (machine containers are centered, nodes might need adjustment)
+        let targetX, targetY;
+        if (target instanceof BaseMachine && target.container) {
+            targetX = target.container.x;
+            targetY = target.container.y;
+        } else if (target.container) { // Assumes DeliveryNode also has a container
+            targetX = target.container.x;
+            targetY = target.container.y;
+        } else {
+            // Fallback if container is not available (shouldn't happen often)
+            const targetPos = this.grid.gridToWorld(target.gridX, target.gridY);
+            targetX = targetPos.x;
+            targetY = targetPos.y;
+        }
+
+        // Get source position (center of the conveyor)
+        const sourceX = this.container.x;
+        const sourceY = this.container.y;
         
-        return null;
+        // Create resource particle
+        const color = GAME_CONFIG.resourceColors[resourceType] || 0xaaaaaa;
+        const particle = this.scene.add.circle(sourceX, sourceY, 5, color);
+        particle.setDepth(this.container.depth + 2); // Ensure visibility over machines/nodes
+        
+        // Animate particle moving to target
+        this.scene.tweens.add({
+            targets: particle,
+            x: targetX,
+            y: targetY,
+            duration: 300, // Make transfer visually quick
+            ease: 'Power1',
+            onComplete: () => {
+                particle.destroy();
+            }
+        });
     }
     
     /**
