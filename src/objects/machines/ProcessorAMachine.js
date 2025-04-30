@@ -128,8 +128,8 @@ export default class ProcessorAMachine extends BaseMachine {
         this.outputSquare = null;
         
         // Determine input and output positions based on direction
-        let inputPos = { x: -1, y: -1 };
-        let outputPos = { x: -1, y: -1 };
+        this.inputPos = { x: -1, y: -1 };
+        this.outputPos = { x: -1, y: -1 };
         
         if (this.direction !== 'none') {
             // For machines with direction, determine input and output positions
@@ -137,23 +137,23 @@ export default class ProcessorAMachine extends BaseMachine {
             switch (this.direction) {
                 case 'right': // 0 deg rotation
                     // Shape: [[1,1], [1,0], [1,0]]
-                    inputPos = { x: 0, y: 0 }; // Top-left
-                    outputPos = { x: 0, y: 2 }; // Bottom-left
+                    this.inputPos = { x: 0, y: 0 }; // Top-left
+                    this.outputPos = { x: 0, y: 2 }; // Bottom-left
                     break;
                 case 'down': // 90 deg rotation
                     // Shape: [[1,1,1], [0,0,1]]
-                    inputPos = { x: 0, y: 0 }; // Top-left
-                    outputPos = { x: 2, y: 0 }; // Top-right
+                    this.inputPos = { x: 2, y: 0 }; // Top-left
+                    this.outputPos = { x: 0, y: 0 }; // Top-right
                     break;
                 case 'left': // 180 deg rotation
                     // Shape: [[0,1], [0,1], [1,1]]
-                    inputPos = { x: 1, y: 2 }; // Bottom-right
-                    outputPos = { x: 1, y: 0 }; // Top-right
+                    this.inputPos = { x: 1, y: 2 }; // Bottom-right
+                    this.outputPos = { x: 1, y: 0 }; // Top-right
                     break;
                 case 'up': // 270 deg rotation
                     // Shape: [[1,0,0], [1,1,1]]
-                    inputPos = { x: 2, y: 1 }; // Bottom-right
-                    outputPos = { x: 0, y: 1 }; // Bottom-left
+                    this.inputPos = { x: 0, y: 1 }; // Bottom-left (Corrected)
+                    this.outputPos = { x: 2, y: 1 }; // Bottom-right (Corrected)
                     break;
             }
         }
@@ -198,7 +198,7 @@ export default class ProcessorAMachine extends BaseMachine {
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
                     
-                    if (x === inputPos.x && y === inputPos.y) {
+                    if (x === this.inputPos.x && y === this.inputPos.y) {
                         partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         // Add a visual indicator for input
                         const inputIndicator = this.scene.add.text(partX, partY, "IN", {
@@ -207,7 +207,7 @@ export default class ProcessorAMachine extends BaseMachine {
                             color: '#ffffff'
                         }).setOrigin(0.5);
                         this.container.add(inputIndicator);
-                    } else if (x === outputPos.x && y === outputPos.y) {
+                    } else if (x === this.outputPos.x && y === this.outputPos.y) {
                         partColor = 0xffa520; // Brighter orange for output (same as when dragging)
                         // Add a visual indicator for output
                         const outputIndicator = this.scene.add.text(partX, partY, "OUT", {
@@ -224,9 +224,9 @@ export default class ProcessorAMachine extends BaseMachine {
                     this.container.add(part);
                     
                     // Store references to input and output squares
-                    if (x === inputPos.x && y === inputPos.y) {
+                    if (x === this.inputPos.x && y === this.inputPos.y) {
                         this.inputSquare = part;
-                    } else if (x === outputPos.x && y === outputPos.y) {
+                    } else if (x === this.outputPos.x && y === this.outputPos.y) {
                         this.outputSquare = part;
                     }
                 }
@@ -543,29 +543,49 @@ export default class ProcessorAMachine extends BaseMachine {
      * @returns {{x: number, y: number}} The output cell coordinates
      */
     getOutputCell() {
-        let outputX = this.gridX;
-        let outputY = this.gridY;
+        // Use the relative output position stored during createVisuals
+        const relativeOutputPos = this.outputPos;
         
-        // The output position depends on the direction and shape
-        switch (this.direction) {
-            case 'right':
-                // Output is on the rightmost cell of the first row
-                outputX += 1; // Just one cell to the right since output is on first row
-                break;
-            case 'down':
-                // Output is on the bottom cell of the first column
-                outputY += 2; // Two cells down since shape is 3 cells tall
-                break;
-            case 'left':
-                // Output is on the leftmost cell of the first row
-                // No adjustment needed as we're already at the leftmost position
-                break;
-            case 'up':
-                // Output is on the top cell of the first column
-                outputY -= 2; // Two cells up since shape is 3 cells tall
-                break;
+        // Ensure outputPos has been initialized (should happen in createVisuals)
+        console.log(`[DEBUG getOutputCell START] Machine: ${this.id}, Direction: ${this.direction}, Grid: (${this.gridX}, ${this.gridY})`);
+        console.log(`[DEBUG getOutputCell] Stored Relative Output Pos:`, JSON.stringify(relativeOutputPos));
+        
+        if (!relativeOutputPos || relativeOutputPos.x === -1) {
+            console.error(`[ProcessorA getOutputCell] Error: this.outputPos not properly initialized. Direction: ${this.direction}`);
+            // Fallback to the machine's center or another default
+            return { x: this.gridX, y: this.gridY };
         }
+
+        // Calculate the shape's dimensions and center for the *current* rotation
+        const currentShape = this.shape; // Assumes this.shape is correctly rotated
+        const shapeHeight = currentShape.length;
+        const shapeWidth = currentShape[0].length;
+        const shapeCenterX = (shapeWidth - 1) / 2;
+        const shapeCenterY = (shapeHeight - 1) / 2;
+        console.log(`[DEBUG getOutputCell] Current Shape:`, JSON.stringify(currentShape));
+        console.log(`[DEBUG getOutputCell] Shape Dims (W, H): (${shapeWidth}, ${shapeHeight}), Shape Center (X, Y): (${shapeCenterX}, ${shapeCenterY})`);
+
+        // Calculate the offset of the shape's top-left (0,0) relative to its center
+        const centerOffsetX = -shapeCenterX;
+        const centerOffsetY = -shapeCenterY;
+
+        // Calculate the offset of the output cell relative to the shape's top-left (0,0)
+        const outputOffsetX = relativeOutputPos.x;
+        const outputOffsetY = relativeOutputPos.y;
+
+        console.log(`[DEBUG getOutputCell] Center Offset (X, Y): (${centerOffsetX}, ${centerOffsetY}), Output Offset from TopLeft (X, Y): (${outputOffsetX}, ${outputOffsetY})`);
+
+        // Combine offsets: (Output relative to top-left) + (Top-left relative to Center)
+        const totalOffsetX = outputOffsetX + centerOffsetX;
+        const totalOffsetY = outputOffsetY + centerOffsetY;
+        console.log(`[DEBUG getOutputCell] Total Offset from Center (X, Y): (${totalOffsetX}, ${totalOffsetY})`);
         
+        // Add the total offset to the machine's center grid coordinates
+        let outputX = Math.floor(this.gridX + totalOffsetX);
+        let outputY = Math.floor(this.gridY + totalOffsetY);
+
+        console.log(`[DEBUG getOutputCell END] Final Calculated Output Cell (X, Y): (${outputX}, ${outputY})`);
+
         return { x: outputX, y: outputY };
     }
     
