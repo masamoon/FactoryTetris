@@ -345,6 +345,14 @@ export default class ConveyorMachine extends BaseMachine {
      * @param {BaseMachine | DeliveryNode} target - The target machine or delivery node
      */
     createResourceTransferEffect(resourceType, target) {
+        // --- SAFETY CHECK --- 
+        // Ensure this machine's container and the scene exist before creating effect
+        if (!this.container || !this.scene) {
+            console.warn(`Conveyor at (${this.gridX}, ${this.gridY}): Cannot create transfer effect, container or scene missing.`);
+            return; 
+        }
+        // --- END SAFETY CHECK --- 
+
         // Determine target position (machine containers are centered, nodes might need adjustment)
         let targetX, targetY;
         if (target instanceof BaseMachine && target.container) {

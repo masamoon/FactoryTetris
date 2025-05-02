@@ -17,6 +17,8 @@ export default class GameScene extends Phaser.Scene {
         this.gameTime = 0; // in seconds
         this.gameOver = false;
         this.paused = false;
+        this.currentRound = 1; // Add current round tracking
+        this.currentRoundScoreThreshold = 0; // Add score threshold tracking
         
         // Initialize collections
         this.resourceNodes = [];
@@ -96,6 +98,8 @@ export default class GameScene extends Phaser.Scene {
         this.score = 0;
         this.gameTime = 0;
         this.gameOver = false;
+        this.currentRound = 1; // Start at round 1
+        this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound); // Get initial threshold
         
         // Play background music
         this.playBackgroundMusic();
@@ -157,17 +161,24 @@ export default class GameScene extends Phaser.Scene {
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
         
-        // Score display
-        this.scoreText = this.add.text(width * 0.55, height * 0.75, 'SCORE: 0', {
+        // Score display (Adjust position slightly)
+        this.scoreText = this.add.text(width * 0.55, height * 0.72, `SCORE: 0 / ${this.currentRoundScoreThreshold}`, {
             fontFamily: 'Arial',
-            fontSize: 24,
+            fontSize: 20, // Slightly smaller
             color: '#ffffff'
         });
         
-        // Time display
-        this.timeText = this.add.text(width * 0.55, height * 0.8, 'TIME: 0:00', {
+        // Round Display
+        this.roundText = this.add.text(width * 0.55, height * 0.77, `ROUND: ${this.currentRound}`, {
+             fontFamily: 'Arial',
+             fontSize: 20, // Slightly smaller
+             color: '#ffffff'
+        });
+
+        // Time display (Keep for now, maybe useful later?)
+        this.timeText = this.add.text(width * 0.55, height * 0.82, 'TIME: 0:00', {
             fontFamily: 'Arial',
-            fontSize: 24,
+            fontSize: 20, // Slightly smaller
             color: '#ffffff'
         });
         
@@ -1047,39 +1058,115 @@ export default class GameScene extends Phaser.Scene {
         const seconds = this.gameTime % 60;
         this.timeText.setText(`TIME: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
         
-        // Check for game end condition (time limit)
-        if (this.gameTime >= GAME_CONFIG.gameTimeLimit) {
-            this.endGame();
-        }
+        // REMOVED: Game end condition based on time limit
+        // if (this.gameTime >= GAME_CONFIG.gameTimeLimit) {
+        //     this.endGame();
+        // }
         
-        // Increase difficulty over time
-        this.updateDifficulty();
+        // Keep difficulty update based on time for now? Or move to round advance?
+        // Let's keep the timer-based difficulty for now, can adjust later.
+        // this.updateDifficulty(); // Called by its own timer
     }
     
     updateDifficulty() {
-        // Early game (0-10 min)
-        if (this.gameTime < 600) {
-            // Easier settings
-        } 
-        // Mid game (10-20 min)
-        else if (this.gameTime < 1200) {
-            // Medium difficulty
-            if (this.gameTime === 600) {
-                this.nodeSpawnTimer.delay = GAME_CONFIG.nodeSpawnRate * 1.2;
-            }
-        } 
-        // Late game (20-30 min)
-        else {
-            // Hard difficulty
-            if (this.gameTime === 1200) {
-                this.nodeSpawnTimer.delay = GAME_CONFIG.nodeSpawnRate * 1.5;
-            }
+        // Option 1: Keep difficulty based on time (as it is now)
+        // Option 2: Base difficulty on this.currentRound
+        // Let's switch to round-based difficulty scaling
+
+        const round = this.currentRound;
+
+        // Example scaling based on round:
+        let newNodeSpawnDelay = GAME_CONFIG.nodeSpawnRate; // Default
+
+        if (round >= 5 && round < 10) {
+             newNodeSpawnDelay *= 0.8; // Faster spawns in rounds 5-9
+        } else if (round >= 10) {
+             newNodeSpawnDelay *= 0.6; // Even faster spawns in round 10+
         }
+        // More complex scaling can be added here based on round milestones
+
+        // Apply changes (only if different to avoid resetting timer unnecessarily)
+        if (this.nodeSpawnTimer && this.nodeSpawnTimer.delay !== newNodeSpawnDelay) {
+             console.log(`Updating node spawn rate for round ${round} to ${newNodeSpawnDelay}ms`);
+             this.nodeSpawnTimer.delay = newNodeSpawnDelay;
+        }
+        
+        // Could also adjust:
+        // - Resource generation rate
+        // - Node lifespan
+        // - Cargo bay speed/penalty
+        // - Introduce new hazards/challenges
     }
     
     addScore(points) {
+        if (this.gameOver) return; // Don't add score if game is over
+
         this.score += points;
-        this.scoreText.setText(`SCORE: ${this.score}`);
+        this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
+
+        // Check if round threshold is met
+        if (this.score >= this.currentRoundScoreThreshold) {
+            this.advanceRound();
+        }
+    }
+
+    getScoreThresholdForRound(round) {
+        const thresholds = GAME_CONFIG.roundScoreThresholds;
+        // Round is 1-based, array is 0-based
+        if (round - 1 < thresholds.length) {
+            return thresholds[round - 1];
+        } else {
+            // Calculate threshold for rounds beyond the defined array
+            // Use the last defined threshold and multiply by the factor for each subsequent round
+            let threshold = thresholds[thresholds.length - 1];
+            const factor = GAME_CONFIG.scoreIncreaseFactorPerRound;
+            for (let i = thresholds.length; i < round; i++) {
+                threshold = Math.floor(threshold * factor); // Use Math.floor to keep it integer
+            }
+            return threshold;
+        }
+    }
+
+    advanceRound() {
+        console.log(`Round ${this.currentRound} completed! Advancing to next round.`);
+        
+        // Optional: Play a sound effect for round completion
+        this.playSound('round-complete'); // Assuming a sound key 'round-complete' exists
+
+        // 1. Clear the factory
+        this.clearPlacedItems(); // Use the existing clear function
+
+        // 2. Increment round number
+        this.currentRound++;
+        
+        // 3. Reset score for the new round
+        this.score = 0; 
+
+        // 4. Calculate and set the next score threshold
+        this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound);
+
+        // 5. Update UI Text
+        this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
+        this.roundText.setText(`ROUND: ${this.currentRound}`);
+        
+        // 6. Update difficulty explicitly upon advancing round
+        // (Instead of relying solely on the timed difficulty update)
+        this.updateDifficulty();
+
+        // Optional: Add a visual indication of round start/change?
+        // e.g., brief screen flash, text announcement
+        const roundAnnounce = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, `ROUND ${this.currentRound}`, {
+             fontFamily: 'Arial Black', fontSize: 48, color: '#ffff00', stroke: '#000000', strokeThickness: 6 
+        }).setOrigin(0.5).setDepth(100); // Ensure it's visible
+
+        this.tweens.add({
+             targets: roundAnnounce,
+             alpha: 0,
+             scale: 1.5,
+             duration: 1500, // Show for 1.5 seconds
+             ease: 'Power1',
+             onComplete: () => { roundAnnounce.destroy(); }
+        });
     }
     
     togglePause() {

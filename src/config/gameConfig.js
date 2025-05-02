@@ -23,8 +23,8 @@ export const GAME_CONFIG = {
     // Resource generation
     resourceGenerationRate: 2000, // ms
     resourceTypes: [
-        { id: 'basic-resource', name: 'Basic Resource', color: 0x00aa44 },
-        { id: 'advanced-resource', name: 'Advanced Resource', color: 0xd2691e }
+        { id: 'basic-resource', name: 'Basic Resource', color: 0x00aa44, points: 10 },
+        { id: 'advanced-resource', name: 'Advanced Resource', color: 0xd2691e, points: 50 }
     ],
     
     // Resource nodes
@@ -120,6 +120,18 @@ export const GAME_CONFIG = {
         'basic-resource': 0x00aa44,
         'advanced-resource': 0xd2691e
     },
+
+    // Round configuration
+    roundScoreThresholds: [
+        100,  // Score needed to complete Round 1
+        250,  // Score needed to complete Round 2
+        500,  // Score needed to complete Round 3
+        1000, // Score needed to complete Round 4
+        // Add more thresholds for subsequent rounds
+    ],
+    // If rounds exceed defined thresholds, use a formula?
+    // Example: lastThreshold + roundNumber * 100
+    scoreIncreaseFactorPerRound: 1.5, // Or multiply previous threshold by 1.5?
 
     // Clear Factory ability
     initialClearCooldown: 30000, // ms (30 seconds)

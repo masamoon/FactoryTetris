@@ -11,7 +11,6 @@ export default class DeliveryNode {
         // Delivery nodes might accept specific types later, for now generic
         // this.requiredResourceType = config.requiredResourceType; 
         this.lifespan = config.lifespan || GAME_CONFIG.nodeLifespan; // Use default lifespan if not provided
-        this.pointsPerResource = config.pointsPerResource || 10; // Score points
 
         console.log(`Created delivery node at (${this.gridX}, ${this.gridY})`);
 
@@ -71,29 +70,34 @@ export default class DeliveryNode {
     acceptResource(resourceType) {
         // For now, accept any resource type
         // Later, could check against this.requiredResourceType
+
+        // Find the score for this resource type from the config
+        const resourceConfig = GAME_CONFIG.resourceTypes.find(r => r.id === resourceType);
+        const points = resourceConfig ? resourceConfig.points : 0; // Default to 0 if not found
         
         // Add score
-        this.scene.addScore(this.pointsPerResource); 
+        this.scene.addScore(points); 
         
         // Visual feedback for accepted resource
-        this.createAcceptEffect(resourceType);
+        this.createAcceptEffect(resourceType, points); // Pass points to the effect method
         
-        console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${resourceType}, +${this.pointsPerResource} points`);
+        console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${resourceType}, +${points} points`);
         return true;
     }
 
     /**
      * Creates a visual effect when a resource is accepted.
      * @param {string} resourceType - The type of resource accepted.
+     * @param {number} points - The points awarded for this resource.
      */
-    createAcceptEffect(resourceType) {
+    createAcceptEffect(resourceType, points) {
         const color = GAME_CONFIG.resourceColors[resourceType] || 0xaaaaaa;
         
         // Score popup text
         const scoreText = this.scene.add.text(
             this.container.x, 
             this.container.y - 15, // Start above the node
-            `+${this.pointsPerResource}`, 
+            `+${points}`, // Use the actual points awarded
             { 
                 fontFamily: 'Arial', 
                 fontSize: 12, 
