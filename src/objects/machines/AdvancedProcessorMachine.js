@@ -3,7 +3,7 @@ import { GAME_CONFIG } from '../../config/gameConfig';
 
 /**
  * Advanced Processor Machine
- * Combines Products A and B with coal to create Product C
+ * Combines basic and advanced resources
  */
 export default class AdvancedProcessorMachine extends BaseMachine {
     /**
@@ -13,28 +13,29 @@ export default class AdvancedProcessorMachine extends BaseMachine {
      */
     constructor(scene, config) {
         super(scene, config);
+        // Initialization is handled by initMachineProperties called from BaseMachine constructor
     }
 
     /**
      * Initialize machine-specific properties
-     * Override this method to set properties for specific machine types
      */
     initMachineProperties() {
-        // Override base machine properties with processor-specific values
         this.id = 'advanced-processor';
         this.name = 'Advanced Processor';
         this.description = 'Combines basic and advanced resources';
-        this.shape = [
+        
+        // Original cross-shape
+        const originalShape = [
             [0, 1, 0],
             [1, 1, 1],
             [0, 1, 0]
-        ]; // Cross-shape Tetris piece
-        this.inputTypes = ['basic-resource', 'advanced-resource'];
-        this.outputTypes = ['advanced-resource'];
-        this.processingTime = 5000; // 5 seconds
-        this.defaultDirection = 'down';
+        ]; 
         
-        // Initialize processor-specific properties
+        this.inputTypes = ['basic-resource', 'advanced-resource'];
+        this.outputTypes = ['advanced-resource']; // Produces advanced
+        this.processingTime = 5000; // 5 seconds
+        this.defaultDirection = 'down'; // Default direction
+        
         this.isProcessing = false;
         this.processingProgress = 0;
         this.requiredInputs = {
@@ -42,393 +43,292 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             'advanced-resource': 1
         };
         
-        // Apply shape rotation if needed
-        this.shape = config.shape || (this.grid ? this.grid.getRotatedShape(this.shape, this.rotation) : this.shape);
+        // Set the original shape - rotation handled by BaseMachine
+        this.shape = originalShape;
         
-        // Initialize inventories
-        this.inputInventory = {};
-        this.outputInventory = {};
-        
-        this.inputTypes.forEach(type => {
-            this.inputInventory[type] = 0;
-        });
-        
-        this.outputTypes.forEach(type => {
-            this.outputInventory[type] = 0;
-        });
+        console.log(`[${this.name}] Initialized.`);
     }
     
     /**
      * Override the createVisuals method to customize the processor appearance
      */
     createVisuals() {
-        // Skip visual creation if we don't have a grid reference
         if (!this.grid) {
-            console.warn('Cannot create visuals for machine: grid reference is missing');
+            console.warn(`[${this.id}] Cannot create visuals: grid reference is missing`);
             return;
         }
         
-        // gridToWorld now returns the center of the shape
         const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
-        
-        // Create container for machine parts at the cell center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
-        console.log(`[AdvancedProcessorMachine] Created container at world position (${worldPos.x}, ${worldPos.y})`);
+        console.log(`[${this.id}] Created container at world position (${worldPos.x}, ${worldPos.y})`);
         
-        // Store references to input and output squares
         this.inputSquare = null;
         this.outputSquare = null;
         
-        // Determine input and output positions based on direction
-        let inputPos = { x: -1, y: -1 };
-        let outputPos = { x: -1, y: -1 };
-        
-        if (this.direction !== 'none') {
-            // For cross-shape, we'll put input and output on opposite ends
-            switch (this.direction) {
-                case 'right':
-                    // Input on left side, output on right side
-                    inputPos = { x: 0, y: 1 };
-                    outputPos = { x: this.shape[0].length - 1, y: 1 };
-                    break;
-                case 'down':
-                    // Input on top side, output on bottom side
-                    inputPos = { x: 1, y: 0 };
-                    outputPos = { x: 1, y: this.shape.length - 1 };
-                    break;
-                case 'left':
-                    // Input on right side, output on left side
-                    inputPos = { x: this.shape[0].length - 1, y: 1 };
-                    outputPos = { x: 0, y: 1 };
-                    break;
-                case 'up':
-                    // Input on bottom side, output on top side
-                    inputPos = { x: 1, y: this.shape.length - 1 };
-                    outputPos = { x: 1, y: 0 };
-                    break;
-            }
-        }
-        
-        // Calculate cell size for consistent sizing
+        // Default input/output positions for 'down' direction (relative to shape 0,0)
+        // Shape: [[0, 1, 0], [1, 1, 1], [0, 1, 0]]
+        // For 'down': Input top (1,0), Output bottom (1,2)
+        const defaultInputPos = { x: 1, y: 0 }; 
+        const defaultOutputPos = { x: 1, y: 2 };
+
+        // Rotate based on actual direction
+        this.inputPos = this.getRelativeRotatedPos(defaultInputPos, this.direction, this.shape[0].length, this.shape.length);
+        this.outputPos = this.getRelativeRotatedPos(defaultOutputPos, this.direction, this.shape[0].length, this.shape.length);
+
         const cellSize = this.grid.cellSize;
-        
-        // Calculate the shape center in terms of cells
         const shapeCenterX = (this.shape[0].length - 1) / 2;
         const shapeCenterY = (this.shape.length - 1) / 2;
-        
-        console.log(`[AdvancedProcessorMachine] Shape center: (${shapeCenterX}, ${shapeCenterY})`);
-        
-        // Create machine parts based on shape
+        const corePartPos = { x: 1, y: 1 }; // Center of the cross shape
+
         for (let y = 0; y < this.shape.length; y++) {
             for (let x = 0; x < this.shape[y].length; x++) {
                 if (this.shape[y][x] === 1) {
-                    // Calculate part position relative to container center (0,0)
                     const partX = (x - shapeCenterX) * cellSize;
                     const partY = (y - shapeCenterY) * cellSize;
                     
-                    console.log(`[AdvancedProcessorMachine] Part at shape(${x},${y}) -> relative(${partX},${partY})`);
+                    let partColor = 0x44ff44; // Default green
+                    let isInputPart = (x === this.inputPos.x && y === this.inputPos.y);
+                    let isOutputPart = (x === this.outputPos.x && y === this.outputPos.y);
+                    let isCorePart = (x === corePartPos.x && y === corePartPos.y);
+
+                    if (isInputPart) partColor = 0x4aa8eb; // Blue input
+                    else if (isOutputPart) partColor = 0xffa520; // Orange output
+                    else if (isCorePart) partColor = 0xcc5599; // Distinct core color (e.g., purple/magenta)
                     
-                    // Determine part color based on whether it's an input, output, or regular part
-                    let partColor = 0x44ff44; // Default green color (same as when dragging)
-                    
-                    if (x === inputPos.x && y === inputPos.y) {
-                        partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                        // Add a visual indicator for input
-                        const inputIndicator = this.scene.add.text(partX, partY, "IN", {
-                            fontFamily: 'Arial',
-                            fontSize: 10,
-                            color: '#ffffff'
-                        }).setOrigin(0.5);
-                        this.container.add(inputIndicator);
-                    } else if (x === outputPos.x && y === outputPos.y) {
-                        partColor = 0xffa520; // Brighter orange for output (same as when dragging)
-                        // Add a visual indicator for output
-                        const outputIndicator = this.scene.add.text(partX, partY, "OUT", {
-                            fontFamily: 'Arial',
-                            fontSize: 9,
-                            color: '#ffffff'
-                        }).setOrigin(0.5);
-                        this.container.add(outputIndicator);
-                    }
-                    
-                    // Make the center piece a different color to indicate it's the processing core
-                    if (x === 1 && y === 1) {
-                        partColor = 0xffaa44; // Brighter reddish-orange for the center
-                    }
-                    
-                    // Create machine part
                     const part = this.scene.add.rectangle(partX, partY, cellSize - 4, cellSize - 4, partColor);
-                    part.setStrokeStyle(2, 0x000000);
+                    part.setStrokeStyle(1, 0x333333);
                     this.container.add(part);
                     
-                    // Store references to input and output squares
-                    if (x === inputPos.x && y === inputPos.y) {
-                        this.inputSquare = part;
-                    } else if (x === outputPos.x && y === outputPos.y) {
-                        this.outputSquare = part;
-                    }
+                    if (isInputPart) this.inputSquare = part;
+                    if (isOutputPart) this.outputSquare = part;
                 }
             }
         }
         
-        // Add machine type indicator at the center of the machine (0,0)
-        const machineLabel = this.scene.add.text(0, 0, "C", {
-            fontFamily: 'Arial',
-            fontSize: 14,
-            color: '#ffffff'
-        }).setOrigin(0.5);
+        const machineLabel = this.scene.add.text(0, 0, "ADV", { fontSize: 10, color: '#ffffff' }).setOrigin(0.5);
         this.container.add(machineLabel);
         
-        // Add processing progress bar
-        this.progressBar = this.scene.add.rectangle(
-            0, 
-            cellSize / 4, 
-            cellSize - 10, 
-            4, 
-            0x00ff00
-        );
+        this.progressBar = this.scene.add.rectangle(0, cellSize * 0.75, cellSize * 2, 4, 0x00ff00).setOrigin(0.5, 0);
         this.progressBar.scaleX = 0;
         this.container.add(this.progressBar);
         
-        // Add direction indicator if not a cargo loader
+        // Add processor core visual effect (maybe a different shape?)
+        this.processorCore = this.scene.add.star(0, 0, 4, cellSize / 4, cellSize / 3, 0xffdd00); // Yellow star
+        this.processorCore.setStrokeStyle(1, 0xffffff);
+        this.container.add(this.processorCore);
+        this.processorCore.setDepth(machineLabel.depth - 1);
+        
+        // Add direction indicator to the scene
         if (this.direction !== 'none') {
-            // Create the direction indicator as part of the container, not in the scene
+            const absoluteX = this.container.x;
+            const absoluteY = this.container.y;
             const indicatorColor = 0xff9500;
-            
-            this.directionIndicator = this.scene.add.triangle(
-                0,      // Center relative to container (x=0)
-                0,      // Center relative to container (y=0)
-                -4, -6, // left top
-                -4, 6,  // left bottom
-                8, 0,   // right point
-                indicatorColor
-            ).setOrigin(0.5, 0.5);
-            
-            // Add the indicator to the container instead of directly to the scene
-            this.container.add(this.directionIndicator);
-            
-            // Rotate based on direction
-            switch (this.direction) {
-                case 'right':
-                    this.directionIndicator.rotation = 0; // Point right (0 degrees)
-                    break;
-                case 'down':
-                    this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
-                    break;
-                case 'left':
-                    this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
-                    break;
-                case 'up':
-                    this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
-                    break;
-            }
-            
-            console.log(`[AdvancedProcessorMachine] Direction indicator created in container with direction ${this.direction}`);
+            this.directionIndicator = this.scene.add.triangle(absoluteX, absoluteY, -4, -6, -4, 6, 8, 0, indicatorColor).setOrigin(0.5, 0.5);
+            this.updateDirectionIndicatorVisuals(); 
+            this.directionIndicator.setDepth(this.container.depth + 1);
         }
         
-        // Add placement animation
         this.addPlacementAnimation();
+        this.addInteractivity();
+    }
+
+    /** Helper to set direction indicator rotation */
+    updateDirectionIndicatorVisuals() {
+        if (!this.directionIndicator) return;
+        switch (this.direction) {
+            case 'right': this.directionIndicator.rotation = 0; break;
+            case 'down': this.directionIndicator.rotation = Math.PI / 2; break;
+            case 'left': this.directionIndicator.rotation = Math.PI; break;
+            case 'up': this.directionIndicator.rotation = 3 * Math.PI / 2; break;
+        }
+    }
+
+    /** Helper to calculate rotated relative position */
+    getRelativeRotatedPos(originalPos, direction, shapeWidth, shapeHeight) {
+        let { x, y } = originalPos;
+        switch (direction) {
+            case 'left': // 90 deg CW from 'down' (default)
+                [x, y] = [shapeHeight - 1 - originalPos.y, originalPos.x];
+                break;
+            case 'up': // 180 deg CW from 'down'
+                [x, y] = [shapeWidth - 1 - originalPos.x, shapeHeight - 1 - originalPos.y];
+                break;
+            case 'right': // 270 deg CW from 'down'
+                [x, y] = [originalPos.y, shapeWidth - 1 - originalPos.x];
+                break;
+             // case 'down': // 0 deg from default - no change
+        }
+        return { x, y };
+    }
+
+    /** Override the update method */
+    update(time, delta) {
+        super.update(time, delta);
+        delta = Number(delta) || 16.67;
+        if (delta > 0 && delta < 100) delta *= 1000;
+
+        if (this.isProcessing) {
+            this.processingProgress += delta;
+            if (this.progressBar) {
+                const progress = Math.min(1, this.processingProgress / this.processingTime);
+                this.progressBar.scaleX = progress;
+            }
+            if (this.processorCore) {
+                const progress = Math.min(1, this.processingProgress / this.processingTime);
+                this.processorCore.alpha = 0.6 + (progress * 0.4);
+                this.processorCore.scale = 1 + (progress * 0.3);
+                this.processorCore.angle += delta * 0.2; // Faster spin
+            }
+            if (this.processingProgress >= this.processingTime) {
+                this.completeProcessing();
+            }
+        } else {
+            if (this.canProcess()) {
+                this.startProcessing();
+            }
+        }
+        const outputType = this.outputTypes[0];
+        if (this.outputInventory[outputType] > 0) {
+            this.transferResources();
+        }
     }
     
-    /**
-     * Adjust the container position based on the shape and rotation
-     */
-    adjustContainerPosition() {
-        // Skip adjustment completely - our container position is already correct
-        // Container is positioned at the grid cell center and all parts are relative to it
-        
-        // Log that we're not making any adjustments
-        const originalX = this.container.x;
-        const originalY = this.container.y;
-        
-        console.log(`[AdvancedProcessorMachine] adjustContainerPosition - SKIPPED. Container remains at (${originalX}, ${originalY})`);
-        console.log(`[AdvancedProcessorMachine] Using center-relative positioning for all parts, no adjustment needed.`);
+    /** Check if the machine can start processing */
+    canProcess() {
+        if (this.isProcessing) return false;
+        // Check for BOTH required inputs
+        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
+            if ((this.inputInventory[resourceType] || 0) < amount) {
+                return false;
+            }
+        }
+        const outputType = this.outputTypes[0];
+        if ((this.outputInventory[outputType] || 0) >= 5) { 
+            return false;
+        }
+        return true;
     }
     
-    /**
-     * Create a new advanced processor machine preview sprite
-     * @param {Phaser.Scene} scene - The scene to create the sprite in
-     * @param {number} x - X position
-     * @param {number} y - Y position
-     * @returns {Phaser.GameObjects.Container} The preview container
-     */
+    /** Start the processing operation */
+    startProcessing() {
+        if (!this.canProcess()) return;
+        // Consume BOTH inputs
+        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
+            this.inputInventory[resourceType] -= amount;
+        }
+        this.isProcessing = true;
+        this.processingProgress = 0;
+        if (this.progressBar) this.progressBar.scaleX = 0;
+        if (this.processorCore) {
+            this.processorCore.alpha = 0.6;
+            this.processorCore.scale = 1;
+            this.processorCore.angle = 0;
+        }
+        console.log(`[${this.id}] Processing started.`);
+    }
+    
+    /** Complete the processing operation */
+    completeProcessing() {
+        const outputType = this.outputTypes[0];
+        this.outputInventory[outputType] = (this.outputInventory[outputType] || 0) + 1;
+        this.isProcessing = false;
+        this.processingProgress = 0;
+        if (this.progressBar) this.progressBar.scaleX = 0;
+        if (this.processorCore) {
+            this.processorCore.alpha = 1;
+            this.processorCore.scale = 1;
+        }
+        console.log(`[${this.id}] Processing complete. Output:`, this.outputInventory);
+    }
+
+    /** Transfer resources (Identical to Processor B, uses findTargetForOutput) */
+    transferResources() {
+        const outputType = this.outputTypes[0];
+        if (this.outputInventory[outputType] <= 0) return; 
+        const targetInfo = this.findTargetForOutput();
+        if (targetInfo) {
+            let transferred = false;
+            if (targetInfo.type === 'delivery-node') {
+                if (targetInfo.target.acceptResource(outputType)) {
+                    transferred = true;
+                    this.createResourceTransferEffect(outputType, targetInfo.target);
+                }
+            } else if (targetInfo.type === 'machine') {
+                if (targetInfo.target.receiveResource(outputType, this)) {
+                    transferred = true;
+                    this.createResourceTransferEffect(outputType, targetInfo.target);
+                }
+            }
+            if (transferred) {
+                this.outputInventory[outputType]--;
+            }
+        }
+    }
+
+    /** Find target (Identical to Processor B) */
+    findTargetForOutput() {
+        if (!this.grid) return null;
+        let targetX = this.gridX, targetY = this.gridY;
+        switch (this.direction) {
+            case 'right': targetX += 1; break;
+            case 'down': targetY += 1; break;
+            case 'left': targetX -= 1; break;
+            case 'up': targetY -= 1; break;
+            default: return null;
+        }
+        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) return null;
+        const targetCell = this.grid.getCell(targetX, targetY);
+        if (!targetCell) return null;
+        if (targetCell.type === 'delivery-node' && targetCell.object) return { type: 'delivery-node', target: targetCell.object };
+        if (targetCell.type === 'machine' && targetCell.machine) return { type: 'machine', target: targetCell.machine };
+        return null;
+    }
+
+    /** Create transfer effect (Identical to Processor B) */
+    createResourceTransferEffect(resourceType, target) {
+        if (!this.container) { console.error(`[${this.id}] ERROR: this.container is null`); return; }
+        if (!target.container) { console.error(`[${this.id}] ERROR: target.container is null`); return; }
+        const sourcePos = { x: this.container.x, y: this.container.y };
+        const targetPos = { x: target.container.x, y: target.container.y };
+        const color = GAME_CONFIG.resourceColors[resourceType] || 0xaaaaaa;
+        const particle = this.scene.add.circle(sourcePos.x, sourcePos.y, 5, color);
+        particle.setDepth(this.container.depth + 1);
+        this.scene.tweens.add({
+            targets: particle,
+            x: targetPos.x, y: targetPos.y,
+            duration: 300, ease: 'Power1',
+            onComplete: () => { particle.destroy(); }
+        });
+    }
+    
+    /** Create a preview sprite */
     static getPreviewSprite(scene, x, y) {
-        // Create a container for the preview
         const container = scene.add.container(x, y);
-        
-        // Get the default shape from game config
-        const shape = [
-            [0, 1, 0],
-            [1, 1, 1],
-            [0, 1, 0]
-        ]; // Cross-shape Tetris piece
-        
-        // Base machine body
-        const cellSize = 24; // Use a smaller size for previews
-        
-        // Calculate the shape center in terms of cells (same as in createVisuals)
+        const shape = [[0, 1, 0], [1, 1, 1], [0, 1, 0]];
+        const cellSize = 14; // Smaller size for preview
         const shapeCenterX = (shape[0].length - 1) / 2;
         const shapeCenterY = (shape.length - 1) / 2;
-        
-        // Draw each cell based on the shape using center-relative positioning
-        for (let y = 0; y < shape.length; y++) {
-            for (let x = 0; x < shape[0].length; x++) {
-                if (shape[y][x] === 1) {
-                    // Calculate position relative to center (0,0) - same formula as createVisuals
-                    const cellX = (x - shapeCenterX) * cellSize;
-                    const cellY = (y - shapeCenterY) * cellSize;
+        const defaultInputPos = { x: 1, y: 0 }; // For default 'down' direction
+        const defaultOutputPos = { x: 1, y: 2 }; // For default 'down' direction
+
+        for (let r = 0; r < shape.length; r++) {
+            for (let c = 0; c < shape[r].length; c++) {
+                if (shape[r][c] === 1) {
+                    const partX = (c - shapeCenterX) * cellSize;
+                    const partY = (r - shapeCenterY) * cellSize;
+                    let color = 0x44ff44; // Default green
+                    if (c === 1 && r === 1) color = 0xcc5599; // Core color
+                    else if (c === defaultInputPos.x && r === defaultInputPos.y) color = 0x4aa8eb; // Blue input
+                    else if (c === defaultOutputPos.x && r === defaultOutputPos.y) color = 0xffa520; // Orange output
                     
-                    // Determine if this is an input or output cell
-                    let color = 0x44ff44; // Default green color (same as when dragging)
-                    
-                    // Input is on the left of the middle row
-                    if (x === 0 && y === 1) {
-                        color = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                        // Add a visual indicator for input
-                        const inputIndicator = scene.add.text(cellX, cellY, "IN", {
-                            fontFamily: 'Arial',
-                            fontSize: 8,
-                            color: '#ffffff'
-                        }).setOrigin(0.5);
-                        container.add(inputIndicator);
-                    } 
-                    // Output is on the right of the middle row
-                    else if (x === 2 && y === 1) {
-                        color = 0xffa520; // Brighter orange for output (same as when dragging)
-                        // Add a visual indicator for output
-                        const outputIndicator = scene.add.text(cellX, cellY, "OUT", {
-                            fontFamily: 'Arial',
-                            fontSize: 7,
-                            color: '#ffffff'
-                        }).setOrigin(0.5);
-                        container.add(outputIndicator);
-                    }
-                    // Center piece
-                    else if (x === 1 && y === 1) {
-                        color = 0xffaa44; // Brighter reddish-orange for the center
-                    }
-                    
-                    const rect = scene.add.rectangle(cellX, cellY, cellSize - 2, cellSize - 2, color);
-                    rect.setStrokeStyle(2, 0x000000);
+                    const rect = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
+                    rect.setStrokeStyle(1, 0x555555);
                     container.add(rect);
                 }
             }
         }
-        
-        // Add a simple label at the center (0,0)
-        const label = scene.add.text(0, 0, "C", {
-            fontFamily: 'Arial',
-            fontSize: 14,
-            color: '#ffffff'
-        }).setOrigin(0.5);
+        const label = scene.add.text(0, 0, "ADV", { fontSize: 9, color: '#ffffff' }).setOrigin(0.5);
         container.add(label);
-        
-        // Add a simple direction indicator (pointing right by default) at the center
-        const directionIndicator = scene.add.triangle(
-            0, 0,  // Center of container
-            -4, -6,
-            -4, 6,
-            8, 0,
-            0xffffff
-        );
-        container.add(directionIndicator);
-        
         return container;
-    }
-    
-    /**
-     * Override the update method to handle processing logic
-     */
-    update(time, delta) {
-        super.update(time, delta);
-        
-        // Check if we can start processing
-        if (!this.isProcessing && this.canProcess()) {
-            this.startProcessing();
-        }
-        
-        // If we're processing, update the progress
-        if (this.isProcessing) {
-            this.processingProgress += delta;
-            
-            // Update visual feedback
-            if (this.progressBar) {
-                const progress = this.processingProgress / this.processingTime;
-                this.progressBar.scaleX = progress;
-            }
-            
-            // If we've reached the processing time, complete the processing
-            if (this.processingProgress >= this.processingTime) {
-                this.completeProcessing();
-            }
-        }
-        
-        // Try to transfer resources to connected machines
-        this.transferResources();
-    }
-    
-    /**
-     * Check if the machine can start processing
-     * @returns {boolean} True if the machine can process
-     */
-    canProcess() {
-        // Check if we have enough of each required input
-        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            if (!this.inputInventory[resourceType] || this.inputInventory[resourceType] < amount) {
-                return false;
-            }
-        }
-        
-        // Check if there's room in the output inventory
-        if (this.outputInventory['advanced-resource'] >= 3) { // Limit output storage
-            return false;
-        }
-        
-        return true;
-    }
-    
-    /**
-     * Start the processing operation
-     */
-    startProcessing() {
-        // Consume the required inputs
-        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            this.inputInventory[resourceType] -= amount;
-        }
-        
-        // Set processing state
-        this.isProcessing = true;
-        this.processingProgress = 0;
-        
-        // Visual feedback for processing
-        if (this.progressBar) {
-            this.scene.tweens.add({
-                targets: this.progressBar,
-                scaleX: 1,
-                duration: this.processingTime,
-                ease: 'Linear'
-            });
-        }
-        
-        console.log('Advanced Processor started processing');
-    }
-    
-    /**
-     * Complete the processing operation
-     */
-    completeProcessing() {
-        // Add the product to the output inventory
-        this.outputInventory['advanced-resource']++;
-        
-        // Reset processing state
-        this.isProcessing = false;
-        this.processingProgress = 0;
-        
-        // Reset visual feedback
-        if (this.progressBar) {
-            this.progressBar.scaleX = 0;
-        }
-        
-        console.log('Advanced Processor completed processing, produced 1 advanced-resource');
     }
 } 

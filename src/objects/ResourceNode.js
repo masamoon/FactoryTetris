@@ -13,7 +13,7 @@ export default class ResourceNode {
         
         // Initialize with some resources instead of starting at 0
         this.resources = Phaser.Math.Between(3, 5); // Start with 3-5 resources
-        this.maxResources = 10;
+        this.maxResources = 100;
         
         // Add cooldown for pushing resources
         this.pushCooldown = 500; // ms - Push resources every 0.5 seconds if possible
@@ -166,7 +166,7 @@ export default class ResourceNode {
     }
     
     /**
-     * Check adjacent cells and push resources to valid conveyors
+     * Check adjacent cells and push resources to valid conveyors OR machines
      */
     pushResourcesToConveyors() {
         // Check cooldown
@@ -201,29 +201,43 @@ export default class ResourceNode {
 
             const cell = this.scene.factoryGrid.getCell(targetX, targetY);
 
-            // Check if cell contains a conveyor facing the required direction
-            if (cell && cell.type === 'machine' && cell.machine && 
-                cell.machine.id === 'conveyor' && cell.machine.direction === offset.requiredDirection) {
-                
-                const conveyor = cell.machine;
-
-                // Check if the conveyor can accept the resource (using a new method we'll add)
-                if (conveyor.canAcceptInput && conveyor.canAcceptInput(this.resourceType.id)) {
-                    // Try to push the resource
-                    if (conveyor.acceptResourceFromMine && conveyor.acceptResourceFromMine(this.resourceType.id)) {
+            // --- Priority 1: Push directly to adjacent Machine (non-conveyor) ---
+            if (cell && cell.type === 'machine' && cell.machine && cell.machine.id !== 'conveyor') {
+                const targetMachine = cell.machine;
+                if (targetMachine.canAcceptInput && targetMachine.canAcceptInput(this.resourceType.id)) {
+                    if (targetMachine.receiveResource(this.resourceType.id, this)) {
                         this.resources--; // Decrement node resources
                         this.lastPushTime = now; // Reset cooldown
-                        
-                        // Update visual indicator immediately
                         if (this.resourceIndicator) {
                             this.resourceIndicator.setText(this.resources.toString());
                         }
-                        
-                        // Optional: Add visual effect for resource transfer
+                        this.createTransferEffect(targetMachine);
+                        return; // Pushed successfully to machine
+                    }
+                }
+            }
+            
+            // --- Priority 2: Push to adjacent Conveyor pointing AWAY ---
+            else if (cell && cell.type === 'machine' && cell.machine && cell.machine.id === 'conveyor') {
+                const conveyor = cell.machine;
+                
+                // Check if conveyor is pointing away from the node
+                let isPointingAway = false;
+                if (offset.dx === 1 && conveyor.direction !== 'left') isPointingAway = true;  // Target is right, conveyor not pointing left
+                if (offset.dx === -1 && conveyor.direction !== 'right') isPointingAway = true; // Target is left, conveyor not pointing right
+                if (offset.dy === 1 && conveyor.direction !== 'up') isPointingAway = true;    // Target is down, conveyor not pointing up
+                if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true;  // Target is up, conveyor not pointing down
+
+                if (isPointingAway && conveyor.canAcceptInput && conveyor.canAcceptInput(this.resourceType.id)) {
+                    // Use receiveResource for consistency, assuming acceptResourceFromMine isn't strictly needed
+                    if (conveyor.receiveResource(this.resourceType.id, this)) {
+                        this.resources--; // Decrement node resources
+                        this.lastPushTime = now; // Reset cooldown
+                        if (this.resourceIndicator) {
+                            this.resourceIndicator.setText(this.resources.toString());
+                        }
                         this.createTransferEffect(conveyor);
-                        
-                        // Only push to one conveyor per update cycle
-                        return; 
+                        return; // Pushed successfully to conveyor
                     }
                 }
             }

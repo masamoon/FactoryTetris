@@ -930,11 +930,73 @@ export default class BaseMachine {
     }
     
     /**
-     * Transfer resources to connected machines
+     * Transfer resources to adjacent Delivery Nodes or Conveyors.
+     * Called periodically or after processing completes.
      */
     transferResources() {
-        // Implementation will be similar to the original Machine class
-        // This is a placeholder for now
+        if (!this.grid || !this.outputInventory) {
+            return; // Cannot transfer without grid or output inventory
+        }
+
+        const adjacentOffsets = [
+            { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
+        ];
+
+        // Iterate through output inventory items
+        for (const resourceType in this.outputInventory) {
+            if (this.outputInventory[resourceType] > 0) {
+                // Try to push this resource type
+                Phaser.Utils.Array.Shuffle(adjacentOffsets); // Randomize check order
+
+                for (const offset of adjacentOffsets) {
+                    const targetX = this.gridX + offset.dx;
+                    const targetY = this.gridY + offset.dy;
+
+                    // Check bounds
+                    if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+                        continue;
+                    }
+
+                    const cell = this.grid.getCell(targetX, targetY);
+                    if (!cell) continue;
+
+                    // --- Priority 1: Push to Delivery Node ---
+                    if (cell.type === 'delivery-node' && cell.object) {
+                        const deliveryNode = cell.object;
+                        if (deliveryNode.acceptResource && deliveryNode.acceptResource(resourceType)) {
+                            this.outputInventory[resourceType]--;
+                            // Optional: Create transfer effect
+                            if (typeof this.createResourceTransferEffect === 'function') {
+                                this.createResourceTransferEffect(resourceType, deliveryNode); 
+                            }
+                            console.log(`[${this.name}] Pushed ${resourceType} to DeliveryNode at (${targetX}, ${targetY})`);
+                            return; // Pushed one item, exit for this cycle
+                        }
+                    }
+                    // --- Priority 2: Push to Conveyor pointing AWAY ---
+                    else if (cell.type === 'machine' && cell.machine && cell.machine.id === 'conveyor') {
+                        const conveyor = cell.machine;
+                        let isPointingAway = false;
+                        // Check if conveyor points away from this machine's cell
+                        if (offset.dx === 1 && conveyor.direction !== 'left') isPointingAway = true;  
+                        if (offset.dx === -1 && conveyor.direction !== 'right') isPointingAway = true; 
+                        if (offset.dy === 1 && conveyor.direction !== 'up') isPointingAway = true;    
+                        if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true; 
+
+                        if (isPointingAway && conveyor.canAcceptInput && conveyor.canAcceptInput(resourceType)) {
+                            if (conveyor.receiveResource(resourceType, this)) {
+                                this.outputInventory[resourceType]--;
+                                if (typeof this.createResourceTransferEffect === 'function') {
+                                    this.createResourceTransferEffect(resourceType, conveyor);
+                                }
+                                console.log(`[${this.name}] Pushed ${resourceType} to Conveyor at (${targetX}, ${targetY})`);
+                                return; // Pushed one item, exit for this cycle
+                            }
+                        }
+                    }
+                } // End adjacent cell loop
+            } // End check for >0 resources of this type
+        } // End output inventory loop
     }
     
     /**

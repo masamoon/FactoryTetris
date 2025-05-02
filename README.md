@@ -61,10 +61,10 @@ The built files will be in the `dist` directory.
 
 ### Factory Grid
 
-The factory grid is where you place machines to extract and process resources. Each machine has a specific shape and function:
+The factory grid is where you place machines to extract and process resources. Each machine occupies a specific shape on the grid:
 
 - **Processors (A, B, Advanced)**: Convert resources into different types.
-- **Conveyors**: Transport resources between machines. Can now be placed directly on Resource Mines to extract resources.
+- **Conveyors**: Transport resources. Connecting a conveyor *to* a machine tile defines an input, while connecting a conveyor *from* a machine tile defines an output. Conveyors can also be placed directly on Resource Mines to extract resources.
 - **Cargo Loaders**: Send finished products to the cargo bay to score points.
 
 ### Cargo Bay
@@ -73,13 +73,14 @@ The Cargo Bay is where products are shipped. Fill a row completely to clear it a
 
 ### Resource Nodes
 
-Resource nodes appear randomly on the factory grid and have a limited lifespan. Place conveyors near them to start extraction.
+Resource nodes appear randomly on the factory grid and have a limited lifespan. Place conveyors adjacent to them, pointing away from the node, to start extraction.
 
 ### Gameplay Loop
 
 1.  **Resource Generation**: Resource nodes appear on the grid.
-2.  **Extraction**: Place conveyors directly on resource nodes to start extraction.
-3.  **Transportation**: Use conveyors to move resources between machines.
+2.  **Extraction**: Place conveyors pointing *away* from resource nodes to start extraction.
+3.  **Transportation & Processing**: Use conveyors to define the flow of resources *into* and *out of* processor machines.
+4.  **Shipping**: Route finished products via conveyors into Cargo Loaders to send them to the Cargo Bay.
 
 ## License
 
