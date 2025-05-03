@@ -32,7 +32,7 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         ]; 
         
         this.inputTypes = ['basic-resource', 'advanced-resource'];
-        this.outputTypes = ['advanced-resource']; // Produces advanced
+        this.outputTypes = ['mega-resource']; // REMOVED: Will use config value
         this.processingTime = 5000; // 5 seconds
         this.defaultDirection = 'down'; // Default direction
         
@@ -305,43 +305,116 @@ export default class AdvancedProcessorMachine extends BaseMachine {
     transferResources() {
         const outputType = this.outputTypes[0];
         if (this.outputInventory[outputType] <= 0) return; 
-        const targetInfo = this.findTargetForOutput();
+        
+        console.warn(`[${this.id}] Attempting to transfer ${outputType}. Output inventory: ${this.outputInventory[outputType]}`);
+        
+        const targetInfo = this.findTargetForOutput(); 
+        
         if (targetInfo) {
+            console.warn(`[${this.id}] Found target: Type=${targetInfo.type}, Name=${targetInfo.target.name || 'N/A'}, Grid=(${targetInfo.target.gridX},${targetInfo.target.gridY})`);
             let transferred = false;
             if (targetInfo.type === 'delivery-node') {
                 if (targetInfo.target.acceptResource(outputType)) {
+                    console.warn(`[${this.id}] Delivery node accepted ${outputType}`);
                     transferred = true;
                     this.createResourceTransferEffect(outputType, targetInfo.target);
+                } else {
+                    console.warn(`[${this.id}] Delivery node rejected ${outputType}`);
                 }
             } else if (targetInfo.type === 'machine') {
+                const canAccept = targetInfo.target.canAcceptInput(outputType);
+                console.warn(`[${this.id}] Target machine ${targetInfo.target.name} canAcceptInput(${outputType}): ${canAccept}`);
                 if (targetInfo.target.receiveResource(outputType, this)) {
+                    console.warn(`[${this.id}] Target machine ${targetInfo.target.name} successfully received ${outputType}`);
                     transferred = true;
                     this.createResourceTransferEffect(outputType, targetInfo.target);
+                } else {
+                    console.warn(`[${this.id}] Target machine ${targetInfo.target.name} call to receiveResource(${outputType}) returned false`);
                 }
             }
             if (transferred) {
                 this.outputInventory[outputType]--;
+                console.warn(`[${this.id}] Transfer successful. New output inventory: ${this.outputInventory[outputType]}`);
+            } else {
+                 console.warn(`[${this.id}] Transfer failed for ${outputType} to target ${targetInfo.target.name || 'N/A'}`);
             }
+        } else {
+            console.warn(`[${this.id}] No target found for output direction ${this.direction} at (${this.gridX}, ${this.gridY})`);
         }
     }
 
-    /** Find target (Identical to Processor B) */
+    /**
+     * Override findTargetForOutput to correctly identify the adjacent cell
+     * based on the Advanced Processor's specific shape and direction.
+     */
     findTargetForOutput() {
-        if (!this.grid) return null;
-        let targetX = this.gridX, targetY = this.gridY;
+        if (!this.grid) {
+            console.warn(`[${this.id}] Cannot find target: grid reference is missing`);
+            return null;
+        }
+
+        // Define the relative coordinates of the output cell within the ORIGINAL shape
+        // Original Shape: [[0, 1, 0], [1, 1, 1], [0, 1, 0]] (3x3)
+        // Let's designate the center '1' at (1,1) as the reference.
+        // Output face cells relative to top-left (0,0) of the shape:
+        let outputFaceRelX, outputFaceRelY;
+        switch (this.direction) {
+            case 'right': outputFaceRelX = 2; outputFaceRelY = 1; break; // Rightmost '1'
+            case 'down':  outputFaceRelX = 1; outputFaceRelY = 2; break; // Bottommost '1'
+            case 'left':  outputFaceRelX = 0; outputFaceRelY = 1; break; // Leftmost '1'
+            case 'up':    outputFaceRelX = 1; outputFaceRelY = 0; break; // Topmost '1'
+            default:      
+                console.warn(`[${this.id}] Invalid direction: ${this.direction}`);
+                return null; // Invalid direction
+        }
+
+        // Calculate the absolute grid coordinates of this output face cell
+        // Assumes this.gridX, this.gridY is the top-left anchor of the shape
+        const outputFaceAbsX = this.gridX + outputFaceRelX;
+        const outputFaceAbsY = this.gridY + outputFaceRelY;
+
+        // Calculate the coordinates of the target cell immediately adjacent to the output face
+        let targetX = outputFaceAbsX;
+        let targetY = outputFaceAbsY;
         switch (this.direction) {
             case 'right': targetX += 1; break;
-            case 'down': targetY += 1; break;
-            case 'left': targetX -= 1; break;
-            case 'up': targetY -= 1; break;
-            default: return null;
+            case 'down':  targetY += 1; break;
+            case 'left':  targetX -= 1; break;
+            case 'up':    targetY -= 1; break;
         }
-        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) return null;
+        
+        console.warn(`[${this.id}] Finding target: Direction=${this.direction}, OutputFace=(${outputFaceAbsX},${outputFaceAbsY}), TargetCell=(${targetX},${targetY})`); // Debug log
+
+        // Check grid bounds for the target cell
+        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+            console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is out of bounds.`);
+            return null;
+        }
+
+        // Get the content of the target cell
         const targetCell = this.grid.getCell(targetX, targetY);
-        if (!targetCell) return null;
-        if (targetCell.type === 'delivery-node' && targetCell.object) return { type: 'delivery-node', target: targetCell.object };
-        if (targetCell.type === 'machine' && targetCell.machine) return { type: 'machine', target: targetCell.machine };
-        return null;
+        if (!targetCell) {
+            console.warn(`[${this.id}] No cell data found at target (${targetX}, ${targetY}).`);
+            return null;
+        }
+
+        // Return the target info based on cell type
+        if (targetCell.type === 'delivery-node' && targetCell.object) {
+            console.warn(`[${this.id}] Found target: Delivery Node at (${targetX}, ${targetY})`);
+            return { type: 'delivery-node', target: targetCell.object };
+        }
+        if (targetCell.type === 'machine' && targetCell.machine) {
+             // IMPORTANT SELF-CHECK: Ensure we are not targeting ourselves
+            if (targetCell.machine === this) {
+                 console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) contains self. No valid output target found.`);
+                 return null; 
+            }
+            console.warn(`[${this.id}] Found target: Machine ${targetCell.machine.name} at (${targetX}, ${targetY})`);
+            return { type: 'machine', target: targetCell.machine };
+        }
+        
+        console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is empty or contains non-targetable type: ${targetCell.type}`);
+        return null; // Target cell is empty or not a machine/node
     }
 
     /** Create transfer effect (Identical to Processor B) */

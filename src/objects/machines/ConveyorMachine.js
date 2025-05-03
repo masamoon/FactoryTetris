@@ -30,8 +30,8 @@ export default class ConveyorMachine extends BaseMachine {
         this.name = 'Conveyor Belt';
         this.description = 'Transports resources between machines';
         this.shape = [[1]]; // 1x1 shape
-        this.inputTypes = ['basic-resource', 'advanced-resource'];
-        this.outputTypes = ['basic-resource', 'advanced-resource'];
+        this.inputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
+        this.outputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
         this.processingTime = 1000; // 1 second
         this.defaultDirection = 'right';
 

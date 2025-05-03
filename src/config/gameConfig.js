@@ -24,7 +24,8 @@ export const GAME_CONFIG = {
     resourceGenerationRate: 2000, // ms
     resourceTypes: [
         { id: 'basic-resource', name: 'Basic Resource', color: 0x00aa44, points: 10 },
-        { id: 'advanced-resource', name: 'Advanced Resource', color: 0xd2691e, points: 50 }
+        { id: 'advanced-resource', name: 'Advanced Resource', color: 0xd2691e, points: 50 },
+        { id: 'mega-resource', name: 'Mega Resource', color: 0xff00ff, points: 300 }
     ],
     
     // Resource nodes
@@ -69,7 +70,7 @@ export const GAME_CONFIG = {
                 [0, 1, 0]
             ],
             inputTypes: ['basic-resource', 'advanced-resource'],
-            outputTypes: ['advanced-resource'],
+            outputTypes: ['mega-resource'],
             processingTime: 5000, // ms
             direction: 'down', // Default output direction
             description: 'Combines basic and advanced resources'
@@ -80,8 +81,8 @@ export const GAME_CONFIG = {
             shape: [
                 [1, 1]
             ],
-            inputTypes: ['basic-resource', 'advanced-resource'],
-            outputTypes: ['basic-resource', 'advanced-resource'],
+            inputTypes: ['basic-resource', 'advanced-resource', 'mega-resource'],
+            outputTypes: ['basic-resource', 'advanced-resource', 'mega-resource'],
             processingTime: 1000, // ms
             direction: 'right', // Default direction, can be rotated
             description: 'Transports resources between machines'
@@ -118,15 +119,16 @@ export const GAME_CONFIG = {
     // Resource colors for visualization
     resourceColors: {
         'basic-resource': 0x00aa44,
-        'advanced-resource': 0xd2691e
+        'advanced-resource': 0xd2691e,
+        'mega-resource': 0xff00ff
     },
 
     // Round configuration
     roundScoreThresholds: [
-        100,  // Score needed to complete Round 1
-        250,  // Score needed to complete Round 2
-        500,  // Score needed to complete Round 3
-        1000, // Score needed to complete Round 4
+        1000,  // Score needed to complete Round 1
+        2500,  // Score needed to complete Round 2
+        5000,  // Score needed to complete Round 3
+        10000, // Score needed to complete Round 4
         // Add more thresholds for subsequent rounds
     ],
     // If rounds exceed defined thresholds, use a formula?
