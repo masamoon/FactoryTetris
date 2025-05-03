@@ -442,13 +442,26 @@ export default class ConveyorMachine extends BaseMachine {
      * @returns {boolean} True if the resource can be accepted, false otherwise.
      */
     canAcceptInput(resourceTypeId) {
+        // Check if the type is in the machine's inputTypes list
+        const acceptsType = this.inputTypes.includes(resourceTypeId);
+        if (!acceptsType) {
+            // console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceTypeId}: Type mismatch.`);
+            return false;
+        }
+
         // Initialize inventory if needed
         if (this.inputInventory[resourceTypeId] === undefined) {
             this.inputInventory[resourceTypeId] = 0;
         }
         // Check if input inventory has space (e.g., less than 5)
-        const inputCapacity = 5;
-        return this.inputInventory[resourceTypeId] < inputCapacity;
+        const inputCapacity = 5; // Use a constant or config value if available
+        const hasSpace = this.inputInventory[resourceTypeId] < inputCapacity;
+        if (!hasSpace) {
+             // console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceTypeId}: Inventory full.`);
+             return false;
+        }
+
+        return true; // Accepts type and has space
     }
 
     /**

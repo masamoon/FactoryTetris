@@ -546,6 +546,7 @@ export default class ProcessorAMachine extends BaseMachine {
     /**
      * Override findTargetForOutput to correctly identify the adjacent cell
      * based on the Processor A's specific J-shape and direction.
+     * This version checks all cells along the output face.
      */
     findTargetForOutput() {
         if (!this.grid) {
@@ -553,72 +554,62 @@ export default class ProcessorAMachine extends BaseMachine {
             return null;
         }
 
-        // Determine the absolute grid coordinates of the output face cell based on direction.
-        // This logic mimics the results of the original getOutputCell method.
-        let outputFaceAbsX = this.gridX;
-        let outputFaceAbsY = this.gridY;
+        const occupiedCells = this.getOccupiedCells();
+        if (!occupiedCells || occupiedCells.length === 0) {
+             console.warn(`[${this.id}] Cannot find target: machine occupies no cells.`);
+            return null; 
+        }
 
+        // Determine the offset to check based on direction
+        let dx = 0, dy = 0;
         switch (this.direction) {
-            case 'right': // Shape: [[1,1],[1,0],[1,0]] -> Output face is bottom-left (0, 2) relative to anchor
-                outputFaceAbsX = this.gridX + 0; 
-                outputFaceAbsY = this.gridY + 2; 
-                break;
-            case 'down': // Shape: [[1,1,1],[0,0,1]] -> Output face is bottom-right (2, 1) relative to anchor
-                outputFaceAbsX = this.gridX + 2; 
-                outputFaceAbsY = this.gridY + 1; 
-                break;
-            case 'left': // Shape: [[0,1],[0,1],[1,1]] -> Output face is top-right (1, 0) relative to anchor
-                outputFaceAbsX = this.gridX + 1; 
-                outputFaceAbsY = this.gridY + 0; 
-                break;
-            case 'up':   // Shape: [[1,0,0],[1,1,1]] -> Output face is top-left (0, 0) relative to anchor
-                outputFaceAbsX = this.gridX + 0; 
-                outputFaceAbsY = this.gridY + 0; 
-                break;
+            case 'right': dx = 1; break;
+            case 'down':  dy = 1; break;
+            case 'left':  dx = -1; break;
+            case 'up':    dy = -1; break;
             default:
-                 console.warn(`[${this.id}] Invalid direction: ${this.direction}`);
+                console.warn(`[${this.id}] Invalid direction: ${this.direction}`);
                 return null;
         }
 
-        // Calculate the coordinates of the target cell immediately adjacent to the output face
-        let targetX = outputFaceAbsX;
-        let targetY = outputFaceAbsY;
-        switch (this.direction) {
-            case 'right': targetX += 1; break;
-            case 'down':  targetY += 1; break;
-            case 'left':  targetX -= 1; break;
-            case 'up':    targetY -= 1; break;
-        }
-        
-        // console.warn(`[${this.id}] Finding target: Direction=${this.direction}, OutputFace=(${outputFaceAbsX},${outputFaceAbsY}), TargetCell=(${targetX},${targetY})`); // Optional Debug log
+        // Iterate through all cells occupied by this machine
+        for (const cell of occupiedCells) {
+            const outputFaceAbsX = cell.x; // Absolute X of the cell occupied by this machine
+            const outputFaceAbsY = cell.y; // Absolute Y of the cell occupied by this machine
 
-        // Check grid bounds for the target cell
-        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
-            // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is out of bounds.`);
-            return null;
-        }
-
-        // Get the content of the target cell
-        const targetCell = this.grid.getCell(targetX, targetY);
-        if (!targetCell) {
-            // console.warn(`[${this.id}] No cell data found at target (${targetX}, ${targetY}).`);
-            return null;
-        }
-
-        // Return the target info based on cell type
-        if (targetCell.type === 'delivery-node' && targetCell.object) {
-            return { type: 'delivery-node', target: targetCell.object };
-        }
-        if (targetCell.type === 'machine' && targetCell.machine) {
-             // IMPORTANT SELF-CHECK: Ensure we are not targeting ourselves
-            if (targetCell.machine === this) {
-                 // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) contains self. No valid output target found.`);
-                 return null; 
+            // Calculate the coordinates of the potential target cell adjacent to this occupied cell
+            const targetX = outputFaceAbsX + dx;
+            const targetY = outputFaceAbsY + dy;
+            
+            // Check 1: Is the target cell within grid bounds?
+            if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+                continue; // Skip if out of bounds
             }
-            return { type: 'machine', target: targetCell.machine };
+            
+            // Check 2: Is the target cell part of this machine itself?
+            const isSelf = occupiedCells.some(occupied => occupied.x === targetX && occupied.y === targetY);
+            if (isSelf) {
+                continue; // Skip if target is part of this machine
+            }
+
+            // If the target cell is valid and not part of self, check its content
+            const targetCell = this.grid.getCell(targetX, targetY);
+            if (!targetCell) {
+                continue; 
+            }
+            
+            // Check if the target cell contains a valid machine or node
+            if (targetCell.type === 'delivery-node' && targetCell.object) {
+                 // Return info about the node and WHICH cell of this machine is outputting to it
+                 return { type: 'delivery-node', target: targetCell.object, outputFaceX: outputFaceAbsX, outputFaceY: outputFaceAbsY };
+            }
+            if (targetCell.type === 'machine' && targetCell.machine) {
+                 // Return info about the machine and WHICH cell of this machine is outputting to it
+                 return { type: 'machine', target: targetCell.machine, outputFaceX: outputFaceAbsX, outputFaceY: outputFaceAbsY };
+            }
         }
         
-        // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is empty or contains non-targetable type: ${targetCell.type}`);
-        return null; // Target cell is empty or not a machine/node
+        // If the loop completes without finding a valid target
+        return null;
     }
 } 

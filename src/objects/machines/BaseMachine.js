@@ -956,125 +956,100 @@ export default class BaseMachine {
     }
     
     /**
-     * Transfer resources to adjacent Delivery Nodes or Conveyors.
-     * Called periodically or after processing completes.
+     * Transfer resources from this machine's output inventory to connected machines.
+     * This is the base implementation, specific machines might override it.
      */
     transferResources() {
-        if (!this.grid || !this.outputInventory) {
-            return; 
-        }
-
-        const occupiedCells = this.getOccupiedCells();
-        if (!occupiedCells || occupiedCells.length === 0) {
-            console.error(`[${this.name}] transferResources error: Machine occupies no cells?`);
+        // Find the target machine/node using the (potentially overridden) findTargetForOutput method
+        // Note: findTargetForOutput might be defined in the base class or overridden in a subclass
+        const findTargetMethod = this.findTargetForOutput || this.findConnectedMachine; // Fallback to old method name if needed
+        if (!findTargetMethod || typeof findTargetMethod !== 'function') {
+            console.warn(`[${this.name}] No findTargetForOutput or findConnectedMachine method found.`);
             return;
         }
 
-        // --- DEBUG START ---
-        const debugTransfer = true; // Set to true for detailed adjacent cell checks
-        if (debugTransfer) console.log(`
-[${this.name} (${this.gridX},${this.gridY})] --- Running transferResources ---`);
-        if (debugTransfer) console.log(`  Occupied Cells: ${JSON.stringify(occupiedCells)}`);
-        // --- DEBUG END ---
+        const targetInfo = findTargetMethod.call(this);
+        if (!targetInfo) {
+            // findTargetForOutput should log if no target is found
+            return; 
+        }
 
-        const adjacentOffsets = [
-            { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
-        ];
+        // Determine which resource type to try transferring (usually the first/only output type)
+        // TODO: Handle machines with multiple output types more intelligently?
+        if (!this.outputTypes || this.outputTypes.length === 0) {
+            return; // No output types defined
+        }
+        const resourceTypeToTransfer = this.outputTypes[0];
 
-        for (const resourceType in this.outputInventory) {
-            if (this.outputInventory[resourceType] > 0) {
-                // --- DEBUG START ---
-                if (debugTransfer) console.log(`  Checking resource: ${resourceType}`);
-                // --- DEBUG END ---
+        // Check if we actually have this resource in output
+        if (!this.outputInventory[resourceTypeToTransfer] || this.outputInventory[resourceTypeToTransfer] <= 0) {
+            return; // No resources of this type to transfer
+        }
 
-                let foundValidTarget = false; // Track if we find *any* valid target this cycle
- 
-                Phaser.Utils.Array.Shuffle(occupiedCells); 
- 
-                for (const machineCell of occupiedCells) {
-                    // --- DEBUG START ---
-                    if (debugTransfer) console.log(`    Checking adjacent to occupied cell: (${machineCell.x}, ${machineCell.y})`);
-                    // --- DEBUG END ---
-                    Phaser.Utils.Array.Shuffle(adjacentOffsets);
- 
-                    for (const offset of adjacentOffsets) {
-                        const targetX = machineCell.x + offset.dx;
-                        const targetY = machineCell.y + offset.dy;
- 
-                        // --- DEBUG START ---
-                        if (debugTransfer) console.log(`      -> Checking Target Coords: (${targetX}, ${targetY})`);
-                        // --- DEBUG END ---
- 
-                        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
-                            continue;
-                        }
-                         
-                        if (occupiedCells.some(cell => cell.x === targetX && cell.y === targetY)) {
-                            if (debugTransfer) console.log(`        -> Is part of self. Skipping.`);
-                            continue; 
-                        }
-
-                        const cell = this.grid.getCell(targetX, targetY);
-                        // --- DEBUG START ---
-                        if (debugTransfer) console.log(`        -> Cell Content Type: ${cell ? cell.type : 'null/undefined'}`);
-                        // --- DEBUG END ---
-                        if (!cell) {
-                            continue;
-                        }
- 
-                        // --- Priority 1: Push to Delivery Node ---
-                        if (cell.type === 'delivery-node' && cell.object) {
-                            if (debugTransfer) console.log(`        -> Found Delivery Node.`);
-                            const deliveryNode = cell.object;
-                            if (deliveryNode.acceptResource && deliveryNode.acceptResource(resourceType)) {
-                                this.outputInventory[resourceType]--;
-                                if (typeof this.createResourceTransferEffect === 'function') {
-                                    this.createResourceTransferEffect(resourceType, deliveryNode); 
-                                }
-                                console.log(`[${this.name}] Pushed ${resourceType} from (${machineCell.x},${machineCell.y}) to DeliveryNode at (${targetX}, ${targetY}) - SUCCESS`);
-                                foundValidTarget = true;
-                                if (debugTransfer) debugger; // PAUSE HERE if dev tools are open
-                                break; // Exit adjacent cell loop for this machineCell
-                            } // else { if (debugTransfer) console.log(`          -> Delivery Node rejected ${resourceType}.`); }
-                        }
-                        // --- Priority 2: Push to Conveyor pointing AWAY from this specific machineCell ---
-                        else if (cell.type === 'machine' && cell.machine && cell.machine.id === 'conveyor') {
-                            const conveyor = cell.machine; // Ensure we have the machine object
-                            if (debugTransfer) console.log(`        -> Found Conveyor (Dir: ${conveyor ? conveyor.direction : 'N/A'})`);
+        let transferred = false;
+        
+        // Handle transfer to Delivery Node
+        if (targetInfo.type === 'delivery-node') {
+            const deliveryNode = targetInfo.target;
+            if (deliveryNode && typeof deliveryNode.acceptResource === 'function') {
+                if (deliveryNode.acceptResource(resourceTypeToTransfer)) {
+                    transferred = true;
+                    this.createResourceTransferEffect(resourceTypeToTransfer, deliveryNode);
+                } else {
+                    // console.warn(`[${this.name}] Delivery node rejected ${resourceTypeToTransfer}`);
+                }
+            }
+        }
+        // Handle transfer to another Machine
+        else if (targetInfo.type === 'machine') {
+            const targetMachine = targetInfo.target;
+            
+            if (targetMachine && typeof targetMachine.canAcceptInput === 'function' && typeof targetMachine.receiveResource === 'function') {
+                // Check if target machine can accept the resource type and has space
+                if (targetMachine.canAcceptInput(resourceTypeToTransfer)) {
+                    
+                    // *** ADDED: Directional check for conveyors ***
+                    let allowTransfer = true;
+                    if (targetMachine.id === 'conveyor') {
+                        const targetDirection = targetMachine.direction;
+                        const outputFaceX = targetInfo.outputFaceX; // Provided by the enhanced findTargetForOutput
+                        const outputFaceY = targetInfo.outputFaceY; // Provided by the enhanced findTargetForOutput
+                        const targetX = targetMachine.gridX;
+                        const targetY = targetMachine.gridY;
+                        
+                        // Check if conveyor points back towards the cell this machine outputted from
+                        if ((targetDirection === 'left'  && targetX === outputFaceX + 1 && targetY === outputFaceY) || // Target is right, points left
+                            (targetDirection === 'right' && targetX === outputFaceX - 1 && targetY === outputFaceY) || // Target is left, points right
+                            (targetDirection === 'up'    && targetY === outputFaceY + 1 && targetX === outputFaceX) || // Target is below, points up
+                            (targetDirection === 'down'  && targetY === outputFaceY - 1 && targetX === outputFaceX)) { // Target is above, points down
                             
-                            let isPointingAway = false;
-                            if (offset.dx === 1 && conveyor.direction !== 'left') isPointingAway = true;  
-                            if (offset.dx === -1 && conveyor.direction !== 'right') isPointingAway = true; 
-                            if (offset.dy === 1 && conveyor.direction !== 'up') isPointingAway = true;    
-                            if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true; 
-                            
-                            if (debugTransfer) console.log(`          -> Is pointing away from (${machineCell.x},${machineCell.y})? ${isPointingAway}`);
+                            // console.warn(`[${this.name}] Preventing transfer to Conveyor at (${targetX}, ${targetY}) because its direction (${targetDirection}) points back towards output face (${outputFaceX}, ${outputFaceY}).`);
+                            allowTransfer = false;
+                        }
+                    }
+                    // *** END Directional check ***
 
-                            if (isPointingAway) {
-                                const canAccept = conveyor.canAcceptInput && conveyor.canAcceptInput(resourceType);
-                                if (debugTransfer) console.log(`          -> Can accept ${resourceType}? ${canAccept}`);
-                                
-                                if (canAccept) {
-                                    if (conveyor.receiveResource(resourceType, this)) {
-                                        this.outputInventory[resourceType]--;
-                                        if (typeof this.createResourceTransferEffect === 'function') {
-                                            this.createResourceTransferEffect(resourceType, conveyor);
-                                        }
-                                        console.log(`[${this.name}] Pushed ${resourceType} from (${machineCell.x},${machineCell.y}) to Conveyor at (${targetX}, ${targetY}) - SUCCESS`);
-                                        foundValidTarget = true;
-                                        if (debugTransfer) debugger; // PAUSE HERE if dev tools are open
-                                        break; // Exit adjacent cell loop for this machineCell
-                                    } // else { if (debugTransfer) console.log(`            -> Conveyor receiveResource failed.`); }
-                                } // end canAccept
-                            } // end isPointingAway
-                        } // else if (debugTransfer && cell.type !== 'empty') console.log(`        -> Found other type: ${cell.type}${cell.machine ? ' ('+cell.machine.id+')' : ''}`);
-                    } // End adjacent cell loop
-                    if (foundValidTarget) break; // Exit occupied cell loop if target was found for this machineCell
-                } // End occupied cell loop
-                 if (debugTransfer && !foundValidTarget) console.log(`  [${this.name}] No valid transfer target found for ${resourceType} after checking all occupied cells.`);
-            } // End check for >0 resources of this type
-        } // End output inventory loop
-         // if (debugTransfer) console.log(`[${this.name}] --- Finished transferResources ---`);
+                    // Attempt transfer only if allowed (basic acceptance AND directional check passed)
+                    if (allowTransfer) {
+                        if (targetMachine.receiveResource(resourceTypeToTransfer, this)) {
+                            transferred = true;
+                            this.createResourceTransferEffect(resourceTypeToTransfer, targetMachine);
+                        } else {
+                            // console.warn(`[${this.name}] Target machine ${targetMachine.name} receiveResource returned false for ${resourceTypeToTransfer}`);
+                        }
+                    }
+                } else {
+                   // console.warn(`[${this.name}] Target machine ${targetMachine.name} cannot accept input ${resourceTypeToTransfer}`);
+                }
+            } else {
+                 console.warn(`[${this.name}] Target machine is invalid or missing methods.`);
+            }
+        }
+
+        // If transfer was successful, decrement the output inventory
+        if (transferred) {
+            this.outputInventory[resourceTypeToTransfer]--;
+        }
     }
     
     /**
