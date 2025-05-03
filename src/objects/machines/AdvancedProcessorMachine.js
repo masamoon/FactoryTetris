@@ -57,10 +57,23 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             console.warn(`[${this.id}] Cannot create visuals: grid reference is missing`);
             return;
         }
+
+        // *** ADDED: Get the correctly rotated shape for visuals (Copied from BaseMachine) ***
+        const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
+        const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection); // Use direction string
+
+        // *** VALIDATE the rotated shape ***
+        if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0) {
+            console.error(`[${this.id}] Failed to get valid rotated shape for direction ${currentDirection}. Using default.`);
+            rotatedShape = [[1]]; // Fallback to default shape
+        }
         
-        const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
-        this.container = this.scene.add.container(worldPos.x, worldPos.y);
-        console.log(`[${this.id}] Created container at world position (${worldPos.x}, ${worldPos.y})`);
+        // *** MODIFIED: Use gridToWorldTopLeft consistent with BaseMachine ***
+        const topLeftPos = this.grid.gridToWorldTopLeft(this.gridX, this.gridY);
+        
+        // *** MODIFIED: Use topLeftPos for container ***
+        this.container = this.scene.add.container(topLeftPos.x, topLeftPos.y);
+        // console.log(`[${this.id}] Created container at world position (${topLeftPos.x}, ${topLeftPos.y})`);
         
         this.inputSquare = null;
         this.outputSquare = null;
@@ -72,19 +85,29 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         const defaultOutputPos = { x: 1, y: 2 };
 
         // Rotate based on actual direction
-        this.inputPos = this.getRelativeRotatedPos(defaultInputPos, this.direction, this.shape[0].length, this.shape.length);
-        this.outputPos = this.getRelativeRotatedPos(defaultOutputPos, this.direction, this.shape[0].length, this.shape.length);
+        // *** MODIFIED: Use rotatedShape dimensions ***
+        this.inputPos = this.getRelativeRotatedPos(defaultInputPos, this.direction, rotatedShape[0].length, rotatedShape.length);
+        this.outputPos = this.getRelativeRotatedPos(defaultOutputPos, this.direction, rotatedShape[0].length, rotatedShape.length);
 
         const cellSize = this.grid.cellSize;
-        const shapeCenterX = (this.shape[0].length - 1) / 2;
-        const shapeCenterY = (this.shape.length - 1) / 2;
-        const corePartPos = { x: 1, y: 1 }; // Center of the cross shape
+        // *** MODIFIED: Use rotatedShape dimensions ***
+        const shapeCenterX = (rotatedShape[0].length - 1) / 2;
+        const shapeCenterY = (rotatedShape.length - 1) / 2;
+        // *** MODIFIED: Calculate core part position relative to rotated shape ***
+        const corePartPos = this.getRelativeRotatedPos({ x: 1, y: 1 }, this.direction, rotatedShape[0].length, rotatedShape.length); 
 
-        for (let y = 0; y < this.shape.length; y++) {
-            for (let x = 0; x < this.shape[y].length; x++) {
-                if (this.shape[y][x] === 1) {
-                    const partX = (x - shapeCenterX) * cellSize;
-                    const partY = (y - shapeCenterY) * cellSize;
+        // *** MODIFIED: Use rotatedShape ***
+        for (let y = 0; y < rotatedShape.length; y++) {
+            for (let x = 0; x < rotatedShape[y].length; x++) {
+                // *** MODIFIED: Use rotatedShape ***
+                if (rotatedShape[y][x] === 1) {
+                    // *** MODIFIED: Use top-left positioning logic from BaseMachine ***
+                    const partCenterX = x * cellSize + cellSize / 2;
+                    const partCenterY = y * cellSize + cellSize / 2;
+
+                    // *** REMOVED Old center-relative positioning ***
+                    // const partX = (x - shapeCenterX) * cellSize;
+                    // const partY = (y - shapeCenterY) * cellSize;
                     
                     let partColor = 0x44ff44; // Default green
                     let isInputPart = (x === this.inputPos.x && y === this.inputPos.y);
@@ -95,7 +118,8 @@ export default class AdvancedProcessorMachine extends BaseMachine {
                     else if (isOutputPart) partColor = 0xffa520; // Orange output
                     else if (isCorePart) partColor = 0xcc5599; // Distinct core color (e.g., purple/magenta)
                     
-                    const part = this.scene.add.rectangle(partX, partY, cellSize - 4, cellSize - 4, partColor);
+                    // *** MODIFIED: Use partCenterX/Y for positioning ***
+                    const part = this.scene.add.rectangle(partCenterX, partCenterY, cellSize - 4, cellSize - 4, partColor);
                     part.setStrokeStyle(1, 0x333333);
                     this.container.add(part);
                     
@@ -146,17 +170,41 @@ export default class AdvancedProcessorMachine extends BaseMachine {
     /** Helper to calculate rotated relative position */
     getRelativeRotatedPos(originalPos, direction, shapeWidth, shapeHeight) {
         let { x, y } = originalPos;
-        switch (direction) {
-            case 'left': // 90 deg CW from 'down' (default)
-                [x, y] = [shapeHeight - 1 - originalPos.y, originalPos.x];
+
+        // *** Use the ORIGINAL shape dimensions for rotation calculation ***
+        const originalWidth = this.shape[0].length; 
+        const originalHeight = this.shape.length;
+
+        // *** Rotation relative to ORIGINAL default direction ('down') ***
+        // Need to adjust the target direction based on the default
+        let effectiveDirection = direction;
+        if (this.defaultDirection === 'down') {
+            // Map target direction relative to 'down' as the 0-degree rotation
+            if (direction === 'left') effectiveDirection = 'right'; // 90 deg CW from down is left --> Treat as effective 'right'
+            else if (direction === 'up') effectiveDirection = 'down'; // 180 deg CW from down is up --> Treat as effective 'down'
+            else if (direction === 'right') effectiveDirection = 'left'; // 270 deg CW from down is right --> Treat as effective 'left'
+            // else direction === 'down', effectiveDirection remains 'down' (no rotation needed from default) --> Treat as effective 'up'?? No, treat as 'right' 0 deg
+            else if (direction === 'down') effectiveDirection = 'right'; // Default 'down' means no rotation relative to 'right' logic
+        } // Add similar blocks here if other machines have different defaults like 'left' or 'up'
+        
+        // *** APPLY standard rotation formulas based on effectiveDirection relative to 'right' ***
+        // NOTE: Formulas map original (x,y) to new (x,y) after rotation relative to 'right'
+        switch (effectiveDirection) { 
+            case 'right': // 0 deg (or target is 'down' when default is 'down')
+                 // No change
+                 break; 
+            case 'down': // 90 deg CW rotation (or target is 'up' when default is 'down')
+                x = originalPos.y;
+                y = originalWidth - 1 - originalPos.x; // Corrected: Use original W/H
                 break;
-            case 'up': // 180 deg CW from 'down'
-                [x, y] = [shapeWidth - 1 - originalPos.x, shapeHeight - 1 - originalPos.y];
+            case 'left': // 180 deg rotation (or target is 'right' when default is 'down')
+                x = originalWidth - 1 - originalPos.x; // Corrected: Use original W/H
+                y = originalHeight - 1 - originalPos.y; // Corrected: Use original W/H
                 break;
-            case 'right': // 270 deg CW from 'down'
-                [x, y] = [originalPos.y, shapeWidth - 1 - originalPos.x];
+            case 'up': // 270 deg CW rotation (or target is 'left' when default is 'down')
+                 x = originalHeight - 1 - originalPos.y; // Corrected: Use original W/H
+                 y = originalPos.x; // Corrected: Use original W/H
                 break;
-             // case 'down': // 0 deg from default - no change
         }
         return { x, y };
     }

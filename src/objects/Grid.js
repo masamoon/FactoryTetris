@@ -192,9 +192,11 @@ export default class Grid {
      * @returns {Object} Grid coordinates
      */
     worldToGrid(worldX, worldY) {
+        const debugGridConv = true;
         try {
             // Validate inputs
             if (worldX === undefined || worldY === undefined) {
+                if (debugGridConv) console.error(`[worldToGrid] Invalid input: (${worldX}, ${worldY})`);
                 return { x: undefined, y: undefined };
             }
             
@@ -202,17 +204,28 @@ export default class Grid {
             const gridHeight = this.height * this.cellSize;
             const startX = this.x - gridWidth / 2;
             const startY = this.y - gridHeight / 2;
+            if (debugGridConv) {
+                console.log(`[worldToGrid] Input: worldX=${worldX.toFixed(2)}, worldY=${worldY.toFixed(2)}`);
+                console.log(`           Grid Start: startX=${startX.toFixed(2)}, startY=${startY.toFixed(2)}, CellSize=${this.cellSize}`);
+            }
             
             // Calculate grid coordinates
             let gridX = Math.floor((worldX - startX) / this.cellSize);
             let gridY = Math.floor((worldY - startY) / this.cellSize);
+            if (debugGridConv) {
+                console.log(`[worldToGrid] Calculated Raw: gridX=${gridX}, gridY=${gridY}`);
+            }
             
             // Add proper boundary checking to clamp values within grid range
             gridX = Math.max(0, Math.min(gridX, this.width - 1));
             gridY = Math.max(0, Math.min(gridY, this.height - 1));
+            if (debugGridConv) {
+                console.log(`           Clamped Result: gridX=${gridX}, gridY=${gridY}`);
+            }
             
             return { x: gridX, y: gridY };
         } catch (error) {
+            if (debugGridConv) console.error('[worldToGrid] Error:', error);
             return { x: undefined, y: undefined };
         }
     }
@@ -234,6 +247,29 @@ export default class Grid {
         const worldX = startX + gridX * this.cellSize + (this.cellSize / 2);
         const worldY = startY + gridY * this.cellSize + (this.cellSize / 2);
         
+        return { x: worldX, y: worldY };
+    }
+    
+    /**
+     * Convert grid coordinates to world coordinates (top-left corner of the cell).
+     * @param {number} gridX - X coordinate on the grid.
+     * @param {number} gridY - Y coordinate on the grid.
+     * @returns {object} World coordinates {x, y} or null if outside grid.
+     */
+    gridToWorldTopLeft(gridX, gridY) {
+        if (gridX < 0 || gridX >= this.width || gridY < 0 || gridY >= this.height) {
+            return null; // Coordinates are outside the grid
+        }
+
+        // Calculate the grid's top-left corner in world coordinates
+        const gridWorldWidth = this.width * this.cellSize;
+        const gridWorldHeight = this.height * this.cellSize;
+        const startX = this.x - gridWorldWidth / 2; // Grid top-left X
+        const startY = this.y - gridWorldHeight / 2; // Grid top-left Y
+
+        // Calculate the top-left of the specific cell
+        const worldX = startX + gridX * this.cellSize;
+        const worldY = startY + gridY * this.cellSize;
         return { x: worldX, y: worldY };
     }
     
@@ -380,14 +416,10 @@ export default class Grid {
         const shapeWidth = shape[0].length;
         const shapeHeight = shape.length;
         
-        // Calculate center point for the rotated shape
-        const centerX = gridX;
-        const centerY = gridY;
-        
-        // Calculate offset from center to top-left corner of the shape's bounding box
-        const offsetX = Math.floor(shapeWidth / 2);
-        const offsetY = Math.floor(shapeHeight / 2);
-        
+        // *** ADDED Top-left anchor coordinates ***
+        const baseX = gridX;
+        const baseY = gridY;
+
         // Flag to track if we found at least one resource node (for extractors)
         // let foundResourceNode = false;
         
@@ -397,9 +429,9 @@ export default class Grid {
                 // Only check cells with value 1 (occupied by the machine)
                 if (shape[y][x] === 1) {
                     // Calculate grid coordinates for this shape cell
-                    // Using the center of the shape as a reference point
-                    const cellX = Math.floor(centerX + (x - offsetX));
-                    const cellY = Math.floor(centerY + (y - offsetY));
+                    // *** MODIFIED: Using top-left anchor logic ***
+                    const cellX = baseX + x;
+                    const cellY = baseY + y;
                     
                     // Check if cell is within grid bounds before checking content
                     if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
@@ -410,20 +442,14 @@ export default class Grid {
                     try {
                         const cell = this.getCell(cellX, cellY);
                         
-                        // Special case for extractors: allow placement on resource nodes
-                        /* if (isExtractor && cell && cell.type === 'node') {
-                            foundResourceNode = true;
-                            continue; // Skip further checks for this cell
-                        } */
-                        
-                        // Special case for conveyors: allow placement on resource nodes
+                        // Allow conveyors on nodes
                         if (isConveyor && cell && cell.type === 'node') {
                             continue; // Allow conveyor on node
                         }
                         
-                        // For all other cases, check if the cell is occupied
-                        const cellContent = this.getCellContent(cellX, cellY);
-                        if (cellContent) {
+                        // Check if cell is occupied by anything other than 'empty'
+                        // (For non-conveyor machines, this includes nodes)
+                        if (cell && cell.type !== 'empty') {
                             return false;
                         }
                     } catch (error) {
@@ -496,16 +522,8 @@ export default class Grid {
                 return false;
             }
             
-            // Get the rotated shape
-            let shape;
-            
-            // If the machine's current direction matches the requested direction, use existing shape
-            if (machine.direction === direction) {
-                shape = machine.shape;
-            } else {
-                // Otherwise, get a newly rotated shape
-                shape = this.getRotatedShape(machine.shape, direction);
-            }
+            // *** ALWAYS get the rotated shape based on the placement direction argument ***
+            const shape = this.getRotatedShape(machine.shape, direction); 
             
             // Validate shape has valid dimensions
             if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0]) || shape[0].length === 0) {
@@ -516,13 +534,9 @@ export default class Grid {
             const shapeWidth = shape[0].length;
             const shapeHeight = shape.length;
             
-            // Calculate center point for the rotated shape
-            const centerX = gridX;
-            const centerY = gridY;
-            
-            // Calculate offset from center to top-left corner of the shape's bounding box
-            const offsetX = Math.floor(shapeWidth / 2);
-            const offsetY = Math.floor(shapeHeight / 2);
+            // *** ADDED Top-left anchor coordinates ***
+            const baseX = gridX;
+            const baseY = gridY;
             
             // Register the machine on the grid
             this.machines.push({
@@ -537,9 +551,9 @@ export default class Grid {
                 for (let x = 0; x < shapeWidth; x++) {
                     if (shape[y][x] === 1) {
                         // Calculate grid coordinates for this shape cell
-                        // Using the center of the shape as a reference point
-                        const cellX = Math.floor(centerX + (x - offsetX));
-                        const cellY = Math.floor(centerY + (y - offsetY));
+                        // *** MODIFIED: Using top-left anchor logic ***
+                        const cellX = baseX + x;
+                        const cellY = baseY + y;
                         
                         // Verify cell is within grid bounds before accessing
                         if (cellX < 0 || cellX >= this.width || cellY < 0 || cellY >= this.height) {
@@ -548,24 +562,19 @@ export default class Grid {
                         
                         const cell = this.getCell(cellX, cellY);
                         if (cell) {
-                            // If this is an extractor being placed on a resource node, preserve the node reference
-                            // const isExtractor = machine.id === 'extractor';
-                            // const resourceNode = (isExtractor && cell.type === 'node') ? cell.object : null;
-                            
                             // Update the cell with machine data
                             cell.type = 'machine';  // Set the cell type to 'machine'
                             cell.machine = machine; // Store a reference to the machine
+                            
+                            // *** ADDED LOGGING ***
+                            console.log(`[Grid.placeMachine] Marked cell (${cellX}, ${cellY}) as 'machine' for ${machine.id}`);
+
                             cell.occupiedBy = {
                                 type: 'machine',
                                 id: machine.id,
                                 machineLocalX: x,
                                 machineLocalY: y
                             };
-                            
-                            // If this was a resource node, keep a reference to it for the extractor
-                            /* if (resourceNode) {
-                                cell.resourceNode = resourceNode;
-                            } */
                         }
                     }
                 }

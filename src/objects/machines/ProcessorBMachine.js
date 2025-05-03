@@ -70,12 +70,23 @@ export default class ProcessorBMachine extends BaseMachine {
             return;
         }
         
-        // gridToWorld now returns the center of the cell
-        const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
+        // *** ADDED: Get the correctly rotated shape for visuals (Copied from BaseMachine) ***
+        const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
+        const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection); // Use direction string
+
+        // *** VALIDATE the rotated shape ***
+        if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0) {
+            console.error(`[${this.id}] Failed to get valid rotated shape for direction ${currentDirection}. Using default.`);
+            rotatedShape = [[1]]; // Fallback to default shape
+        }
         
-        // Create container for machine parts at the cell center
-        this.container = this.scene.add.container(worldPos.x, worldPos.y);
-        console.log(`[${this.id}] Created container at world position (${worldPos.x}, ${worldPos.y})`);
+        // *** MODIFIED: Use gridToWorldTopLeft consistent with BaseMachine ***
+        const topLeftPos = this.grid.gridToWorldTopLeft(this.gridX, this.gridY);
+        
+        // Create container for machine parts at the cell top-left
+        // *** MODIFIED: Use topLeftPos ***
+        this.container = this.scene.add.container(topLeftPos.x, topLeftPos.y);
+        //console.log(`[${this.id}] Created container at world position (${topLeftPos.x}, ${topLeftPos.y})`);
         
         // Store references to input and output squares
         this.inputSquare = null;
@@ -88,42 +99,39 @@ export default class ProcessorBMachine extends BaseMachine {
         const defaultOutputPos = { x: 2, y: 1 };
 
         // Rotate these default positions based on the actual machine direction
-        this.inputPos = this.getRelativeRotatedPos(defaultInputPos, this.direction, this.shape[0].length, this.shape.length);
-        this.outputPos = this.getRelativeRotatedPos(defaultOutputPos, this.direction, this.shape[0].length, this.shape.length);
+        // *** MODIFIED: Use rotatedShape dimensions for calculation ***
+        this.inputPos = this.getRelativeRotatedPos(defaultInputPos, this.direction, rotatedShape[0].length, rotatedShape.length);
+        this.outputPos = this.getRelativeRotatedPos(defaultOutputPos, this.direction, rotatedShape[0].length, rotatedShape.length);
 
         // Calculate cell size for consistent sizing
         const cellSize = this.grid.cellSize;
         
         // Calculate the shape center in terms of cells (relative to shape's 0,0)
-        const shapeCenterX = (this.shape[0].length - 1) / 2;
-        const shapeCenterY = (this.shape.length - 1) / 2;
+        // *** MODIFIED: Use rotatedShape dimensions ***
+        const shapeCenterX = (rotatedShape[0].length - 1) / 2;
+        const shapeCenterY = (rotatedShape.length - 1) / 2;
 
         // Create machine parts based on shape using center-relative positioning
-        for (let y = 0; y < this.shape.length; y++) {
-            for (let x = 0; x < this.shape[y].length; x++) {
-                if (this.shape[y][x] === 1) {
-                    let partX = 0;
-                    let partY = 0;
-                    // Calculate part position relative to container center (0,0)
-                    if (this.direction === 'none') {
-                         partX = ((x - shapeCenterX) * cellSize) ;
-                         partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
-                    } else if (this.direction === 'right') {
-                        partX = ((x - shapeCenterX) * cellSize) ;
-                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
-                    } else if (this.direction === 'down') {
-                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
-                        partY = ((y - shapeCenterY) * cellSize) ;
-                    } else if (this.direction === 'left') {
-                        partX = ((x - shapeCenterX) * cellSize) ;
-                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
-                    } else if (this.direction === 'up') {
-                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
-                        partY = ((y - shapeCenterY) * cellSize) ;
-                    }
+        // *** MODIFIED: Use rotatedShape ***
+        for (let y = 0; y < rotatedShape.length; y++) {
+            for (let x = 0; x < rotatedShape[y].length; x++) {
+                // *** MODIFIED: Use rotatedShape ***
+                if (rotatedShape[y][x] === 1) {
+                    // *** MODIFIED: Use top-left positioning logic from BaseMachine ***
+                    const partCenterX = x * cellSize + cellSize / 2;
+                    const partCenterY = y * cellSize + cellSize / 2;
+                    
+                    // *** REMOVED Old adjustedX/Y ***
+                    // let partX = 0;
+                    // let partY = 0;
+                    // partX = x * cellSize;
+                    // partY = y * cellSize;
+                    // const adjustedX = partX - cellSize;
+                    // const adjustedY = partY - cellSize ;
                     
                     // Determine part color
                     let partColor = 0x44ff44; // Default green
+                    // *** Use calculated this.inputPos/outputPos which are already relative to rotated shape ***
                     let isInputPart = (x === this.inputPos.x && y === this.inputPos.y);
                     let isOutputPart = (x === this.outputPos.x && y === this.outputPos.y);
 
@@ -134,19 +142,28 @@ export default class ProcessorBMachine extends BaseMachine {
                     }
                     
                     // Create machine part
-                    const part = this.scene.add.rectangle(partX, partY, cellSize - 4, cellSize - 4, partColor);
+                    // *** MODIFIED: Use partCenterX/Y for positioning ***
+                    const part = this.scene.add.rectangle(partCenterX, partCenterY, cellSize - 4, cellSize - 4, partColor);
                     part.setStrokeStyle(1, 0x333333); // Subtle stroke
                     this.container.add(part);
                     
                     // Add text indicator for input/output parts
                     if (isInputPart) {
-                         const inputIndicator = this.scene.add.text(partX, partY, "IN", {
+                        // *** MODIFIED: Use partCenterX/Y for positioning ***
+                         const inputIndicator = this.scene.add.text(
+                             partCenterX, 
+                             partCenterY, 
+                             "IN", {
                             fontFamily: 'Arial', fontSize: 10, color: '#ffffff'
                         }).setOrigin(0.5);
                         this.container.add(inputIndicator);
                         this.inputSquare = part; // Store reference
                     } else if (isOutputPart) {
-                        const outputIndicator = this.scene.add.text(partX, partY, "OUT", {
+                        // *** MODIFIED: Use partCenterX/Y for positioning ***
+                        const outputIndicator = this.scene.add.text(
+                             partCenterX, 
+                             partCenterY, 
+                             "OUT", {
                             fontFamily: 'Arial', fontSize: 9, color: '#ffffff'
                         }).setOrigin(0.5);
                         this.container.add(outputIndicator);
@@ -156,35 +173,45 @@ export default class ProcessorBMachine extends BaseMachine {
             }
         }
         
+        // Position relative to the VISUAL center of the shape within the container
+        const visualCenterX = shapeCenterX * cellSize;
+        const visualCenterY = shapeCenterY * cellSize;
+        
+        // Adjust center based on user's part offset
+        // *** MODIFIED: Use positioning logic from BaseMachine ***
+        const adjustedVisualCenterX = visualCenterX + cellSize / 2;
+        const adjustedVisualCenterY = visualCenterY + cellSize / 2;
+
         // Add machine type label at the center
-        const machineLabel = this.scene.add.text(0, 0, "B", {
+        const machineLabel = this.scene.add.text(adjustedVisualCenterX, adjustedVisualCenterY, "B", {
             fontFamily: 'Arial', fontSize: 14, color: '#ffffff'
         }).setOrigin(0.5);
         this.container.add(machineLabel);
         
         // Add processing progress bar below the center
         this.progressBar = this.scene.add.rectangle(
-            0, cellSize / 2 + 2, // Position below center
+            adjustedVisualCenterX, adjustedVisualCenterY + cellSize / 2 + 2, // Position below adjusted visual center
             cellSize * 1.5, 4, // Make it wider
             0x00ff00
         ).setOrigin(0.5, 0);
         this.progressBar.scaleX = 0;
         this.container.add(this.progressBar);
         
-        // Add processor core visual (similar to Processor A)
-        this.processorCore = this.scene.add.circle(0, 0, cellSize / 4, 0x00ccff); // Different color (e.g., cyan)
+        // Add processor core visual (similar to Processor A) relative to adjusted center
+        this.processorCore = this.scene.add.circle(adjustedVisualCenterX, adjustedVisualCenterY, cellSize / 4, 0x00ccff); // Different color (e.g., cyan)
         this.processorCore.setStrokeStyle(1, 0xffffff);
         this.container.add(this.processorCore);
         this.processorCore.setDepth(machineLabel.depth - 1); // Behind label
         
         // Add direction indicator *to the scene* if applicable
         if (this.direction !== 'none') {
-            const absoluteX = this.container.x;
-            const absoluteY = this.container.y;
+            // *** MODIFIED: Use absolute positioning logic from BaseMachine ***
+            const absoluteCenterX = this.container.x + adjustedVisualCenterX;
+            const absoluteCenterY = this.container.y + adjustedVisualCenterY;
             const indicatorColor = 0xff9500;
             
             this.directionIndicator = this.scene.add.triangle(
-                absoluteX, absoluteY, -4, -6, -4, 6, 8, 0, indicatorColor
+                absoluteCenterX, absoluteCenterY, -4, -6, -4, 6, 8, 0, indicatorColor
             ).setOrigin(0.5, 0.5);
             
             // Set initial rotation based on direction
@@ -213,15 +240,28 @@ export default class ProcessorBMachine extends BaseMachine {
     /** Helper to calculate rotated relative position */
     getRelativeRotatedPos(originalPos, direction, shapeWidth, shapeHeight) {
         let { x, y } = originalPos;
+
+        // *** Use the ORIGINAL shape dimensions for rotation calculation ***
+        // The rotation formulas depend on the dimensions of the *original* matrix being transformed
+        const originalWidth = this.shape[0].length; 
+        const originalHeight = this.shape.length;
+
         switch (direction) {
             case 'down': // 90 deg CW
-                [x, y] = [shapeHeight - 1 - originalPos.y, originalPos.x];
+                // Original formula: (row, col) -> (col, H-1-row)
+                x = originalPos.y; // New x is original column index
+                y = originalHeight - 1 - originalPos.x; // New y based on original height and original row index
                 break;
             case 'left': // 180 deg CW
-                [x, y] = [shapeWidth - 1 - originalPos.x, shapeHeight - 1 - originalPos.y];
+                 // Original formula: (row, col) -> (W-1-col, H-1-row)
+                x = originalWidth - 1 - originalPos.x;
+                y = originalHeight - 1 - originalPos.y;
                 break;
             case 'up': // 270 deg CW
-                [x, y] = [originalPos.y, shapeWidth - 1 - originalPos.x];
+                 // Original formula: (row, col) -> (W-1-row, col) -> My trace was wrong again! It's (H-1-col, row)?
+                 // Let's use standard 270 deg CW: (y, W-1-x)
+                 x = originalHeight - 1 - originalPos.y; // New x is H-1-original_y
+                 y = originalPos.x; // New y is original_x
                 break;
             // case 'right': // 0 deg - no change
         }
@@ -260,11 +300,11 @@ export default class ProcessorBMachine extends BaseMachine {
                 this.startProcessing();
             }
         }
-        
-        // Try to transfer output resources
-        const outputType = this.outputTypes[0];
+
+        // Try to transfer output resources if any are available
+        const outputType = this.outputTypes[0]; // Assuming only one output type
         if (this.outputInventory[outputType] > 0) {
-            this.transferResources();
+            this.transferResources(); // This will now call BaseMachine.transferResources
         }
     }
     
@@ -324,95 +364,7 @@ export default class ProcessorBMachine extends BaseMachine {
             this.processorCore.alpha = 1;
             this.processorCore.scale = 1;
         }
-        console.log(`[${this.id}] Processing complete. Output:`, this.outputInventory);
-    }
-
-    /** Transfer resources to connected machines/nodes */
-    transferResources() {
-        const outputType = this.outputTypes[0];
-        if (this.outputInventory[outputType] <= 0) return; 
-
-        const targetInfo = this.findTargetForOutput(); // Find machine or delivery node
-
-        if (targetInfo) {
-            let transferred = false;
-            if (targetInfo.type === 'delivery-node') {
-                if (targetInfo.target.acceptResource(outputType)) {
-                    transferred = true;
-                    this.createResourceTransferEffect(outputType, targetInfo.target); 
-                }
-            } else if (targetInfo.type === 'machine') {
-                // Use receiveResource method which checks canAcceptInput
-                if (targetInfo.target.receiveResource(outputType, this)) {
-                    transferred = true;
-                    this.createResourceTransferEffect(outputType, targetInfo.target);
-                }
-            }
-
-            if (transferred) {
-                this.outputInventory[outputType]--;
-            }
-        }
-    }
-
-    /** Find the machine or delivery node in the output direction */
-    findTargetForOutput() {
-        if (!this.grid) return null;
-
-        let targetX = this.gridX;
-        let targetY = this.gridY;
-
-        switch (this.direction) {
-            case 'right': targetX += 1; break;
-            case 'down': targetY += 1; break;
-            case 'left': targetX -= 1; break;
-            case 'up': targetY -= 1; break;
-            default: return null; // Should not happen if direction is set
-        }
-
-        // Check grid bounds
-        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
-            return null;
-        }
-
-        const targetCell = this.grid.getCell(targetX, targetY);
-
-        if (!targetCell) return null;
-
-        if (targetCell.type === 'delivery-node' && targetCell.object) {
-            return { type: 'delivery-node', target: targetCell.object };
-        } else if (targetCell.type === 'machine' && targetCell.machine) {
-            return { type: 'machine', target: targetCell.machine };
-        }
-
-        return null;
-    }
-
-    /** Create a visual effect for resource transfer */
-    createResourceTransferEffect(resourceType, target) {
-        if (!this.container) {
-            console.error(`[${this.id}] ERROR: this.container is null in createResourceTransferEffect!`);
-            return; 
-        }
-        if (!target.container) {
-             console.error(`[${this.id}] ERROR: target.container is null in createResourceTransferEffect! Target:`, target);
-            return; 
-        }
-
-        const sourcePos = { x: this.container.x, y: this.container.y };
-        const targetPos = { x: target.container.x, y: target.container.y };
-        const color = GAME_CONFIG.resourceColors[resourceType] || 0xaaaaaa;
-        const particle = this.scene.add.circle(sourcePos.x, sourcePos.y, 5, color);
-        particle.setDepth(this.container.depth + 1); 
-        
-        this.scene.tweens.add({
-            targets: particle,
-            x: targetPos.x,
-            y: targetPos.y,
-            duration: 300, 
-            ease: 'Power1',
-            onComplete: () => { particle.destroy(); }
-        });
+        console.log(`[${this.id}] Processing complete. Output:`, JSON.stringify(this.outputInventory));
     }
     
     /** Create a preview sprite for the machine selection panel */

@@ -25,11 +25,13 @@ export default class GameScene extends Phaser.Scene {
         this.machines = [];
         this.deliveryNodes = []; // Add deliveryNodes array
 
-        // Clear Factory ability state
+        // --- REMOVED CLEAR FACTORY COOLDOWN STATE ---
+/*
         this.lastClearTime = -Infinity; // Allow first use immediately
         this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
         this.clearButton = null;
         this.clearStatusText = null;
+*/
     }
         
     create() {
@@ -104,9 +106,11 @@ export default class GameScene extends Phaser.Scene {
         // Play background music
         this.playBackgroundMusic();
 
-        // Initialize clear cooldown
+        // --- REMOVED CLEAR COOLDOWN INITIALIZATION ---
+/*
         this.lastClearTime = -Infinity; // Allow first use
         this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
+*/
     }
     
     update() {
@@ -122,8 +126,8 @@ export default class GameScene extends Phaser.Scene {
         // Update delivery nodes
         this.deliveryNodes.forEach(node => node.update());
         
-        // Update Clear Factory Cooldown UI
-        this.updateClearCooldownUI();
+        // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
+        // this.updateClearCooldownUI(); 
         
         // Check for game over condition
         if (this.cargoBay.isOverflowing()) {
@@ -222,12 +226,6 @@ export default class GameScene extends Phaser.Scene {
         this.clearButton.button.width = 180; 
         this.clearButton.text.x = this.clearButton.button.x;
 
-        // Clear Factory Status Text
-        this.clearStatusText = this.add.text(this.clearButton.button.x + this.clearButton.button.width / 2 + 10, this.clearButton.button.y, 'Ready', {
-            fontFamily: 'Arial',
-            fontSize: 16,
-            color: '#00ff00' // Green for ready
-        }).setOrigin(0, 0.5);
         // --- END CLEAR FACTORY UI --- 
     }
     
@@ -815,16 +813,23 @@ export default class GameScene extends Phaser.Scene {
             for (let x = 0; x < rotatedShape[y].length; x++) {
                 // Only draw cells with value 1 (occupied)
                 if (rotatedShape[y][x] === 1) {
-                    // Calculate grid coordinates for this cell using the same method as Grid.js
-                    // Using the center of the shape as a reference point
-                    const offsetX = Math.floor(rotatedShape[0].length / 2);
-                    const offsetY = Math.floor(rotatedShape.length / 2);
+                    // *** MODIFIED: Calculate grid coordinates using top-left anchor logic ***
+                    const cellGridX = gridPos.x + x; 
+                    const cellGridY = gridPos.y + y;
                     
-                    const cellGridX = Math.floor(gridPos.x + (x - offsetX));
-                    const cellGridY = Math.floor(gridPos.y + (y - offsetY));
+                    // *** REMOVED Center-based offset logic ***
+                    // const offsetX = Math.floor(rotatedShape[0].length / 2);
+                    // const offsetY = Math.floor(rotatedShape.length / 2);
+                    // const cellGridX = Math.floor(gridPos.x + (x - offsetX));
+                    // const cellGridY = Math.floor(gridPos.y + (y - offsetY));
                     
-                    // Get world coordinates for this exact cell
-                    const cellWorldPos = this.factoryGrid.gridToWorld(cellGridX, cellGridY);
+                    // *** MODIFIED: Get world coordinates for the top-left of this exact cell ***
+                    const cellWorldTopLeftPos = this.factoryGrid.gridToWorldTopLeft(cellGridX, cellGridY);
+
+                    // If the cell is out of bounds, gridToWorldTopLeft returns null
+                    if (!cellWorldTopLeftPos) {
+                        continue; // Don't draw parts that are out of bounds
+                    }
 
                     // Determine cell color based on position in the shape
                     let cellColor = 0x44ff44; // Default green
@@ -848,26 +853,32 @@ export default class GameScene extends Phaser.Scene {
                     // Draw the cell directly at its world position
                     this.placementPreview.fillStyle(cellColor, canPlace ? 0.7 : 0.3);
                     this.placementPreview.fillRect(
-                        cellWorldPos.x - this.factoryGrid.cellSize / 2 + 2, // Add 2px margin
-                        cellWorldPos.y - this.factoryGrid.cellSize / 2 + 2, // Add 2px margin
+                        cellWorldTopLeftPos.x + 2, // Use top-left X + margin
+                        cellWorldTopLeftPos.y + 2, // Use top-left Y + margin
                         this.factoryGrid.cellSize - 4, // Account for 2px margin on each side
                         this.factoryGrid.cellSize - 4  // Account for 2px margin on each side
                     );
                     
+                    // --- Adjust Input/Output indicator positioning --- 
+                    // Get the center of the current cell for placing circles/text
+                    const cellWorldCenterPos = this.factoryGrid.gridToWorld(cellGridX, cellGridY);
+
                     // If this is an input cell, draw 'IN' text
                     if (x === inputPos.x && y === inputPos.y) {
                         this.placementPreview.lineStyle(1, 0xffffff, 0.8);
                         this.placementPreview.fillStyle(0x000000, 0.5);
-                        this.placementPreview.fillCircle(cellWorldPos.x, cellWorldPos.y, 8);
-                        this.placementPreview.strokeCircle(cellWorldPos.x, cellWorldPos.y, 8);
+                        // *** MODIFIED: Use cell center position ***
+                        this.placementPreview.fillCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
+                        this.placementPreview.strokeCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
                     }
                     
                     // If this is an output cell, draw 'OUT' text
                     if (x === outputPos.x && y === outputPos.y) {
                         this.placementPreview.lineStyle(1, 0xffffff, 0.8);
                         this.placementPreview.fillStyle(0x000000, 0.5);
-                        this.placementPreview.fillCircle(cellWorldPos.x, cellWorldPos.y, 8);
-                        this.placementPreview.strokeCircle(cellWorldPos.x, cellWorldPos.y, 8);
+                        // *** MODIFIED: Use cell center position ***
+                        this.placementPreview.fillCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
+                        this.placementPreview.strokeCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
                     }
                 }
             }
@@ -1684,30 +1695,16 @@ export default class GameScene extends Phaser.Scene {
                 return null;
             }
             
-            // Use our simulation method to get exact same position as preview
-            let simulation;
-            try {
-                simulation = this.simulateMachinePlacement(
-                    machineTypeObj.id,
-                    gridX,
-                    gridY,
-                    direction,
-                    rotation
-                );
-            } catch (simulationError) {
-                // Create a default simulation result
-                simulation = {
-                    worldPos: this.factoryGrid.gridToWorld(gridX, gridY),
-                    adjustments: { x: 0, y: 0 }
-                };
+            // Calculate the top-left position for the container
+            let topLeftPos = this.factoryGrid.gridToWorldTopLeft(gridX, gridY);
+            if (!topLeftPos) { // Handle case where coordinates might be invalid briefly
+                console.warn(`[placeMachine] Could not get top-left for (${gridX}, ${gridY}), falling back to center.`);
+                topLeftPos = this.factoryGrid.gridToWorld(gridX, gridY); 
             }
-            
-            // Create exact position that matches the preview
-            const presetPosition = {
-                x: simulation.worldPos.x,
-                y: simulation.worldPos.y
-            };
-            
+
+            // Use the calculated top-left as the preset position for the container
+            const presetPosition = { x: topLeftPos.x, y: topLeftPos.y };
+
             // Create the machine using the factory with exact position
             let machineObj;
             try {
@@ -2505,16 +2502,6 @@ export default class GameScene extends Phaser.Scene {
     clearPlacedItems() {
         if (this.paused || this.gameOver) return;
 
-        const now = this.time.now;
-        const timeRemaining = (this.lastClearTime + this.currentClearCooldown) - now;
-
-        if (timeRemaining > 0) {
-            console.log(`Clear Factory is on cooldown. ${Math.ceil(timeRemaining / 1000)}s remaining.`);
-            // Optional: Play an error/cooldown sound
-            this.playSound('error'); // Assuming an error sound exists
-            return;
-        }
-
         console.log('Clearing all placed machines and belts...');
 
         // Make a copy of the array to iterate over, as removeMachine modifies the original
@@ -2531,41 +2518,8 @@ export default class GameScene extends Phaser.Scene {
         // Ensure the main list is empty
         this.machines = [];
 
-        // Record last use time
-        this.lastClearTime = now;
-
-        // Calculate and set the next cooldown duration based on game time
-        this.currentClearCooldown = GAME_CONFIG.initialClearCooldown + (this.gameTime * GAME_CONFIG.clearCooldownIncreaseFactor);
-        console.log(`Clear Factory used. Next cooldown: ${this.currentClearCooldown / 1000}s`);
-
-        // Update UI immediately
-        this.updateClearCooldownUI();
-
         // Play a success sound
         this.playSound('clear'); // Assuming a clear sound exists
-    }
-
-    updateClearCooldownUI() {
-        if (!this.clearButton || !this.clearStatusText) return; // UI elements not ready
-
-        const now = this.time.now;
-        const timeRemaining = (this.lastClearTime + this.currentClearCooldown) - now;
-
-        if (timeRemaining <= 0) {
-            // Ready
-            this.clearStatusText.setText('Ready');
-            this.clearStatusText.setColor('#00ff00'); // Green
-            this.clearButton.button.setFillStyle(0x4a6fb5); // Default color
-            this.clearButton.button.input.enabled = true; // Enable interaction
-
-        } else {
-            // On Cooldown
-            const secondsRemaining = Math.ceil(timeRemaining / 1000);
-            this.clearStatusText.setText(`Cooldown: ${secondsRemaining}s`);
-            this.clearStatusText.setColor('#ff0000'); // Red
-            this.clearButton.button.setFillStyle(0x888888); // Greyed out
-            this.clearButton.button.input.enabled = false; // Disable interaction
-        }
     }
 
     // -------------------------

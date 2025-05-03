@@ -100,12 +100,20 @@ export default class ProcessorAMachine extends BaseMachine {
      * Override the createVisuals method to customize the processor appearance
      */
     createVisuals() {
-
-
         // Skip visual creation if we don't have a grid reference
         if (!this.grid) {
             console.warn('Cannot create visuals for machine: grid reference is missing');
             return;
+        }
+        
+        // *** ADDED: Get the correctly rotated shape for visuals (Copied from BaseMachine) ***
+        const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
+        const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection); // Use direction string
+
+        // *** VALIDATE the rotated shape ***
+        if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0) {
+            console.error(`[${this.id}] Failed to get valid rotated shape for direction ${currentDirection}. Using default.`);
+            rotatedShape = [[1]]; // Fallback to default shape
         }
         
         // Log critical information about the machine's properties
@@ -113,15 +121,17 @@ export default class ProcessorAMachine extends BaseMachine {
         console.log(`  ID: ${this.id}`);
         console.log(`  Direction: ${this.direction}`);
         console.log(`  Rotation: ${this.rotation} radians (${this.rotation * 180 / Math.PI} degrees)`);
-        console.log(`  Shape: ${JSON.stringify(this.shape)}`);
-        console.log(`  Shape dimensions: ${this.shape[0].length}x${this.shape.length}`);
+        console.log(`  Original Shape: ${JSON.stringify(this.shape)}`); 
+        console.log(`  Rotated Shape Used: ${JSON.stringify(rotatedShape)}`); 
+        console.log(`  Shape dimensions: ${rotatedShape[0].length}x${rotatedShape.length}`);
         
-        // gridToWorld now returns the center of the shape
-        const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
+        // *** MODIFIED: Use gridToWorldTopLeft consistent with BaseMachine ***
+        const topLeftPos = this.grid.gridToWorldTopLeft(this.gridX, this.gridY);
         
-        // Create container for machine parts at the cell center
-        this.container = this.scene.add.container(worldPos.x, worldPos.y);
-        console.log(`[ProcessorAMachine] Created container at world position (${worldPos.x}, ${worldPos.y})`);
+        // Create container for machine parts at the cell top-left
+        // *** MODIFIED: Use topLeftPos ***
+        this.container = this.scene.add.container(topLeftPos.x, topLeftPos.y);
+        console.log(`[ProcessorAMachine] Created container at world position (${topLeftPos.x}, ${topLeftPos.y})`);
         
         // Store references to input and output squares
         this.inputSquare = null;
@@ -136,24 +146,26 @@ export default class ProcessorAMachine extends BaseMachine {
             // based on rotating the original input(0,0) and output(0,2) points.
             switch (this.direction) {
                 case 'right': // 0 deg rotation
-                    // Shape: [[1,1], [1,0], [1,0]]
-                    this.inputPos = { x: 0, y: 0 }; // Top-left
-                    this.outputPos = { x: 0, y: 2 }; // Bottom-left
+                    // Original Shape: [[1,1], [1,0], [1,0]]
+                    this.inputPos = { x: 0, y: 0 }; // Top-left of original
+                    this.outputPos = { x: 0, y: 2 }; // Bottom-left of original
                     break;
                 case 'down': // 90 deg rotation
-                    // Shape: [[1,1,1], [0,0,1]]
-                    this.inputPos = { x: 2, y: 0 }; // Top-left
-                    this.outputPos = { x: 0, y: 0 }; // Top-right
+                    // Rotated Shape: [[1,1,1], [0,0,1]] (Width=3, Height=2)
+                    // *** CORRECTED based on re-tracing coordinate transformation ***
+                    this.inputPos = { x: 2, y: 0 }; // Original (0,0) maps here
+                    this.outputPos = { x: 0, y: 0 }; // Original (0,2) maps here
                     break;
                 case 'left': // 180 deg rotation
-                    // Shape: [[0,1], [0,1], [1,1]]
-                    this.inputPos = { x: 1, y: 2 }; // Bottom-right
-                    this.outputPos = { x: 1, y: 0 }; // Top-right
+                    // Rotated Shape: [[0,1], [0,1], [1,1]] (Width=2, Height=3)
+                    this.inputPos = { x: 1, y: 2 }; // Original (0,0) maps here
+                    this.outputPos = { x: 1, y: 0 }; // Original (0,2) maps here
                     break;
                 case 'up': // 270 deg rotation
-                    // Shape: [[1,0,0], [1,1,1]]
-                    this.inputPos = { x: 0, y: 1 }; // Bottom-left (Corrected)
-                    this.outputPos = { x: 2, y: 1 }; // Bottom-right (Corrected)
+                    // Rotated Shape: [[1,0,0], [1,1,1]] (Width=3, Height=2)
+                     // *** CORRECTED based on re-tracing coordinate transformation ***
+                    this.inputPos = { x: 0, y: 1 }; // Original (0,0) maps here
+                    this.outputPos = { x: 2, y: 1 }; // Original (0,2) maps here
                     break;
             }
         }
@@ -162,38 +174,22 @@ export default class ProcessorAMachine extends BaseMachine {
         const cellSize = this.grid.cellSize;
         
         // Calculate the shape center in terms of cells
-        const shapeCenterX = (this.shape[0].length - 1) / 2;
-        const shapeCenterY = (this.shape.length - 1) / 2;
+        // *** MODIFIED: Use rotatedShape dimensions ***
+        const shapeCenterX = (rotatedShape[0].length - 1) / 2;
+        const shapeCenterY = (rotatedShape.length - 1) / 2;
         
         console.log(`[ProcessorAMachine] Shape center: (${shapeCenterX}, ${shapeCenterY})`);
         console.log(`[ProcessorAMachine] Shape name: ${this.name}`);
 
-
         // Create machine parts based on shape with consistent colors
-        for (let y = 0; y < this.shape.length; y++) {
-            for (let x = 0; x < this.shape[y].length; x++) {
-                if (this.shape[y][x] === 1) {
-                    let partX = 0;
-                    let partY = 0;
-                    // Calculate part position relative to container center (0,0)
-                    if (this.direction === 'none') {
-                         partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
-                         partY = ((y - shapeCenterY) * cellSize) ;
-                    } else if (this.direction === 'right') {
-                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
-                        partY = ((y - shapeCenterY) * cellSize) ;
-                    } else if (this.direction === 'down') {
-                        partX = ((x - shapeCenterX) * cellSize) ;
-                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
-                    } else if (this.direction === 'left') {
-                        partX = ((x - shapeCenterX) * cellSize) - cellSize * 0.5;
-                        partY = ((y - shapeCenterY) * cellSize) ;
-                    } else if (this.direction === 'up') {
-                        partX = ((x - shapeCenterX) * cellSize) ;
-                        partY = ((y - shapeCenterY) * cellSize) - cellSize * 0.5;
-                    }
-
-                    console.log(`[ProcessorAMachine] Part at shape(${x},${y}) -> relative(${partX},${partY})`);
+        // *** MODIFIED: Use rotatedShape ***
+        for (let y = 0; y < rotatedShape.length; y++) {
+            for (let x = 0; x < rotatedShape[y].length; x++) {
+                // *** MODIFIED: Use rotatedShape ***
+                if (rotatedShape[y][x] === 1) {
+                    // *** MODIFIED: Use top-left positioning logic from BaseMachine ***
+                    const partCenterX = x * cellSize + cellSize / 2;
+                    const partCenterY = y * cellSize + cellSize / 2;
                     
                     // Determine part color based on whether it's an input, output, or regular part
                     let partColor = 0x44ff44; // Default green color (same as when dragging)
@@ -201,7 +197,7 @@ export default class ProcessorAMachine extends BaseMachine {
                     if (x === this.inputPos.x && y === this.inputPos.y) {
                         partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
                         // Add a visual indicator for input
-                        const inputIndicator = this.scene.add.text(partX, partY, "IN", {
+                        const inputIndicator = this.scene.add.text(partCenterX, partCenterY, "IN", {
                             fontFamily: 'Arial',
                             fontSize: 10,
                             color: '#ffffff'
@@ -210,7 +206,7 @@ export default class ProcessorAMachine extends BaseMachine {
                     } else if (x === this.outputPos.x && y === this.outputPos.y) {
                         partColor = 0xffa520; // Brighter orange for output (same as when dragging)
                         // Add a visual indicator for output
-                        const outputIndicator = this.scene.add.text(partX, partY, "OUT", {
+                        const outputIndicator = this.scene.add.text(partCenterX, partCenterY, "OUT", {
                             fontFamily: 'Arial',
                             fontSize: 9,
                             color: '#ffffff'
@@ -219,8 +215,9 @@ export default class ProcessorAMachine extends BaseMachine {
                     }
                     
                     // Create machine part
-                    const part = this.scene.add.rectangle(partX, partY, cellSize - 4, cellSize - 4, partColor);
-                    part.setStrokeStyle(2, 0x000000);
+                    // *** MODIFIED: Use partCenterX/Y for positioning ***
+                    const part = this.scene.add.rectangle(partCenterX, partCenterY, cellSize - 4, cellSize - 4, partColor);
+                    part.setStrokeStyle(1, 0x333333);
                     this.container.add(part);
                     
                     // Store references to input and output squares
@@ -233,9 +230,18 @@ export default class ProcessorAMachine extends BaseMachine {
             }
         }
         
+        // Position relative to the VISUAL center of the shape within the container
+        const visualCenterX = shapeCenterX * cellSize;
+        const visualCenterY = shapeCenterY * cellSize;
+        
+        // Adjust center based on user's part offset
+        // *** MODIFIED: Use positioning logic from BaseMachine ***
+        const adjustedVisualCenterX = visualCenterX + cellSize / 2;
+        const adjustedVisualCenterY = visualCenterY + cellSize / 2;
+        
         // Position the machine label at the center of the container (0,0)
         // since the container itself is already positioned at the machine's center
-        const machineLabel = this.scene.add.text(0, 0, "A", {
+        const machineLabel = this.scene.add.text(adjustedVisualCenterX, adjustedVisualCenterY, "A", {
             fontFamily: 'Arial',
             fontSize: 14,
             color: '#ffffff'
@@ -244,8 +250,8 @@ export default class ProcessorAMachine extends BaseMachine {
         
         // Add processing progress bar
         this.progressBar = this.scene.add.rectangle(
-            0, 
-            cellSize / 4, 
+            adjustedVisualCenterX, // Relative to adjusted visual center X
+            adjustedVisualCenterY + cellSize / 2, // Relative to adjusted visual center Y, slightly below
             cellSize - 10, 
             4, 
             0x00ff00
@@ -254,27 +260,29 @@ export default class ProcessorAMachine extends BaseMachine {
         this.container.add(this.progressBar);
         
         // Create processor core visual element
-        this.processorCore = this.scene.add.circle(0, 0, cellSize / 4, 0xff5500);
+        // Position relative to the VISUAL center of the shape within the container
+        this.processorCore = this.scene.add.circle(adjustedVisualCenterX, adjustedVisualCenterY, cellSize / 4, 0xff5500);
         this.processorCore.setStrokeStyle(1, 0xffffff);
         this.container.add(this.processorCore);
         console.log(`[ProcessorA] Created processor core visual element`);
         
         // Add direction indicator if not a cargo loader
         if (this.direction !== 'none') {
-            // Create the direction indicator as part of the container, not in the scene
+            // *** MODIFIED: Use absolute positioning logic from BaseMachine ***
+            const absoluteCenterX = this.container.x + adjustedVisualCenterX;
+            const absoluteCenterY = this.container.y + adjustedVisualCenterY;
+
+            // Create the direction indicator directly in the scene, not in the container
             const indicatorColor = 0xff9500;
             
             this.directionIndicator = this.scene.add.triangle(
-                0,      // Center relative to container (x=0)
-                0,      // Center relative to container (y=0)
+                absoluteCenterX,      // Center relative to calculated absolute center
+                absoluteCenterY,      // Center relative to calculated absolute center
                 -4, -6, // left top
                 -4, 6,  // left bottom
                 8, 0,   // right point
                 indicatorColor
             ).setOrigin(0.5, 0.5);
-            
-            // Add the indicator to the container instead of directly to the scene
-            this.container.add(this.directionIndicator);
             
             // Rotate based on direction
             switch (this.direction) {
@@ -552,182 +560,44 @@ export default class ProcessorAMachine extends BaseMachine {
     }
     
     /**
-     * Get the output cell coordinates based on shape and direction
-     * @returns {{x: number, y: number}} The output cell coordinates
+     * Get the specific output cell coordinates based on shape and direction.
+     * @returns {{x: number, y: number}} Grid coordinates of the output cell.
      */
     getOutputCell() {
-        // Use the relative output position stored during createVisuals
-        const relativeOutputPos = this.outputPos;
+        let outputX = this.gridX;
+        let outputY = this.gridY;
         
-        // Ensure outputPos has been initialized (should happen in createVisuals)
-        console.log(`[DEBUG getOutputCell START] Machine: ${this.id}, Direction: ${this.direction}, Grid: (${this.gridX}, ${this.gridY})`);
-        console.log(`[DEBUG getOutputCell] Stored Relative Output Pos:`, JSON.stringify(relativeOutputPos));
+        // This calculation depends on the shape and direction
+        // For the J-shape [[1, 1], [1, 0], [1, 0]] and 'right' direction:
+        // Shape width = 2, height = 3
+        // Origin is assumed to be top-left (this.gridX, this.gridY)
+        // Default output position needs to be defined relative to the origin
         
-        if (!relativeOutputPos || relativeOutputPos.x === -1) {
-            console.error(`[ProcessorA getOutputCell] Error: this.outputPos not properly initialized. Direction: ${this.direction}`);
-            // Fallback to the machine's center or another default
-            return { x: this.gridX, y: this.gridY };
+        // Let's redefine output based on the standard Tetris block orientation
+        // J-piece: (0,0), (1,0), (0,1), (0,2)
+        // If origin is (0,0) i.e. top-left of the bounding box
+        // Default 'right' direction, output is usually bottom-most on the connection side
+        
+        switch (this.direction) {
+            case 'right': // Shape: [[1,1],[1,0],[1,0]] -> Output expected at bottom-left cell relative to origin
+                outputX = this.gridX + 0; 
+                outputY = this.gridY + 2; 
+                break;
+            case 'down': // Shape: [[1,1,1],[0,0,1]] -> Output expected at bottom-right cell
+                outputX = this.gridX + 2; 
+                outputY = this.gridY + 1; 
+                break;
+            case 'left': // Shape: [[0,1],[0,1],[1,1]] -> Output expected at top-right cell
+                outputX = this.gridX + 1; 
+                outputY = this.gridY + 0; 
+                break;
+            case 'up':   // Shape: [[1,0,0],[1,1,1]] -> Output expected at top-left cell
+                outputX = this.gridX + 0; 
+                outputY = this.gridY + 0; 
+                break;
         }
-
-        // Calculate the shape's dimensions and center for the *current* rotation
-        const currentShape = this.shape; // Assumes this.shape is correctly rotated
-        const shapeHeight = currentShape.length;
-        const shapeWidth = currentShape[0].length;
-        const shapeCenterX = (shapeWidth - 1) / 2;
-        const shapeCenterY = (shapeHeight - 1) / 2;
-        console.log(`[DEBUG getOutputCell] Current Shape:`, JSON.stringify(currentShape));
-        console.log(`[DEBUG getOutputCell] Shape Dims (W, H): (${shapeWidth}, ${shapeHeight}), Shape Center (X, Y): (${shapeCenterX}, ${shapeCenterY})`);
-
-        // Calculate the offset of the shape's top-left (0,0) relative to its center
-        const centerOffsetX = -shapeCenterX;
-        const centerOffsetY = -shapeCenterY;
-
-        // Calculate the offset of the output cell relative to the shape's top-left (0,0)
-        const outputOffsetX = relativeOutputPos.x;
-        const outputOffsetY = relativeOutputPos.y;
-
-        console.log(`[DEBUG getOutputCell] Center Offset (X, Y): (${centerOffsetX}, ${centerOffsetY}), Output Offset from TopLeft (X, Y): (${outputOffsetX}, ${outputOffsetY})`);
-
-        // Combine offsets: (Output relative to top-left) + (Top-left relative to Center)
-        const totalOffsetX = outputOffsetX + centerOffsetX;
-        const totalOffsetY = outputOffsetY + centerOffsetY;
-        console.log(`[DEBUG getOutputCell] Total Offset from Center (X, Y): (${totalOffsetX}, ${totalOffsetY})`);
         
-        // Add the total offset to the machine's center grid coordinates
-        let outputX = Math.floor(this.gridX + totalOffsetX);
-        let outputY = Math.floor(this.gridY + totalOffsetY);
-
-        console.log(`[DEBUG getOutputCell END] Final Calculated Output Cell (X, Y): (${outputX}, ${outputY})`);
-
+        console.log(`[ProcessorA] Calculated output cell for direction ${this.direction}: (${outputX}, ${outputY})`);
         return { x: outputX, y: outputY };
-    }
-    
-    /**
-     * Find connected machine in the output direction
-     * @returns {BaseMachine|null} The connected machine or null if none
-     */
-    findConnectedMachine() {
-        // Skip if there's no grid
-        if (!this.grid) return null;
-        
-        // Get the output cell position based on our shape and direction
-        let outputCell = this.getOutputCell();
-        
-        // For conveyor belts, check all adjacent cells
-        const adjacentCells = [
-            { x: outputCell.x + 1, y: outputCell.y, dir: 'right' },
-            { x: outputCell.x - 1, y: outputCell.y, dir: 'left' },
-            { x: outputCell.x, y: outputCell.y + 1, dir: 'down' },
-            { x: outputCell.x, y: outputCell.y - 1, dir: 'up' }
-        ];
-        
-        // Check each adjacent cell
-        for (const cell of adjacentCells) {
-            const cellContent = this.grid.getCellContent(cell.x, cell.y);
-            
-            // Get the machine object from the cell content
-            const machine = cellContent?.object || cellContent?.machine || (cellContent?.occupiedBy?.machine);
-            
-            if (cellContent && cellContent.type === 'machine' && machine) {
-                // Check each conveyor detection method separately
-                const constructorCheck = machine.constructor.name.toLowerCase().includes('conveyor');
-                const idCheck = machine.id?.toLowerCase().includes('conveyor');
-                const methodCheck = typeof machine.addItem === 'function';
-                
-                // If it's a conveyor belt, we can connect from any direction
-                const isConveyor = constructorCheck || idCheck || methodCheck;
-                
-                if (isConveyor) {
-                    return machine;
-                }
-            }
-        }
-        
-        return null;
-    }
-    
-    /**
-     * Transfer resources to connected machines
-     */
-    transferResources() {
-        // Find connected machine in the output direction
-        const connectedMachine = this.findConnectedMachine();
-        
-        if (!connectedMachine) {
-            return;
-        }
-        
-        // Check if we have resources to transfer
-        const outputResourceType = 'advanced-resource';
-        if (this.outputInventory[outputResourceType] <= 0) {
-            return;
-        }
-        
-        // Try to transfer using addItem method first
-        if (typeof connectedMachine.addItem === 'function') {
-            try {
-                const success = connectedMachine.addItem(outputResourceType);
-                if (success) {
-                    this.outputInventory[outputResourceType]--;
-                    this.createResourceTransferEffect(outputResourceType, connectedMachine);
-                }
-            } catch (error) {
-                console.error(`[ProcessorA] Error during transfer:`, error);
-            }
-            return;
-        }
-        
-        // Fall back to inventory-based transfer
-        if (connectedMachine.inputInventory) {
-            this.outputInventory[outputResourceType]--;
-            connectedMachine.inputInventory[outputResourceType] = 
-                (connectedMachine.inputInventory[outputResourceType] || 0) + 1;
-            
-            this.createResourceTransferEffect(outputResourceType, connectedMachine);
-        }
-    }
-    
-    /**
-     * Create a visual effect for resource transfer
-     * @param {string} resourceType - The type of resource being transferred
-     * @param {BaseMachine} targetMachine - The machine receiving the resource
-     */
-    createResourceTransferEffect(resourceType, targetMachine) {
-        // --- DEBUGGING --- 
-        if (!this.container) {
-            console.error(`[${this.id}] ERROR: this.container is null or undefined in createResourceTransferEffect!`);
-            console.error(`Machine State: grid=(${this.gridX}, ${this.gridY}), direction=${this.direction}, isProcessing=${this.isProcessing}`);
-            // Optionally, try to prevent further errors by returning early
-            return; 
-        }
-        console.log(`[${this.id}] createResourceTransferEffect - Container exists. Position: (${this.container.x}, ${this.container.y})`);
-        // --- END DEBUGGING --- 
-
-        // Get source position (center of this machine)
-        const sourcePos = {
-            x: this.container.x,
-            y: this.container.y
-        };
-        
-        // Get target position (center of target machine)
-        const targetPos = {
-            x: targetMachine.container.x,
-            y: targetMachine.container.y
-        };
-        
-        // Create a resource sprite
-        const resourceSprite = this.scene.add.circle(sourcePos.x, sourcePos.y, 5, 0xffa520);
-        
-        // Animate the resource transfer
-        this.scene.tweens.add({
-            targets: resourceSprite,
-            x: targetPos.x,
-            y: targetPos.y,
-            duration: 500,
-            ease: 'Cubic.easeOut',
-            onComplete: () => {
-                resourceSprite.destroy();
-            }
-        });
     }
 } 

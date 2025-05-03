@@ -6,7 +6,7 @@ export const GRID_CONFIG = {
     cargoBayWidth: 6,
     cargoBayHeight: 10,
     x: 200, // Update x position to center in the factory area (width*0.05 + width*0.4/2)
-    y: 250, // Update y position to center in the factory area (height*0.1 + height*0.6/2)
+    y: 220, // Adjusted Y center to align logical grid top (startY=60) with visual background top (Y=60)
     width: 10, // Add width in cells
     height: 10 // Add height in cells
 };
@@ -133,7 +133,9 @@ export const GAME_CONFIG = {
     // Example: lastThreshold + roundNumber * 100
     scoreIncreaseFactorPerRound: 1.5, // Or multiply previous threshold by 1.5?
 
-    // Clear Factory ability
+    // --- REMOVED CLEAR FACTORY COOLDOWN CONFIG ---
+/*
     initialClearCooldown: 30000, // ms (30 seconds)
     clearCooldownIncreaseFactor: 100 // ms added to cooldown per second of game time
+*/
 }; 
