@@ -129,25 +129,37 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             }
         }
         
-        const machineLabel = this.scene.add.text(0, 0, "ADV", { fontSize: 10, color: '#ffffff' }).setOrigin(0.5);
+        // *** ADDED: Calculate visual center consistent with BaseMachine ***
+        const visualCenterX = shapeCenterX * cellSize;
+        const visualCenterY = shapeCenterY * cellSize;
+        const adjustedVisualCenterX = visualCenterX + cellSize / 2;
+        const adjustedVisualCenterY = visualCenterY + cellSize / 2;
+
+        // *** MODIFIED: Use adjusted center for label, progress bar, core ***
+        const machineLabel = this.scene.add.text(adjustedVisualCenterX, adjustedVisualCenterY, "ADV", { fontSize: 10, color: '#ffffff' }).setOrigin(0.5);
         this.container.add(machineLabel);
         
-        this.progressBar = this.scene.add.rectangle(0, cellSize * 0.75, cellSize * 2, 4, 0x00ff00).setOrigin(0.5, 0);
+        // *** MODIFIED: Position relative to adjusted center ***
+        this.progressBar = this.scene.add.rectangle(adjustedVisualCenterX, adjustedVisualCenterY + cellSize * 0.75, cellSize * 2, 4, 0x00ff00).setOrigin(0.5, 0);
         this.progressBar.scaleX = 0;
         this.container.add(this.progressBar);
         
         // Add processor core visual effect (maybe a different shape?)
-        this.processorCore = this.scene.add.star(0, 0, 4, cellSize / 4, cellSize / 3, 0xffdd00); // Yellow star
+        // *** MODIFIED: Position relative to adjusted center ***
+        this.processorCore = this.scene.add.star(adjustedVisualCenterX, adjustedVisualCenterY, 4, cellSize / 4, cellSize / 3, 0xffdd00); // Yellow star
         this.processorCore.setStrokeStyle(1, 0xffffff);
         this.container.add(this.processorCore);
         this.processorCore.setDepth(machineLabel.depth - 1);
         
         // Add direction indicator to the scene
         if (this.direction !== 'none') {
-            const absoluteX = this.container.x;
-            const absoluteY = this.container.y;
+            // *** MODIFIED: Use absolute positioning logic from BaseMachine ***
+            const absoluteCenterX = this.container.x + adjustedVisualCenterX;
+            const absoluteCenterY = this.container.y + adjustedVisualCenterY;
             const indicatorColor = 0xff9500;
-            this.directionIndicator = this.scene.add.triangle(absoluteX, absoluteY, -4, -6, -4, 6, 8, 0, indicatorColor).setOrigin(0.5, 0.5);
+            
+            // *** MODIFIED: Use calculated absolute center ***
+            this.directionIndicator = this.scene.add.triangle(absoluteCenterX, absoluteCenterY, -4, -6, -4, 6, 8, 0, indicatorColor).setOrigin(0.5, 0.5);
             this.updateDirectionIndicatorVisuals(); 
             this.directionIndicator.setDepth(this.container.depth + 1);
         }

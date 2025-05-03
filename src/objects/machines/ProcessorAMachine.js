@@ -178,9 +178,6 @@ export default class ProcessorAMachine extends BaseMachine {
         const shapeCenterX = (rotatedShape[0].length - 1) / 2;
         const shapeCenterY = (rotatedShape.length - 1) / 2;
         
-        console.log(`[ProcessorAMachine] Shape center: (${shapeCenterX}, ${shapeCenterY})`);
-        console.log(`[ProcessorAMachine] Shape name: ${this.name}`);
-
         // Create machine parts based on shape with consistent colors
         // *** MODIFIED: Use rotatedShape ***
         for (let y = 0; y < rotatedShape.length; y++) {
@@ -264,7 +261,6 @@ export default class ProcessorAMachine extends BaseMachine {
         this.processorCore = this.scene.add.circle(adjustedVisualCenterX, adjustedVisualCenterY, cellSize / 4, 0xff5500);
         this.processorCore.setStrokeStyle(1, 0xffffff);
         this.container.add(this.processorCore);
-        console.log(`[ProcessorA] Created processor core visual element`);
         
         // Add direction indicator if not a cargo loader
         if (this.direction !== 'none') {
@@ -299,8 +295,6 @@ export default class ProcessorAMachine extends BaseMachine {
                     this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
                     break;
             }
-            
-            console.log(`[ProcessorAMachine] Direction indicator created in container with direction ${this.direction}`);
         }
         
         // Add placement animation
@@ -344,7 +338,8 @@ export default class ProcessorAMachine extends BaseMachine {
             
             // Update progress
             this.processingProgress += delta;
-            console.log(`[ProcessorA] Processing: ${Math.round((this.processingProgress / this.processingTime) * 100)}% complete`);
+            // Ensure progress doesn't exceed time
+            this.processingProgress = Math.min(this.processingProgress, this.processingTime);
             
             // Update progress bar
             if (this.progressBar) {
@@ -367,7 +362,6 @@ export default class ProcessorAMachine extends BaseMachine {
         } else {
             // Check if we can start processing
             if (this.canProcess()) {
-                console.log('[ProcessorA] Starting new processing cycle');
                 this.startProcessing();
             }
         }
@@ -397,7 +391,6 @@ export default class ProcessorAMachine extends BaseMachine {
             return false;
         }
         
-        console.log('[ProcessorA] Can process: true');
         return true;
     }
     
@@ -405,13 +398,10 @@ export default class ProcessorAMachine extends BaseMachine {
      * Start the processing operation
      */
     startProcessing() {
-        console.log('[ProcessorA] Starting processing cycle');
-        
         // Consume the required inputs
         for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
             const currentAmount = this.inputInventory[resourceType] || 0;
             this.inputInventory[resourceType] = Math.max(0, currentAmount - amount);
-            console.log(`[ProcessorA] Consumed ${amount} ${resourceType}, remaining: ${this.inputInventory[resourceType]}`);
         }
         
         // Reset and start processing
@@ -428,16 +418,12 @@ export default class ProcessorAMachine extends BaseMachine {
             this.processorCore.scale = 1;
             this.processorCore.angle = 0;
         }
-        
-        console.log('[ProcessorA] Processing started');
     }
     
     /**
      * Complete the processing operation
      */
     completeProcessing() {
-        console.log('[ProcessorA] Completing processing cycle');
-        
         // Add the product to the output inventory
         this.outputInventory['advanced-resource'] = (this.outputInventory['advanced-resource'] || 0) + 1;
         
@@ -455,8 +441,6 @@ export default class ProcessorAMachine extends BaseMachine {
             this.processorCore.scale = 1;
             this.processorCore.angle = 0;
         }
-        
-        console.log(`[ProcessorA] Processing complete. Output inventory: ${JSON.stringify(this.outputInventory)}`);
     }
     
     /**

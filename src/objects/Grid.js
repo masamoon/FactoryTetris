@@ -192,7 +192,7 @@ export default class Grid {
      * @returns {Object} Grid coordinates
      */
     worldToGrid(worldX, worldY) {
-        const debugGridConv = true;
+        const debugGridConv = false; // <-- Disable logs
         try {
             // Validate inputs
             if (worldX === undefined || worldY === undefined) {
@@ -567,7 +567,7 @@ export default class Grid {
                             cell.machine = machine; // Store a reference to the machine
                             
                             // *** ADDED LOGGING ***
-                            console.log(`[Grid.placeMachine] Marked cell (${cellX}, ${cellY}) as 'machine' for ${machine.id}`);
+                            // console.log(`[Grid.placeMachine] Marked cell (${cellX}, ${cellY}) as 'machine' for ${machine.id}`);
 
                             cell.occupiedBy = {
                                 type: 'machine',

@@ -1082,7 +1082,7 @@ export default class BaseMachine {
      * @returns {Array<{x: number, y: number}>} An array of coordinate objects.
      */
     getOccupiedCells() {
-        const debugOccupied = true;
+        const debugOccupied = false; // <-- Set to false to disable logs
         const cells = [];
 
         // *** ADDED: Get the correctly rotated shape (Consistent with createVisuals) ***
