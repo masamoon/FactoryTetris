@@ -367,6 +367,76 @@ export default class ProcessorBMachine extends BaseMachine {
         console.log(`[${this.id}] Processing complete. Output:`, JSON.stringify(this.outputInventory));
     }
     
+    /**
+     * Override findTargetForOutput to correctly identify the adjacent cell
+     * based on the Processor B's specific T-shape and direction.
+     */
+    findTargetForOutput() {
+        if (!this.grid) {
+            console.warn(`[${this.id}] Cannot find target: grid reference is missing`);
+            return null;
+        }
+
+        // Determine the relative coordinates of the output face cell within the shape based on direction.
+        // Logic derived from createVisuals this.outputPos calculation for the T-shape.
+        // Original Shape: [[0, 1, 0], [1, 1, 1]]
+        let outputFaceRelX, outputFaceRelY;
+        switch (this.direction) {
+            case 'right': outputFaceRelX = 2; outputFaceRelY = 1; break; // Bottom-right cell relative to anchor
+            case 'down':  outputFaceRelX = 1; outputFaceRelY = 1; break; // Bottom-center cell relative to anchor
+            case 'left':  outputFaceRelX = 0; outputFaceRelY = 1; break; // Bottom-left cell relative to anchor
+            case 'up':    outputFaceRelX = 1; outputFaceRelY = 0; break; // Top-center cell relative to anchor
+            default:
+                console.warn(`[${this.id}] Invalid direction: ${this.direction}`);
+                return null;
+        }
+
+        // Calculate the absolute grid coordinates of this output face cell
+        const outputFaceAbsX = this.gridX + outputFaceRelX;
+        const outputFaceAbsY = this.gridY + outputFaceRelY;
+
+        // Calculate the coordinates of the target cell immediately adjacent to the output face
+        let targetX = outputFaceAbsX;
+        let targetY = outputFaceAbsY;
+        switch (this.direction) {
+            case 'right': targetX += 1; break;
+            case 'down':  targetY += 1; break;
+            case 'left':  targetX -= 1; break;
+            case 'up':    targetY -= 1; break;
+        }
+        
+        // console.warn(`[${this.id}] Finding target: Direction=${this.direction}, OutputFace=(${outputFaceAbsX},${outputFaceAbsY}), TargetCell=(${targetX},${targetY})`); // Optional Debug log
+
+        // Check grid bounds for the target cell
+        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+            // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is out of bounds.`);
+            return null;
+        }
+
+        // Get the content of the target cell
+        const targetCell = this.grid.getCell(targetX, targetY);
+        if (!targetCell) {
+            // console.warn(`[${this.id}] No cell data found at target (${targetX}, ${targetY}).`);
+            return null;
+        }
+
+        // Return the target info based on cell type
+        if (targetCell.type === 'delivery-node' && targetCell.object) {
+            return { type: 'delivery-node', target: targetCell.object };
+        }
+        if (targetCell.type === 'machine' && targetCell.machine) {
+             // IMPORTANT SELF-CHECK: Ensure we are not targeting ourselves
+            if (targetCell.machine === this) {
+                 // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) contains self. No valid output target found.`);
+                 return null; 
+            }
+            return { type: 'machine', target: targetCell.machine };
+        }
+        
+        // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is empty or contains non-targetable type: ${targetCell.type}`);
+        return null; // Target cell is empty or not a machine/node
+    }
+
     /** Create a preview sprite for the machine selection panel */
     static getPreviewSprite(scene, x, y) {
         const container = scene.add.container(x, y);

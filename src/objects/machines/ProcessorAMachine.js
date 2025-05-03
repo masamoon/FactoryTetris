@@ -544,44 +544,81 @@ export default class ProcessorAMachine extends BaseMachine {
     }
     
     /**
-     * Get the specific output cell coordinates based on shape and direction.
-     * @returns {{x: number, y: number}} Grid coordinates of the output cell.
+     * Override findTargetForOutput to correctly identify the adjacent cell
+     * based on the Processor A's specific J-shape and direction.
      */
-    getOutputCell() {
-        let outputX = this.gridX;
-        let outputY = this.gridY;
-        
-        // This calculation depends on the shape and direction
-        // For the J-shape [[1, 1], [1, 0], [1, 0]] and 'right' direction:
-        // Shape width = 2, height = 3
-        // Origin is assumed to be top-left (this.gridX, this.gridY)
-        // Default output position needs to be defined relative to the origin
-        
-        // Let's redefine output based on the standard Tetris block orientation
-        // J-piece: (0,0), (1,0), (0,1), (0,2)
-        // If origin is (0,0) i.e. top-left of the bounding box
-        // Default 'right' direction, output is usually bottom-most on the connection side
-        
+    findTargetForOutput() {
+        if (!this.grid) {
+            console.warn(`[${this.id}] Cannot find target: grid reference is missing`);
+            return null;
+        }
+
+        // Determine the absolute grid coordinates of the output face cell based on direction.
+        // This logic mimics the results of the original getOutputCell method.
+        let outputFaceAbsX = this.gridX;
+        let outputFaceAbsY = this.gridY;
+
         switch (this.direction) {
-            case 'right': // Shape: [[1,1],[1,0],[1,0]] -> Output expected at bottom-left cell relative to origin
-                outputX = this.gridX + 0; 
-                outputY = this.gridY + 2; 
+            case 'right': // Shape: [[1,1],[1,0],[1,0]] -> Output face is bottom-left (0, 2) relative to anchor
+                outputFaceAbsX = this.gridX + 0; 
+                outputFaceAbsY = this.gridY + 2; 
                 break;
-            case 'down': // Shape: [[1,1,1],[0,0,1]] -> Output expected at bottom-right cell
-                outputX = this.gridX + 2; 
-                outputY = this.gridY + 1; 
+            case 'down': // Shape: [[1,1,1],[0,0,1]] -> Output face is bottom-right (2, 1) relative to anchor
+                outputFaceAbsX = this.gridX + 2; 
+                outputFaceAbsY = this.gridY + 1; 
                 break;
-            case 'left': // Shape: [[0,1],[0,1],[1,1]] -> Output expected at top-right cell
-                outputX = this.gridX + 1; 
-                outputY = this.gridY + 0; 
+            case 'left': // Shape: [[0,1],[0,1],[1,1]] -> Output face is top-right (1, 0) relative to anchor
+                outputFaceAbsX = this.gridX + 1; 
+                outputFaceAbsY = this.gridY + 0; 
                 break;
-            case 'up':   // Shape: [[1,0,0],[1,1,1]] -> Output expected at top-left cell
-                outputX = this.gridX + 0; 
-                outputY = this.gridY + 0; 
+            case 'up':   // Shape: [[1,0,0],[1,1,1]] -> Output face is top-left (0, 0) relative to anchor
+                outputFaceAbsX = this.gridX + 0; 
+                outputFaceAbsY = this.gridY + 0; 
                 break;
+            default:
+                 console.warn(`[${this.id}] Invalid direction: ${this.direction}`);
+                return null;
+        }
+
+        // Calculate the coordinates of the target cell immediately adjacent to the output face
+        let targetX = outputFaceAbsX;
+        let targetY = outputFaceAbsY;
+        switch (this.direction) {
+            case 'right': targetX += 1; break;
+            case 'down':  targetY += 1; break;
+            case 'left':  targetX -= 1; break;
+            case 'up':    targetY -= 1; break;
         }
         
-        console.log(`[ProcessorA] Calculated output cell for direction ${this.direction}: (${outputX}, ${outputY})`);
-        return { x: outputX, y: outputY };
+        // console.warn(`[${this.id}] Finding target: Direction=${this.direction}, OutputFace=(${outputFaceAbsX},${outputFaceAbsY}), TargetCell=(${targetX},${targetY})`); // Optional Debug log
+
+        // Check grid bounds for the target cell
+        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+            // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is out of bounds.`);
+            return null;
+        }
+
+        // Get the content of the target cell
+        const targetCell = this.grid.getCell(targetX, targetY);
+        if (!targetCell) {
+            // console.warn(`[${this.id}] No cell data found at target (${targetX}, ${targetY}).`);
+            return null;
+        }
+
+        // Return the target info based on cell type
+        if (targetCell.type === 'delivery-node' && targetCell.object) {
+            return { type: 'delivery-node', target: targetCell.object };
+        }
+        if (targetCell.type === 'machine' && targetCell.machine) {
+             // IMPORTANT SELF-CHECK: Ensure we are not targeting ourselves
+            if (targetCell.machine === this) {
+                 // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) contains self. No valid output target found.`);
+                 return null; 
+            }
+            return { type: 'machine', target: targetCell.machine };
+        }
+        
+        // console.warn(`[${this.id}] Target cell (${targetX}, ${targetY}) is empty or contains non-targetable type: ${targetCell.type}`);
+        return null; // Target cell is empty or not a machine/node
     }
 } 
