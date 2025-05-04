@@ -938,13 +938,21 @@ export default class GameScene extends Phaser.Scene {
     }
     
     createInitialResourceNodes() {
-        // Create initial resource nodes
-        for (let i = 0; i < GAME_CONFIG.initialNodeCount; i++) {
-            // Use the existing method to spawn resource nodes one by one
-            this.spawnResourceNode(); 
+        // Ensure resourceNodes is initialized
+        if (!this.resourceNodes) {
+            this.resourceNodes = [];
+        }
+        // Ensure deliveryNodes is initialized
+        if (!this.deliveryNodes) {
+            this.deliveryNodes = [];
         }
 
-        // Spawn one initial delivery node
+        // Create initial resource nodes using the spawn method, which now handles rounds
+        for (let i = 0; i < GAME_CONFIG.initialNodeCount; i++) {
+            this.spawnResourceNode(); // Will use this.currentRound (should be 1)
+        }
+
+        // Spawn one initial delivery node (no changes needed here for resource node scaling)
         try {
             const emptySpot = this.grid.findEmptyCell();
             if (!emptySpot) {
@@ -963,13 +971,10 @@ export default class GameScene extends Phaser.Scene {
                 y: worldPos.y,
                 gridX: emptySpot.x,
                 gridY: emptySpot.y,
-                lifespan: GAME_CONFIG.nodeLifespan, 
-                pointsPerResource: 10 
+                lifespan: GAME_CONFIG.nodeLifespan,
+                pointsPerResource: 10
             });
-            
-            // Ensure deliveryNodes array exists
-            if (!this.deliveryNodes) { this.deliveryNodes = []; }
-            
+
             this.deliveryNodes.push(deliveryNode);
             this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
             console.log(`[GAME] Created initial delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
@@ -978,35 +983,35 @@ export default class GameScene extends Phaser.Scene {
             console.error('[GAME] Error creating initial delivery node:', error);
         }
     }
-    
+
+    // Modify spawnResourceNode to pass the current round
     spawnResourceNode() {
         try {
-        if (this.gameOver || this.paused) return;
-            
+            if (this.gameOver || this.paused) return;
+
             // Ensure resourceNodes is initialized
             if (!this.resourceNodes) {
-                //console.log('[GAME] Initializing resourceNodes array');
                 this.resourceNodes = [];
             }
-        
-        // Find an empty spot on the factory grid
-        const emptySpot = this.grid.findEmptyCell();
+
+            // Find an empty spot on the factory grid
+            const emptySpot = this.grid.findEmptyCell();
             if (!emptySpot) {
                 console.warn('[GAME] No empty cells found for resource node placement');
                 return;
             }
-            
+
             // Convert grid position to world coordinates
             const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
             if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
                 console.error('[GAME] Invalid world position for resource node:', worldPos);
                 return;
             }
-            
-            // Select a random resource type
-            const resourceTypeIndex = 0; // ALWAYS spawn 'basic-resource' (assuming it's index 0)
-            
-            // Create a new resource node
+
+            // Select a random resource type (currently hardcoded to basic)
+            const resourceTypeIndex = 0;
+
+            // Create a new resource node, passing the current round
             const node = new ResourceNode(this, {
                 x: worldPos.x,
                 y: worldPos.y,
@@ -1014,24 +1019,27 @@ export default class GameScene extends Phaser.Scene {
                 gridY: emptySpot.y,
                 resourceType: resourceTypeIndex,
                 lifespan: GAME_CONFIG.nodeLifespan
-            });
-            
+            }, this.currentRound); // Pass this.currentRound here
+
             this.resourceNodes.push(node);
             this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
-            
-            //console.log(`[GAME] Created resource node at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`);
+
+            //console.log(`[GAME] Created resource node for round ${this.currentRound} at grid (${emptySpot.x}, ${emptySpot.y})`);
         } catch (error) {
             console.error('[GAME] Error creating resource node:', error);
         }
     }
-    
+
     generateResources() {
         if (this.gameOver || this.paused) return;
-        
-        // Each resource node generates resources
+
+        // Each resource node generates resources based on its own internal timer (now round-dependent).
+        // This loop is no longer needed.
+        /*
         this.resourceNodes.forEach(node => {
-            node.generateResource();
+            node.generateResource(); // This is handled by the node's internal timer now
         });
+        */
     }
     
     updateGameTime() {
@@ -1115,44 +1123,51 @@ export default class GameScene extends Phaser.Scene {
 
     advanceRound() {
         console.log(`Round ${this.currentRound} completed! Advancing to next round.`);
-        
+
         // Optional: Play a sound effect for round completion
-        this.playSound('round-complete'); // Assuming a sound key 'round-complete' exists
+        this.playSound('round-complete');
 
-        // 1. Clear the factory
-        this.clearPlacedItems(); // Use the existing clear function
+        // *** REMOVED camera flash ***
+        // this.cameras.main.flash(300, 255, 255, 255, true);
 
-        // 2. Increment round number
+        // 1. Clear the factory grid (will now have animations)
+        this.clearPlacedItems();
+
+        // 2. Reset score
+        this.score = 0;
+
+        // 3. Increment round number
         this.currentRound++;
-        
-        // 3. Reset score for the new round
-        this.score = 0; 
 
-        // 4. Calculate and set the next score threshold
+        // 4. Reset score threshold for the new round
         this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound);
 
-        // 5. Update UI Text
+        // 5. Update UI displays
         this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
         this.roundText.setText(`ROUND: ${this.currentRound}`);
-        
-        // 6. Update difficulty explicitly upon advancing round
-        // (Instead of relying solely on the timed difficulty update)
+
+        // 6. Update difficulty explicitly upon advancing round (affects node SPAWN rate)
         this.updateDifficulty();
 
-        // Optional: Add a visual indication of round start/change?
-        // e.g., brief screen flash, text announcement
+        // 7. Optional: Add a visual indication of round start/change
         const roundAnnounce = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, `ROUND ${this.currentRound}`, {
-             fontFamily: 'Arial Black', fontSize: 48, color: '#ffff00', stroke: '#000000', strokeThickness: 6 
-        }).setOrigin(0.5).setDepth(100); // Ensure it's visible
+            fontFamily: 'Arial Black',
+            fontSize: '48px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 6
+        }).setOrigin(0.5).setDepth(1000); // Ensure it's on top
 
         this.tweens.add({
-             targets: roundAnnounce,
-             alpha: 0,
-             scale: 1.5,
-             duration: 1500, // Show for 1.5 seconds
-             ease: 'Power1',
-             onComplete: () => { roundAnnounce.destroy(); }
+            targets: roundAnnounce,
+            alpha: 0,
+            scale: 1.5,
+            duration: 1500,
+            ease: 'Power1',
+            onComplete: () => { roundAnnounce.destroy(); }
         });
+
+        console.log(`Advanced to round ${this.currentRound}. New score threshold: ${this.currentRoundScoreThreshold}`);
     }
     
     togglePause() {
@@ -2477,24 +2492,62 @@ export default class GameScene extends Phaser.Scene {
     clearPlacedItems() {
         if (this.paused || this.gameOver) return;
 
-        console.log('Clearing all placed machines and belts...');
+        console.log('Clearing all placed machines and belts with effects...');
 
         // Make a copy of the array to iterate over, as removeMachine modifies the original
         const machinesToClear = [...this.machines]; 
+        const clearDelay = 250; // ms delay for effects before removal
 
-        // Iterate and remove machines
-        machinesToClear.forEach(machine => {
-            if (machine && this.grid) {
-                // removeMachine handles calling machine.destroy() and clearing grid cells
-                this.grid.removeMachine(machine); 
+        // Clear the main list immediately so new machines can't be placed during clearing
+        this.machines = [];
+
+        // Iterate and trigger effects/delayed removal for each machine
+        machinesToClear.forEach((machine, index) => {
+            if (machine && machine.container && this.grid) {
+                const machineCenterX = machine.container.x; // Assuming container x/y is center
+                const machineCenterY = machine.container.y;
+
+                // 1. Play Sound (Assuming 'destroy-machine' sound exists)
+                this.playSound('destroy-machine');
+
+                // 2. Particle Explosion
+                const particles = this.add.particles(machineCenterX, machineCenterY, 'particle', { // Use a generic particle texture key
+                    speed: { min: 100, max: 300 },
+                    angle: { min: 0, max: 360 },
+                    scale: { start: 0.8, end: 0 },
+                    lifespan: 400,
+                    gravityY: 200,
+                    blendMode: 'ADD', // Or 'NORMAL'
+                    emitting: false // We manually explode
+                });
+                particles.setDepth(machine.container.depth + 1); // Ensure particles are on top
+                particles.explode(15); // Number of particles
+
+                // 3. Quick visual cue (optional: shrink)
+                this.tweens.add({
+                    targets: machine.container,
+                    scaleX: 0.1,
+                    scaleY: 0.1,
+                    alpha: 0,
+                    duration: clearDelay - 50, // Slightly shorter than delay
+                    ease: 'Power1'
+                });
+
+                // 4. Delayed Removal from grid and destruction
+                this.time.delayedCall(clearDelay, () => {
+                    if (this.grid && machine) { // Check if grid and machine still exist
+                       this.grid.removeMachine(machine); // removeMachine calls machine.destroy()
+                    }
+                    // Clean up particle emitter after a bit longer
+                    this.time.delayedCall(500, () => { 
+                        if (particles) particles.destroy(); 
+                    }); 
+                });
             }
         });
 
-        // Ensure the main list is empty
-        this.machines = [];
-
-        // Play a success sound
-        this.playSound('clear'); // Assuming a clear sound exists
+        // Play a final success sound after starting the process
+        //this.playSound('clear'); // Maybe remove this if individual sounds are preferred
     }
 
     // -------------------------

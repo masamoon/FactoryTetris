@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 
 export default class ResourceNode {
-    constructor(scene, config) {
+    constructor(scene, config, round) {
         this.scene = scene;
         this.x = config.x;
         this.y = config.y;
@@ -10,16 +10,35 @@ export default class ResourceNode {
         this.gridY = config.gridY;
         this.resourceType = GAME_CONFIG.resourceTypes[config.resourceType];
         this.lifespan = config.lifespan;
+        this.round = round || 1;
         
-        // Initialize with some resources instead of starting at 0
-        this.resources = Phaser.Math.Between(3, 5); // Start with 3-5 resources
-        this.maxResources = 100;
+        // Calculate properties based on round
+        const baseInitialMin = 3;
+        const baseInitialMax = 5;
+        const baseMaxResources = 100;
+        const baseGenerationRate = 2000; // Base rate ms
+        const minGenerationRate = 500;  // Minimum delay ms
+        const roundFactorInitialMin = 1;
+        const roundFactorInitialMax = 2;
+        const roundFactorMaxResources = 25;
+        const roundFactorGenerationRate = 100; // ms reduction per round
+        
+        // Initialize with resources based on round (using round-1 as factor starts from round 1)
+        const initialMin = baseInitialMin + (this.round - 1) * roundFactorInitialMin;
+        const initialMax = baseInitialMax + (this.round - 1) * roundFactorInitialMax;
+        this.resources = Phaser.Math.Between(initialMin, initialMax); // Start with resources based on round
+        
+        // Max resources based on round
+        this.maxResources = baseMaxResources + (this.round - 1) * roundFactorMaxResources;
+        
+        // Calculate generation delay based on round
+        const generationDelay = Math.max(minGenerationRate, baseGenerationRate - (this.round - 1) * roundFactorGenerationRate);
         
         // Add cooldown for pushing resources
         this.pushCooldown = 500; // ms - Push resources every 0.5 seconds if possible
         this.lastPushTime = 0;
         
-        //console.log*(`Created resource node at (${this.gridX}, ${this.gridY}) with ${this.resources} ${this.resourceType.id}`);
+        //console.log(`Created resource node at (${this.gridX}, ${this.gridY}) for round ${this.round} with ${this.resources}/${this.maxResources} ${this.resourceType.id}, gen delay: ${generationDelay}ms`);
         
         // Create visual representation
         this.createVisuals();
@@ -32,9 +51,9 @@ export default class ResourceNode {
             loop: true
         });
         
-        // Set up resource generation timer
+        // Set up resource generation timer using calculated delay
         this.resourceTimer = scene.time.addEvent({
-            delay: GAME_CONFIG.resourceGenerationRate,
+            delay: generationDelay, // Use calculated delay
             callback: this.generateResource,
             callbackScope: this,
             loop: true
@@ -104,15 +123,15 @@ export default class ResourceNode {
     generateResource() {
         if (this.resources < this.maxResources) {
             this.resources++;
-            //console.log*(`Resource node at (${this.gridX}, ${this.gridY}) generated resource: ${this.resources}/${this.maxResources} ${this.resourceType.id}`);
+            //console.log(`Resource node at (${this.gridX}, ${this.gridY}) generated resource: ${this.resources}/${this.maxResources} ${this.resourceType.id}`);
             
             // Visual feedback for resource generation
             const resourceParticle = this.scene.add.circle(
                 this.container.x, 
                 this.container.y, 
                 4, 
-                0xffff00
-            );
+                0xffff00 // Use a distinct color for generation feedback maybe?
+            ).setDepth(this.container.depth + 1); // Ensure particle is visible
             this.scene.tweens.add({
                 targets: resourceParticle,
                 alpha: 0,
@@ -123,7 +142,7 @@ export default class ResourceNode {
                 }
             });
         } else {
-            //console.log*(`Resource node at (${this.gridX}, ${this.gridY}) is full: ${this.resources}/${this.maxResources}`);
+            //console.log(`Resource node at (${this.gridX}, ${this.gridY}) is full: ${this.resources}/${this.maxResources}`);
         }
         
         // Update the visual indicator
