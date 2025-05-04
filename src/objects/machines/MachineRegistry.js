@@ -3,7 +3,7 @@ import ConveyorMachine from './ConveyorMachine';
 import ProcessorAMachine from './ProcessorAMachine';
 import ProcessorBMachine from './ProcessorBMachine';
 import AdvancedProcessorMachine from './AdvancedProcessorMachine';
-import CargoLoaderMachine from './CargoLoaderMachine';
+import ProcessorCMachine from './ProcessorCMachine';
 
 /**
  * Registry for all machine types
@@ -23,7 +23,7 @@ export default class MachineRegistry {
         this.registerMachineType('processor-a', ProcessorAMachine);
         this.registerMachineType('processor-b', ProcessorBMachine);
         this.registerMachineType('advanced-processor', AdvancedProcessorMachine);
-        this.registerMachineType('cargo-loader', CargoLoaderMachine);
+        this.registerMachineType('processor-c', ProcessorCMachine);
     }
     
     /**
@@ -61,12 +61,28 @@ export default class MachineRegistry {
      * @throws {Error} If the machine type is not registered
      */
     createMachine(id, scene, config) {
+        console.log(`[MachineRegistry] createMachine called. ID: ${id}, Config:`, config); // Log entry
         if (!this.hasMachineType(id)) {
+            console.error(`[MachineRegistry] Machine type '${id}' is not registered.`); // Log error
             throw new Error(`Machine type '${id}' is not registered`);
         }
         
         const MachineConstructor = this.machineTypes.get(id);
-        return new MachineConstructor(scene, config);
+        console.log(`[MachineRegistry] Found constructor for ${id}:`, MachineConstructor ? 'Yes' : 'No'); // Log constructor found
+        if (!MachineConstructor) { // Extra safety check
+            console.error(`[MachineRegistry] Constructor for ${id} was null/undefined despite passing hasMachineType check!`);
+            return null;
+        }
+
+        try {
+            console.log(`[MachineRegistry] Attempting: new ${MachineConstructor.name}(...)`); // Log before new()
+            const instance = new MachineConstructor(scene, config);
+            console.log(`[MachineRegistry] Instance created successfully for ${id}`); // Log success
+            return instance;
+        } catch (error) {
+            console.error(`[MachineRegistry] Error during new ${MachineConstructor.name}(...) for ID ${id}:`, error); // Log error during new()
+            return null; // Return null on error instead of throwing
+        }
     }
     
     /**
@@ -163,7 +179,7 @@ export default class MachineRegistry {
                         config.shape = [[1, 1], [1, 1]]; // 2x2 shape for processors
                     } else if (id === 'advanced-processor') {
                         config.shape = [[1, 1, 1], [1, 1, 1]]; // 3x2 shape for advanced processor
-                    } else if (id === 'cargo-loader') {
+                    } else if (id === 'processor-c') {
                         config.shape = [[1, 1], [1, 1]]; // 2x2 shape for cargo loader
                     } else {
                         config.shape = [[1]]; // Default 1x1 shape as fallback

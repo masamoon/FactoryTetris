@@ -146,11 +146,11 @@ export default class Grid {
         );
     }
     
-    update() {
+    update(time, delta) {
         // Update all machines
         this.machines.forEach(machineObj => {
             if (machineObj.machine && typeof machineObj.machine.update === 'function') {
-                machineObj.machine.update();
+                machineObj.machine.update(time, delta);
             }
         });
         

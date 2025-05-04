@@ -188,15 +188,32 @@ export default class ProcessorBMachine extends BaseMachine {
         }).setOrigin(0.5);
         this.container.add(machineLabel);
         
-        // Add processing progress bar below the center
+        // Add processing progress bar (Copied from ProcessorC)
         this.progressBar = this.scene.add.rectangle(
-            adjustedVisualCenterX, adjustedVisualCenterY + cellSize / 2 + 2, // Position below adjusted visual center
-            cellSize * 1.5, 4, // Make it wider
-            0x00ff00
-        ).setOrigin(0.5, 0);
-        this.progressBar.scaleX = 0;
+            adjustedVisualCenterX, 
+            adjustedVisualCenterY + cellSize * 0.6, // Position below the center label
+            cellSize * 1.5, // Width based on cell size (adjust multiplier if needed for shape)
+            6, // Height
+            0x000000 // Background color
+        ).setOrigin(0.5);
+        this.progressBar.setDepth(1); // Ensure progress bar is visible
         this.container.add(this.progressBar);
         
+        this.progressFill = this.scene.add.rectangle(
+            this.progressBar.x - this.progressBar.width / 2,
+            this.progressBar.y,
+            0, // Initial width
+            this.progressBar.height,
+            0x00ff00 // Fill color
+        ).setOrigin(0, 0.5);
+        this.progressFill.setDepth(2);
+        this.container.add(this.progressFill);
+        
+        // Hide progress bar initially
+        this.progressBar.setVisible(false);
+        this.progressFill.setVisible(false);
+        // --- End Progress Bar ---
+
         // Add processor core visual (similar to Processor A) relative to adjusted center
         this.processorCore = this.scene.add.circle(adjustedVisualCenterX, adjustedVisualCenterY, cellSize / 4, 0x00ccff); // Different color (e.g., cyan)
         this.processorCore.setStrokeStyle(1, 0xffffff);
@@ -272,39 +289,34 @@ export default class ProcessorBMachine extends BaseMachine {
      * Override the update method to handle processing logic
      */
     update(time, delta) {
-        super.update(time, delta); // Call base update if needed
+        // Call base class update first
+        super.update(time, delta);
 
-        delta = Number(delta) || 16.67;
-        if (delta > 0 && delta < 100) delta *= 1000; 
-
+        // If processing, update progress
         if (this.isProcessing) {
             this.processingProgress += delta;
-            
-            if (this.progressBar) {
-                const progress = Math.min(1, this.processingProgress / this.processingTime);
-                this.progressBar.scaleX = progress;
+
+            // *** ADDED: Update progress bar visual ***
+            const progressRatio = Math.min(1, this.processingProgress / this.processingTime);
+            if (this.progressFill && this.progressBar) { // Check if bar exists
+                 this.progressFill.width = this.progressBar.width * progressRatio;
             }
-            
-            if (this.processorCore) {
-                const progress = Math.min(1, this.processingProgress / this.processingTime);
-                this.processorCore.alpha = 0.5 + (progress * 0.5);
-                this.processorCore.scale = 1 + (progress * 0.2);
-                this.processorCore.angle += delta * 0.1; // Spin effect
-            }
-            
+            // *** END ADDED ***
+
+            // Check if processing is complete
             if (this.processingProgress >= this.processingTime) {
                 this.completeProcessing();
             }
         } else {
+            // If not processing, check if we can start
             if (this.canProcess()) {
                 this.startProcessing();
             }
         }
 
-        // Try to transfer output resources if any are available
-        const outputType = this.outputTypes[0]; // Assuming only one output type
-        if (this.outputInventory[outputType] > 0) {
-            this.transferResources(); // This will now call BaseMachine.transferResources
+        // Try to push output if available
+        if (this.hasOutput()) {
+            this.pushOutput();
         }
     }
     
@@ -330,41 +342,62 @@ export default class ProcessorBMachine extends BaseMachine {
     
     /** Start the processing operation */
     startProcessing() {
-        if (!this.canProcess()) return;
-
-        // Consume inputs
-        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            this.inputInventory[resourceType] -= amount;
+        // Consume required inputs
+        for (const type in this.requiredInputs) {
+            this.inputInventory[type] -= this.requiredInputs[type];
         }
-        
+
+        // Set processing state
         this.isProcessing = true;
         this.processingProgress = 0;
-        
-        // Reset visuals
-        if (this.progressBar) this.progressBar.scaleX = 0;
-        if (this.processorCore) {
-            this.processorCore.alpha = 0.5;
-            this.processorCore.scale = 1;
-            this.processorCore.angle = 0;
+
+        // *** ADDED: Show progress bar ***
+        if (this.progressBar && this.progressFill) { // Check if bar exists
+             this.progressBar.setVisible(true);
+             this.progressFill.setVisible(true);
+             this.progressFill.width = 0; // Reset fill width
         }
-        console.log(`[${this.id}] Processing started.`);
+        // *** END ADDED ***
+
+        // Play processing sound (if available)
+        if (this.scene && this.scene.playSound) {
+            this.scene.playSound('processing');
+        }
+
+        console.log(`[${this.id}] Started processing.`);
     }
     
     /** Complete the processing operation */
     completeProcessing() {
-        const outputType = this.outputTypes[0];
-        this.outputInventory[outputType] = (this.outputInventory[outputType] || 0) + 1;
-        
+        // Add output resources
+        this.outputTypes.forEach(type => {
+            if (this.outputInventory[type] !== undefined) {
+                this.outputInventory[type]++;
+            } else {
+                console.warn(`[${this.id}] Output inventory does not have key: ${type}`);
+            }
+        });
+
+        // Reset processing state
         this.isProcessing = false;
         this.processingProgress = 0;
-        
-        // Reset visuals
-        if (this.progressBar) this.progressBar.scaleX = 0;
-        if (this.processorCore) {
-            this.processorCore.alpha = 1;
-            this.processorCore.scale = 1;
+
+        // *** ADDED: Hide progress bar ***
+        if (this.progressBar && this.progressFill) { // Check if bar exists
+            this.progressBar.setVisible(false);
+            this.progressFill.setVisible(false);
         }
-        console.log(`[${this.id}] Processing complete. Output:`, JSON.stringify(this.outputInventory));
+        // *** END ADDED ***
+
+        // Play completion sound (if available)
+        if (this.scene && this.scene.playSound) {
+            this.scene.playSound('complete');
+        }
+
+        console.log(`[${this.id}] Completed processing. Output: ${JSON.stringify(this.outputInventory)}`);
+
+        // Immediately try to push the new output
+        this.pushOutput();
     }
     
     /**

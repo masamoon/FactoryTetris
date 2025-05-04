@@ -744,20 +744,24 @@ export default class MachineFactory {
      * @returns {BaseMachine} The created machine instance
      */
     createMachine(typeOrId, gridX, gridY, direction, rotation = 0, grid = null, presetPosition = null) {
+        console.log(`[MachineFactory] createMachine called. typeOrId:`, typeOrId, `Grid Pos: (${gridX},${gridY})`); // Log entry
         try {
             // Determine if we're using the new (ID string) or old (type object) format
             const isTypeObject = typeof typeOrId === 'object' && typeOrId !== null;
             const machineTypeId = isTypeObject ? typeOrId.id : typeOrId;
+            console.log(`[MachineFactory] Determined machineTypeId: ${machineTypeId}`); // Log ID
             
             // Ensure we have a valid grid reference
             const gridRef = grid || this.scene.factoryGrid || this.scene.grid;
             
             if (!gridRef) {
+                console.error("[MachineFactory] No valid grid reference found."); // Log error
                 return null;
             }
             
             // Check if the registry has this machine type
             if (!this.machineRegistry || !this.machineRegistry.hasMachineType(machineTypeId)) {
+                console.error(`[MachineFactory] Machine type '${machineTypeId}' not found in registry.`); // Log error
                 return null;
             }
             
@@ -774,12 +778,16 @@ export default class MachineFactory {
             if (presetPosition) {
                 config.presetPosition = presetPosition;
             }
+            console.log(`[MachineFactory] Config prepared:`, config); // Log config
             
             // Use the registry to create the machine
+            console.log(`[MachineFactory] Calling machineRegistry.createMachine for ${machineTypeId}...`); // Log before registry call
             const machine = this.machineRegistry.createMachine(machineTypeId, this.scene, config);
+            console.log(`[MachineFactory] Result from machineRegistry.createMachine:`, machine ? 'Success' : 'Failed/Null'); // Log result
             
             return machine;
         } catch (error) {
+            console.error('[MachineFactory] Error in createMachine:', error); // Log caught error
             return null;
         }
     }

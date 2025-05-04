@@ -245,16 +245,31 @@ export default class ProcessorAMachine extends BaseMachine {
         }).setOrigin(0.5);
         this.container.add(machineLabel);
         
-        // Add processing progress bar
+        // Add processing progress bar (Copied from ProcessorC)
         this.progressBar = this.scene.add.rectangle(
-            adjustedVisualCenterX, // Relative to adjusted visual center X
-            adjustedVisualCenterY + cellSize / 2, // Relative to adjusted visual center Y, slightly below
-            cellSize - 10, 
-            4, 
-            0x00ff00
-        );
-        this.progressBar.scaleX = 0;
+            adjustedVisualCenterX, 
+            adjustedVisualCenterY + cellSize * 0.6, // Position below the center label
+            cellSize * 1.5, // Width based on cell size (adjust multiplier if needed for shape)
+            6, // Height
+            0x000000 // Background color
+        ).setOrigin(0.5);
+        this.progressBar.setDepth(1); // Ensure progress bar is visible
         this.container.add(this.progressBar);
+        
+        this.progressFill = this.scene.add.rectangle(
+            this.progressBar.x - this.progressBar.width / 2,
+            this.progressBar.y,
+            0, // Initial width
+            this.progressBar.height,
+            0x00ff00 // Fill color
+        ).setOrigin(0, 0.5);
+        this.progressFill.setDepth(2);
+        this.container.add(this.progressFill);
+        
+        // Hide progress bar initially
+        this.progressBar.setVisible(false);
+        this.progressFill.setVisible(false);
+        // --- End Progress Bar ---
         
         // Create processor core visual element
         // Position relative to the VISUAL center of the shape within the container
@@ -322,53 +337,34 @@ export default class ProcessorAMachine extends BaseMachine {
      * Override the update method to handle processing logic
      */
     update(time, delta) {
+        // Call base class update first
         super.update(time, delta);
         
-        // Ensure delta is a valid number and convert to milliseconds if needed
-        delta = Number(delta) || 16.67; // Default to 60fps if delta is invalid
-        if (delta > 0 && delta < 100) { // If delta is in seconds (Phaser can provide it in seconds)
-            delta *= 1000; // Convert to milliseconds
-        }
-        
-        // If we're processing, update the progress
+        // If processing, update progress
         if (this.isProcessing) {
-            // Ensure we have valid numbers
-            this.processingProgress = Number(this.processingProgress) || 0;
-            this.processingTime = Number(this.processingTime) || 3000;
-            
-            // Update progress
             this.processingProgress += delta;
-            // Ensure progress doesn't exceed time
-            this.processingProgress = Math.min(this.processingProgress, this.processingTime);
             
-            // Update progress bar
-            if (this.progressBar) {
-                const progress = Math.min(1, this.processingProgress / this.processingTime);
-                this.progressBar.scaleX = progress;
+            // *** ADDED: Update progress bar visual ***
+            const progressRatio = Math.min(1, this.processingProgress / this.processingTime);
+            if (this.progressFill && this.progressBar) { // Check if bar exists
+                 this.progressFill.width = this.progressBar.width * progressRatio;
             }
+            // *** END ADDED ***
             
-            // Update visual feedback
-            if (this.processorCore) {
-                const progress = Math.min(1, this.processingProgress / this.processingTime);
-                this.processorCore.alpha = 0.5 + (progress * 0.5);
-                this.processorCore.scale = 1 + (progress * 0.2);
-                this.processorCore.angle = progress * 360;
-            }
-            
-            // If we've reached the processing time, complete the processing
+            // Check if processing is complete
             if (this.processingProgress >= this.processingTime) {
                 this.completeProcessing();
             }
         } else {
-            // Check if we can start processing
+            // If not processing, check if we can start
             if (this.canProcess()) {
                 this.startProcessing();
             }
         }
         
-        // Try to transfer resources to connected machines
-        if (this.outputInventory['advanced-resource'] > 0) {
-            this.transferResources();
+        // Try to push output if available
+        if (this.hasOutput()) {
+            this.pushOutput();
         }
     }
     
@@ -398,49 +394,64 @@ export default class ProcessorAMachine extends BaseMachine {
      * Start the processing operation
      */
     startProcessing() {
-        // Consume the required inputs
-        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            const currentAmount = this.inputInventory[resourceType] || 0;
-            this.inputInventory[resourceType] = Math.max(0, currentAmount - amount);
+        // Consume required inputs
+        for (const type in this.requiredInputs) {
+            this.inputInventory[type] -= this.requiredInputs[type];
         }
         
-        // Reset and start processing
+        // Set processing state
         this.isProcessing = true;
         this.processingProgress = 0;
         
-        // Reset visual elements
-        if (this.progressBar) {
-            this.progressBar.scaleX = 0;
+        // *** ADDED: Show progress bar ***
+        if (this.progressBar && this.progressFill) { // Check if bar exists
+             this.progressBar.setVisible(true);
+             this.progressFill.setVisible(true);
+             this.progressFill.width = 0; // Reset fill width
+        }
+        // *** END ADDED ***
+        
+        // Play processing sound (if available)
+        if (this.scene && this.scene.playSound) {
+            this.scene.playSound('processing');
         }
         
-        if (this.processorCore) {
-            this.processorCore.alpha = 0.5;
-            this.processorCore.scale = 1;
-            this.processorCore.angle = 0;
-        }
+        console.log(`[${this.id}] Started processing.`);
     }
     
     /**
      * Complete the processing operation
      */
     completeProcessing() {
-        // Add the product to the output inventory
-        this.outputInventory['advanced-resource'] = (this.outputInventory['advanced-resource'] || 0) + 1;
+        // Add output resources
+        this.outputTypes.forEach(type => {
+            if (this.outputInventory[type] !== undefined) {
+                this.outputInventory[type]++;
+            } else {
+                console.warn(`[${this.id}] Output inventory does not have key: ${type}`);
+            }
+        });
         
         // Reset processing state
         this.isProcessing = false;
         this.processingProgress = 0;
         
-        // Reset visual elements
-        if (this.progressBar) {
-            this.progressBar.scaleX = 0;
+        // *** ADDED: Hide progress bar ***
+        if (this.progressBar && this.progressFill) { // Check if bar exists
+            this.progressBar.setVisible(false);
+            this.progressFill.setVisible(false);
+        }
+        // *** END ADDED ***
+        
+        // Play completion sound (if available)
+        if (this.scene && this.scene.playSound) {
+            this.scene.playSound('complete');
         }
         
-        if (this.processorCore) {
-            this.processorCore.alpha = 1;
-            this.processorCore.scale = 1;
-            this.processorCore.angle = 0;
-        }
+        console.log(`[${this.id}] Completed processing. Output: ${JSON.stringify(this.outputInventory)}`);
+        
+        // Immediately try to push the new output
+        this.pushOutput();
     }
     
     /**

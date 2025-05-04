@@ -954,6 +954,33 @@ export default class BaseMachine {
         // Implementation will be similar to the original Machine class
         // This is a placeholder for now
     }
+
+    /**
+     * Checks if the machine has any resources in its output inventory.
+     * @returns {boolean} True if there are output resources, false otherwise.
+     */
+    hasOutput() {
+        if (!this.outputTypes || this.outputTypes.length === 0) {
+            return false; // No defined output types means no output possible
+        }
+
+        for (const type of this.outputTypes) {
+            if (this.outputInventory[type] && this.outputInventory[type] > 0) {
+                return true; // Found at least one output resource
+            }
+        }
+
+        return false; // No output resources found
+    }
+    
+    /**
+     * Attempts to push output resources to a connected machine or node.
+     * This is typically called periodically or after processing completes.
+     * It simply calls the transferResources method.
+     */
+    pushOutput() {
+        this.transferResources();
+    }
     
     /**
      * Transfer resources from this machine's output inventory to connected machines.
@@ -1364,5 +1391,43 @@ export default class BaseMachine {
         }
         console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceType}. Input full or type mismatch.`);
         return false;
+    }
+
+    /**
+     * Standardize the colors of a machine to ensure visual consistency
+     * @param {BaseMachine} machine - The machine to standardize colors for (usually this)
+     */
+    standardizeColors(machine = this) {
+        if (!machine || !machine.container || !machine.container.list) return;
+        
+        // Get all parts that are rectangles (the visual building blocks)
+        const rectangleParts = machine.container.list.filter(part => 
+            part.type === 'Rectangle' && 
+            part !== machine.progressBar && 
+            !part.isResourceIndicator
+        );
+        
+        const hasInput = machine.inputSquare || (machine.inputTypes && machine.inputTypes.length > 0);
+        const hasOutput = machine.outputSquare || (machine.outputTypes && machine.outputTypes.length > 0);
+        
+        // Process each rectangle part
+        rectangleParts.forEach(part => {
+            if (part === machine.progressBar) return;
+            
+            // Use consistent bright colors for input/output, green otherwise
+            if (hasInput && part === machine.inputSquare) {
+                part.fillColor = 0x4aa8eb; // Bright blue for input
+            } else if (hasOutput && part === machine.outputSquare) {
+                part.fillColor = 0xffa520; // Bright orange for output
+            } else {
+                 // Check for special cases like extractor parts if needed
+                 /* if (machine.id === 'extractor' && part === machine.body) {
+                     part.fillColor = 0x555555; 
+                 } else */
+                 if (part.fillColor !== 0x44ff44) { // Only change if not already green
+                    part.fillColor = 0x44ff44; // Green for all other parts
+                 }
+            }
+        });
     }
 } 

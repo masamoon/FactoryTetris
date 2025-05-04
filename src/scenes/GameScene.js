@@ -110,17 +110,17 @@ export default class GameScene extends Phaser.Scene {
 */
     }
     
-    update() {
+    update(time, delta) { // Add time, delta parameters
         if (this.gameOver || this.paused) return;
         
         // Update all game objects
-        this.factoryGrid.update(); // This should now correctly refer to the Grid instance
-        this.machineFactory.update();
+        this.factoryGrid.update(time, delta); // Pass time, delta to Grid.update()
+        this.machineFactory.update(); // Does MachineFactory need time/delta?
         
         // Update resource nodes
-        this.resourceNodes.forEach(node => node.update());
+        this.resourceNodes.forEach(node => node.update(time, delta)); // Pass time/delta just in case
         // Update delivery nodes
-        this.deliveryNodes.forEach(node => node.update());
+        this.deliveryNodes.forEach(node => node.update(time, delta)); // Pass time/delta just in case
         
         // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
         // this.updateClearCooldownUI(); 
@@ -1698,6 +1698,14 @@ export default class GameScene extends Phaser.Scene {
             // Create the machine using the factory with exact position
             let machineObj;
             try {
+                // *** ADDED CHECK ***
+                if (!this.machineFactory || typeof this.machineFactory.createMachine !== 'function') {
+                    console.error("[GameScene] Error: this.machineFactory is invalid or missing createMachine method.");
+                    return null; 
+                }
+                // *** END CHECK ***
+
+                console.log(`[GameScene] Attempting to create machine: ${machineTypeObj.id}`); // Log before creation
                 machineObj = this.machineFactory.createMachine(
                     machineTypeObj.id,
                     gridX,
@@ -1707,11 +1715,14 @@ export default class GameScene extends Phaser.Scene {
                     this.grid,
                     presetPosition
                 );
+                console.log(`[GameScene] Result of createMachine for ${machineTypeObj.id}:`, machineObj ? 'Success' : 'Failed/Null'); // Log result
             } catch (createError) {
+                console.error(`[GameScene] Error during machineFactory.createMachine for ${machineTypeObj.id}:`, createError); // Log error
                 return null;
             }
             
             if (!machineObj) {
+                console.error(`[GameScene] Machine object is null or undefined after creation attempt for ${machineTypeObj.id}.`); // Add specific log here
                 return null;
             }
             
@@ -1754,6 +1765,7 @@ export default class GameScene extends Phaser.Scene {
             
             // Add the machine to the scene
             this.machines.push(machineObj);
+            console.log(`[GameScene] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`); // Added log
             
             // Always play a sound when placing a machine
             try {

@@ -99,6 +99,19 @@ export const GAME_CONFIG = {
             processingTime: 2000, // ms
             direction: 'none', // No output direction, sends to cargo bay
             description: 'Loads products into the cargo bay'
+        },
+        {
+            id: 'processor-c',
+            name: 'Processor C',
+            shape: [
+                [1, 1],
+                [1, 1]
+            ],
+            inputTypes: ['basic-resource'],
+            outputTypes: ['advanced-resource'],
+            processingTime: 3000,
+            direction: 'right',
+            description: 'Processes basic resources into advanced resources (Square)'
         }
     ],
     
