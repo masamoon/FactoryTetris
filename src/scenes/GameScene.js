@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import Grid from '../objects/Grid';
 import MachineFactory from '../objects/MachineFactory';
-import CargoBay from '../objects/CargoBay';
 import ResourceNode from '../objects/ResourceNode';
 import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
@@ -39,7 +38,7 @@ export default class GameScene extends Phaser.Scene {
         this.createBackground();
         this.grid = new Grid(this, GRID_CONFIG);
         // Add a reference to the grid as factoryGrid for compatibility with existing code
-        this.factoryGrid = this.grid;
+        this.factoryGrid = this.grid; // Revert to using the existing Grid instance
         
         // Initialize MachineFactory in the machine selection area, not at the grid position
         const width = this.cameras.main.width;
@@ -57,8 +56,6 @@ export default class GameScene extends Phaser.Scene {
         
         // Connect the Grid to the MachineFactory
         this.grid.setFactory(this.machineFactory);
-        
-        this.cargoBay = new CargoBay(this, GAME_CONFIG.width - 150, 100);
         
         // Setup input handlers
         this.setupInput();
@@ -117,8 +114,7 @@ export default class GameScene extends Phaser.Scene {
         if (this.gameOver || this.paused) return;
         
         // Update all game objects
-        this.factoryGrid.update();
-        this.cargoBay.update();
+        this.factoryGrid.update(); // This should now correctly refer to the Grid instance
         this.machineFactory.update();
         
         // Update resource nodes
@@ -130,9 +126,12 @@ export default class GameScene extends Phaser.Scene {
         // this.updateClearCooldownUI(); 
         
         // Check for game over condition
-        if (this.cargoBay.isOverflowing()) {
-            this.endGame();
-        }
+        // if (this.cargoBay.isOverflowing()) { // Keep CargoBay check commented out as per previous request
+        //     this.endGame();
+        // }
+
+        // this.updateScore(); // Remove this call, addScore handles UI update
+        // this.updateResourceDisplay(); // Remove this call, likely handled elsewhere or undefined
     }
     
     createBackground() {
@@ -144,11 +143,6 @@ export default class GameScene extends Phaser.Scene {
         
         // Factory area
         this.add.rectangle(width * 0.05, height * 0.1, width * 0.4, height * 0.6, 0x0a1a2a)
-            .setOrigin(0, 0)
-            .setStrokeStyle(2, 0x3a5a7a);
-            
-        // Cargo bay area
-        this.add.rectangle(width * 0.55, height * 0.1, width * 0.4, height * 0.6, 0x0a1a2a)
             .setOrigin(0, 0)
             .setStrokeStyle(2, 0x3a5a7a);
             
@@ -193,30 +187,11 @@ export default class GameScene extends Phaser.Scene {
             color: '#ffffff'
         }).setOrigin(0.5, 0);
         
-        // Cargo bay label
-        this.add.text(width * 0.75, height * 0.05, 'CARGO BAY', {
-            fontFamily: 'Arial Black',
-            fontSize: 20,
-            color: '#ffffff'
-        }).setOrigin(0.5, 0);
-        
         // Pause button
         this.createButton(width * 0.9, height * 0.05, 'PAUSE', () => {
             this.togglePause();
         });
         
-        // Rotate button
-        this.createButton(width * 0.9, height * 0.15, 'ROTATE', () => {
-            //console.log("[ROTATE BUTTON] Rotate button clicked - DIRECT LOG");
-            //console.log("[ROTATE BUTTON] Rotate button clicked");
-            if (this.machineFactory && this.machineFactory.selectedMachineType) {
-                //console.log("[ROTATE BUTTON] Calling rotateMachine");
-                this.machineFactory.rotateMachine();
-            } else {
-                //console.log("[ROTATE BUTTON] No machine selected to rotate");
-            }
-        });
-
         // --- ADD CLEAR FACTORY UI HERE --- 
         // Clear Factory Button
         this.clearButton = this.createButton(width * 0.77, height * 0.9, 'CLEAR FACTORY', () => {
@@ -739,7 +714,7 @@ export default class GameScene extends Phaser.Scene {
                 rotationValue = machine.direction || 'right';
             }
             
-            rotatedShape = this.factoryGrid.getRotatedShape(machine.shape, rotationValue);
+            rotatedShape = this.grid.getRotatedShape(machine.shape, rotationValue);
         } catch (error) {
             console.error('[PLACEMENT PREVIEW] Error getting rotated shape:', error);
             // If we can't get the rotated shape, use the original shape as fallback
@@ -747,7 +722,7 @@ export default class GameScene extends Phaser.Scene {
         }
             
             // Get the grid position from the pointer position
-            const gridPos = this.factoryGrid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
+            const gridPos = this.grid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
         if (!gridPos) {
             return; // Pointer is outside the grid
         }
@@ -762,10 +737,10 @@ export default class GameScene extends Phaser.Scene {
             direction: direction // Add the direction to prevent double rotation
         };
         // Check if we can place the machine here
-        const canPlace = this.factoryGrid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y, direction);
+        const canPlace = this.grid.canPlaceMachine(machineTypeForCheck, gridPos.x, gridPos.y, direction);
 
         // Get the world position of the center of the grid cell
-        const centerWorldPos = this.factoryGrid.gridToWorld(gridPos.x, gridPos.y);
+        const centerWorldPos = this.grid.gridToWorld(gridPos.x, gridPos.y);
         
         // Update the placement preview marker position
         if (this.placementPreviewMarker) {
@@ -824,7 +799,7 @@ export default class GameScene extends Phaser.Scene {
                     // const cellGridY = Math.floor(gridPos.y + (y - offsetY));
                     
                     // *** MODIFIED: Get world coordinates for the top-left of this exact cell ***
-                    const cellWorldTopLeftPos = this.factoryGrid.gridToWorldTopLeft(cellGridX, cellGridY);
+                    const cellWorldTopLeftPos = this.grid.gridToWorldTopLeft(cellGridX, cellGridY);
 
                     // If the cell is out of bounds, gridToWorldTopLeft returns null
                     if (!cellWorldTopLeftPos) {
@@ -855,13 +830,13 @@ export default class GameScene extends Phaser.Scene {
                     this.placementPreview.fillRect(
                         cellWorldTopLeftPos.x + 2, // Use top-left X + margin
                         cellWorldTopLeftPos.y + 2, // Use top-left Y + margin
-                        this.factoryGrid.cellSize - 4, // Account for 2px margin on each side
-                        this.factoryGrid.cellSize - 4  // Account for 2px margin on each side
+                        this.grid.cellSize - 4, // Account for 2px margin on each side
+                        this.grid.cellSize - 4  // Account for 2px margin on each side
                     );
                     
                     // --- Adjust Input/Output indicator positioning --- 
                     // Get the center of the current cell for placing circles/text
-                    const cellWorldCenterPos = this.factoryGrid.gridToWorld(cellGridX, cellGridY);
+                    const cellWorldCenterPos = this.grid.gridToWorld(cellGridX, cellGridY);
 
                     // If this is an input cell, draw 'IN' text
                     if (x === inputPos.x && y === inputPos.y) {
@@ -891,7 +866,7 @@ export default class GameScene extends Phaser.Scene {
         // Draw direction indicator if we have a direction
         if (direction !== 'none') {
             const indicatorColor = 0xff9500; // Orange
-            const indicatorSize = this.factoryGrid.cellSize / 3;
+            const indicatorSize = this.grid.cellSize / 3;
             
             // Draw a triangle pointing in the direction
             this.placementPreview.lineStyle(2, indicatorColor, 0.9);
@@ -971,13 +946,13 @@ export default class GameScene extends Phaser.Scene {
 
         // Spawn one initial delivery node
         try {
-            const emptySpot = this.factoryGrid.findEmptyCell();
+            const emptySpot = this.grid.findEmptyCell();
             if (!emptySpot) {
                 console.warn('[GAME] No empty cell found for initial delivery node placement.');
                 return;
             }
 
-            const worldPos = this.factoryGrid.gridToWorld(emptySpot.x, emptySpot.y);
+            const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
             if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
                 console.error('[GAME] Invalid world position for initial delivery node:', worldPos);
                 return;
@@ -996,7 +971,7 @@ export default class GameScene extends Phaser.Scene {
             if (!this.deliveryNodes) { this.deliveryNodes = []; }
             
             this.deliveryNodes.push(deliveryNode);
-            this.factoryGrid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
+            this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
             console.log(`[GAME] Created initial delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
 
         } catch (error) {
@@ -1015,14 +990,14 @@ export default class GameScene extends Phaser.Scene {
             }
         
         // Find an empty spot on the factory grid
-        const emptySpot = this.factoryGrid.findEmptyCell();
+        const emptySpot = this.grid.findEmptyCell();
             if (!emptySpot) {
                 console.warn('[GAME] No empty cells found for resource node placement');
                 return;
             }
             
             // Convert grid position to world coordinates
-            const worldPos = this.factoryGrid.gridToWorld(emptySpot.x, emptySpot.y);
+            const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
             if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
                 console.error('[GAME] Invalid world position for resource node:', worldPos);
                 return;
@@ -1042,7 +1017,7 @@ export default class GameScene extends Phaser.Scene {
             });
             
             this.resourceNodes.push(node);
-            this.factoryGrid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
+            this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
             
             //console.log(`[GAME] Created resource node at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`);
         } catch (error) {
@@ -1644,9 +1619,9 @@ export default class GameScene extends Phaser.Scene {
     placeMachine(machineType, gridX, gridY, rotation = 0) {
         try {
             // Check if the position is valid
-            if (!this.factoryGrid.isInBounds(
-                this.factoryGrid.gridToWorld(gridX, gridY).x, 
-                this.factoryGrid.gridToWorld(gridX, gridY).y
+            if (!this.grid.isInBounds(
+                this.grid.gridToWorld(gridX, gridY).x, 
+                this.grid.gridToWorld(gridX, gridY).y
             )) {
                 return null;
             }
@@ -1673,7 +1648,7 @@ export default class GameScene extends Phaser.Scene {
             // Get the rotated shape
             let shape;
             try {
-                shape = this.factoryGrid.getRotatedShape(machineTypeObj.shape, rotation);
+                shape = this.grid.getRotatedShape(machineTypeObj.shape, rotation);
                 
                 // Validate the rotated shape
                 if (!Array.isArray(shape) || shape.length === 0) {
@@ -1686,7 +1661,7 @@ export default class GameScene extends Phaser.Scene {
             // Check if we can place the machine at the current position
             let canPlace = false;
             try {
-                canPlace = this.factoryGrid.canPlaceMachine(machineTypeObj, gridX, gridY, this.getDirectionFromRotation(rotation));
+                canPlace = this.grid.canPlaceMachine(machineTypeObj, gridX, gridY, this.getDirectionFromRotation(rotation));
             } catch (canPlaceError) {
                 canPlace = false;
             }
@@ -1696,10 +1671,10 @@ export default class GameScene extends Phaser.Scene {
             }
             
             // Calculate the top-left position for the container
-            let topLeftPos = this.factoryGrid.gridToWorldTopLeft(gridX, gridY);
+            let topLeftPos = this.grid.gridToWorldTopLeft(gridX, gridY);
             if (!topLeftPos) { // Handle case where coordinates might be invalid briefly
                 console.warn(`[placeMachine] Could not get top-left for (${gridX}, ${gridY}), falling back to center.`);
-                topLeftPos = this.factoryGrid.gridToWorld(gridX, gridY); 
+                topLeftPos = this.grid.gridToWorld(gridX, gridY); 
             }
 
             // Use the calculated top-left as the preset position for the container
@@ -1714,7 +1689,7 @@ export default class GameScene extends Phaser.Scene {
                     gridY,
                     direction,
                     rotation,
-                    this.factoryGrid,
+                    this.grid,
                     presetPosition
                 );
             } catch (createError) {
@@ -1752,7 +1727,7 @@ export default class GameScene extends Phaser.Scene {
             // Register the machine with the factory grid
             try {
                 // Pass all required parameters to grid.placeMachine
-                this.factoryGrid.placeMachine(
+                this.grid.placeMachine(
                     machineObj,
                     gridX,
                     gridY,
@@ -2118,7 +2093,7 @@ export default class GameScene extends Phaser.Scene {
             let worldPos;
             try {
                 // This gives us the center of the grid cell
-                worldPos = this.factoryGrid.gridToWorld(gridX, gridY);
+                worldPos = this.grid.gridToWorld(gridX, gridY);
                 
                 // Validate world position
                 if (!worldPos || typeof worldPos !== 'object' || 
@@ -2129,8 +2104,8 @@ export default class GameScene extends Phaser.Scene {
             } catch (gridError) {
                 // Create a fallback world position
                 worldPos = { 
-                    x: gridX * (this.factoryGrid.cellSize || 24), 
-                    y: gridY * (this.factoryGrid.cellSize || 24) 
+                    x: gridX * (this.grid.cellSize || 24), 
+                    y: gridY * (this.grid.cellSize || 24) 
                 };
             }
             
@@ -2138,7 +2113,7 @@ export default class GameScene extends Phaser.Scene {
             const adjustments = { x: 0, y: 0 };
             
             // Apply direction-specific adjustments based on machine type
-            const cellSize = this.factoryGrid.cellSize || 24;
+            const cellSize = this.grid.cellSize || 24;
             
             // Now ensure the position is always an integer value to avoid rounding errors
             worldPos.x = Math.round(worldPos.x);
@@ -2150,7 +2125,7 @@ export default class GameScene extends Phaser.Scene {
             };
         } catch (error) {
             // Provide a fallback result
-            const cellSize = this.factoryGrid ? (this.factoryGrid.cellSize || 24) : 24;
+            const cellSize = this.grid ? (this.grid.cellSize || 24) : 24;
             return {
                 worldPos: { 
                     x: gridX * cellSize, 
@@ -2288,7 +2263,7 @@ export default class GameScene extends Phaser.Scene {
                     direction: machineType.defaultDirection || 'right'
                 },
                 getRotatedShape: function() {
-                    return this.factoryGrid.getRotatedShape(this.shape, this.rotation);
+                    return this.grid.getRotatedShape(this.shape, this.rotation);
                 }.bind(this)
             };
             
@@ -2356,11 +2331,11 @@ export default class GameScene extends Phaser.Scene {
                 this.leftClickProcessed = true;
                 
                 // Get grid position from pointer
-                const gridPos = this.factoryGrid.worldToGrid(this.pointer.worldX, this.pointer.worldY);
+                const gridPos = this.grid.worldToGrid(this.pointer.worldX, this.pointer.worldY);
                 
                 if (gridPos) {
                     // Try to place the machine
-                    const placementResult = this.factoryGrid.placeMachine(
+                    const placementResult = this.grid.placeMachine(
                         this.selectedMachine,
                         gridPos.x,
                         gridPos.y,
@@ -2425,19 +2400,19 @@ export default class GameScene extends Phaser.Scene {
             if (!this.deliveryNodes) { this.deliveryNodes = []; }
         
             // --- Find TWO distinct empty spots --- 
-            const emptySpot1 = this.factoryGrid.findEmptyCell();
+            const emptySpot1 = this.grid.findEmptyCell();
             if (!emptySpot1) {
                 console.warn('[GAME] No empty cells found for node pair spawning.');
                 return;
             }
 
             // Temporarily mark the first spot to avoid picking it again
-            this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'temp' });
+            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'temp' });
 
-            const emptySpot2 = this.factoryGrid.findEmptyCell();
+            const emptySpot2 = this.grid.findEmptyCell();
 
             // Reset the first spot (we'll set it properly below)
-            this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' });
+            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' });
 
             if (!emptySpot2) {
                 console.warn('[GAME] Only one empty cell found. Cannot spawn node pair.');
@@ -2445,7 +2420,7 @@ export default class GameScene extends Phaser.Scene {
             }
 
             // --- Spawn Resource Node --- 
-            const worldPos1 = this.factoryGrid.gridToWorld(emptySpot1.x, emptySpot1.y);
+            const worldPos1 = this.grid.gridToWorld(emptySpot1.x, emptySpot1.y);
             if (!worldPos1 || typeof worldPos1.x !== 'number' || typeof worldPos1.y !== 'number') {
                 console.error('[GAME] Invalid world position for resource node:', worldPos1);
                 // Don't proceed if position is invalid
@@ -2463,15 +2438,15 @@ export default class GameScene extends Phaser.Scene {
                 lifespan: GAME_CONFIG.nodeLifespan
             });
             this.resourceNodes.push(resourceNode);
-            this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
+            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
             console.log(`[GAME] Created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`);
 
             // --- Spawn Delivery Node --- 
-            const worldPos2 = this.factoryGrid.gridToWorld(emptySpot2.x, emptySpot2.y);
+            const worldPos2 = this.grid.gridToWorld(emptySpot2.x, emptySpot2.y);
              if (!worldPos2 || typeof worldPos2.x !== 'number' || typeof worldPos2.y !== 'number') {
                 console.error('[GAME] Invalid world position for delivery node:', worldPos2);
                 // Clean up the resource node if delivery node fails
-                this.factoryGrid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' }); 
+                this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' }); 
                 const index = this.resourceNodes.indexOf(resourceNode);
                 if (index !== -1) this.resourceNodes.splice(index, 1);
                 resourceNode.destroy(); // Ensure visuals/timers are cleaned up
@@ -2487,7 +2462,7 @@ export default class GameScene extends Phaser.Scene {
                 pointsPerResource: 10 
             });
             this.deliveryNodes.push(deliveryNode);
-            this.factoryGrid.setCell(emptySpot2.x, emptySpot2.y, { type: 'delivery-node', object: deliveryNode });
+            this.grid.setCell(emptySpot2.x, emptySpot2.y, { type: 'delivery-node', object: deliveryNode });
             console.log(`[GAME] Created delivery node at grid (${emptySpot2.x}, ${emptySpot2.y})`);
 
         } catch (error) {
@@ -2509,9 +2484,9 @@ export default class GameScene extends Phaser.Scene {
 
         // Iterate and remove machines
         machinesToClear.forEach(machine => {
-            if (machine && this.factoryGrid) {
+            if (machine && this.grid) {
                 // removeMachine handles calling machine.destroy() and clearing grid cells
-                this.factoryGrid.removeMachine(machine); 
+                this.grid.removeMachine(machine); 
             }
         });
 
