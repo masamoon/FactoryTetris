@@ -10,6 +10,7 @@ import { UpgradeManager } from '../managers/UpgradeManager.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
 import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js'; // Import package type for check in clear
 import { UpgradeScene } from './UpgradeScene.js'; // Import UpgradeScene
+import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 
 export default class GameScene extends Phaser.Scene {
     constructor() {
@@ -1244,11 +1245,19 @@ export default class GameScene extends Phaser.Scene {
         // Optional: Play a sound effect for round completion
         this.playSound('round-complete');
 
-        // *** REMOVED camera flash ***
-        // this.cameras.main.flash(300, 255, 255, 255, true);
+        // --- REMOVED camera flash ***
+        this.cameras.main.flash(300, 255, 255, 255, true);
 
         // 1. Clear the factory grid (will now have animations)
         this.clearPlacedItems();
+
+        // *** ADDED: Spawn initial nodes for the new round ***
+        console.log(`[RoundStart] Spawning initial nodes for round ${this.currentRound + 1}...`); // Log before spawning
+        const nodesToSpawn = GAME_CONFIG.initialNodeCount || 3; // Default to 3 if not set
+        for (let i = 0; i < nodesToSpawn; i++) {
+            this.spawnNode(); // Spawn one pair (Resource + Delivery)
+        }
+        // *** END ADDED ***
 
         // 2. Reset score
         this.score = 0;
@@ -2558,77 +2567,160 @@ export default class GameScene extends Phaser.Scene {
 
         console.log('Clearing all placed machines, belts, and nodes with effects...');
 
-        // --- Clear Machines --- 
-        const machinesToClear = [...this.machines]; 
-        const clearDelay = 250; // Delay before final grid removal
-        this.machines = []; // Clear the main array immediately
+        // --- 1. Score Remaining Items ---
+        let salvagedScore = 0;
+        const resourceValue = GAME_CONFIG.resourceValueMap;
 
-        machinesToClear.forEach((machine, index) => {
-            if (machine && machine.container && this.grid) {
-                 // --- ADD CRUNCHY ANIMATION & SOUND ---
-                 this.playSound('destroy'); // Assuming a 'destroy' sound effect exists
-
-                 this.tweens.add({
-                    targets: machine.container,
-                    scaleX: 0.1,
-                    scaleY: 0.1,
-                    alpha: 0,
-                    duration: clearDelay - 50, // Finish slightly before removal
-                    ease: 'Power2',
-                    onComplete: () => {
-                        // Now schedule the actual removal after the animation
-                        this.time.delayedCall(50, () => { // Short delay after tween finishes
-                           if (this.grid && machine) { 
-                               this.grid.removeMachine(machine); // Removes from grid and calls machine.destroy()
-                           } 
-                           // Optional: Could add particle cleanup here if needed
-                        });
+        // Score items on conveyor belts
+        this.machines.forEach(machine => {
+            if (machine instanceof ConveyorMachine && machine.itemsOnBelt) {
+                machine.itemsOnBelt.forEach(itemOnBelt => {
+                    const itemType = itemOnBelt.itemData.type;
+                    if (itemType !== UPGRADE_PACKAGE_TYPE && resourceValue[itemType]) {
+                        salvagedScore += resourceValue[itemType];
                     }
-                 });
-                 // --- END CRUNCHY ANIMATION & SOUND ---
+                });
+            }
+            // Score items in machine inventories (optional, might double count if belts feed machines)
+            // Consider if needed based on how inventories work
+            // for (const type in machine.inputInventory) {
+            //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+            //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
+            //     }
+            // }
+            // for (const type in machine.outputInventory) {
+            //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+            //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
+            //      }
+            // }
+        });
 
-                 // --- REMOVED delayedCall from here, now triggered by tween onComplete ---
-                 /* this.time.delayedCall(clearDelay, () => { 
-                    if (this.grid && machine) { this.grid.removeMachine(machine); } 
-                    // ... (particle cleanup) ...
-                 }); */
-            } else {
-                 // If machine or container is invalid, try to remove from grid directly if possible
-                 if (this.grid && machine) {
-                    console.warn(`[Clear] Machine or container invalid for animation, attempting direct removal for machine at (${machine.gridX}, ${machine.gridY})`);
-                    this.grid.removeMachine(machine); 
-                 }
+        // Score items still in Resource Nodes
+        this.resourceNodes.forEach(node => {
+            if (node.resources > 0 && resourceValue[node.resourceType.id]) {
+                salvagedScore += node.resources * resourceValue[node.resourceType.id];
             }
         });
 
-        // --- Clear Active Upgrade Node --- 
-        if (this.currentUpgradeNode) {
-            console.log('Clearing active upgrade node...');
-            // Use similar effects or just remove instantly
-            if (this.grid) {
-                this.grid.setCell(this.currentUpgradeNode.gridX, this.currentUpgradeNode.gridY, { type: 'empty' });
-            }
-            this.currentUpgradeNode.destroy(); // Call destroy explicitly
-            this.currentUpgradeNode = null;
+        if (salvagedScore > 0) {
+             console.log(`Adding ${salvagedScore} from salvaged resources.`);
+             // --- MODIFIED: Add score directly, bypassing advanceRound check ---
+             this.score += salvagedScore;
+             this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
+             // We explicitly DO NOT call this.addScore() here to prevent recursion.
+             // --- END MODIFICATION ---
         }
 
-        // --- Clear Resource & Delivery Nodes (Optional - Decide if these should persist rounds) ---
-        // If you want to clear ALL nodes:
-        /*
-        [...this.resourceNodes].forEach(node => {
-            if (this.grid) this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
-            node.destroy();
-        });
-        this.resourceNodes = [];
+        // --- 2. Clear Entities with Animation ---
+        const clearDelay = 50; // Short delay between each item's effect start
+        const effectDuration = 300; // How long the disintegration effect takes
 
-        [...this.deliveryNodes].forEach(node => {
-            if (this.grid) this.grid.removeDeliveryNode(node); // Use specific method if available
-            else if (this.grid) this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
-            node.destroy();
-        });
-        this.deliveryNodes = [];
-        */
-       // --- End Optional Node Clearing ---
+        // --- Helper function for disintegration effect ---
+        const disintegrate = (targetObject, index, isMachine = false) => {
+             if (!targetObject) return;
+             
+             let targetContainer = targetObject.container || targetObject; // Use container if machine, else the object itself (for nodes)
+             if (!targetContainer || !targetContainer.scene) return; // Safety checks
+             
+             this.time.delayedCall(index * clearDelay, () => {
+                 // Sound
+                 this.playSound('destroy'); // Assuming a 'destroy' sound effect exists
+
+                 // Particle Effect (at container's center)
+                 const emitter = this.add.particles(targetContainer.x, targetContainer.y, 'particle', { // Assume 'particle' texture exists
+                     speed: { min: 50, max: 150 },
+                     angle: { min: 0, max: 360 },
+                     scale: { start: 0.5, end: 0 },
+                     alpha: { start: 1, end: 0 },
+                     lifespan: effectDuration,
+                     gravityY: 100,
+                     quantity: 10, // Number of particles
+                     blendMode: 'ADD' // Brighter particles
+                 });
+                 // Make particles disappear after duration
+                 this.time.delayedCall(effectDuration, () => emitter.destroy());
+
+                 // Disintegration Tween
+                 this.tweens.add({
+                     targets: targetContainer,
+                     duration: effectDuration,
+                     ease: 'Quad.easeIn', // Start slow, accelerate
+                     // 1. Flash White
+                     scaleX: targetContainer.scaleX * 1.1, // Optional: slight scale up
+                     scaleY: targetContainer.scaleY * 1.1,
+                     alpha: 0.5, // Semi-transparent
+                     tint: 0xffffff, // Flash white
+                     yoyo: true, // Go back to normal tint/alpha briefly
+                     hold: 50, // Hold the white flash briefly
+                     onComplete: () => {
+                          // 2. Shrink & Fade Out Fast
+                         this.tweens.add({
+                             targets: targetContainer,
+                             scaleX: 0,
+                             scaleY: 0,
+                             alpha: 0,
+                             duration: effectDuration * 0.6, // Faster fade out
+                             ease: 'Quad.easeIn',
+                             onComplete: () => {
+                                 // 3. Final Cleanup after animation
+                                 if (this.grid && targetObject.gridX !== undefined && targetObject.gridY !== undefined) {
+                                     if (isMachine) {
+                                         // --- MODIFIED: Pass the machine object itself ---
+                                        this.grid.removeMachine(targetObject); 
+                                     } else {
+                                         // Assumes nodes occupy single cells
+                                         const cell = this.grid.getCell(targetObject.gridX, targetObject.gridY);
+                                         if(cell && cell.object === targetObject) {
+                                             // --- MODIFIED: Use setCell instead of clearCellObject ---
+                                             this.grid.setCell(targetObject.gridX, targetObject.gridY, { type: 'empty' });
+                                         }
+                                         // --- ADDED: Call destroy for nodes here --- 
+                                         targetObject.destroy(); // Destroy the node object after clearing cell
+                                     }
+                                 } else if (isMachine) {
+                                      // --- ADDED: Fallback destroy if grid/coords missing for machine ---
+                                      console.warn(`[Disintegrate] Machine missing grid/coords, destroying directly.`);
+                                      targetObject.destroy(); 
+                                 } else {
+                                      // --- ADDED: Fallback destroy if grid/coords missing for node ---
+                                       console.warn(`[Disintegrate] Node missing grid/coords, destroying directly.`);
+                                      targetObject.destroy(); 
+                                 }
+                                 // --- REMOVED: Redundant destroy call here, handled by removeMachine or above ---
+                                 // targetObject.destroy(); 
+                             }
+                         });
+                     }
+                 });
+             });
+        };
+        // --- End Helper function ---
+
+        // --- Clear Machines ---
+        const machinesToClear = [...this.machines];
+        this.machines = []; // Clear the main array
+        machinesToClear.forEach((machine, index) => disintegrate(machine, index, true));
+
+        // --- Clear Resource Nodes ---
+        const resourceNodesToClear = [...this.resourceNodes];
+        this.resourceNodes = []; // Clear the main array
+        resourceNodesToClear.forEach((node, index) => disintegrate(node, machinesToClear.length + index, false));
+
+        // --- Clear Delivery Nodes ---
+        const deliveryNodesToClear = [...this.deliveryNodes];
+        this.deliveryNodes = []; // Clear the main array
+        deliveryNodesToClear.forEach((node, index) => disintegrate(node, machinesToClear.length + resourceNodesToClear.length + index, false));
+
+        // --- Clear Upgrade Node ---
+        if (this.currentUpgradeNode) {
+            disintegrate(this.currentUpgradeNode, machinesToClear.length + resourceNodesToClear.length + deliveryNodesToClear.length, false);
+            this.currentUpgradeNode = null; // Clear the reference
+        }
+
+        // --- Grid visual clear (optional, can be removed if animation handles it) ---
+        // this.grid.clearGrid(); // Might interfere with animations, clear via cell removal instead
+
+        console.log('Factory clear initiated. Items will disintegrate.');
     }
 
     updateMomentumUI() {

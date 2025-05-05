@@ -137,6 +137,13 @@ export const GAME_CONFIG = {
         'mega-resource': 0xff00ff
     },
 
+    // *** ADDED: Resource value map for scoring ***
+    resourceValueMap: {
+        'basic-resource': 10,    // Corresponds to points in resourceTypes
+        'advanced-resource': 50, // Corresponds to points in resourceTypes
+        'mega-resource': 300     // Corresponds to points in resourceTypes
+    },
+
     // Round configuration
     roundScoreThresholds: [
         1000,  // Score needed to complete Round 1

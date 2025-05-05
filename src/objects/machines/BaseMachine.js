@@ -672,33 +672,22 @@ export default class BaseMachine {
         // Remove existing tooltip if any
         this.hideTooltip();
         
-        // Get the machine's position in the world
-        let tooltipX, tooltipY;
+        // --- MODIFIED: Calculate fixed position on the right side --- 
+        const fixedX = this.scene.cameras.main.width - 260; // 10px padding from right edge (250 width + 10)
+        const fixedY = 50; // 50px from the top
+        const tooltipWidth = 250;
+        const tooltipHeight = 80; // Initial height, might adjust later
+        // --- END MODIFICATION ---
         
-        if (this.container) {
-            // Use the container's direct x and y coordinates instead of transform matrix
-            tooltipX = this.container.x;
-            tooltipY = this.container.y - 40; // Position above the machine
-        } else if (this.grid && this.gridX !== undefined && this.gridY !== undefined) {
-            // Fall back to grid position if container is not available
-            const worldPos = this.grid.gridToWorld(this.gridX, this.gridY);
-            tooltipX = worldPos.x;
-            tooltipY = worldPos.y - 40; // Position above the machine
-        } else {
-            // Fallback for preview or other cases
-            tooltipX = 0;
-            tooltipY = -40;
-        }
-        
-        // Create tooltip background
+        // --- MODIFIED: Use fixed position for background, align top-left --- 
         const tooltipBg = this.scene.add.rectangle(
-            tooltipX, 
-            tooltipY, 
-            250, 
-            80, 
+            fixedX, 
+            fixedY, 
+            tooltipWidth, 
+            tooltipHeight, 
             0x000000, 
             0.8
-        );
+        ).setOrigin(0, 0); // Align top-left
         tooltipBg.setStrokeStyle(1, 0xffffff);
         
         // Create tooltip text with inventory info
@@ -731,19 +720,23 @@ export default class BaseMachine {
             });
         }
         
-        // Create tooltip text
+        // --- MODIFIED: Use fixed position and top-left origin for text --- 
         const tooltipText = this.scene.add.text(
-            tooltipX, 
-            tooltipY, 
+            fixedX + 10, // Add padding from background edge
+            fixedY + 10, // Add padding from background edge
             tooltipContent, 
             {
                 fontFamily: 'Arial',
                 fontSize: 12,
                 color: '#ffffff',
-                align: 'center'
+                align: 'left', // Align text left
+                wordWrap: { width: tooltipWidth - 20 } // Wrap text within padding
             }
-        ).setOrigin(0.5);
+        ).setOrigin(0, 0); // Align top-left
         
+        // --- Optional: Adjust background height based on text height --- 
+        tooltipBg.height = Math.max(tooltipHeight, tooltipText.height + 20); // Add padding
+
         // Store tooltip objects for later removal
         this.tooltip = {
             background: tooltipBg,
