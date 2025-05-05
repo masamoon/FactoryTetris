@@ -5,6 +5,7 @@ import PreloadScene from './scenes/PreloadScene';
 import MainMenuScene from './scenes/MainMenuScene';
 import GameScene from './scenes/GameScene';
 import GameOverScene from './scenes/GameOverScene';
+import { UpgradeScene } from './scenes/UpgradeScene.js';
 
 // Add a debug UI
 window.onload = function() {
@@ -105,6 +106,7 @@ window.onload = function() {
                 PreloadScene,
                 MainMenuScene,
                 GameScene,
+                UpgradeScene,
                 GameOverScene
             ],
             physics: {

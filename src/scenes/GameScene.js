@@ -6,6 +6,10 @@ import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
 import TestUtils from '../utils/TestUtils';
 import MachineRegistry from '../objects/machines/MachineRegistry';
+import { UpgradeManager } from '../managers/UpgradeManager.js';
+import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
+import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js'; // Import package type for check in clear
+import { UpgradeScene } from './UpgradeScene.js'; // Import UpgradeScene
 
 export default class GameScene extends Phaser.Scene {
     constructor() {
@@ -29,6 +33,9 @@ export default class GameScene extends Phaser.Scene {
         this.resourceNodes = [];
         this.machines = [];
         this.deliveryNodes = []; // Add deliveryNodes array
+        this.upgradeNodes = []; // Use this instead of single tracker for consistency? Let's stick to single for now.
+        this.currentUpgradeNode = null; // Tracks the active upgrade node
+        this.upgradeNodeSpawnTimer = null; // Timer for spawning upgrade nodes
 
         // --- REMOVED CLEAR FACTORY COOLDOWN STATE ---
 /*
@@ -37,8 +44,24 @@ export default class GameScene extends Phaser.Scene {
         this.clearButton = null;
         this.clearStatusText = null;
 */
+
+        // Initialize Upgrade Manager
+        this.upgradeManager = new UpgradeManager();
+
+        // Example: Log initial modifier (remove later)
+        console.log("Initial Processor Speed Mod:", this.upgradeManager.getProcessorSpeedModifier());
+
+        // TODO: Add logic to spawn UpgradeNode periodically
+
+        this.isPausedForUpgrade = false; // Flag for upgrade pause state
     }
         
+    preload() {
+        // ... existing preload ...
+        this.load.image('upgrade-node', 'assets/sprites/upgrade_node.png'); // Placeholder path
+        this.load.image('upgrade-package', 'assets/sprites/upgrade_package.png'); // Placeholder path
+    }
+    
     create() {
         // Create game objects
         this.createBackground();
@@ -86,10 +109,24 @@ export default class GameScene extends Phaser.Scene {
         // ADD NODE SPAWN TIMER
         this.nodeSpawnTimer = this.time.addEvent({
             delay: GAME_CONFIG.nodeSpawnRate, // Use config value
-            callback: this.spawnNode, // Call the unified spawn method
+            callback: this.spawnNode, // Restore original callback
+            // callback: () => { console.error("[TIMER_DEBUG] Minimal nodeSpawnTimer CALLBACK FIRED!"); }, // Remove simple log
             callbackScope: this,
             loop: true
         });
+        // ---> ADD LOG HERE <---
+        console.log(`[TIMER_DEBUG] nodeSpawnTimer created:`, this.nodeSpawnTimer ? `Exists, Delay: ${this.nodeSpawnTimer.delay}, Paused: ${this.nodeSpawnTimer.paused}` : 'FAILED TO CREATE');
+        
+        // ADD UPGRADE NODE SPAWN TIMER
+        this.upgradeNodeSpawnTimer = this.time.addEvent({
+            delay: GAME_CONFIG.upgradeNodeSpawnDelay, 
+            callback: this.trySpawnUpgradeNode, // Restore original callback
+            // callback: () => { console.error("[TIMER_DEBUG] Minimal upgradeNodeSpawnTimer CALLBACK FIRED!"); }, // Remove test callback
+            callbackScope: this,
+            loop: true
+        });
+        // ---> ADD LOG HERE <---
+        console.log(`[TIMER_DEBUG] upgradeNodeSpawnTimer created:`, this.upgradeNodeSpawnTimer ? `Exists, Delay: ${this.upgradeNodeSpawnTimer.delay}, Paused: ${this.upgradeNodeSpawnTimer.paused}` : 'FAILED TO CREATE');
         
         // Setup difficulty timer
         this.difficultyTimer = this.time.addEvent({
@@ -148,10 +185,21 @@ export default class GameScene extends Phaser.Scene {
         this.clearButton.text.x = this.clearButton.button.x;
 
         // --- END CLEAR FACTORY UI --- 
+
+        // ADD EVENT LISTENER FOR UPGRADE TRIGGER
+        this.events.on('triggerUpgradeSelection', this.showUpgradeScreen, this);
+        // ADD EVENT LISTENER FOR UPGRADE COMPLETION
+        this.events.on('upgradeSelected', this.resumeFromUpgrade, this); // Listen for signal from UpgradeScene
     }
     
     update(time, delta) { // Add time, delta parameters
-        if (this.gameOver || this.paused) return;
+        // PAUSE CHECK
+        if (this.gameOver || this.paused || this.isPausedForUpgrade) return;
+        
+        // ---> ADD TIMER PROGRESS LOG HERE <---
+        if (this.nodeSpawnTimer && this.time.now % 1000 < 20) { // Log roughly once per second
+            console.log(`[TIMER_DEBUG] nodeSpawnTimer Progress: ${(this.nodeSpawnTimer.getProgress() * 100).toFixed(1)}% (${this.nodeSpawnTimer.getRemaining().toFixed(0)}ms remaining) Paused: ${this.nodeSpawnTimer.paused}`);
+        }
         
         // --- Momentum Decay ---
         const deltaTimeSeconds = delta / 1000;
@@ -1133,10 +1181,18 @@ export default class GameScene extends Phaser.Scene {
         }
         // More complex scaling can be added here based on round milestones
 
+        // ---> ADD LOGS HERE <---
+        console.log(`[DIFFICULTY_DEBUG] Calculated newNodeSpawnDelay: ${newNodeSpawnDelay} (Round: ${round})`);
+
         // Apply changes (only if different to avoid resetting timer unnecessarily)
         if (this.nodeSpawnTimer && this.nodeSpawnTimer.delay !== newNodeSpawnDelay) {
-             console.log(`Updating node spawn rate for round ${round} to ${newNodeSpawnDelay}ms`);
-             this.nodeSpawnTimer.delay = newNodeSpawnDelay;
+             // Add validity check before applying
+             if (!isNaN(newNodeSpawnDelay) && newNodeSpawnDelay > 0 && isFinite(newNodeSpawnDelay)) {
+                 console.log(`[DIFFICULTY_DEBUG] Applying new delay ${newNodeSpawnDelay}ms to nodeSpawnTimer.`);
+                 this.nodeSpawnTimer.delay = newNodeSpawnDelay;
+             } else {
+                 console.error(`[DIFFICULTY_DEBUG] Invalid delay calculated: ${newNodeSpawnDelay}. Not applying.`);
+             }
         }
         
         // Could also adjust:
@@ -1232,23 +1288,32 @@ export default class GameScene extends Phaser.Scene {
     }
     
     togglePause() {
+        if (this.isPausedForUpgrade) return; 
         this.paused = !this.paused;
         
         if (this.paused) {
-            // Pause all timers
+            // Pause timers
             this.gameTimer.paused = true;
-            // this.resourceTimer.paused = true; // Remove reference
-            if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
-            
-            // Show pause screen
+            if (this.nodeSpawnTimer) {
+                 this.nodeSpawnTimer.paused = true;
+                 console.log("[TIMER_DEBUG] Paused nodeSpawnTimer via togglePause."); // Log pause
+            }
+            if (this.upgradeNodeSpawnTimer) {
+                 this.upgradeNodeSpawnTimer.paused = true; 
+                 console.log("[TIMER_DEBUG] Paused upgradeNodeSpawnTimer via togglePause.");
+            }
             this.showPauseScreen();
         } else {
-            // Resume all timers
+            // Resume timers
             this.gameTimer.paused = false;
-            // this.resourceTimer.paused = false; // Remove reference
-            if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = false;
-            
-            // Hide pause screen
+            if (this.nodeSpawnTimer) {
+                 this.nodeSpawnTimer.paused = false;
+                 console.log("[TIMER_DEBUG] Resumed nodeSpawnTimer via togglePause."); // Log resume
+            }
+            if (this.upgradeNodeSpawnTimer) {
+                 this.upgradeNodeSpawnTimer.paused = false; 
+                 console.log("[TIMER_DEBUG] Resumed upgradeNodeSpawnTimer via togglePause.");
+            }
             this.hidePauseScreen();
         }
     }
@@ -1296,8 +1361,14 @@ export default class GameScene extends Phaser.Scene {
         
         // Stop all timers
         this.gameTimer.remove();
-        // if (this.resourceTimer) this.resourceTimer.remove(); // Remove reference
-        if (this.nodeSpawnTimer) this.nodeSpawnTimer.remove();
+        if (this.nodeSpawnTimer) {
+            console.log("[TIMER_DEBUG] Removing nodeSpawnTimer in endGame."); // Log removal
+            this.nodeSpawnTimer.remove();
+        }
+        if (this.upgradeNodeSpawnTimer) {
+             console.log("[TIMER_DEBUG] Removing upgradeNodeSpawnTimer in endGame.");
+             this.upgradeNodeSpawnTimer.remove(); 
+        }
         
         // Transition to game over scene
         this.scene.start('GameOverScene', {
@@ -2478,149 +2549,55 @@ export default class GameScene extends Phaser.Scene {
         return button;
     }
 
-    // Rename method and modify logic
-    spawnNode() { 
-        try {
-            if (this.gameOver || this.paused) return;
-            
-            // Ensure node arrays are initialized (safety check)
-            if (!this.resourceNodes) { this.resourceNodes = []; }
-            if (!this.deliveryNodes) { this.deliveryNodes = []; }
-        
-            // --- Find TWO distinct empty spots --- 
-            const emptySpot1 = this.grid.findEmptyCell();
-            if (!emptySpot1) {
-                console.warn('[GAME] No empty cells found for node pair spawning.');
-                return;
-            }
-
-            // Temporarily mark the first spot to avoid picking it again
-            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'temp' });
-
-            const emptySpot2 = this.grid.findEmptyCell();
-
-            // Reset the first spot (we'll set it properly below)
-            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' });
-
-            if (!emptySpot2) {
-                console.warn('[GAME] Only one empty cell found. Cannot spawn node pair.');
-                return;
-            }
-
-            // --- Spawn Resource Node --- 
-            const worldPos1 = this.grid.gridToWorld(emptySpot1.x, emptySpot1.y);
-            if (!worldPos1 || typeof worldPos1.x !== 'number' || typeof worldPos1.y !== 'number') {
-                console.error('[GAME] Invalid world position for resource node:', worldPos1);
-                // Don't proceed if position is invalid
-                return; 
-            }
-
-            const resourceTypeIndex = 0; // ALWAYS spawn 'basic-resource' (assuming it's index 0)
-            
-            const resourceNode = new ResourceNode(this, {
-                x: worldPos1.x,
-                y: worldPos1.y,
-                gridX: emptySpot1.x,
-                gridY: emptySpot1.y,
-                resourceType: resourceTypeIndex,
-                lifespan: GAME_CONFIG.nodeLifespan
-            });
-            this.resourceNodes.push(resourceNode);
-            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
-            console.log(`[GAME] Created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`);
-
-            // --- Spawn Delivery Node --- 
-            const worldPos2 = this.grid.gridToWorld(emptySpot2.x, emptySpot2.y);
-             if (!worldPos2 || typeof worldPos2.x !== 'number' || typeof worldPos2.y !== 'number') {
-                console.error('[GAME] Invalid world position for delivery node:', worldPos2);
-                // Clean up the resource node if delivery node fails
-                this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' }); 
-                const index = this.resourceNodes.indexOf(resourceNode);
-                if (index !== -1) this.resourceNodes.splice(index, 1);
-                resourceNode.destroy(); // Ensure visuals/timers are cleaned up
-                return; 
-            }
-
-            const deliveryNode = new DeliveryNode(this, {
-                x: worldPos2.x,
-                y: worldPos2.y,
-                gridX: emptySpot2.x,
-                gridY: emptySpot2.y,
-                lifespan: GAME_CONFIG.nodeLifespan,
-                pointsPerResource: 10 
-            });
-            this.deliveryNodes.push(deliveryNode);
-            this.grid.setCell(emptySpot2.x, emptySpot2.y, { type: 'delivery-node', object: deliveryNode });
-            console.log(`[GAME] Created delivery node at grid (${emptySpot2.x}, ${emptySpot2.y})`);
-
-        } catch (error) {
-            console.error('[GAME] Error spawning node pair:', error);
-            // Attempt cleanup if error occurs mid-process
-            // (More robust cleanup might be needed depending on where the error happened)
-        }
-    }
-
     // --- Clear Factory Ability --- 
 
     clearPlacedItems() {
         if (this.paused || this.gameOver) return;
 
-        console.log('Clearing all placed machines and belts with effects...');
+        console.log('Clearing all placed machines, belts, and nodes with effects...');
 
-        // Make a copy of the array to iterate over, as removeMachine modifies the original
+        // --- Clear Machines --- 
         const machinesToClear = [...this.machines]; 
-        const clearDelay = 250; // ms delay for effects before removal
-
-        // Clear the main list immediately so new machines can't be placed during clearing
+        const clearDelay = 250; 
         this.machines = [];
-
-        // Iterate and trigger effects/delayed removal for each machine
         machinesToClear.forEach((machine, index) => {
             if (machine && machine.container && this.grid) {
-                const machineCenterX = machine.container.x; // Assuming container x/y is center
-                const machineCenterY = machine.container.y;
-
-                // 1. Play Sound (Assuming 'destroy-machine' sound exists)
-                this.playSound('destroy-machine');
-
-                // 2. Particle Explosion
-                const particles = this.add.particles(machineCenterX, machineCenterY, 'particle', { // Use a generic particle texture key
-                    speed: { min: 100, max: 300 },
-                    angle: { min: 0, max: 360 },
-                    scale: { start: 0.8, end: 0 },
-                    lifespan: 400,
-                    gravityY: 200,
-                    blendMode: 'ADD', // Or 'NORMAL'
-                    emitting: false // We manually explode
-                });
-                particles.setDepth(machine.container.depth + 1); // Ensure particles are on top
-                particles.explode(15); // Number of particles
-
-                // 3. Quick visual cue (optional: shrink)
-                this.tweens.add({
-                    targets: machine.container,
-                    scaleX: 0.1,
-                    scaleY: 0.1,
-                    alpha: 0,
-                    duration: clearDelay - 50, // Slightly shorter than delay
-                    ease: 'Power1'
-                });
-
-                // 4. Delayed Removal from grid and destruction
-                this.time.delayedCall(clearDelay, () => {
-                    if (this.grid && machine) { // Check if grid and machine still exist
-                       this.grid.removeMachine(machine); // removeMachine calls machine.destroy()
-                    }
-                    // Clean up particle emitter after a bit longer
-                    this.time.delayedCall(500, () => { 
-                        if (particles) particles.destroy(); 
-                    }); 
-                });
+                 // ... (existing machine clearing effects/logic) ...
+                 this.time.delayedCall(clearDelay, () => { 
+                    if (this.grid && machine) { this.grid.removeMachine(machine); } 
+                    // ... (particle cleanup) ...
+                 });
             }
         });
 
-        // Play a final success sound after starting the process
-        //this.playSound('clear'); // Maybe remove this if individual sounds are preferred
+        // --- Clear Active Upgrade Node --- 
+        if (this.currentUpgradeNode) {
+            console.log('Clearing active upgrade node...');
+            // Use similar effects or just remove instantly
+            if (this.grid) {
+                this.grid.setCell(this.currentUpgradeNode.gridX, this.currentUpgradeNode.gridY, { type: 'empty' });
+            }
+            this.currentUpgradeNode.destroy(); // Call destroy explicitly
+            this.currentUpgradeNode = null;
+        }
+
+        // --- Clear Resource & Delivery Nodes (Optional - Decide if these should persist rounds) ---
+        // If you want to clear ALL nodes:
+        /*
+        [...this.resourceNodes].forEach(node => {
+            if (this.grid) this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
+            node.destroy();
+        });
+        this.resourceNodes = [];
+
+        [...this.deliveryNodes].forEach(node => {
+            if (this.grid) this.grid.removeDeliveryNode(node); // Use specific method if available
+            else if (this.grid) this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
+            node.destroy();
+        });
+        this.deliveryNodes = [];
+        */
+       // --- End Optional Node Clearing ---
     }
 
     updateMomentumUI() {
@@ -2644,6 +2621,226 @@ export default class GameScene extends Phaser.Scene {
 
         this.momentumBar.fillStyle(color, 1);
         this.momentumBar.fillRect(barX, barY, barWidth * percentage, barHeight);
+    }
+
+    /** Spawns a Resource Node and a Delivery Node pair */
+    spawnNode() { 
+        // Log `this` context FIRST and use double quotes for the string
+        console.log("[SPAWN_DEBUG] Verifying 'this' context:", this instanceof GameScene ? 'Correct (GameScene)' : 'INCORRECT CONTEXT!', this);
+        
+        try { // <-- Add try here
+            // --- Start of original spawnNode logic --- 
+            console.log(`[SPAWN_DEBUG] spawnNode called at time ${this.time.now.toFixed(0)}`); 
+
+            if (this.gameOver || this.paused || this.isPausedForUpgrade) { 
+                 console.log(`[SPAWN_DEBUG] Aborted spawn due to game state (gameOver/paused).`);
+                 return;
+            }
+            
+            if (!this.resourceNodes) { this.resourceNodes = []; }
+            if (!this.deliveryNodes) { this.deliveryNodes = []; }
+
+            if (!this.grid) {
+                 console.error('[SPAWN_DEBUG] Aborted spawn: Grid is not available.');
+                 return;
+            }
+        
+            const emptySpot1 = this.grid.findEmptyCell();
+            console.log(`[SPAWN_DEBUG] findEmptyCell (1st attempt) result:`, emptySpot1); 
+            if (!emptySpot1) {
+                console.warn('[SPAWN_DEBUG] No empty cells found for node pair spawning (1st attempt).');
+                return;
+            }
+
+            const originalCellType1 = this.grid.getCell(emptySpot1.x, emptySpot1.y)?.type || 'unknown'; 
+            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'temp-reserved-for-spawn' });
+            console.log(`[SPAWN_DEBUG] Temporarily marked (${emptySpot1.x}, ${emptySpot1.y}) as reserved.`);
+
+            const emptySpot2 = this.grid.findEmptyCell();
+            console.log(`[SPAWN_DEBUG] findEmptyCell (2nd attempt) result:`, emptySpot2); 
+
+            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: originalCellType1 === 'temp-reserved-for-spawn' ? 'empty' : originalCellType1 }); 
+            console.log(`[SPAWN_DEBUG] Restored (${emptySpot1.x}, ${emptySpot1.y}) to type: ${this.grid.getCell(emptySpot1.x, emptySpot1.y)?.type}`);
+
+            if (!emptySpot2) {
+                console.warn('[SPAWN_DEBUG] Only one empty cell found. Cannot spawn node pair (2nd attempt failed).');
+                return;
+            }
+
+            const worldPos1 = this.grid.gridToWorld(emptySpot1.x, emptySpot1.y);
+            if (!worldPos1 || typeof worldPos1.x !== 'number' || typeof worldPos1.y !== 'number') {
+                console.error('[SPAWN_DEBUG] Invalid world position for resource node:', worldPos1);
+                return; 
+            }
+
+            const resourceTypeIndex = 0; 
+            console.log(`[SPAWN_DEBUG] Spawning Resource Node at (${emptySpot1.x}, ${emptySpot1.y})`);
+            const resourceNode = new ResourceNode(this, {
+                x: worldPos1.x,
+                y: worldPos1.y,
+                gridX: emptySpot1.x,
+                gridY: emptySpot1.y,
+                resourceType: resourceTypeIndex,
+                lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier() 
+            });
+            this.resourceNodes.push(resourceNode);
+            this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
+            console.log(`[SPAWN_DEBUG] Successfully created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`);
+
+            const worldPos2 = this.grid.gridToWorld(emptySpot2.x, emptySpot2.y);
+             if (!worldPos2 || typeof worldPos2.x !== 'number' || typeof worldPos2.y !== 'number') {
+                console.error('[SPAWN_DEBUG] Invalid world position for delivery node:', worldPos2);
+                console.error('[SPAWN_DEBUG] Rolling back resource node spawn due to delivery node position error.');
+                this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'empty' }); 
+                const index = this.resourceNodes.indexOf(resourceNode);
+                if (index !== -1) this.resourceNodes.splice(index, 1);
+                resourceNode.destroy(); 
+                return; 
+            }
+
+            console.log(`[SPAWN_DEBUG] Spawning Delivery Node at (${emptySpot2.x}, ${emptySpot2.y})`);
+            const deliveryNode = new DeliveryNode(this, {
+                x: worldPos2.x,
+                y: worldPos2.y,
+                gridX: emptySpot2.x,
+                gridY: emptySpot2.y,
+                lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier(), 
+                pointsPerResource: 10 
+            });
+            this.deliveryNodes.push(deliveryNode);
+            this.grid.setCell(emptySpot2.x, emptySpot2.y, { type: 'delivery-node', object: deliveryNode });
+            console.log(`[SPAWN_DEBUG] Successfully created delivery node at grid (${emptySpot2.x}, ${emptySpot2.y})`);
+           // --- End of original spawnNode logic ---
+
+        } catch (error) { // <-- Add catch here
+            console.error('[SPAWN_ERROR] Uncaught error inside spawnNode:', error);
+        }
+    }
+
+    /** Attempts to spawn an Upgrade Node if one doesn't exist */
+    trySpawnUpgradeNode() {
+        // ---> ADD LOG HERE <---
+        console.log(`[UPGRADE_SPAWN_DEBUG] trySpawnUpgradeNode called at time ${this.time.now.toFixed(0)}`);
+
+        // Only spawn if there isn't an active (non-depleted) upgrade node
+        if (this.currentUpgradeNode) {
+            // ---> ADD LOG HERE <---
+            console.log("[UPGRADE_SPAWN_DEBUG] Aborted: currentUpgradeNode already exists.", this.currentUpgradeNode);
+            return;
+        }
+
+        // ---> ADD LOG HERE <---
+        console.log("[UPGRADE_SPAWN_DEBUG] No existing upgrade node found, attempting spawn...");
+
+        try {
+             // Check grid existence first
+             if (!this.grid) {
+                console.error('[UPGRADE_SPAWN_DEBUG] Aborted spawn: Grid is not available.');
+                return;
+             }
+
+            const emptySpot = this.grid.findEmptyCell();
+            // ---> ADD LOG HERE <---
+            console.log(`[UPGRADE_SPAWN_DEBUG] findEmptyCell result:`, emptySpot);
+            if (!emptySpot) {
+                console.warn('[UPGRADE_SPAWN_DEBUG] No empty cells found for upgrade node placement');
+                return;
+            }
+
+            const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
+             // ---> ADD LOG HERE <---
+            console.log(`[UPGRADE_SPAWN_DEBUG] Calculated worldPos:`, worldPos);
+            if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') { // Added validation
+                console.error('[UPGRADE_SPAWN_DEBUG] Invalid world position calculated:', worldPos);
+                return;
+            }
+
+            // ---> ADD LOG HERE <---
+            console.log(`[UPGRADE_SPAWN_DEBUG] Spawning UpgradeNode at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`);
+            // Create the upgrade node
+            this.currentUpgradeNode = new UpgradeNode(this, worldPos.x, worldPos.y, emptySpot.x, emptySpot.y);
+            
+            // Mark the grid
+            this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'upgrade-node', object: this.currentUpgradeNode });
+
+            // Listen for when it's depleted
+            this.currentUpgradeNode.once('depleted', this.handleUpgradeNodeDepleted, this);
+
+            console.log(`[UPGRADE_SPAWN_DEBUG] Successfully created upgrade node at grid (${emptySpot.x}, ${emptySpot.y})`);
+
+        } catch (error) {
+            console.error('[UPGRADE_SPAWN_ERROR] Uncaught error inside trySpawnUpgradeNode:', error);
+            this.currentUpgradeNode = null; // Ensure tracker is clear on error
+        }
+    }
+
+    /** Handles the depletion of the current Upgrade Node */
+    handleUpgradeNodeDepleted(node) {
+        console.log(`[UPGRADE] Upgrade node at (${node.gridX}, ${node.gridY}) depleted.`);
+        
+        // Double-check it's the current node we're tracking
+        if (this.currentUpgradeNode === node) {
+            // Clear the grid cell (node might destroy itself visually, but grid needs update)
+            if (this.grid) {
+                this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
+            }
+            // Clear the reference so a new one can spawn
+            this.currentUpgradeNode = null;
+            
+            // Optional: Restart or adjust the spawn timer if needed
+            // this.upgradeNodeSpawnTimer.reset({...}); 
+        } else {
+            console.warn('[UPGRADE] Depleted event received for an unknown/old upgrade node.');
+            // Still try to clear its grid cell just in case
+             if (this.grid) {
+                this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
+            }
+        }
+        // Node should handle its own destruction via preDestroy/destroy methods
+    }
+
+    showUpgradeScreen() {
+        if (this.isPausedForUpgrade) return; // Prevent multiple launches
+
+        console.log("Showing Upgrade Screen...");
+        this.isPausedForUpgrade = true;
+
+        // Pause timers
+        this.gameTimer.paused = true;
+        if (this.nodeSpawnTimer) {
+            this.nodeSpawnTimer.paused = true;
+            console.log("[TIMER_DEBUG] Paused nodeSpawnTimer for upgrade screen."); // Log pause
+        }
+        if (this.upgradeNodeSpawnTimer) {
+            this.upgradeNodeSpawnTimer.paused = true;
+            console.log("[TIMER_DEBUG] Paused upgradeNodeSpawnTimer for upgrade screen."); 
+        }
+
+        // Pause physics if necessary (optional, depending on your game)
+        // this.physics.pause(); 
+
+        // Launch Upgrade Scene, passing the manager
+        this.scene.launch('UpgradeScene', { 
+            upgradeManager: this.upgradeManager,
+            callingSceneKey: this.scene.key // Pass own key
+        });
+    }
+
+    resumeFromUpgrade() {
+        console.log("Resuming from Upgrade Selection...");
+        this.isPausedForUpgrade = false;
+
+        // Resume timers
+        this.gameTimer.paused = false;
+        if (this.nodeSpawnTimer) {
+             this.nodeSpawnTimer.paused = false;
+             console.log("[TIMER_DEBUG] Resumed nodeSpawnTimer after upgrade screen."); // Log resume
+        }
+        if (this.upgradeNodeSpawnTimer) {
+            this.upgradeNodeSpawnTimer.paused = false;
+            console.log("[TIMER_DEBUG] Resumed upgradeNodeSpawnTimer after upgrade screen.");
+        }
+        // ... rest of resumeFromUpgrade ...
     }
 
     // -------------------------

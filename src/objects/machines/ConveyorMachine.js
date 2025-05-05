@@ -1,5 +1,8 @@
 import BaseMachine from './BaseMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
+import { UPGRADE_PACKAGE_TYPE } from '../../config/upgrades.js'; // Import upgrade package type
+import ResourceNode from '../ResourceNode'; // Import ResourceNode
+import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
 
 /**
  * Conveyor Belt Machine
@@ -30,8 +33,8 @@ export default class ConveyorMachine extends BaseMachine {
         this.name = 'Conveyor Belt';
         this.description = 'Transports resources between machines';
         this.shape = [[1]]; // 1x1 shape
-        this.inputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
-        this.outputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
+        this.inputTypes = ['basic-resource', 'advanced-resource', 'mega-resource', UPGRADE_PACKAGE_TYPE];
+        this.outputTypes = ['basic-resource', 'advanced-resource', 'mega-resource', UPGRADE_PACKAGE_TYPE];
         this.processingTime = 1000; // 1 second
         this.defaultDirection = 'right';
 
@@ -183,15 +186,13 @@ export default class ConveyorMachine extends BaseMachine {
      * Override the update method to handle conveyor-specific logic
      */
     update(time, delta) {
-        // Debug the current state
-        if (this.scene.time.now % 3000 < 16) { // Log every ~3 seconds to avoid spam
-           /* console.log(`Conveyor at (${this.gridX}, ${this.gridY}):`);
-            console.log(`- Direction: ${this.direction}`);
-            console.log(`- Input inventory:`, JSON.stringify(this.inputInventory));
-            console.log(`- Output inventory:`, JSON.stringify(this.outputInventory));
-            console.log(`- Input types:`, this.inputTypes.join(', '));
-            console.log(`- Output types:`, this.outputTypes.join(', ')); */
-        }
+        // --- ADDED: Try to extract from source node --- 
+        this.tryExtractFromSource();
+
+        // Debug the current state (keep disabled unless needed)
+        /* if (this.scene.time.now % 3000 < 16) { 
+           console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Input: ${JSON.stringify(this.inputInventory)}, Output: ${JSON.stringify(this.outputInventory)}`);
+        } */
         
         // Move items along the conveyor
         this.moveItems(delta);
@@ -201,23 +202,94 @@ export default class ConveyorMachine extends BaseMachine {
     }
     
     /**
+     * NEW METHOD: Tries to extract a resource/package from an adjacent node.
+     */
+    tryExtractFromSource() {
+        // Check if input inventory is full (use a reasonable capacity)
+        const currentInputTotal = Object.values(this.inputInventory).reduce((a, b) => a + b, 0);
+        const inputCapacity = 5; // Example capacity
+        if (currentInputTotal >= inputCapacity) {
+            // console.log(`[CONVEYOR_EXTRACT] Input full at (${this.gridX}, ${this.gridY})`);
+            return; // Cannot accept more input
+        }
+
+        // Determine source cell coordinates based on direction (opposite of transfer target)
+        let sourceX = this.gridX;
+        let sourceY = this.gridY;
+
+        switch (this.direction) {
+            case 'right': sourceX -= 1; break; // Check Left
+            case 'down':  sourceY -= 1; break; // Check Up
+            case 'left':  sourceX += 1; break; // Check Right
+            case 'up':    sourceY += 1; break; // Check Down
+        }
+
+        // Check grid bounds
+        if (!this.grid || sourceX < 0 || sourceX >= this.grid.width || sourceY < 0 || sourceY >= this.grid.height) {
+            return; // Source cell is out of bounds
+        }
+
+        // Get the source cell content
+        const sourceCell = this.grid.getCell(sourceX, sourceY);
+
+        if (!sourceCell || !sourceCell.object) {
+            return; // No object in source cell
+        }
+        
+        let extractedItem = null;
+        // Check if it's a ResourceNode or UpgradeNode and try extracting
+        if ((sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') && typeof sourceCell.object.extractResource === 'function') {
+            // console.log(`[CONVEYOR_EXTRACT] Found node type '${sourceCell.type}' at (${sourceX}, ${sourceY}). Attempting extraction.`);
+            extractedItem = sourceCell.object.extractResource(); 
+        }
+
+        // If an item was successfully extracted
+        if (extractedItem && extractedItem.type) {
+            console.log(`[CONVEYOR_EXTRACT] Extracted item of type '${extractedItem.type}' from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`);
+            // Ensure input inventory exists for this type
+            if (this.inputInventory[extractedItem.type] === undefined) {
+                this.inputInventory[extractedItem.type] = 0;
+            }
+            // Add to input inventory
+            this.inputInventory[extractedItem.type]++;
+
+            // Optional: Visual feedback on the conveyor/node
+            if (this.container) {
+                 this.scene.tweens.add({
+                    targets: this.container, // Or a specific part
+                    scaleY: 1.1, // Briefly pulse
+                    duration: 100,
+                    yoyo: true,
+                    ease: 'Sine.easeInOut'
+                });
+            } else {
+                 console.warn(`[CONVEYOR_EXTRACT] Cannot create tween effect at (${this.gridX}, ${this.gridY}): this.container is null!`);
+            }
+        } /* else if (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') {
+             console.log(`[CONVEYOR_EXTRACT] Node at (${sourceX}, ${sourceY}) exists but extractResource returned null (likely depleted).`);
+        } */
+    }
+    
+    /**
      * Move items along the conveyor
      * @param {number} delta - Time elapsed since last update in ms
      */
     moveItems(delta) {
         // Transfer resources from input to output inventory
-        for (const resourceType of this.inputTypes) {
+        for (const resourceType in this.inputInventory) { 
             if (this.inputInventory[resourceType] > 0) {
-                // Move one resource from input to output
-                this.inputInventory[resourceType]--;
-                
-                // Ensure the resource type is in our output inventory
                 if (this.outputInventory[resourceType] === undefined) {
                     this.outputInventory[resourceType] = 0;
                 }
                 
-                this.outputInventory[resourceType]++;
-               // console.log(`Conveyor moved 1 ${resourceType} from input to output inventory`);
+                if (this.outputInventory[resourceType] < 5) { 
+                    this.inputInventory[resourceType]--;
+                    this.outputInventory[resourceType]++;
+                    if (resourceType === UPGRADE_PACKAGE_TYPE) {
+                        console.log(`[CONVEYOR_MOVE] Conveyor (${this.gridX}, ${this.gridY}) moved UPGRADE_PACKAGE from input to output.`);
+                    }
+                    break; 
+                }
             }
         }
     }
@@ -264,28 +336,32 @@ export default class ConveyorMachine extends BaseMachine {
         if (targetCell.type === 'delivery-node' && targetCell.object) {
             const deliveryNode = targetCell.object;
             
-            // Try to deliver any resource we have in output
+            // Try to deliver any resource (including upgrade package) we have in output
             for (const resourceType in this.outputInventory) {
                 if (this.outputInventory[resourceType] > 0) {
-                    // Attempt to deliver the resource
-                    if (deliveryNode.acceptResource(resourceType)) {
-                        // Decrease output inventory
+                    if (resourceType === UPGRADE_PACKAGE_TYPE) {
+                        console.log(`[CONVEYOR_TRANSFER] Conveyor (${this.gridX}, ${this.gridY}) attempting to deliver UPGRADE_PACKAGE to DeliveryNode at (${targetX}, ${targetY}).`);
+                    }
+
+                    const itemToDeliver = {
+                        type: resourceType,
+                        texture: this.scene.registry.get('resourceTextures')?.[resourceType] || (resourceType === UPGRADE_PACKAGE_TYPE ? 'upgrade-package' : 'default-resource') // Handle upgrade texture
+                    };
+
+                    if (deliveryNode.acceptItem(itemToDeliver)) { 
+                        if (resourceType === UPGRADE_PACKAGE_TYPE) {
+                             console.log(`[CONVEYOR_TRANSFER] DeliveryNode ACCEPTED UPGRADE_PACKAGE from conveyor (${this.gridX}, ${this.gridY}).`);
+                        }
                         this.outputInventory[resourceType]--;
-                        
-                        // Optional: Create visual effect for transfer to delivery node
-                        this.createResourceTransferEffect(resourceType, deliveryNode); // Pass node as target
-                        
-                       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}) delivered ${resourceType} to DeliveryNode at (${targetX}, ${targetY})`);
-                        
-                        // Delivered one item, return for this cycle
+                        this.createResourceTransferEffect(resourceType, deliveryNode); 
                         return; 
                     } else {
-                       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): DeliveryNode at (${targetX}, ${targetY}) rejected ${resourceType}`);
-                        // Node might be full or inactive (though our current node doesn't reject)
+                         if (resourceType === UPGRADE_PACKAGE_TYPE) {
+                             console.warn(`[CONVEYOR_TRANSFER] DeliveryNode REJECTED UPGRADE_PACKAGE from conveyor (${this.gridX}, ${this.gridY}).`);
+                         }
                     }
                 }
             }
-            // If we reached here, either no resources in output or node rejected all
             return; 
         }
 

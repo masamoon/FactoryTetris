@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
+import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js'; // Import upgrade package type
 
 export default class DeliveryNode {
     constructor(scene, config) {
@@ -63,64 +64,95 @@ export default class DeliveryNode {
     }
     
     /**
-     * Accept a resource delivered to this node.
-     * @param {string} resourceType - The ID of the resource being delivered.
-     * @returns {boolean} - True if the resource was accepted, false otherwise.
+     * Accept an item delivered to this node.
+     * Handles both regular resources and upgrade packages.
+     * @param {object} item - The item object being delivered (e.g., { type: 'resourceA', texture: '...' } or { type: 'upgrade_package', texture: '...' }).
+     * @returns {boolean} - True if the item was accepted, false otherwise.
      */
-    acceptResource(resourceType) {
-        // For now, accept any resource type
-        // Later, could check against this.requiredResourceType
+    acceptItem(item) { // Renamed and parameter changed
+        if (!item || !item.type) {
+            console.warn("DeliveryNode received invalid item:", item);
+            return false;
+        }
+
+        // Check if it's an upgrade package
+        if (item.type === UPGRADE_PACKAGE_TYPE) {
+            console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted an Upgrade Package!`);
+            // Increment upgrade counter
+            this.scene.upgradeManager.incrementUpgradesDelivered();
+
+            // TODO: Trigger the Upgrade Selection UI
+            // This will likely involve pausing the game and launching a new scene or UI panel.
+            this.scene.events.emit('triggerUpgradeSelection'); // Emit an event that GameScene can listen for
+            console.log("Triggering upgrade selection UI...");
+
+            // Create a distinct effect for upgrade packages?
+            this.createAcceptEffect('upgrade', 0); // Use a generic type/color, no points
+
+            return true; // Upgrade package accepted
+        }
+
+        // --- Handle regular resources ---
+        const resourceType = item.type; // Extract resource type from the item object
 
         // Find the score for this resource type from the config
         const resourceConfig = GAME_CONFIG.resourceTypes.find(r => r.id === resourceType);
         const points = resourceConfig ? resourceConfig.points : 0; // Default to 0 if not found
-        
+
+        if (points === 0 && resourceType !== 'upgrade') { // Check if it was a valid resource
+             console.warn(`DeliveryNode received unknown resource type: ${resourceType}`);
+             // Optional: Create a different visual effect for unknown items?
+             return false; // Reject unknown resource types
+        }
+
         // Add score
-        this.scene.addScore(points); 
-        
+        this.scene.addScore(points);
+
         // Visual feedback for accepted resource
-        this.createAcceptEffect(resourceType, points); // Pass points to the effect method
-        
+        this.createAcceptEffect(resourceType, points);
+
         console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${resourceType}, +${points} points`);
         return true;
     }
 
     /**
-     * Creates a visual effect when a resource is accepted.
-     * @param {string} resourceType - The type of resource accepted.
-     * @param {number} points - The points awarded for this resource.
+     * Creates a visual effect when an item is accepted.
+     * @param {string} itemType - The type of item accepted (resource ID or 'upgrade').
+     * @param {number} points - The points awarded (0 for upgrades).
      */
-    createAcceptEffect(resourceType, points) {
-        const color = GAME_CONFIG.resourceColors[resourceType] || 0xaaaaaa;
-        
-        // Score popup text
-        const scoreText = this.scene.add.text(
-            this.container.x, 
-            this.container.y - 15, // Start above the node
-            `+${points}`, // Use the actual points awarded
-            { 
-                fontFamily: 'Arial', 
-                fontSize: 12, 
-                color: '#ffd700', // Gold color for score
+    createAcceptEffect(itemType, points) {
+        const color = itemType === 'upgrade' ? 0xcc00ff : (GAME_CONFIG.resourceColors[itemType] || 0xaaaaaa);
+        const textToShow = itemType === 'upgrade' ? 'Upgrade!' : `+${points}`;
+        const textColor = itemType === 'upgrade' ? '#cc00ff' : '#ffd700';
+
+        // Score/Upgrade popup text
+        const popupText = this.scene.add.text(
+            this.container.x,
+            this.container.y - 15,
+            textToShow,
+            {
+                fontFamily: 'Arial',
+                fontSize: 12,
+                color: textColor,
                 stroke: '#000000',
                 strokeThickness: 2
             }
         ).setOrigin(0.5);
-        scoreText.setDepth(this.container.depth + 2); // Ensure visibility
+        popupText.setDepth(this.container.depth + 2);
 
         this.scene.tweens.add({
-            targets: scoreText,
-            y: this.container.y - 40, // Move upwards
-            alpha: 0, // Fade out
+            targets: popupText,
+            y: this.container.y - 40,
+            alpha: 0,
             duration: 800,
             ease: 'Power1',
             onComplete: () => {
-                scoreText.destroy();
+                popupText.destroy();
             }
         });
 
         // Particle burst effect
-        const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', { // Assuming a 'particle' texture exists
+        const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
             color: [ color ],
             colorEase: 'quad.out',
             lifespan: 400,
@@ -131,7 +163,7 @@ export default class DeliveryNode {
             emitting: false
         });
         particles.setDepth(this.container.depth + 1);
-        particles.explode(10); // Explode 10 particles
+        particles.explode(10);
 
         // Optional: Brief flash of the node
         this.scene.tweens.add({

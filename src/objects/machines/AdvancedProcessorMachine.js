@@ -361,27 +361,42 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         if (targetInfo) {
             let transferred = false;
             if (targetInfo.type === 'delivery-node') {
-                if (targetInfo.target.acceptResource(outputType)) {
-                    transferred = true;
-                    this.createResourceTransferEffect(outputType, targetInfo.target);
+                // Create item object
+                const itemToDeliver = {
+                    type: outputType,
+                    texture: this.scene.registry.get('resourceTextures')?.[outputType] || 'default-resource'
+                };
+                if (targetInfo.target && typeof targetInfo.target.acceptItem === 'function') { // Check method exists
+                    if (targetInfo.target.acceptItem(itemToDeliver)) { // Renamed and passing item object
+                        transferred = true;
+                        this.createResourceTransferEffect(outputType, targetInfo.target);
+                    } else {
+                        // Target rejected
+                    }
                 } else {
-                    // Target rejected or check failed in BaseMachine.transferResources
+                    console.warn(`[${this.id}] Target Delivery Node is invalid or missing acceptItem method.`);
                 }
             } else if (targetInfo.type === 'machine') {
-                if (targetInfo.target.receiveResource(outputType, this)) { // BaseMachine.transferResources would do this
-                    transferred = true;
-                    this.createResourceTransferEffect(outputType, targetInfo.target);
+                // --- Machine transfer logic (remains the same) ---
+                if (targetInfo.target && typeof targetInfo.target.receiveResource === 'function') {
+                    if (targetInfo.target.receiveResource(outputType, this)) {
+                        transferred = true;
+                        this.createResourceTransferEffect(outputType, targetInfo.target);
+                    } else {
+                        // Target rejected
+                    }
                 } else {
-                    // Target rejected or check failed in BaseMachine.transferResources
+                     console.warn(`[${this.id}] Target Machine is invalid or missing receiveResource method.`);
                 }
+                // --- End Machine transfer logic ---
             }
             if (transferred) {
                 this.outputInventory[outputType]--;
             } else {
-                // Target rejected or check failed in BaseMachine.transferResources
+                // Transfer failed or was rejected
             }
         } else {
-            // Target rejected or check failed in BaseMachine.transferResources
+            // No target found
         }
     }
 

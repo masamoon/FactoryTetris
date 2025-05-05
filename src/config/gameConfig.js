@@ -31,7 +31,8 @@ export const GAME_CONFIG = {
     // Resource nodes
     initialNodeCount: 3,
     nodeSpawnRate: 15000, // ms
-    nodeLifespan: 60, // seconds
+    nodeLifespan: 60, // Seconds before a node despawns
+    upgradeNodeSpawnDelay: 30000, // How often to try spawning an upgrade node (Changed to 30 seconds)
     
     // Machine types
     machineTypes: [
@@ -149,8 +150,8 @@ export const GAME_CONFIG = {
     scoreIncreaseFactorPerRound: 1.5, // Or multiply previous threshold by 1.5?
 
     // --- REMOVED CLEAR FACTORY COOLDOWN CONFIG ---
+    initialClearCooldown: 60000, // 1 minute
 /*
-    initialClearCooldown: 30000, // ms (30 seconds)
     clearCooldownIncreaseFactor: 100 // ms added to cooldown per second of game time
 */
 }; 

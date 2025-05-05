@@ -1018,13 +1018,24 @@ export default class BaseMachine {
         // Handle transfer to Delivery Node
         if (targetInfo.type === 'delivery-node') {
             const deliveryNode = targetInfo.target;
-            if (deliveryNode && typeof deliveryNode.acceptResource === 'function') {
-                if (deliveryNode.acceptResource(resourceTypeToTransfer)) {
+            // Check if deliveryNode exists and has the correct method
+            if (deliveryNode && typeof deliveryNode.acceptItem === 'function') { 
+                // Create the item object
+                const itemToDeliver = {
+                    type: resourceTypeToTransfer,
+                    // Add texture if needed, assuming a mapping or default
+                    texture: this.scene.registry.get('resourceTextures')?.[resourceTypeToTransfer] || 'default-resource' 
+                };
+
+                if (deliveryNode.acceptItem(itemToDeliver)) { // Renamed and passing item object
                     transferred = true;
-                    this.createResourceTransferEffect(resourceTypeToTransfer, deliveryNode);
+                    // Pass the resource type for the effect, but target is the node object
+                    this.createResourceTransferEffect(resourceTypeToTransfer, deliveryNode); 
                 } else {
                     // console.warn(`[${this.name}] Delivery node rejected ${resourceTypeToTransfer}`);
                 }
+            } else {
+                console.warn(`[${this.name}] Target Delivery Node is invalid or missing acceptItem method.`);
             }
         }
         // Handle transfer to another Machine
