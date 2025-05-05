@@ -19,6 +19,12 @@ export default class GameScene extends Phaser.Scene {
         this.currentRound = 1; // Add current round tracking
         this.currentRoundScoreThreshold = 0; // Add score threshold tracking
         
+        // Momentum state
+        this.currentMomentum = 0;
+        this.maxMomentum = 100; // Example max value
+        this.momentumDecayRate = 1; // Example: 1 unit per second
+        this.momentumGainFactor = 0.5; // Example: Gain 0.5 momentum per score point
+        
         // Initialize collections
         this.resourceNodes = [];
         this.machines = [];
@@ -99,7 +105,8 @@ export default class GameScene extends Phaser.Scene {
         this.gameOver = false;
         this.currentRound = 1; // Start at round 1
         this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound); // Get initial threshold
-        
+        this.currentMomentum = this.maxMomentum / 2; // Start with half momentum
+
         // Play background music
         this.playBackgroundMusic();
 
@@ -108,10 +115,57 @@ export default class GameScene extends Phaser.Scene {
         this.lastClearTime = -Infinity; // Allow first use
         this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
 */
+
+        // Momentum UI
+        this.momentumBarBg = this.add.graphics();
+        this.momentumBar = this.add.graphics();
+        const momentumBarWidth = 150;
+        const momentumBarHeight = 20;
+        const momentumBarX = width * 0.55;
+        const momentumBarY = height * 0.87; // Position below time/round
+
+        // Background for the bar
+        this.momentumBarBg.fillStyle(0x555555, 1); // Dark grey background
+        this.momentumBarBg.fillRect(momentumBarX, momentumBarY, momentumBarWidth, momentumBarHeight);
+
+        // The actual momentum bar (will be updated)
+        this.momentumLabel = this.add.text(momentumBarX + momentumBarWidth + 10, momentumBarY, 'Momentum', {
+             fontFamily: 'Arial',
+             fontSize: 18, // Slightly smaller
+             color: '#ffffff'
+        });
+
+        // Call the initial update for the bar
+        this.updateMomentumUI();
+
+        // --- ADD CLEAR FACTORY UI HERE --- 
+        // Clear Factory Button
+        this.clearButton = this.createButton(width * 0.77, height * 0.9, 'CLEAR FACTORY', () => {
+            this.clearPlacedItems();
+        });
+        // Adjust button size for text
+        this.clearButton.button.width = 180; 
+        this.clearButton.text.x = this.clearButton.button.x;
+
+        // --- END CLEAR FACTORY UI --- 
     }
     
     update(time, delta) { // Add time, delta parameters
         if (this.gameOver || this.paused) return;
+        
+        // --- Momentum Decay ---
+        const deltaTimeSeconds = delta / 1000;
+        this.currentMomentum -= this.momentumDecayRate * deltaTimeSeconds;
+        this.currentMomentum = Math.max(0, this.currentMomentum); // Clamp at 0
+
+        // --- Update Momentum UI ---
+        this.updateMomentumUI();
+
+        // --- Check Game Over Condition ---
+        if (this.currentMomentum <= 0) {
+            this.endGame();
+            return; // Stop further updates if game is over
+        }
         
         // Update all game objects
         this.factoryGrid.update(time, delta); // Pass time, delta to Grid.update()
@@ -1097,6 +1151,13 @@ export default class GameScene extends Phaser.Scene {
 
         this.score += points;
         this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
+
+        // Increase Momentum
+        this.currentMomentum += points * this.momentumGainFactor;
+        this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum, 0, this.maxMomentum);
+
+        // Update UI Texts
+        // this.updateMomentumUI(); // Update is called every frame anyway
 
         // Check if round threshold is met
         if (this.score >= this.currentRoundScoreThreshold) {
@@ -2560,6 +2621,29 @@ export default class GameScene extends Phaser.Scene {
 
         // Play a final success sound after starting the process
         //this.playSound('clear'); // Maybe remove this if individual sounds are preferred
+    }
+
+    updateMomentumUI() {
+        this.momentumBar.clear();
+
+        const percentage = Phaser.Math.Clamp(this.currentMomentum / this.maxMomentum, 0, 1);
+        const barWidth = 150; // Must match the width used in createUI
+        const barHeight = 20; // Must match the height used in createUI
+        const barX = this.cameras.main.width * 0.55; // Must match the X used in createUI
+        const barY = this.cameras.main.height * 0.87; // Must match the Y used in createUI
+
+        // Determine color based on percentage (Green -> Yellow -> Red)
+        let color;
+        if (percentage > 0.6) {
+            color = 0x00ff00; // Green
+        } else if (percentage > 0.25) {
+            color = 0xffff00; // Yellow
+        } else {
+            color = 0xff0000; // Red
+        }
+
+        this.momentumBar.fillStyle(color, 1);
+        this.momentumBar.fillRect(barX, barY, barWidth * percentage, barHeight);
     }
 
     // -------------------------

@@ -4,15 +4,13 @@ A rogue-lite factory automation game with Tetris-like mechanics, built with Phas
 
 ## Overview
 
-Factory Tetris combines the resource management and production line optimization of factory games with the spatial puzzle mechanics of Tetris. Players must place machines to extract and process resources, while managing the Cargo Bay to ship products and score points.
+Factory Tetris combines the resource management and production line optimization of factory games with the spatial puzzle mechanics of Tetris. Players must place machines to extract and process resources, while deliverying products to delivery nodes and score points to advance to the next round. 
 
 ## Game Features
 
 - **Tetris-Like Factory Layout**: Place machines of various shapes to create efficient production lines.
-- **Cargo Bay Queue System**: Fill rows with products to clear them and score points.
 - **Resource Nodes**: Extract resources from nodes that appear and disappear over time.
 - **Progression Curve**: Game difficulty increases over the 30-minute play session.
-- **Combo System**: Clear multiple rows at once for score multipliers.
 
 ## Development Setup
 
@@ -63,13 +61,12 @@ The built files will be in the `dist` directory.
 
 The factory grid is where you place machines to extract and process resources. Each machine occupies a specific shape on the grid:
 
-- **Processors (A, B, Advanced)**: Convert resources into different types.
+- **Processors (A, B, C, Advanced)**: Convert resources into different types.
 - **Conveyors**: Transport resources. Connecting a conveyor *to* a machine tile defines an input, while connecting a conveyor *from* a machine tile defines an output. Conveyors can also be placed directly on Resource Mines to extract resources.
-- **Cargo Loaders**: Send finished products to the cargo bay to score points.
 
-### Cargo Bay
+### Delivery Nodes
 
-The Cargo Bay is where products are shipped. Fill a row completely to clear it and score points. The more rows you clear at once, the higher your score multiplier.
+Delivery nodes appear randomly and products delivered here will score points.
 
 ### Resource Nodes
 
@@ -80,7 +77,7 @@ Resource nodes appear randomly on the factory grid and have a limited lifespan. 
 1.  **Resource Generation**: Resource nodes appear on the grid.
 2.  **Extraction**: Place conveyors pointing *away* from resource nodes to start extraction.
 3.  **Transportation & Processing**: Use conveyors to define the flow of resources *into* and *out of* processor machines.
-4.  **Shipping**: Route finished products via conveyors into Cargo Loaders to send them to the Cargo Bay.
+4.  **Shipping**: Route finished products via conveyors into Delivery Nodes.
 
 ## License
 
