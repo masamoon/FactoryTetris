@@ -301,30 +301,30 @@ export default class ProcessorCMachine extends BaseMachine {
      * @param {number} delta - Time since last frame
      */
     update(time, delta) {
-        // console.log(`[ProcessorC ${this.gridX},${this.gridY}] Update called. Time: ${time.toFixed(0)}`); // Removed log
-        // Call base class update first
         super.update(time, delta);
-        
-        // If processing, update progress
+
         if (this.isProcessing) {
-            this.processingProgress += delta;
-            
+            // ---> APPLY MODIFIER HERE <---
+            const speedModifier = this.scene.upgradeManager.getProcessorSpeedModifier();
+            const effectiveDelta = delta * speedModifier; // Apply modifier to delta time
+
+            this.processingProgress += effectiveDelta; // Use modified delta
+
             // Update progress bar visual
             const progressRatio = Math.min(1, this.processingProgress / this.processingTime);
-            this.progressFill.width = this.progressBar.width * progressRatio;
-            
-            // Check if processing is complete
+            if (this.progressFill && this.progressBar) {
+                this.progressFill.width = this.progressBar.width * progressRatio;
+            }
+
             if (this.processingProgress >= this.processingTime) {
                 this.completeProcessing();
             }
         } else {
-            // If not processing, check if we can start
             if (this.canProcess()) {
                 this.startProcessing();
             }
         }
-        
-        // Try to push output if available
+
         if (this.hasOutput()) {
             this.pushOutput();
         }

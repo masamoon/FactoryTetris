@@ -1113,7 +1113,7 @@ export default class GameScene extends Phaser.Scene {
             // Select a random resource type (currently hardcoded to basic)
             const resourceTypeIndex = 0;
 
-            // Create a new resource node, passing the current round
+            // Create a new resource node, passing the current round AND upgradeManager
             const node = new ResourceNode(this, {
                 x: worldPos.x,
                 y: worldPos.y,
@@ -1121,7 +1121,7 @@ export default class GameScene extends Phaser.Scene {
                 gridY: emptySpot.y,
                 resourceType: resourceTypeIndex,
                 lifespan: GAME_CONFIG.nodeLifespan
-            }, this.currentRound); // Pass this.currentRound here
+            }, this.currentRound, this.upgradeManager); // Pass this.upgradeManager here
 
             this.resourceNodes.push(node);
             this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
@@ -2682,7 +2682,7 @@ export default class GameScene extends Phaser.Scene {
                 gridY: emptySpot1.y,
                 resourceType: resourceTypeIndex,
                 lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier() 
-            });
+            }, this.currentRound, this.upgradeManager); // Pass this.upgradeManager here
             this.resourceNodes.push(resourceNode);
             this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
             console.log(`[SPAWN_DEBUG] Successfully created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`);
@@ -2780,12 +2780,16 @@ export default class GameScene extends Phaser.Scene {
         
         // Double-check it's the current node we're tracking
         if (this.currentUpgradeNode === node) {
-            // Clear the grid cell (node might destroy itself visually, but grid needs update)
+            // Clear the grid cell 
             if (this.grid) {
                 this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
             }
             // Clear the reference so a new one can spawn
             this.currentUpgradeNode = null;
+
+            // ---> ADD DESTROY CALL HERE <---
+            console.log(`[UPGRADE] Destroying depleted node object.`);
+            node.destroy(); // Explicitly destroy the node object
             
             // Optional: Restart or adjust the spawn timer if needed
             // this.upgradeNodeSpawnTimer.reset({...}); 
@@ -2795,8 +2799,14 @@ export default class GameScene extends Phaser.Scene {
              if (this.grid) {
                 this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
             }
+            // ---> ADD DESTROY CALL HERE TOO (Safety) <---
+            // If an old node somehow lingered, destroy it anyway
+            if (node && typeof node.destroy === 'function') {
+                console.log(`[UPGRADE] Destroying lingering unknown node object.`);
+                node.destroy();
+            }
         }
-        // Node should handle its own destruction via preDestroy/destroy methods
+        // Node destruction is now handled here.
     }
 
     showUpgradeScreen() {

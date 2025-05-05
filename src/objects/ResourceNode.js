@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
+import { UpgradeManager } from '../managers/UpgradeManager';
 
 export default class ResourceNode {
-    constructor(scene, config, round) {
+    constructor(scene, config, round, upgradeManager) {
         this.scene = scene;
+        this.upgradeManager = upgradeManager;
         this.x = config.x;
         this.y = config.y;
         this.gridX = config.gridX;
@@ -31,8 +33,11 @@ export default class ResourceNode {
         // Max resources based on round
         this.maxResources = baseMaxResources + (this.round - 1) * roundFactorMaxResources;
         
-        // Calculate generation delay based on round
-        const generationDelay = Math.max(minGenerationRate, baseGenerationRate - (this.round - 1) * roundFactorGenerationRate);
+        // Calculate generation delay based on round AND upgrade modifier
+        const baseDelay = Math.max(minGenerationRate, baseGenerationRate - (this.round - 1) * roundFactorGenerationRate);
+        // Apply the regeneration modifier (divide delay by modifier to speed up)
+        const regenModifier = this.upgradeManager.getResourceRegenModifier();
+        const generationDelay = baseDelay / regenModifier; 
         
         // Add cooldown for pushing resources
         this.pushCooldown = 500; // ms - Push resources every 0.5 seconds if possible
@@ -320,6 +325,38 @@ export default class ResourceNode {
         // Destroy visuals
         if (this.container) {
             this.container.destroy();
+        }
+    }
+
+    /**
+     * Extracts one unit of resource, potentially modified by bounty upgrades.
+     * Called by external entities like Conveyors.
+     * @returns {object|null} An object { type: string, amount: number } or null if no resources.
+     */
+    extractResource() {
+        if (this.resources > 0) {
+            const bountyModifier = this.upgradeManager.getResourceBountyModifier();
+            const amountExtracted = Math.max(1, Math.floor(1 * bountyModifier)); // Ensure at least 1 is extracted
+
+            // Decrement resources, but don't go below zero
+            const resourcesConsumed = 1; // Always consumes 1 base unit per extraction attempt
+            this.resources = Math.max(0, this.resources - resourcesConsumed); 
+            
+            console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) extracted ${amountExtracted} ${this.resourceType.id}, remaining: ${this.resources}`);
+
+            // Update visual indicator
+            if (this.resourceIndicator) {
+                this.resourceIndicator.setText(this.resources.toString());
+            }
+
+            // Return the resource object with potentially increased amount
+            return { 
+                type: this.resourceType.id, 
+                amount: amountExtracted 
+            };
+        } else {
+            //console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) attempt to extract failed, no resources.`);
+            return null; // No resources available
         }
     }
 } 

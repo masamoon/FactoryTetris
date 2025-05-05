@@ -249,7 +249,10 @@ export default class AdvancedProcessorMachine extends BaseMachine {
 
         // If processing, update progress
         if (this.isProcessing) {
-            this.processingProgress += delta;
+            const speedModifier = this.scene.upgradeManager.getProcessorSpeedModifier();
+            const effectiveDelta = delta * speedModifier; // Apply modifier to delta time
+
+            this.processingProgress += effectiveDelta; // Use modified delta
 
             // *** ADDED: Update progress bar visual ***
             const progressRatio = Math.min(1, this.processingProgress / this.processingTime);

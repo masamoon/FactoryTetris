@@ -337,19 +337,21 @@ export default class ProcessorAMachine extends BaseMachine {
      * Override the update method to handle processing logic
      */
     update(time, delta) {
-        // Call base class update first
-        super.update(time, delta);
+        super.update(time, delta); // Call base class update
         
-        // If processing, update progress
+        // Update processing state
         if (this.isProcessing) {
-            this.processingProgress += delta;
-            
-            // *** ADDED: Update progress bar visual ***
+            // ---> APPLY MODIFIER HERE <---
+            const speedModifier = this.scene.upgradeManager.getProcessorSpeedModifier();
+            const effectiveDelta = delta * speedModifier; // Apply modifier to delta time
+
+            this.processingProgress += effectiveDelta; // Use modified delta
+
+            // Update progress bar visual
             const progressRatio = Math.min(1, this.processingProgress / this.processingTime);
-            if (this.progressFill && this.progressBar) { // Check if bar exists
+            if (this.progressFill && this.progressBar) {
                  this.progressFill.width = this.progressBar.width * progressRatio;
             }
-            // *** END ADDED ***
             
             // Check if processing is complete
             if (this.processingProgress >= this.processingTime) {
@@ -361,10 +363,10 @@ export default class ProcessorAMachine extends BaseMachine {
                 this.startProcessing();
             }
         }
-        
+
         // Try to push output if available
         if (this.hasOutput()) {
-            this.pushOutput();
+            this.pushOutput(); 
         }
     }
     
