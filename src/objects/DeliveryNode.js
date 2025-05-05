@@ -66,53 +66,78 @@ export default class DeliveryNode {
     /**
      * Accept an item delivered to this node.
      * Handles both regular resources and upgrade packages.
-     * @param {object} item - The item object being delivered (e.g., { type: 'resourceA', texture: '...' } or { type: 'upgrade_package', texture: '...' }).
+     * @param {object} itemData - The item object being delivered { type: string, amount: number }.
      * @returns {boolean} - True if the item was accepted, false otherwise.
      */
-    acceptItem(item) { // Renamed and parameter changed
-        if (!item || !item.type) {
-            console.warn("DeliveryNode received invalid item:", item);
+    acceptItem(itemData) { // Parameter changed to itemData
+        if (!itemData || !itemData.type) { // Check itemData
+            console.warn("DeliveryNode received invalid itemData:", itemData);
             return false;
         }
 
-        // Check if it's an upgrade package
-        if (item.type === UPGRADE_PACKAGE_TYPE) {
-            console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted an Upgrade Package!`);
-            // Increment upgrade counter
-            this.scene.upgradeManager.incrementUpgradesDelivered();
+        const itemType = itemData.type; // Get type from itemData
+        const amount = itemData.amount || 1; // Get amount, default to 1 if missing
 
-            // TODO: Trigger the Upgrade Selection UI
-            // This will likely involve pausing the game and launching a new scene or UI panel.
-            this.scene.events.emit('triggerUpgradeSelection'); // Emit an event that GameScene can listen for
-            console.log("Triggering upgrade selection UI...");
+        // Check if it's an upgrade package
+        if (itemType === UPGRADE_PACKAGE_TYPE) {
+            console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${amount} Upgrade Package(s)!`);
+            // Increment upgrade counter for each package received
+            for (let i = 0; i < amount; i++) {
+                 this.scene.upgradeManager.incrementUpgradesDelivered();
+                 // Trigger UI once per batch for now, could change later
+                 if (i === 0) {
+                    this.scene.events.emit('triggerUpgradeSelection'); 
+                    console.log("Triggering upgrade selection UI...");
+                 }
+            }
 
             // Create a distinct effect for upgrade packages?
-            this.createAcceptEffect('upgrade', 0); // Use a generic type/color, no points
+            this.createAcceptEffect('upgrade', 0); // Points aren't relevant for upgrades
 
             return true; // Upgrade package accepted
         }
 
         // --- Handle regular resources ---
-        const resourceType = item.type; // Extract resource type from the item object
+        const resourceType = itemType; 
 
         // Find the score for this resource type from the config
         const resourceConfig = GAME_CONFIG.resourceTypes.find(r => r.id === resourceType);
-        const points = resourceConfig ? resourceConfig.points : 0; // Default to 0 if not found
+        const pointsPerUnit = resourceConfig ? resourceConfig.points : 0; // Default to 0 if not found
+        const totalPoints = pointsPerUnit * amount; // Calculate total points based on amount
 
-        if (points === 0 && resourceType !== 'upgrade') { // Check if it was a valid resource
+        if (pointsPerUnit === 0) { // Check if it was a valid resource type
              console.warn(`DeliveryNode received unknown resource type: ${resourceType}`);
              // Optional: Create a different visual effect for unknown items?
              return false; // Reject unknown resource types
         }
 
         // Add score
-        this.scene.addScore(points);
+        this.scene.addScore(totalPoints);
 
         // Visual feedback for accepted resource
-        this.createAcceptEffect(resourceType, points);
+        this.createAcceptEffect(resourceType, totalPoints);
 
-        console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${resourceType}, +${points} points`);
+        console.log(`DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${amount}x ${resourceType}, +${totalPoints} points`);
         return true;
+    }
+
+    /**
+     * Checks if the Delivery Node can accept a given item type.
+     * @param {string} itemType - The type ID of the item (e.g., 'basic-resource', 'upgrade_package').
+     * @returns {boolean} True if the type is acceptable, false otherwise.
+     */
+    canAcceptInput(itemType) {
+        // Allow upgrade packages
+        if (itemType === UPGRADE_PACKAGE_TYPE) {
+            return true;
+        }
+        // Allow any resource type defined in the game config
+        if (GAME_CONFIG.resourceTypes.some(r => r.id === itemType)) {
+            return true;
+        }
+        // Reject unknown types
+        console.warn(`DeliveryNode at (${this.gridX}, ${this.gridY}) rejecting unknown type: ${itemType}`);
+        return false;
     }
 
     /**

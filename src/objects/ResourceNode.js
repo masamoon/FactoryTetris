@@ -229,7 +229,8 @@ export default class ResourceNode {
             if (cell && cell.type === 'machine' && cell.machine && cell.machine.id !== 'conveyor') {
                 const targetMachine = cell.machine;
                 if (targetMachine.canAcceptInput && targetMachine.canAcceptInput(this.resourceType.id)) {
-                    if (targetMachine.receiveResource(this.resourceType.id, this)) {
+                    const itemToPush = { type: this.resourceType.id, amount: 1 };
+                    if (targetMachine.acceptItem(itemToPush)) {
                         this.resources--; // Decrement node resources
                         this.lastPushTime = now; // Reset cooldown
                         if (this.resourceIndicator) {
@@ -253,8 +254,8 @@ export default class ResourceNode {
                 if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true;  // Target is up, conveyor not pointing down
 
                 if (isPointingAway && conveyor.canAcceptInput && conveyor.canAcceptInput(this.resourceType.id)) {
-                    // Use receiveResource for consistency, assuming acceptResourceFromMine isn't strictly needed
-                    if (conveyor.receiveResource(this.resourceType.id, this)) {
+                    const itemToPush = { type: this.resourceType.id, amount: 1 };
+                    if (conveyor.acceptItem(itemToPush)) {
                         this.resources--; // Decrement node resources
                         this.lastPushTime = now; // Reset cooldown
                         if (this.resourceIndicator) {

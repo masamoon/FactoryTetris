@@ -283,11 +283,11 @@ export default class GameScene extends Phaser.Scene {
         });
         
         // Factory label
-        this.add.text(width * 0.25, height * 0.05, 'FACTORY', {
+       /* this.add.text(width * 0.25, height * 0.05, 'FACTORY', {
             fontFamily: 'Arial Black',
             fontSize: 20,
             color: '#ffffff'
-        }).setOrigin(0.5, 0);
+        }).setOrigin(0.5, 0); */	
         
         // Pause button
         this.createButton(width * 0.9, height * 0.05, 'PAUSE', () => {
@@ -1267,6 +1267,7 @@ export default class GameScene extends Phaser.Scene {
         this.updateDifficulty();
 
         // 7. Optional: Add a visual indication of round start/change
+        /* REMOVED: Large round announcement text
         const roundAnnounce = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, `ROUND ${this.currentRound}`, {
             fontFamily: 'Arial Black',
             fontSize: '48px',
@@ -1283,6 +1284,7 @@ export default class GameScene extends Phaser.Scene {
             ease: 'Power1',
             onComplete: () => { roundAnnounce.destroy(); }
         });
+        */
 
         console.log(`Advanced to round ${this.currentRound}. New score threshold: ${this.currentRoundScoreThreshold}`);
     }
@@ -1413,12 +1415,12 @@ export default class GameScene extends Phaser.Scene {
         const height = this.cameras.main.height;
         
         // Add some factory-themed decorations
-        this.add.rectangle(width * 0.5, height * 0.1, width * 0.02, height * 0.8, 0x333333).setOrigin(0.5, 0);
-        this.add.rectangle(width * 0.5, height * 0.1, width * 0.01, height * 0.8, 0x555555).setOrigin(0.5, 0);
+        //this.add.rectangle(width * 0.5, height * 0.1, width * 0.02, height * 0.8, 0x333333).setOrigin(0.5, 0);
+        //this.add.rectangle(width * 0.5, height * 0.1, width * 0.01, height * 0.8, 0x555555).setOrigin(0.5, 0);
         
         // Add some pipes and industrial elements
-        this.addPipe(width * 0.05, height * 0.1, width * 0.4, 0x555555);
-        this.addPipe(width * 0.55, height * 0.1, width * 0.4, 0x555555);
+        //this.addPipe(width * 0.05, height * 0.1, width * 0.4, 0x555555);
+        //this.addPipe(width * 0.55, height * 0.1, width * 0.4, 0x555555);
     }
     
     addPipe(x, y, width, color) {
@@ -2558,15 +2560,44 @@ export default class GameScene extends Phaser.Scene {
 
         // --- Clear Machines --- 
         const machinesToClear = [...this.machines]; 
-        const clearDelay = 250; 
-        this.machines = [];
+        const clearDelay = 250; // Delay before final grid removal
+        this.machines = []; // Clear the main array immediately
+
         machinesToClear.forEach((machine, index) => {
             if (machine && machine.container && this.grid) {
-                 // ... (existing machine clearing effects/logic) ...
-                 this.time.delayedCall(clearDelay, () => { 
+                 // --- ADD CRUNCHY ANIMATION & SOUND ---
+                 this.playSound('destroy'); // Assuming a 'destroy' sound effect exists
+
+                 this.tweens.add({
+                    targets: machine.container,
+                    scaleX: 0.1,
+                    scaleY: 0.1,
+                    alpha: 0,
+                    duration: clearDelay - 50, // Finish slightly before removal
+                    ease: 'Power2',
+                    onComplete: () => {
+                        // Now schedule the actual removal after the animation
+                        this.time.delayedCall(50, () => { // Short delay after tween finishes
+                           if (this.grid && machine) { 
+                               this.grid.removeMachine(machine); // Removes from grid and calls machine.destroy()
+                           } 
+                           // Optional: Could add particle cleanup here if needed
+                        });
+                    }
+                 });
+                 // --- END CRUNCHY ANIMATION & SOUND ---
+
+                 // --- REMOVED delayedCall from here, now triggered by tween onComplete ---
+                 /* this.time.delayedCall(clearDelay, () => { 
                     if (this.grid && machine) { this.grid.removeMachine(machine); } 
                     // ... (particle cleanup) ...
-                 });
+                 }); */
+            } else {
+                 // If machine or container is invalid, try to remove from grid directly if possible
+                 if (this.grid && machine) {
+                    console.warn(`[Clear] Machine or container invalid for animation, attempting direct removal for machine at (${machine.gridX}, ${machine.gridY})`);
+                    this.grid.removeMachine(machine); 
+                 }
             }
         });
 

@@ -590,45 +590,46 @@ export default class ProcessorCMachine extends BaseMachine {
             // console.log(`[${this.id}] pushOutput: Trying target (${targetCoords.x}, ${targetCoords.y}). Cell content:`, targetCell); // Log cell content
             
             // Check if the target cell can accept input
-            if (targetCell && targetCell.type === 'machine' && targetCell.machine && targetCell.machine.canAcceptInput) {
+            if (targetCell && targetCell.type === 'machine' && targetCell.machine && typeof targetCell.machine.acceptItem === 'function') {
                 const targetMachine = targetCell.machine;
-                // console.log(`[${this.id}] pushOutput: Target is machine: ${targetMachine.id}`); // Log target machine
                 
-                // Try to push the first available output type (can be enhanced later if needed)
+                // Try to push the first available output type 
                 for (const resourceType in this.outputInventory) {
                     if (this.outputInventory[resourceType] > 0) {
-                        // console.log(`[${this.id}] pushOutput: Attempting to push ${resourceType} to target (${targetCoords.x}, ${targetCoords.y})`); // Log attempt
-                        // Check if target machine accepts this resource type
-                        const canAccept = targetMachine.canAcceptInput(resourceType);
-                        // console.log(`[${this.id}] pushOutput: Target machine canAcceptInput(${resourceType})? ${canAccept}`); // Log canAccept
-                        if (canAccept) {
-                            // Attempt to transfer resource
-                            const received = targetMachine.receiveResource(resourceType, this);
-                            // console.log(`[${this.id}] pushOutput: Target machine receiveResource(${resourceType})? ${received}`); // Log received
-                            if (received) {
+                        
+                        // --- MODIFIED: Check canAcceptInput first --- 
+                        if (targetMachine.canAcceptInput && targetMachine.canAcceptInput(resourceType)) {
+                            
+                            // --- MODIFIED: Attempt transfer using acceptItem --- 
+                            const itemToTransfer = { type: resourceType, amount: 1 };
+                            if (targetMachine.acceptItem(itemToTransfer)) { // Call acceptItem
                                 // Decrease output inventory
                                 this.outputInventory[resourceType]--;
                                 
                                 // Create transfer effect
                                 this.createResourceTransferEffect(resourceType, targetMachine);
                                 
-                                console.log(`[${this.id}] Successfully pushed ${resourceType} to machine at (${targetCoords.x}, ${targetCoords.y})`);
+                                // console.log(`[${this.id}] Successfully pushed ${resourceType} to machine at (${targetCoords.x}, ${targetCoords.y})`);
                                 
                                 // Exit pushOutput completely after successfully pushing one resource
                                 return; 
                             } else {
-                                // Target machine rejected resource (e.g., full inventory)
-                                // console.log(`[${this.id}] Target machine at (${targetCoords.x}, ${targetCoords.y}) rejected ${resourceType} (receiveResource returned false).`);
-                                // Don't break here, allow trying the *same* resource type on the *next* potential target
+                                // Target machine rejected item (e.g., full inventory)
+                                // console.log(`[${this.id}] Target machine at (${targetCoords.x}, ${targetCoords.y}) rejected ${resourceType} (acceptItem returned false).`);
                             }
+                            // --- END MODIFIED Transfer --- 
+                        } else {
+                            // Target machine cannot accept this type
+                            // console.log(`[${this.id}] Target machine at (${targetCoords.x}, ${targetCoords.y}) cannot accept type ${resourceType}.`);
                         }
-                        // If canAccept is false, try the same resource on the next potential target
+                        // --- END MODIFIED Check --- 
+                        
                         // Only try one resource type per pushOutput cycle for simplicity
                         break; // Stop trying resource types for this target cell, move to next target cell
                     }
                 } // End loop resource types
             } else {
-                // console.log(`[${this.id}] pushOutput: Target cell at (${targetCoords.x}, ${targetCoords.y}) cannot accept input (Not a machine or lacks canAcceptInput).`);
+                // console.log(`[${this.id}] pushOutput: Target cell at (${targetCoords.x}, ${targetCoords.y}) cannot accept input (Not a machine or lacks acceptItem/canAcceptInput).`);
             }
         } // End loop potential targets
 

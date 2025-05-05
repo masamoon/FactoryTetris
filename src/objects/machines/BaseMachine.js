@@ -1042,7 +1042,8 @@ export default class BaseMachine {
         else if (targetInfo.type === 'machine') {
             const targetMachine = targetInfo.target;
             
-            if (targetMachine && typeof targetMachine.canAcceptInput === 'function' && typeof targetMachine.receiveResource === 'function') {
+            // --- MODIFIED: Check for acceptItem method --- 
+            if (targetMachine && typeof targetMachine.canAcceptInput === 'function' && typeof targetMachine.acceptItem === 'function') {
                 // Check if target machine can accept the resource type and has space
                 if (targetMachine.canAcceptInput(resourceTypeToTransfer)) {
                     
@@ -1069,18 +1070,24 @@ export default class BaseMachine {
 
                     // Attempt transfer only if allowed (basic acceptance AND directional check passed)
                     if (allowTransfer) {
-                        if (targetMachine.receiveResource(resourceTypeToTransfer, this)) {
+                        // --- MODIFIED: Call acceptItem with item object --- 
+                        const itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
+                        if (targetMachine.acceptItem(itemToTransfer)) { 
                             transferred = true;
                             this.createResourceTransferEffect(resourceTypeToTransfer, targetMachine);
                         } else {
-                            // console.warn(`[${this.name}] Target machine ${targetMachine.name} receiveResource returned false for ${resourceTypeToTransfer}`);
+                            console.warn(`[${this.name}] Target machine ${targetMachine.name} acceptItem returned false for ${resourceTypeToTransfer}`);
                         }
                     }
                 } else {
-                   // console.warn(`[${this.name}] Target machine ${targetMachine.name} cannot accept input ${resourceTypeToTransfer}`);
+                   console.warn(`[${this.name}] Target machine ${targetMachine.name} cannot accept input type ${resourceTypeToTransfer}`);
                 }
             } else {
-                 console.warn(`[${this.name}] Target machine is invalid or missing methods.`);
+                 // --- MODIFIED: Update warning message --- 
+                 let reason = "is invalid";
+                 if (targetMachine && typeof targetMachine.acceptItem !== 'function') reason = "is missing acceptItem method";
+                 else if (targetMachine && typeof targetMachine.canAcceptInput !== 'function') reason = "is missing canAcceptInput method";
+                 console.warn(`[${this.name}] Target machine ${reason}.`);
             }
         }
 
@@ -1379,15 +1386,28 @@ export default class BaseMachine {
     }
 
     /**
-     * Receive a resource from another machine or source.
-     * @param {string} resourceType - The ID of the resource being received.
-     * @param {BaseMachine} sourceMachine - The machine sending the resource (optional).
-     * @returns {boolean} True if the resource was accepted, false otherwise.
+     * Accept an item from another machine or source.
+     * Replaces the old receiveResource method.
+     * @param {object} itemData - The item object { type: string, amount: number } being received.
+     * @param {BaseMachine} [sourceMachine=null] - The machine sending the resource (optional).
+     * @returns {boolean} True if the item was accepted, false otherwise.
      */
-    receiveResource(resourceType, sourceMachine = null) {
-        if (this.canAcceptInput(resourceType)) {
-            this.inputInventory[resourceType]++;
-            console.log(`[${this.name}] at (${this.gridX}, ${this.gridY}) received ${resourceType}. Input:`, this.inputInventory);
+    acceptItem(itemData, sourceMachine = null) {
+        if (!itemData || !itemData.type) {
+             console.warn(`[${this.name}] received invalid itemData at (${this.gridX}, ${this.gridY})`);
+             return false;
+        }
+        
+        const itemType = itemData.type;
+        // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
+
+        if (this.canAcceptInput(itemType)) {
+            // Ensure inventory slot exists (though initInventories should handle this)
+            if (this.inputInventory[itemType] === undefined) {
+                this.inputInventory[itemType] = 0;
+            }
+            this.inputInventory[itemType]++;
+            console.log(`[${this.name}] at (${this.gridX}, ${this.gridY}) accepted ${itemType}. Input:`, this.inputInventory);
             
             // Optional: Trigger a visual effect
             this.scene.tweens.add({
@@ -1400,7 +1420,7 @@ export default class BaseMachine {
             });
             return true;
         }
-        console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceType}. Input full or type mismatch.`);
+        console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${itemType}. Input full or type mismatch.`);
         return false;
     }
 

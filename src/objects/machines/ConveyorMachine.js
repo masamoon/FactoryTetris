@@ -18,9 +18,11 @@ export default class ConveyorMachine extends BaseMachine {
         super(scene, config);
         
         // Initialize conveyor-specific properties
-        this.transportSpeed = 1.5; // Speed multiplier for resource movement
-        this.maxCapacity = 3; // Maximum number of resources on the conveyor at once
-        this.currentItems = []; // Items currently on the conveyor
+        this.transportSpeed = 50; // Pixels per second
+        this.maxCapacity = 3; // Maximum number of items visually on the conveyor at once
+        // Array to hold items currently being transported visually
+        // Each element: { visual: Phaser.GameObjects.GameObject, itemData: {type, amount}, progress: number (0-1) }
+        this.itemsOnBelt = [];
     }
 
     /**
@@ -56,6 +58,9 @@ export default class ConveyorMachine extends BaseMachine {
         
         // Create container for machine parts positioned at the center
         this.container = this.scene.add.container(worldPos.x, worldPos.y);
+        
+        // Create a group to manage item visuals within the container
+        this.itemVisualsGroup = this.scene.add.group();
         
         // Create the conveyor base - parts are now positioned relative to the center (0,0)
         const centerX = 0;
@@ -194,11 +199,8 @@ export default class ConveyorMachine extends BaseMachine {
            console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Input: ${JSON.stringify(this.inputInventory)}, Output: ${JSON.stringify(this.outputInventory)}`);
         } */
         
-        // Move items along the conveyor
-        this.moveItems(delta);
-        
-        // Check if we can transfer resources to connected machines
-        this.transferResources();
+        // Move items along the conveyor and attempt transfer
+        this.updateItemsOnBelt(delta);
     }
     
     /**
@@ -245,299 +247,339 @@ export default class ConveyorMachine extends BaseMachine {
 
         // If an item was successfully extracted
         if (extractedItem && extractedItem.type) {
-            console.log(`[CONVEYOR_EXTRACT] Extracted item of type '${extractedItem.type}' from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`);
-            // Ensure input inventory exists for this type
-            if (this.inputInventory[extractedItem.type] === undefined) {
-                this.inputInventory[extractedItem.type] = 0;
-            }
-            // Add to input inventory
-            this.inputInventory[extractedItem.type]++;
-
-            // Optional: Visual feedback on the conveyor/node
-            if (this.container) {
-                 this.scene.tweens.add({
-                    targets: this.container, // Or a specific part
-                    scaleY: 1.1, // Briefly pulse
-                    duration: 100,
-                    yoyo: true,
-                    ease: 'Sine.easeInOut'
-                });
+            console.log(`[CONVEYOR_EXTRACT] Extracted item \'${extractedItem.type}\' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`);
+            
+            // --- ADD ITEM VISUAL LOGIC ---
+            if (this.itemsOnBelt.length < this.maxCapacity) {
+                // Check if the first item on the belt (if any) is near the start
+                // Prevent stacking visuals right at the beginning
+                const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+                if (firstItemProgress > 0.1) { // Only add if start is clear (10% progress)
+                    this.addItemVisual(extractedItem); 
+                } else {
+                    console.log(`[CONVEYOR_EXTRACT] Start of belt blocked at (${this.gridX}, ${this.gridY}), cannot add visual.`);
+                }
             } else {
-                 console.warn(`[CONVEYOR_EXTRACT] Cannot create tween effect at (${this.gridX}, ${this.gridY}): this.container is null!`);
+                 console.log(`[CONVEYOR_EXTRACT] Belt full at (${this.gridX}, ${this.gridY}), cannot add visual.`);
             }
+            // --- END ITEM VISUAL LOGIC ---
+            
+            // For conveyors, items are now directly visualized and tracked in itemsOnBelt
         } /* else if (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') {
              console.log(`[CONVEYOR_EXTRACT] Node at (${sourceX}, ${sourceY}) exists but extractResource returned null (likely depleted).`);
         } */
     }
     
     /**
-     * Move items along the conveyor
-     * @param {number} delta - Time elapsed since last update in ms
+     * Adds a visual representation of an item to the belt.
+     * @param {object} itemData - The item data {type, amount}
      */
-    moveItems(delta) {
-        // Transfer resources from input to output inventory
-        for (const resourceType in this.inputInventory) { 
-            if (this.inputInventory[resourceType] > 0) {
-                if (this.outputInventory[resourceType] === undefined) {
-                    this.outputInventory[resourceType] = 0;
+    addItemVisual(itemData) {
+        // --- ADDED Safety Check ---
+        if (!this.container || !this.grid || !this.itemVisualsGroup) {
+            console.error(`[CONVEYOR] Cannot add item visual at (${this.gridX}, ${this.gridY}): Container, grid, or group missing.`);
+            return; 
+        }
+        // --- END Safety Check ---
+
+        const visual = this.createItemVisual(itemData.type);
+        if (!visual) return; // Could not create visual
+
+        const startPos = this.getItemPosition(0); // Position at progress 0
+        visual.setPosition(startPos.x, startPos.y);
+        
+        // Add visual to the container for rendering AND to the group for management
+        this.container.add(visual); 
+        this.itemVisualsGroup.add(visual); 
+
+        this.itemsOnBelt.unshift({ // Add to the beginning of the array (items move index 0 -> end)
+            visual: visual,
+            itemData: itemData,
+            progress: 0
+        });
+        console.log(`[CONVEYOR] Added visual for ${itemData.type} to belt (${this.gridX}, ${this.gridY}). Total items: ${this.itemsOnBelt.length}`);
+    }
+    
+    /**
+     * Creates a visual GameObject for a given item type.
+     * @param {string} itemType 
+     * @returns {Phaser.GameObjects.GameObject | null}
+     */
+    createItemVisual(itemType) {
+        // --- ADDED Safety Check ---
+        if (!this.grid) { 
+            console.error(`[CONVEYOR] Cannot create item visual at (${this.gridX}, ${this.gridY}): Grid missing.`);
+            return null; 
+        }
+        // --- END Safety Check ---
+
+        const size = this.grid.cellSize * 0.3; // Visual size relative to cell
+        let visual = null;
+
+        if (itemType === UPGRADE_PACKAGE_TYPE) {
+            // Use the preloaded sprite if available
+            if (this.scene.textures.exists('upgrade-package')) {
+                 visual = this.scene.add.sprite(0, 0, 'upgrade-package');
+                 visual.setDisplaySize(size * 1.2, size * 1.2); // Make package slightly larger
+            } else {
+                 // Fallback to square if sprite missing
+                 visual = this.scene.add.rectangle(0, 0, size, size, 0xff00ff); // Magenta fallback
+            }
+        } else {
+            // For resources, use colored squares based on type (get color from config?)
+            const resourceConf = GAME_CONFIG.resourceTypes.find(rt => rt.id === itemType);
+            const color = resourceConf ? resourceConf.color : 0xaaaaaa; // Default grey
+            visual = this.scene.add.rectangle(0, 0, size, size, color);
+            visual.setStrokeStyle(1, 0x333333); // Add a small border
+        }
+
+        if (visual) {
+           visual.setDepth(1); // Ensure item is above belt graphics
+           // We add the visual to the itemVisualsGroup which is already in the container
+           // this.container.add(visual); // DON'T add directly to container if using group
+        }
+        return visual;
+    }
+    
+    /**
+     * Calculates the position along the conveyor belt for a given progress.
+     * @param {number} progress - Value from 0 (start) to 1 (end).
+     * @returns {{x: number, y: number}}
+     */
+    getItemPosition(progress) {
+        const halfCell = this.grid.cellSize / 2;
+        let startX = 0, startY = 0, endX = 0, endY = 0;
+
+        // Positions are relative to the container center (0,0)
+        switch (this.direction) {
+            case 'right':
+                startX = -halfCell + 5; startY = 0;
+                endX = halfCell - 5; endY = 0;
+                break;
+            case 'down':
+                startX = 0; startY = -halfCell + 5;
+                endX = 0; endY = halfCell - 5;
+                break;
+            case 'left':
+                startX = halfCell - 5; startY = 0;
+                endX = -halfCell + 5; endY = 0;
+                break;
+            case 'up':
+                startX = 0; startY = halfCell - 5;
+                endX = 0; endY = -halfCell + 5;
+                break;
+        }
+
+        // Linear interpolation
+        const currentX = Phaser.Math.Linear(startX, endX, progress);
+        const currentY = Phaser.Math.Linear(startY, endY, progress);
+
+        return { x: currentX, y: currentY };
+    }
+    
+    /**
+     * Moves items along the conveyor and attempts transfer when they reach the end.
+     * @param {number} delta - Time elapsed since last frame in milliseconds.
+     */
+    updateItemsOnBelt(delta) {
+        if (!this.itemsOnBelt || this.itemsOnBelt.length === 0) {
+            return; // No items to move
+        }
+
+        const secondsDelta = delta / 1000;
+        const distanceToMove = this.transportSpeed * secondsDelta;
+        const progressIncrement = distanceToMove / this.grid.cellSize; // Progress relative to cell size
+
+        // Iterate backwards for safe removal
+        for (let i = this.itemsOnBelt.length - 1; i >= 0; i--) {
+            const currentItem = this.itemsOnBelt[i];
+
+            // If item already reached the end, skip movement, just check transfer
+            if (currentItem.progress >= 1) {
+                if (this.tryTransferItem(currentItem, i)) {
+                     // Item was transferred and removed, continue loop
+                } else {
+                    // Item still blocked at the end
                 }
-                
-                if (this.outputInventory[resourceType] < 5) { 
-                    this.inputInventory[resourceType]--;
-                    this.outputInventory[resourceType]++;
-                    if (resourceType === UPGRADE_PACKAGE_TYPE) {
-                        console.log(`[CONVEYOR_MOVE] Conveyor (${this.gridX}, ${this.gridY}) moved UPGRADE_PACKAGE from input to output.`);
-                    }
-                    break; 
+                continue; // Move to next item
+            }
+
+            // Check if the path immediately ahead is blocked by the next item
+            if (i < this.itemsOnBelt.length - 1) {
+                const itemAhead = this.itemsOnBelt[i + 1];
+                // Calculate required spacing (e.g., 1/3 of belt length)
+                const requiredSpacingProgress = 1 / this.maxCapacity; 
+                if (itemAhead.progress - currentItem.progress < requiredSpacingProgress) {
+                     //console.log(`[CONVEYOR] Item at index ${i} blocked by item ${i+1} at (${this.gridX}, ${this.gridY})`);
+                     continue; // Blocked by item ahead, stop moving this one
                 }
+            }
+
+            // Update progress
+            currentItem.progress += progressIncrement;
+            currentItem.progress = Phaser.Math.Clamp(currentItem.progress, 0, 1);
+
+            // Update visual position
+            const newPos = this.getItemPosition(currentItem.progress);
+            currentItem.visual.setPosition(newPos.x, newPos.y);
+
+            // If item reached the end this frame, attempt transfer
+            if (currentItem.progress >= 1) {
+                //console.log(`[CONVEYOR] Item reached end at (${this.gridX}, ${this.gridY}). Attempting transfer.`);
+                this.tryTransferItem(currentItem, i); // Attempt transfer, result handled inside
             }
         }
     }
     
     /**
-     * Override the canProcess method for conveyor-specific logic
-     * @returns {boolean} True if the conveyor can accept more items
+     * Attempts to transfer a specific item that has reached the end of the belt.
+     * @param {object} itemToTransfer - The item object from itemsOnBelt { visual, itemData, progress }
+     * @param {number} index - The index of the item in the itemsOnBelt array.
+     * @returns {boolean} True if the item was successfully transferred and removed, false otherwise.
      */
-    canProcess() {
-        // Conveyor can accept items if it's not at max capacity
-        return this.currentItems.length < this.maxCapacity;
+    tryTransferItem(itemToTransfer, index) {
+        const targetCoords = this.getTransferTargetCoords();
+        if (!targetCoords) return false; // No valid target cell
+
+        const targetCell = this.grid.getCell(targetCoords.x, targetCoords.y);
+
+        let targetEntity = null;
+        let targetEntityType = 'none';
+
+        // Prioritize checking for a machine first
+        if (targetCell && targetCell.machine) {
+            targetEntity = targetCell.machine;
+            targetEntityType = 'machine';
+        } 
+        // If no machine, check for a node-like object (delivery, etc.)
+        else if (targetCell && targetCell.object) {
+             targetEntity = targetCell.object;
+             targetEntityType = targetCell.type; // e.g., 'delivery-node'
+        }
+
+        // Check if we found a valid target entity with the necessary methods
+        if (targetEntity && typeof targetEntity.acceptItem === 'function' && typeof targetEntity.canAcceptInput === 'function') {
+            
+            // --- ADDED DEBUG LOG --- 
+            console.log(`[DEBUG] Conveyor (${this.gridX}, ${this.gridY}) checking if target ${targetEntityType} (${targetEntity.id || 'node'} at ${targetCoords.x}, ${targetCoords.y}) can accept type: '${itemToTransfer.itemData.type}'`);
+            // --- END DEBUG LOG --- 
+            
+            // Now check if the target can accept this specific item type
+            if (targetEntity.canAcceptInput(itemToTransfer.itemData.type)) {
+                // Attempt to transfer the item object ({type, amount})
+                if (targetEntity.acceptItem(itemToTransfer.itemData)) {
+                    console.log(`[CONVEYOR] Transferred ${itemToTransfer.itemData.type} from (${this.gridX}, ${this.gridY}) to ${targetEntityType} at (${targetCoords.x}, ${targetCoords.y})`);
+                    
+                    // Transfer successful: Remove item from belt and destroy visual
+                    itemToTransfer.visual.destroy();
+                    this.itemsOnBelt.splice(index, 1);
+                    return true; // Indicate success
+                } else {
+                    console.log(`[CONVEYOR] Transfer failed: Target ${targetEntityType} rejected item at (${targetCoords.x}, ${targetCoords.y})`);
+                    return false; // Target rejected
+                }
+            } else {
+                 console.log(`[CONVEYOR] Transfer failed: Target ${targetEntityType} cannot accept type ${itemToTransfer.itemData.type} at (${targetCoords.x}, ${targetCoords.y})`);
+                 return false; // Target cannot accept type
+            }
+        } else {
+            // Log details if the check fails
+            let reason = "Unknown";
+            if (!targetCell) {
+                reason = "No target cell found";
+            } else if (!targetEntity) {
+                 reason = `Target cell is empty or has no machine/object (Type: ${targetCell.type})`;
+            } else if (typeof targetEntity.acceptItem !== 'function') {
+                reason = `Target entity (${targetEntity.id || targetEntity.constructor.name}) lacks 'acceptItem' method`;
+            } else if (typeof targetEntity.canAcceptInput !== 'function') {
+                 reason = `Target entity (${targetEntity.id || targetEntity.constructor.name}) lacks 'canAcceptInput' method`;
+            }
+            console.log(`[CONVEYOR] Transfer failed (${reason}) at (${targetCoords.x}, ${targetCoords.y})`);
+            return false; // No valid target or method missing
+        }
     }
     
     /**
-     * Override the transferResources method for conveyor-specific logic
+     * Calculates the coordinates of the cell this conveyor should transfer resources to.
+     * @returns {{x: number, y: number} | null} Target coordinates or null if invalid.
      */
-    transferResources() {
-        // Determine target cell based on direction
+    getTransferTargetCoords() {
+        if (!this.grid) return null;
+
         let targetX = this.gridX;
         let targetY = this.gridY;
 
         switch (this.direction) {
             case 'right': targetX += 1; break;
-            case 'down': targetY += 1; break;
-            case 'left': targetX -= 1; break;
-            case 'up': targetY -= 1; break;
+            case 'down':  targetY += 1; break;
+            case 'left':  targetX -= 1; break;
+            case 'up':    targetY -= 1; break;
+            default:
+                console.warn(`[CONVEYOR] Invalid direction: ${this.direction} at (${this.gridX}, ${this.gridY})`);
+                return null;
         }
 
         // Check grid bounds
-        if (!this.grid || targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
-            // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Target (${targetX}, ${targetY}) is out of bounds.`);
-            return; // Target cell is out of bounds
+        if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+            return null;
         }
 
-        // Get the target cell content
-        const targetCell = this.grid.getCell(targetX, targetY);
-
-        if (!targetCell) {
-            // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): No cell found at target (${targetX}, ${targetY}).`);
-            return; // No cell found
-        }
-
-        // --- Check for Delivery Node FIRST ---
-        if (targetCell.type === 'delivery-node' && targetCell.object) {
-            const deliveryNode = targetCell.object;
-            
-            // Try to deliver any resource (including upgrade package) we have in output
-            for (const resourceType in this.outputInventory) {
-                if (this.outputInventory[resourceType] > 0) {
-                    if (resourceType === UPGRADE_PACKAGE_TYPE) {
-                        console.log(`[CONVEYOR_TRANSFER] Conveyor (${this.gridX}, ${this.gridY}) attempting to deliver UPGRADE_PACKAGE to DeliveryNode at (${targetX}, ${targetY}).`);
-                    }
-
-                    const itemToDeliver = {
-                        type: resourceType,
-                        texture: this.scene.registry.get('resourceTextures')?.[resourceType] || (resourceType === UPGRADE_PACKAGE_TYPE ? 'upgrade-package' : 'default-resource') // Handle upgrade texture
-                    };
-
-                    if (deliveryNode.acceptItem(itemToDeliver)) { 
-                        if (resourceType === UPGRADE_PACKAGE_TYPE) {
-                             console.log(`[CONVEYOR_TRANSFER] DeliveryNode ACCEPTED UPGRADE_PACKAGE from conveyor (${this.gridX}, ${this.gridY}).`);
-                        }
-                        this.outputInventory[resourceType]--;
-                        this.createResourceTransferEffect(resourceType, deliveryNode); 
-                        return; 
-                    } else {
-                         if (resourceType === UPGRADE_PACKAGE_TYPE) {
-                             console.warn(`[CONVEYOR_TRANSFER] DeliveryNode REJECTED UPGRADE_PACKAGE from conveyor (${this.gridX}, ${this.gridY}).`);
-                         }
-                    }
-                }
-            }
-            return; 
-        }
-
-        // --- Original Logic: Check for Connected Machine ---
-        if (targetCell.type === 'machine' && targetCell.machine) {
-            const connectedMachine = targetCell.machine;
-           // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Found connected machine: ${connectedMachine.name} at (${targetX}, ${targetY})`);
-
-            // Check if the connected machine can accept any of our resources
-            for (const resourceType of this.outputTypes) {
-                // If we have this resource type in our output inventory
-                if (this.outputInventory[resourceType] > 0) {
-                    
-                    // Get the connected machine's input types
-                    let connectedInputTypes = [];
-                    if (connectedMachine.inputTypes) {
-                        connectedInputTypes = connectedMachine.inputTypes;
-                    } else if (connectedMachine.getInputTypes && typeof connectedMachine.getInputTypes === 'function') {
-                        connectedInputTypes = connectedMachine.getInputTypes();
-                    }
-                    
-                    // Check if the connected machine accepts this resource type AND can accept input now
-                    if (connectedInputTypes.includes(resourceType) && 
-                        connectedMachine.canAcceptInput && connectedMachine.canAcceptInput(resourceType)) {
-                        
-                        // Attempt to transfer the resource
-                        if (connectedMachine.receiveResource(resourceType, this)) {
-                            // Decrease our output inventory
-                            this.outputInventory[resourceType]--;
-                            
-                            // Optional: Create visual effect (already handled by receiveResource? Maybe not)
-                            // If receiveResource doesn't handle the visual, uncomment this:
-                            // this.createResourceTransferEffect(resourceType, connectedMachine);
-
-                           // console.log(`Conveyor at (${this.gridX}, ${this.gridY}) transferred ${resourceType} to ${connectedMachine.name} at (${targetX}, ${targetY})`);
-                            
-                            // Transferred one item, return for this cycle
-                            return;
-                        } else {
-                           // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): ${connectedMachine.name} at (${targetX}, ${targetY}) failed to receive ${resourceType}`);
-                        }
-                    } else {
-                       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): ${connectedMachine.name} at (${targetX}, ${targetY}) does not accept ${resourceType} or cannot accept input now.`);
-                    }
-                }
-            }
-            // If we reached here, either no transferable resources or machine rejected/can't accept
-            return;
-        }
-
-       // console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Target cell (${targetX}, ${targetY}) is not a machine or delivery node (type: ${targetCell.type}).`);
+        return { x: targetX, y: targetY };
     }
     
     /**
-     * Creates a visual effect for resource transfer
-     * @param {string} resourceType - The type of resource being transferred
-     * @param {BaseMachine | DeliveryNode} target - The target machine or delivery node
+     * Method for receiving an item from another machine/source.
+     * Overrides BaseMachine.receiveResource
+     * @param {object} itemData - The item object { type: string, amount: number }
+     * @param {BaseMachine} [sourceMachine=null] - The machine that sent the resource (optional)
+     * @returns {boolean} True if the item was accepted, false otherwise.
      */
-    createResourceTransferEffect(resourceType, target) {
-        // --- SAFETY CHECK --- 
-        // Ensure this machine's container and the scene exist before creating effect
-        if (!this.container || !this.scene) {
-            console.warn(`Conveyor at (${this.gridX}, ${this.gridY}): Cannot create transfer effect, container or scene missing.`);
-            return; 
-        }
-        // --- END SAFETY CHECK --- 
+    acceptItem(itemData, sourceMachine = null) {
+         // --- Add Reason Logging ---
+         if (!itemData || !itemData.type) {
+             console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Invalid itemData.`);
+             return false;
+         }
+         if (!this.canAcceptInput(itemData.type)) {
+             console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Type ${itemData.type} not accepted.`);
+             return false;
+         }
+         // --- End Reason Logging ---
 
-        // Determine target position (machine containers are centered, nodes might need adjustment)
-        let targetX, targetY;
-        if (target instanceof BaseMachine && target.container) {
-            targetX = target.container.x;
-            targetY = target.container.y;
-        } else if (target.container) { // Assumes DeliveryNode also has a container
-            targetX = target.container.x;
-            targetY = target.container.y;
-        } else {
-            // Fallback if container is not available (shouldn't happen often)
-            const targetPos = this.grid.gridToWorld(target.gridX, target.gridY);
-            targetX = targetPos.x;
-            targetY = targetPos.y;
+        // Check capacity
+        if (this.itemsOnBelt.length >= this.maxCapacity) {
+            // --- Add Reason Logging ---
+            console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Belt full (${this.itemsOnBelt.length}/${this.maxCapacity}).`);
+            return false;
         }
 
-        // Get source position (center of the conveyor)
-        const sourceX = this.container.x;
-        const sourceY = this.container.y;
-        
-        // Create resource particle
-        const color = GAME_CONFIG.resourceColors[resourceType] || 0xaaaaaa;
-        const particle = this.scene.add.circle(sourceX, sourceY, 5, color);
-        particle.setDepth(this.container.depth + 2); // Ensure visibility over machines/nodes
-        
-        // Animate particle moving to target
-        this.scene.tweens.add({
-            targets: particle,
-            x: targetX,
-            y: targetY,
-            duration: 300, // Make transfer visually quick
-            ease: 'Power1',
-            onComplete: () => {
-                particle.destroy();
-            }
-        });
-    }
-    
-    /**
-     * Override the getPreviewSprite method for the machine selection panel
-     */
-    getPreviewSprite(scene, x, y) {
-        // Create a container for the preview
-        const container = scene.add.container(x, y);
-        
-        // Set default cell size for preview
-        const cellSize = 24;
-        
-        // Create the conveyor base
-        const base = scene.add.rectangle(0, 0, cellSize - 4, cellSize - 4, 0x3a5fa5);
-        container.add(base);
-        
-        // Create conveyor belt lines
-        const beltWidth = cellSize - 12;
-        const beltHeight = 3;
-        
-        // Create three belt lines
-        for (let i = -1; i <= 1; i++) {
-            const offset = i * 5;
-            const belt = scene.add.rectangle(0, offset, beltWidth, beltHeight, 0x666666);
-            container.add(belt);
+        // Check if the start of the belt is blocked
+        const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+        if (firstItemProgress < 0.1) { // Adjust threshold as needed
+             // --- Add Reason Logging ---
+             console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Start blocked (first item progress: ${firstItemProgress.toFixed(2)}).`);
+            return false; 
         }
-        
-        // Add rollers at the ends
-        const roller1 = scene.add.circle(-beltWidth/2 + 2, 0, 3, 0x888888);
-        const roller2 = scene.add.circle(beltWidth/2 - 2, 0, 3, 0x888888);
-        container.add(roller1);
-        container.add(roller2);
-        
-        // Add direction indicator
-        const indicator = scene.add.triangle(0, 0, -2, -3, -2, 3, 4, 0, 0xff9500);
-        container.add(indicator);
-        
-        // Add label
-        const label = scene.add.text(0, 0, 'C', {
-            fontFamily: 'Arial',
-            fontSize: 10,
-            color: '#ffffff'
-        }).setOrigin(0.5);
-        container.add(label);
-        
-        return container;
+
+        // Add item visual to the start of the belt
+        this.addItemVisual(itemData); // This adds to itemsOnBelt with progress 0
+
+        console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted item: ${itemData.type} (amount: ${itemData.amount || 1})`);
+        return true;
     }
 
     /**
      * Check if the conveyor can accept a specific resource type into its input.
+     * This overrides the BaseMachine implementation.
+     * For conveyors, we only care about the type, not inventory capacity (handled by visual belt check).
      * @param {string} resourceTypeId - The ID of the resource type.
-     * @returns {boolean} True if the resource can be accepted, false otherwise.
+     * @returns {boolean} True if the resource type is accepted, false otherwise.
      */
     canAcceptInput(resourceTypeId) {
-        // Check if the type is in the machine's inputTypes list
         const acceptsType = this.inputTypes.includes(resourceTypeId);
-        if (!acceptsType) {
-            // console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceTypeId}: Type mismatch.`);
-            return false;
-        }
-
-        // Initialize inventory if needed
-        if (this.inputInventory[resourceTypeId] === undefined) {
-            this.inputInventory[resourceTypeId] = 0;
-        }
-        // Check if input inventory has space (e.g., less than 5)
-        const inputCapacity = 5; // Use a constant or config value if available
-        const hasSpace = this.inputInventory[resourceTypeId] < inputCapacity;
-        if (!hasSpace) {
-             // console.warn(`[${this.name}] at (${this.gridX}, ${this.gridY}) rejected ${resourceTypeId}: Inventory full.`);
-             return false;
-        }
-
-        return true; // Accepts type and has space
+        // Log removed for brevity now, re-add if needed:
+        // console.log(`[DEBUG] Conveyor at (${this.gridX}, ${this.gridY}) checking canAcceptInput for type '${resourceTypeId}': Result=${acceptsType}`);
+        return acceptsType;
     }
 
     /**
@@ -559,5 +601,19 @@ export default class ConveyorMachine extends BaseMachine {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Clean up resources and visuals when the machine is destroyed
+     */
+    destroy() {
+        // Destroy item visuals
+        if (this.itemVisualsGroup) {
+            this.itemVisualsGroup.destroy(true); // Destroy the group and its children
+        }
+        this.itemsOnBelt = []; // Clear the tracking array
+
+        // Call the base destroy method for common cleanup (container, etc.)
+        super.destroy();
     }
 } 

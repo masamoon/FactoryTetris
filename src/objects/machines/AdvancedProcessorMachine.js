@@ -380,18 +380,27 @@ export default class AdvancedProcessorMachine extends BaseMachine {
                     console.warn(`[${this.id}] Target Delivery Node is invalid or missing acceptItem method.`);
                 }
             } else if (targetInfo.type === 'machine') {
-                // --- Machine transfer logic (remains the same) ---
-                if (targetInfo.target && typeof targetInfo.target.receiveResource === 'function') {
-                    if (targetInfo.target.receiveResource(outputType, this)) {
-                        transferred = true;
-                        this.createResourceTransferEffect(outputType, targetInfo.target);
+                // --- MODIFIED: Machine transfer logic using acceptItem --- 
+                const targetMachine = targetInfo.target;
+                if (targetMachine && typeof targetMachine.acceptItem === 'function') { // Check for acceptItem
+                    // --- ADDED: Check canAcceptInput before attempting acceptItem --- 
+                    if (targetMachine.canAcceptInput && targetMachine.canAcceptInput(outputType)) { 
+                        const itemToTransfer = { type: outputType, amount: 1 };
+                        if (targetMachine.acceptItem(itemToTransfer)) { // Call acceptItem
+                            transferred = true;
+                            this.createResourceTransferEffect(outputType, targetMachine);
+                        } else {
+                            // Target rejected
+                            console.warn(`[${this.id}] Target Machine ${targetMachine.name || 'Unknown'} rejected item ${outputType}`);
+                        }
                     } else {
-                        // Target rejected
+                         console.warn(`[${this.id}] Target Machine ${targetMachine.name || 'Unknown'} cannot accept type ${outputType}`);
                     }
+                    // --- END ADDED CHECK ---
                 } else {
-                     console.warn(`[${this.id}] Target Machine is invalid or missing receiveResource method.`);
+                     console.warn(`[${this.id}] Target Machine is invalid or missing acceptItem method.`);
                 }
-                // --- End Machine transfer logic ---
+                // --- End MODIFIED Machine transfer logic ---
             }
             if (transferred) {
                 this.outputInventory[outputType]--;
