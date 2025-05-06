@@ -4,6 +4,10 @@ import ProcessorAMachine from './ProcessorAMachine';
 import ProcessorBMachine from './ProcessorBMachine';
 import AdvancedProcessorMachine from './AdvancedProcessorMachine';
 import ProcessorCMachine from './ProcessorCMachine';
+import ProcessorDMachine from './ProcessorDMachine';
+import ProcessorEMachine from './ProcessorEMachine';
+import AdvancedProcessor1Machine from './AdvancedProcessor1Machine';
+import AdvancedProcessor2Machine from './AdvancedProcessor2Machine';
 
 /**
  * Registry for all machine types
@@ -24,6 +28,10 @@ export default class MachineRegistry {
         this.registerMachineType('processor-b', ProcessorBMachine);
         this.registerMachineType('advanced-processor', AdvancedProcessorMachine);
         this.registerMachineType('processor-c', ProcessorCMachine);
+        this.registerMachineType('processor-d', ProcessorDMachine);
+        this.registerMachineType('processor-e', ProcessorEMachine);
+        this.registerMachineType('advanced-processor-1', AdvancedProcessor1Machine);
+        this.registerMachineType('advanced-processor-2', AdvancedProcessor2Machine);
     }
     
     /**

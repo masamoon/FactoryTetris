@@ -113,6 +113,46 @@ export const GAME_CONFIG = {
             processingTime: 3000,
             direction: 'right',
             description: 'Processes basic resources into advanced resources (Square)'
+        },
+        {
+            id: 'processor-d',
+            name: 'Processor D',
+            shape: [[1, 1], [1, 0], [1, 0]],
+            inputTypes: ['basic-resource'],
+            outputTypes: ['advanced-resource'],
+            processingTime: 3500,
+            direction: 'right',
+            description: 'Processes basic resources into advanced resources. (L-Shape)'
+        },
+        {
+            id: 'processor-e',
+            name: 'Processor E',
+            shape: [[1], [1], [1], [1]],
+            inputTypes: ['basic-resource'],
+            outputTypes: ['advanced-resource'],
+            processingTime: 3300,
+            direction: 'right',
+            description: 'Processes basic resources into advanced resources. (I-Shape)'
+        },
+        {
+            id: 'advanced-processor-1',
+            name: 'Advanced Processor 1',
+            shape: [[1, 0, 1], [1, 1, 1]],
+            inputTypes: ['basic-resource', 'advanced-resource'],
+            outputTypes: ['mega-resource'],
+            processingTime: 5500,
+            direction: 'down',
+            description: 'Combines basic and advanced resources into mega resources. (U-Shape)'
+        },
+        {
+            id: 'advanced-processor-2',
+            name: 'Advanced Processor 2',
+            shape: [[1, 1, 1, 1], [1, 0, 0, 0]],
+            inputTypes: ['basic-resource', 'advanced-resource'],
+            outputTypes: ['mega-resource'],
+            processingTime: 6000,
+            direction: 'down',
+            description: 'Combines basic and advanced resources into mega resources. (Long L-Shape)'
         }
     ],
     

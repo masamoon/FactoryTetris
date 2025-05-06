@@ -26,8 +26,9 @@ export default class ResourceNode {
         const roundFactorGenerationRate = 100; // ms reduction per round
         
         // Initialize with resources based on round (using round-1 as factor starts from round 1)
-        const initialMin = baseInitialMin + (this.round - 1) * roundFactorInitialMin;
-        const initialMax = baseInitialMax + (this.round - 1) * roundFactorInitialMax;
+        const bountyModifier = this.upgradeManager.getResourceBountyModifier();
+        const initialMin = Math.floor((baseInitialMin + (this.round - 1) * roundFactorInitialMin) * bountyModifier);
+        const initialMax = Math.floor((baseInitialMax + (this.round - 1) * roundFactorInitialMax) * bountyModifier);
         this.resources = Phaser.Math.Between(initialMin, initialMax); // Start with resources based on round
         
         // Max resources based on round

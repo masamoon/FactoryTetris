@@ -8,7 +8,7 @@ import TestUtils from '../utils/TestUtils';
 import MachineRegistry from '../objects/machines/MachineRegistry';
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
-import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js'; // Import package type for check in clear
+import { UPGRADE_PACKAGE_TYPE, upgradesConfig, UPGRADE_TYPES } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig + UPGRADE_TYPES
 import { UpgradeScene } from './UpgradeScene.js'; // Import UpgradeScene
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 
@@ -305,6 +305,16 @@ export default class GameScene extends Phaser.Scene {
         this.clearButton.text.x = this.clearButton.button.x;
 
         // --- END CLEAR FACTORY UI --- 
+
+        // Active Upgrades Display
+        this.activeUpgradesText = this.add.text(width * 0.55, height * 0.05, 'Active Upgrades:', {
+            fontFamily: 'Arial',
+            fontSize: 16,
+            color: '#ffffff',
+            align: 'left',
+            wordWrap: { width: width * 0.25 } // Adjust width as needed
+        });
+        this.updateActiveUpgradesDisplay(); // Initial update
     }
     
     setupInput() {
@@ -2960,20 +2970,55 @@ export default class GameScene extends Phaser.Scene {
     }
 
     resumeFromUpgrade() {
-        console.log("Resuming from Upgrade Selection...");
+        console.log("[GameScene] Resuming from upgrade selection.");
         this.isPausedForUpgrade = false;
+        // Potentially re-enable game systems if they were specifically paused beyond the scene's pause
+        this.physics.world.resume();
+        this.time.paused = false;
 
-        // Resume timers
-        this.gameTimer.paused = false;
-        if (this.nodeSpawnTimer) {
-             this.nodeSpawnTimer.paused = false;
-             console.log("[TIMER_DEBUG] Resumed nodeSpawnTimer after upgrade screen."); // Log resume
+        // Resume timers explicitly if they were paused
+        if (this.nodeSpawnTimer && this.nodeSpawnTimer.paused) {
+            this.nodeSpawnTimer.paused = false;
+            console.log("[TIMER_DEBUG] Node Spawn Timer Resumed in resumeFromUpgrade");
         }
-        if (this.upgradeNodeSpawnTimer) {
+        if (this.upgradeNodeSpawnTimer && this.upgradeNodeSpawnTimer.paused) {
             this.upgradeNodeSpawnTimer.paused = false;
-            console.log("[TIMER_DEBUG] Resumed upgradeNodeSpawnTimer after upgrade screen.");
+            console.log("[TIMER_DEBUG] Upgrade Node Spawn Timer Resumed in resumeFromUpgrade");
         }
-        // ... rest of resumeFromUpgrade ...
+        if (this.gameTimer && this.gameTimer.paused) {
+            this.gameTimer.paused = false;
+        }
+        if (this.difficultyTimer && this.difficultyTimer.paused) {
+            this.difficultyTimer.paused = false;
+        }
+        
+        // Make sure the main scene is responsive to input again
+        this.input.enabled = true; 
+
+        this.updateActiveUpgradesDisplay(); // Update the display after an upgrade might have been selected
+    }
+
+    updateActiveUpgradesDisplay() {
+        if (!this.upgradeManager || !this.activeUpgradesText) {
+            return;
+        }
+
+        const activeUpgrades = this.upgradeManager.currentUpgrades;
+        let displayText = 'Active Upgrades:\n';
+
+        if (Object.keys(activeUpgrades).length === 0) {
+            displayText += '- None';
+        } else {
+            for (const upgradeType in activeUpgrades) {
+                const level = activeUpgrades[upgradeType];
+                const config = upgradesConfig[upgradeType];
+                if (config) {
+                    const tierInfo = config.tiers.find(t => t.level === level);
+                    displayText += `- ${config.name} (Lvl ${level}): ${tierInfo ? tierInfo.description : ''}\n`;
+                }
+            }
+        }
+        this.activeUpgradesText.setText(displayText);
     }
 
     // -------------------------
