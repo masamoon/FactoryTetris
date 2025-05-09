@@ -230,9 +230,9 @@ export default class GameScene extends Phaser.Scene {
         // this.updateClearCooldownUI(); 
         
         // Check for game over condition
-        // if (this.cargoBay.isOverflowing()) { // Keep CargoBay check commented out as per previous request
-        //     this.endGame();
-        // }
+        
+        
+        
 
         // this.updateScore(); // Remove this call, addScore handles UI update
         // this.updateResourceDisplay(); // Remove this call, likely handled elsewhere or undefined
@@ -1251,8 +1251,8 @@ export default class GameScene extends Phaser.Scene {
         
         // REMOVED: Game end condition based on time limit
         // if (this.gameTime >= GAME_CONFIG.gameTimeLimit) {
-        //     this.endGame();
-        // }
+        
+        
         
         // Keep difficulty update based on time for now? Or move to round advance?
         // Let's keep the timer-based difficulty for now, can adjust later.
@@ -2067,7 +2067,7 @@ export default class GameScene extends Phaser.Scene {
             }
             // For conveyor: special handling
             else if (machine.id === 'conveyor') {
-                part.fillColor = 0x44ff44; // Green for conveyor base
+                part.fillColor = 0x888888; // Gray for conveyor base
             }
             // For all other machines
             else {
@@ -2669,12 +2669,12 @@ export default class GameScene extends Phaser.Scene {
             //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
             //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
             //     }
-            // }
+            
             // for (const type in machine.outputInventory) {
             //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
             //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
             //      }
-            // }
+            
         });
 
         // Score items still in Resource Nodes

@@ -2050,7 +2050,10 @@ export default class BaseMachine {
                  /* if (machine.id === 'extractor' && part === machine.body) {
                      part.fillColor = 0x555555; 
                  } else */
-                 if (part.fillColor !== 0x44ff44) { // Only change if not already green
+                 if (machine.id === 'conveyor') {
+                    part.fillColor = 0x888888; // Gray for conveyor
+                 }
+                 else if (part.fillColor !== 0x44ff44) { // Only change if not already green
                     part.fillColor = 0x44ff44; // Green for all other parts
                  }
             }

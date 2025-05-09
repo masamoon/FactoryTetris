@@ -6,135 +6,163 @@ import { GAME_CONFIG } from '../../config/gameConfig';
  * Combines basic and advanced resources into mega resources (U-Shape)
  */
 export default class AdvancedProcessor1Machine extends BaseMachine {
+    /**
+     * Create a new advanced processor 1 machine
+     * @param {Phaser.Scene} scene - The scene this machine belongs to
+     * @param {Object} config - Configuration object
+     */
     constructor(scene, config) {
         super(scene, config);
     }
 
+    /**
+     * Override the base class method to define processor-specific properties
+     */
     initMachineProperties() {
+        // Define machine identifier properties
         this.id = 'advanced-processor-1';
         this.name = 'Advanced Processor 1';
         this.description = 'Combines basic and advanced resources into mega resources. (U-Shape)';
         
+        // Define the original U-shape
         const originalShape = [
             [1, 0, 1],
             [1, 1, 1]
         ];
         
+        // Set input/output types
         this.inputTypes = ['basic-resource', 'advanced-resource'];
         this.outputTypes = ['mega-resource'];
         this.processingTime = 5500; // Different processing time
         this.defaultDirection = 'down'; 
         
-        this.isProcessing = false;
-        this.processingProgress = 0;
+        // Initialize using the single source of truth for I/O positions
+        // Get the correct coordinates from the static method based on the default direction
+        const ioPositions = AdvancedProcessor1Machine.getIOPositionsForDirection(this.id, this.defaultDirection);
+        this.inputCoord = ioPositions.inputPos;
+        this.outputCoord = ioPositions.outputPos;
+        
+        // Required inputs for processing
         this.requiredInputs = {
             'basic-resource': 1,
             'advanced-resource': 1
         };
         
+        // Set the machine shape
         this.shape = originalShape;
         
-        // Initialize inventories (specific to advanced processors with multiple inputs)
-        this.inputInventory = {
-            'basic-resource': 0,
-            'advanced-resource': 0
-        };
-        this.outputInventory = {
-            'mega-resource': 0
-        };
-        
-        console.log(`[AdvancedProcessor1] Initialized.`);
+        // Log initialization
+        console.log(`[AdvancedProcessor1] Initialized with properties:
+            Input types: ${this.inputTypes}
+            Output types: ${this.outputTypes}
+            Processing time: ${this.processingTime}ms
+            I/O positions for ${this.defaultDirection}: Input(${this.inputCoord.x},${this.inputCoord.y}), Output(${this.outputCoord.x},${this.outputCoord.y})
+        `);
     }
 
+    /**
+     * Override the createVisuals method to customize the processor appearance
+     */
     createVisuals() {
-        super.createVisuals(); // Call base createVisuals
-        if (this.container && this.container.list) {
-            let existingLabel = this.container.list.find(item => item instanceof Phaser.GameObjects.Text && item.text === "ADV");
-             if (existingLabel) {
-                existingLabel.setText("MGA1");
-            } else {
-                existingLabel = this.container.list.find(item => item instanceof Phaser.GameObjects.Text);
-                if(existingLabel) existingLabel.setText("MGA1");
-                else {
-                    const cellSize = this.grid.cellSize;
-                    const rotatedShape = this.grid.getRotatedShape(this.shape, this.direction || this.defaultDirection);
-                    const shapeCenterX = (rotatedShape[0].length - 1) / 2;
-                    const shapeCenterY = (rotatedShape.length - 1) / 2;
-                    const visualCenterX = shapeCenterX * cellSize + cellSize / 2;
-                    const visualCenterY = shapeCenterY * cellSize + cellSize / 2;
-                    const newLabel = this.scene.add.text(visualCenterX, visualCenterY, "MGA1", {
-                        fontFamily: 'Arial',
-                        fontSize: 10, 
-                        color: '#ffffff'
-                    }).setOrigin(0.5);
-                    this.container.add(newLabel);
-                }
-            }
+        // Call the base class to create the common visuals
+        super.createVisuals();
+        
+        // Add processor-specific visuals using the standardized method
+        if (this.container) {
+            this.createProcessorVisuals("MGA1", {
+                coreColor: 0xaa44aa, // Purple color
+                coreShape: 'square',
+                fontSize: 10
+            });
         }
-
-        // Add progress bar (copied from AdvancedProcessorMachine/ProcessorAMachine)
-        const cellSize = this.grid.cellSize; 
-        const rotatedShapeForBar = this.grid.getRotatedShape(this.shape, this.direction || this.defaultDirection);
-        const shapeCenterXForBar = (rotatedShapeForBar[0].length - 1) / 2;
-        const shapeCenterYForBar = (rotatedShapeForBar.length - 1) / 2;
-        const adjustedVisualCenterX = shapeCenterXForBar * cellSize + cellSize / 2;
-        const adjustedVisualCenterY = shapeCenterYForBar * cellSize + cellSize / 2;
-
-        this.progressBar = this.scene.add.rectangle(
-            adjustedVisualCenterX, 
-            adjustedVisualCenterY + cellSize * 0.6, 
-            cellSize * 1.5, 
-            6, 
-            0x000000 
-        ).setOrigin(0.5);
-        this.progressBar.setDepth(1); 
-        this.container.add(this.progressBar);
-        
-        this.progressFill = this.scene.add.rectangle(
-            this.progressBar.x - this.progressBar.width / 2,
-            this.progressBar.y,
-            0, 
-            this.progressBar.height,
-            0x00ff00 
-        ).setOrigin(0, 0.5);
-        this.progressFill.setDepth(2);
-        this.container.add(this.progressFill);
-        
-        this.progressBar.setVisible(false);
-        this.progressFill.setVisible(false);
     }
 
-    static getPreviewSprite(scene, x, y) {
-        const container = scene.add.container(x, y);
-        const shape = [[1,0,1],[1,1,1]];
-        const cellSize = 14;
-        const shapeCenterX = (shape[0].length - 1) / 2;
-        const shapeCenterY = (shape.length - 1) / 2;
-        const defaultInputPos1 = { x: 0, y: 0 }; // Example for one input
-        const defaultInputPos2 = { x: 2, y: 0 }; // Example for another input
-        const defaultOutputPos = { x: 1, y: 1 }; // Example output
-
-        for (let r = 0; r < shape.length; r++) {
-            for (let c = 0; c < shape[r].length; c++) {
-                if (shape[r][c] === 1) {
-                    const partX = (c - shapeCenterX) * cellSize;
-                    const partY = (r - shapeCenterY) * cellSize;
-                    let color = 0xaa44aa; // Default purple-ish for mega
-                    if ((c === defaultInputPos1.x && r === defaultInputPos1.y) || 
-                        (c === defaultInputPos2.x && r === defaultInputPos2.y) ) {
-                        color = 0x4aa8eb; // Blue input
-                    } else if (c === defaultOutputPos.x && r === defaultOutputPos.y) {
-                        color = 0xffa520; // Orange output
-                    }
-                    
-                    const rect = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
-                    rect.setStrokeStyle(1, 0x555555);
-                    container.add(rect);
-                }
-            }
+    /**
+     * Get a preview sprite for the machine selection panel
+     */
+    static getPreviewSprite(scene, x, y, direction = 'right') {
+        // Use the standard preview sprite with our specific options
+        const shape = [
+            [1, 0, 1],
+            [1, 1, 1]
+        ];
+        
+        // Get input/output positions using the single source of truth
+        const ioPositions = AdvancedProcessor1Machine.getIOPositionsForDirection('advanced-processor-1', direction);
+        
+        return BaseMachine.getStandardPreviewSprite(scene, x, y, {
+            machineId: 'advanced-processor-1',
+            shape: shape,
+            label: "MGA1",
+            inputPos: ioPositions.inputPos,
+            outputPos: ioPositions.outputPos,
+            direction: direction
+        });
+    }
+    
+    /**
+     * Get input and output positions for each direction
+     * This is the single source of truth for AdvancedProcessor1 I/O positions
+     * @param {string} machineId - The machine ID (should be 'advanced-processor-1')
+     * @param {string} direction - The direction ('right', 'down', 'left', 'up')
+     * @returns {Object} An object with inputPos and outputPos coordinates
+     */
+    static getIOPositionsForDirection(machineId, direction) {
+        // U-shape: [[1,0,1], [1,1,1]]
+        // Define direction-specific positions
+        let inputPos, outputPos;
+        
+        switch(direction) {
+            case 'right': // Original orientation
+                inputPos = { x: 0, y: 0 };  // Top-left corner
+                outputPos = { x: 2, y: 0 }; // Top-right corner
+                break;
+            case 'down':  // 90° clockwise - rotated to [[1,1], [0,1], [1,1]]
+                inputPos = { x: 0, y: 0 };  // Top-left corner
+                outputPos = { x: 0, y: 2 }; // Bottom-left corner
+                break;
+            case 'left':  // 180° - rotated to [[1,1,1], [1,0,1]]
+                inputPos = { x: 2, y: 1 };  // Bottom-right corner
+                outputPos = { x: 0, y: 1 }; // Bottom-left corner
+                break;
+            case 'up':    // 270° clockwise - rotated to [[1,1], [1,0], [1,1]]
+                inputPos = { x: 1, y: 2 };  // Bottom-right corner
+                outputPos = { x: 1, y: 0 }; // Top-right corner
+                break;
+            default:
+                inputPos = { x: 0, y: 0 };  // Default top-left
+                outputPos = { x: 2, y: 0 }; // Default top-right
         }
-        const label = scene.add.text(0, 0, "MGA1", { fontSize: 8, color: '#ffffff' }).setOrigin(0.5);
-        container.add(label);
-        return container;
+        
+        return { inputPos, outputPos };
+    }
+    
+    /**
+     * Get standard configuration for this machine type
+     */
+    static getConfig() {
+        // Get the I/O positions for the default direction
+        const ioPositions = AdvancedProcessor1Machine.getIOPositionsForDirection('advanced-processor-1', 'down');
+        
+        return BaseMachine.getStandardConfig({
+            id: 'advanced-processor-1',
+            name: 'Advanced Processor 1',
+            description: 'Combines basic and advanced resources into mega resources. (U-Shape)',
+            shape: [
+                [1, 0, 1],
+                [1, 1, 1]
+            ],
+            inputTypes: ['basic-resource', 'advanced-resource'],
+            outputTypes: ['mega-resource'],
+            processingTime: 5500,
+            defaultDirection: 'down',
+            requiredInputs: { 
+                'basic-resource': 1,
+                'advanced-resource': 1 
+            },
+            // Use the positions from our single source of truth
+            inputCoord: ioPositions.inputPos,
+            outputCoord: ioPositions.outputPos
+        });
     }
 } 

@@ -3,8 +3,6 @@ export const GRID_CONFIG = {
     cellSize: 32,
     factoryWidth: 10,
     factoryHeight: 10,
-    cargoBayWidth: 6,
-    cargoBayHeight: 10,
     x: 200, // Update x position to center in the factory area (width*0.05 + width*0.4/2)
     y: 220, // Adjusted Y center to align logical grid top (startY=60) with visual background top (Y=60)
     width: 10, // Add width in cells
@@ -89,19 +87,6 @@ export const GAME_CONFIG = {
             description: 'Transports resources between machines'
         },
         {
-            id: 'cargo-loader',
-            name: 'Cargo Loader',
-            shape: [
-                [1, 1],
-                [1, 1]
-            ],
-            inputTypes: ['basic-resource', 'advanced-resource'],
-            outputTypes: [],
-            processingTime: 2000, // ms
-            direction: 'none', // No output direction, sends to cargo bay
-            description: 'Loads products into the cargo bay'
-        },
-        {
             id: 'processor-c',
             name: 'Processor C',
             shape: [
@@ -154,20 +139,6 @@ export const GAME_CONFIG = {
             direction: 'down',
             description: 'Combines basic and advanced resources into mega resources. (Long L-Shape)'
         }
-    ],
-    
-    // Product requirements for cargo bay
-    productRequirements: [
-        { type: 'basic-resource', count: 5, points: 50 },
-        { type: 'advanced-resource', count: 3, points: 150 }
-    ],
-    
-    // Combo multipliers for clearing multiple rows at once
-    comboMultipliers: [
-        { rows: 1, multiplier: 1 },
-        { rows: 2, multiplier: 2.5 },
-        { rows: 3, multiplier: 4 },
-        { rows: 4, multiplier: 6 }
     ],
     
     // Resource colors for visualization

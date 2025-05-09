@@ -72,7 +72,7 @@ export default class ConveyorMachine extends BaseMachine {
             centerY, 
             this.grid.cellSize - 4, 
             this.grid.cellSize - 4, 
-            0x44ff44  // Updated to green to match our color scheme
+            0x888888  // Updated to gray for conveyor base
         );
         this.container.add(base);
         
