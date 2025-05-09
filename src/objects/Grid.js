@@ -412,10 +412,6 @@ export default class Grid {
             return false;
         }
         
-        // Check if this is an extractor machine
-        // const isExtractor = machineIdStr === 'extractor';
-        const isConveyor = machineIdStr === 'conveyor'; // Added check for conveyor
-        
         // Get the original non-rotated shape
         const originalShape = machineType.shape;
         
@@ -457,13 +453,9 @@ export default class Grid {
                     try {
                         const cell = this.getCell(cellX, cellY);
                         
-                        // Allow conveyors on nodes
-                        if (isConveyor && cell && cell.type === 'node') {
-                            continue; // Allow conveyor on node
-                        }
+                        // Don't allow conveyors on nodes anymore (removing this exception)
                         
                         // Check if cell is occupied by anything other than 'empty'
-                        // (For non-conveyor machines, this includes nodes)
                         if (cell && cell.type !== 'empty') {
                             return false;
                         }

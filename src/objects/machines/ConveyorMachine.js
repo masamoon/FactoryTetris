@@ -47,6 +47,9 @@ export default class ConveyorMachine extends BaseMachine {
      * Override the createVisuals method to customize the conveyor appearance
      */
     createVisuals() {
+        // Add debug log for conveyor creation
+        console.log('[CONVEYOR] Creating conveyor visuals with base color 0x888888 (gray)');
+        
         // Skip visual creation if we don't have a grid reference
         if (!this.grid) {
             console.warn('Cannot create visuals for conveyor machine: grid reference is missing');
@@ -75,6 +78,7 @@ export default class ConveyorMachine extends BaseMachine {
             0x888888  // Updated to gray for conveyor base
         );
         this.container.add(base);
+        console.log('[CONVEYOR] Created base with color:', base.fillColor.toString(16));
         
         // Create conveyor belt lines
         const beltWidth = this.grid.cellSize - 12;
@@ -88,9 +92,10 @@ export default class ConveyorMachine extends BaseMachine {
                 centerY + offset, 
                 beltWidth, 
                 beltHeight, 
-                0x666666
+                0x666666  // Keep dark gray for belt lines
             );
             this.container.add(belt);
+            console.log('[CONVEYOR] Created belt line with color:', belt.fillColor.toString(16));
             
             // Add animation to simulate movement
             this.scene.tweens.add({
@@ -129,10 +134,11 @@ export default class ConveyorMachine extends BaseMachine {
                 break;
         }
         
-        const roller1 = this.scene.add.circle(roller1X, roller1Y, rollerRadius, 0x888888);
-        const roller2 = this.scene.add.circle(roller2X, roller2Y, rollerRadius, 0x888888);
+        const roller1 = this.scene.add.circle(roller1X, roller1Y, rollerRadius, 0x888888);  // Gray rollers
+        const roller2 = this.scene.add.circle(roller2X, roller2Y, rollerRadius, 0x888888);  // Gray rollers
         this.container.add(roller1);
         this.container.add(roller2);
+        console.log('[CONVEYOR] Created rollers with color:', roller1.fillColor.toString(16));
         
         // Add direction indicator
         // Get the absolute position of the machine in the world
@@ -201,6 +207,22 @@ export default class ConveyorMachine extends BaseMachine {
         
         // Move items along the conveyor and attempt transfer
         this.updateItemsOnBelt(delta);
+        
+        // Ensure the base stays gray even if other code changes it
+        if (this.container && this.container.list) {
+            // Find the base rectangle (first non-belt, non-roller rectangle)
+            const base = this.container.list.find(part => 
+                part.type === 'Rectangle' && 
+                part !== this.progressBar && 
+                part !== this.progressFill &&
+                part.width >= this.grid.cellSize - 10  // Base is the largest rectangle
+            );
+            
+            if (base && base.fillColor !== 0x888888) {
+                console.log(`[CONVEYOR] Fixing base color from 0x${base.fillColor.toString(16)} back to 0x888888`);
+                base.fillColor = 0x888888; // Force gray color
+            }
+        }
     }
     
     /**
@@ -655,6 +677,74 @@ export default class ConveyorMachine extends BaseMachine {
             inputPos: ioPositions.inputPos,
             outputPos: ioPositions.outputPos,
             direction: direction
+        });
+    }
+
+    /**
+     * Override the addInteractivity method to customize hover behavior
+     */
+    addInteractivity() {
+        // Skip interactivity if explicitly requested
+        if (this.config && this.config.skipInteractivity) {
+            return;
+        }
+        
+        // Skip if grid is not available
+        if (!this.grid) {
+            console.warn(`Cannot add interactivity to conveyor - grid is undefined`);
+            return;
+        }
+
+        // Calculate the width and height of the machine in pixels
+        const width = this.grid.cellSize;
+        const height = this.grid.cellSize;
+        
+        // Create a proper hit area for the container
+        this.container.setInteractive(new Phaser.Geom.Rectangle(
+            -width/2, -height/2, width, height
+        ), Phaser.Geom.Rectangle.Contains);
+        
+        // Add hover effect that keeps the conveyor gray
+        this.container.on('pointerover', () => {
+            // Find the base part to highlight
+            const base = this.container.list.find(part => 
+                part.type === 'Rectangle' && 
+                part !== this.progressBar && 
+                part !== this.progressFill &&
+                part.width >= this.grid.cellSize - 10  // Base is the largest rectangle
+            );
+            
+            if (base) {
+                // Use a slightly lighter gray for hover
+                base.fillColor = 0x999999;
+            }
+            
+            // Show machine info tooltip
+            this.showTooltip();
+        });
+        
+        this.container.on('pointerout', () => {
+            // Find the base part to restore color
+            const base = this.container.list.find(part => 
+                part.type === 'Rectangle' && 
+                part !== this.progressBar && 
+                part !== this.progressFill &&
+                part.width >= this.grid.cellSize - 10  // Base is the largest rectangle
+            );
+            
+            if (base) {
+                // Restore to normal gray
+                base.fillColor = 0x888888;
+            }
+            
+            // Hide tooltip
+            this.hideTooltip();
+        });
+        
+        // Add click handler
+        this.container.on('pointerdown', () => {
+            // Show detailed info or controls
+            this.showDetailedInfo();
         });
     }
 } 

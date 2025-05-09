@@ -2067,7 +2067,14 @@ export default class GameScene extends Phaser.Scene {
             }
             // For conveyor: special handling
             else if (machine.id === 'conveyor') {
+                // Always enforce conveyor color regardless of previous value
+                const oldColor = part.fillColor !== 0x888888 ? `0x${part.fillColor.toString(16)}` : "already correct";
                 part.fillColor = 0x888888; // Gray for conveyor base
+                console.log(`[GameScene][${machine.id}] Set conveyor part to gray (0x888888). Previous color: ${oldColor}`);
+                
+                // Store this part as a conveyor part (for later color enforcement)
+                if (!machine.conveyorParts) machine.conveyorParts = [];
+                machine.conveyorParts.push(part);
             }
             // For all other machines
             else {
@@ -2088,6 +2095,14 @@ export default class GameScene extends Phaser.Scene {
                 }
             }
         });
+        
+        // Add debug logging for conveyor final colors
+        if (machine.id === 'conveyor') {
+            console.log(`[GameScene][${machine.id}] After standardizeColors, rectangle parts colors:`);
+            rectangleParts.forEach((part, index) => {
+                console.log(`Part ${index}: 0x${part.fillColor.toString(16)}`);
+            });
+        }
     }
 
     /**
