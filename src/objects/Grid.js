@@ -163,6 +163,7 @@ export default class Grid {
         try {
             // Validate inputs
             if (worldX === undefined || worldY === undefined) {
+                 console.warn(`[Grid.isInBounds] Received invalid coordinates: (${worldX}, ${worldY})`);
                 return false;
             }
             
@@ -170,7 +171,19 @@ export default class Grid {
             const gridHeight = this.height * this.cellSize;
             const startX = this.x - gridWidth / 2;
             const startY = this.y - gridHeight / 2;
+            const endX = startX + gridWidth;
+            const endY = startY + gridHeight;
+
+            // Log the check
+            console.log(`[Grid.isInBounds] Checking point (${worldX.toFixed(1)}, ${worldY.toFixed(1)}). Bounds: X[${startX.toFixed(1)} to ${endX.toFixed(1)}], Y[${startY.toFixed(1)} to ${endY.toFixed(1)}]`);
             
+            // Check using raw world coordinates
+            const isWithin = (worldX >= startX && worldX < endX && worldY >= startY && worldY < endY);
+            console.log(`[Grid.isInBounds] Result: ${isWithin}`);
+
+            return isWithin; // Return the direct check result
+
+            /* // Old logic with redundant worldToGrid check removed
             // Quick check using raw world coordinates
             if (worldX < startX || worldX >= startX + gridWidth || 
                 worldY < startY || worldY >= startY + gridHeight) {
@@ -180,7 +193,9 @@ export default class Grid {
             // Convert to grid coordinates for a more precise check
             const gridPos = this.worldToGrid(worldX, worldY);
             return gridPos.x >= 0 && gridPos.x < this.width && gridPos.y >= 0 && gridPos.y < this.height;
+            */
         } catch (error) {
+             console.error('[Grid.isInBounds] Error:', error);
             return false;
         }
     }
@@ -564,11 +579,13 @@ export default class Grid {
                         if (cell) {
                             // Update the cell with machine data
                             cell.type = 'machine';  // Set the cell type to 'machine'
-                            cell.machine = machine; // Store a reference to the machine
+                            cell.object = machine; // *** ADD THIS LINE: Store a direct reference to the machine object ***
+                            // cell.machine = machine; // Keep this commented or remove, as we're using cell.object
                             
                             // *** ADDED LOGGING ***
                             // console.log(`[Grid.placeMachine] Marked cell (${cellX}, ${cellY}) as 'machine' for ${machine.id}`);
 
+                            // You can keep occupiedBy if it's used elsewhere, but cell.object is key for the click detection
                             cell.occupiedBy = {
                                 type: 'machine',
                                 id: machine.id,
@@ -737,24 +754,38 @@ export default class Grid {
     }
     
     // Remove a machine from the grid
-    removeMachine(machine) {
-        // Find and remove the machine from the list
-        const index = this.machines.indexOf(machine);
-        if (index !== -1) {
-            this.machines.splice(index, 1);
+    removeMachine(machineInstanceToRemove) {
+        if (!machineInstanceToRemove) return;
+
+        // Find and remove the machine from the internal tracking array
+        // this.machines stores objects like { machine: machineInstance, gridX, ... }
+        const machineEntryIndex = this.machines.findIndex(
+            entry => entry.machine === machineInstanceToRemove
+        );
+
+        if (machineEntryIndex !== -1) {
+            this.machines.splice(machineEntryIndex, 1);
+            console.log(`[Grid.removeMachine] Removed ${machineInstanceToRemove.id} from internal machines array.`);
+        } else {
+            console.warn(`[Grid.removeMachine] Could not find ${machineInstanceToRemove.id} in internal machines array.`);
         }
         
         // Clear cells occupied by the machine
+        // Iterate through all cells and check if the cell's object is the machine to remove
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                if (this.cells[y][x].type === 'machine' && this.cells[y][x].machine === machine) {
-                    this.cells[y][x] = { type: 'empty' };
+                const cell = this.cells[y][x];
+                // Check if the cell is of type 'machine' AND if its 'object' property matches the machine to remove
+                if (cell && cell.type === 'machine' && cell.object === machineInstanceToRemove) {
+                    this.cells[y][x] = { type: 'empty' }; // Reset the cell to empty
+                    // console.log(`[Grid.removeMachine] Cleared cell (${x}, ${y}) that was occupied by ${machineInstanceToRemove.id}`);
                 }
             }
         }
         
-        // Destroy the machine object
-        machine.destroy();
+        // The GameScene's deleteConveyorOnClick method should handle destroying the machine object itself.
+        // So, we should NOT call machineInstanceToRemove.destroy() here in Grid.js
+        // to avoid potential double-destruction or errors if destroy() is called on an already destroyed object.
     }
     
     // Remove a resource node from the grid

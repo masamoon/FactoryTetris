@@ -204,6 +204,7 @@ export default class MachineFactory {
                  let machinePreview;
                  try {
                      if (this.machineRegistry.hasMachineType(machineType.id)) {
+                         console.log(`[MachineFactory.displayCurrentProcessorPreview] Found ${machineType.id} in registry. Attempting machineRegistry.createMachinePreview.`);
                          machinePreview = this.machineRegistry.createMachinePreview(
                              machineType.id,
                              this.scene,
@@ -211,7 +212,7 @@ export default class MachineFactory {
                              processorY
                          );
                      } else {
-                         console.warn(`Processor type ${machineType.id} not in registry, using fallback preview creation.`);
+                         console.warn(`[MachineFactory.displayCurrentProcessorPreview] Processor type ${machineType.id} NOT in registry. Using Factory's own createMachinePreview.`);
                          machinePreview = this.createMachinePreview(machineType, processorX, processorY);
                      }
                  } catch (error) {
@@ -441,6 +442,7 @@ export default class MachineFactory {
      * @param {Phaser.Input.Pointer} pointer - The pointer to use for placement
      */
     handlePlaceMachine(pointer) {
+        console.log(`[Factory.handlePlaceMachine] Called. Selected: ${this.selectedMachineType ? this.selectedMachineType.id : 'None'}`); // LOG H1
         // Check if we have a selected machine type
         if (!this.selectedMachineType) {
             return;
@@ -448,27 +450,35 @@ export default class MachineFactory {
         
         // Prevent placing machines over UI elements
         if (this.isPointerOverUI(pointer)) {
+            console.log('[Factory.handlePlaceMachine] Pointer is over UI. Aborting.'); // LOG H2
             return;
         }
         
+        console.log('[Factory.handlePlaceMachine] Pointer NOT over UI.'); // LOG H3
         // Check if the pointer is over the factory grid
         if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
+            console.log('[Factory.handlePlaceMachine] Pointer IS over grid.'); // LOG H4
             // Get the grid position from the pointer
             const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
             if (!gridPos) {
+                console.log('[Factory.handlePlaceMachine] Could not get gridPos. Aborting.'); // LOG H5
                 return;
             }
+            console.log(`[Factory.handlePlaceMachine] Got gridPos: (${gridPos.x}, ${gridPos.y})`); // LOG H6
             
             // Check if we can place the machine at the grid position
+            console.log(`[Factory.handlePlaceMachine] Checking canPlaceMachine for ${this.selectedMachineType.id} at (${gridPos.x}, ${gridPos.y})`); // LOG H7
             const canPlace = this.scene.factoryGrid.canPlaceMachine(
                 this.selectedMachineType,
                 gridPos.x,
                 gridPos.y,
-                this.selectedMachineType.direction || 0
+                this.selectedMachineType.direction || 'right' // Use right if direction undefined
             );
+            console.log(`[Factory.handlePlaceMachine] canPlaceMachine result: ${canPlace}`); // LOG H8
             
             if (canPlace) {
                 try {
+                    console.log(`[Factory.handlePlaceMachine] About to call scene.placeMachine for ${this.selectedMachineType.id}`); // LOG H9
                     // Place the machine using the scene's placeMachine method
                     const placedMachine = this.scene.placeMachine(
                         this.selectedMachineType,
@@ -478,6 +488,7 @@ export default class MachineFactory {
                     );
                     
                     if (placedMachine) {
+                        console.log(`[Factory.handlePlaceMachine] scene.placeMachine SUCCESS for ${this.selectedMachineType.id}`); // LOG H10
                         // Play a placement sound
                         this.scene.playSound('place');
                         
@@ -778,12 +789,13 @@ export default class MachineFactory {
             if (presetPosition) {
                 config.presetPosition = presetPosition;
             }
-            console.log(`[MachineFactory] Config prepared:`, config); // Log config
+            console.log(`[MachineFactory] Config prepared:`, config);
             
-            // Use the registry to create the machine
-            console.log(`[MachineFactory] Calling machineRegistry.createMachine for ${machineTypeId}...`); // Log before registry call
+            // Call the registry
+            console.log(`[MachineFactory] Calling machineRegistry.createMachine for ${machineTypeId}...`);
+            console.log(`[MachineFactory] --> Passing scene: ${this.scene ? this.scene.scene.key : 'INVALID'}, config keys: ${config ? Object.keys(config).join(', ') : 'N/A'}`); 
             const machine = this.machineRegistry.createMachine(machineTypeId, this.scene, config);
-            console.log(`[MachineFactory] Result from machineRegistry.createMachine:`, machine ? 'Success' : 'Failed/Null'); // Log result
+            console.log(`[MachineFactory] Result from machineRegistry.createMachine:`, machine ? 'Success' : 'Failed/Null');
             
             return machine;
         } catch (error) {

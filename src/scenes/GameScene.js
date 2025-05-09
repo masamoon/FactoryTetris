@@ -11,6 +11,7 @@ import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
 import { UPGRADE_PACKAGE_TYPE, upgradesConfig, UPGRADE_TYPES } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig + UPGRADE_TYPES
 import { UpgradeScene } from './UpgradeScene.js'; // Import UpgradeScene
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
+import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
 
 export default class GameScene extends Phaser.Scene {
     constructor() {
@@ -735,10 +736,64 @@ export default class GameScene extends Phaser.Scene {
         
         // Add mouse click handler for machine placement
         this.input.on('pointerdown', (pointer) => {
-            // Only handle left mouse button
-            if (pointer.leftButtonDown() && this.machineFactory && this.machineFactory.selectedMachineType) {
-                // Handle machine placement through the factory
+            console.log('[POINTERDOWN] Click detected.');
+            if (pointer.leftButtonDown()) {
+                console.log('[POINTERDOWN] Left button down.');
+                const worldX = pointer.worldX;
+                const worldY = pointer.worldY;
+
+                // Priority 1: Check for conveyor deletion if NOT in active machine placement mode
+                const isPlacingMachine = this.machineFactory && this.machineFactory.selectedMachineType;
+                console.log(`[POINTERDOWN] Is placing machine? ${isPlacingMachine}`);
+
+                if (!isPlacingMachine) {
+                    console.log('[POINTERDOWN] Not actively placing. Checking for conveyor deletion.');
+                    if (this.grid.isInBounds(worldX, worldY)) {
+                        console.log('[POINTERDOWN] Click is in grid bounds.');
+                        const gridPos = this.grid.worldToGrid(worldX, worldY);
+                        if (gridPos) {
+                            console.log(`[POINTERDOWN] Grid position: (${gridPos.x}, ${gridPos.y})`);
+                            const cell = this.grid.getCell(gridPos.x, gridPos.y);
+                            if (cell && cell.object) {
+                                console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
+                                if (cell.object instanceof ConveyorMachine) {
+                                    console.log('[POINTERDOWN] Conveyor detected! Calling deleteConveyorOnClick.');
+                                    this.deleteConveyorOnClick(cell.object);
+                                    return; // Deletion handled, stop further processing for this click
+                                } else {
+                                    console.log('[POINTERDOWN] Cell object is not a ConveyorMachine.');
+                                }
+                            } else {
+                                console.log('[POINTERDOWN] Cell is empty or has no object.');
+                            }
+                        } else {
+                            console.log('[POINTERDOWN] Could not convert to grid position.');
+                        }
+                    } else {
+                        console.log('[POINTERDOWN] Click is out of grid bounds for deletion check.');
+                    }
+                }
+
+                // Priority 2: Handle machine placement if a machine type is selected
+                if (isPlacingMachine) {
+                    console.log('[POINTERDOWN] Attempting machine placement.');
+                    // Ensure the click is within the factory grid for placement
+                    console.log(`[POINTERDOWN] About to check isInBounds for (${worldX.toFixed(1)}, ${worldY.toFixed(1)})`); // <<< LOG 1
+                    const isBoundsOk = this.grid.isInBounds(worldX, worldY);
+                    console.log(`[POINTERDOWN] isInBounds returned: ${isBoundsOk}`); // <<< LOG 2
+
+                    if (isBoundsOk) { 
+                         console.log('[POINTERDOWN] Bounds OK. Calling handlePlaceMachine.'); // <<< LOG 3
                 this.machineFactory.handlePlaceMachine(pointer);
+                    } else {
+                        console.log('[POINTERDOWN] Bounds NOT OK. Click is out of grid bounds.'); // <<< LOG 4 (This should NOT appear if isBoundsOk is true)
+                        // Optionally, you might want to clear selection if clicking outside
+                        // this.machineFactory.clearSelection();
+                    }
+                }
+
+            } else {
+                console.log('[POINTERDOWN] Not left button or button not down.');
             }
         });
     }
@@ -871,27 +926,56 @@ export default class GameScene extends Phaser.Scene {
         
         // Don't set input/output for cargo loaders
         if (machine.id !== 'cargo-loader' && direction !== 'none') {
-            switch (direction) {
-                case 'right':
-                    // Input on left side, output on right side
-                    inputPos = { x: 0, y: Math.floor(rotatedShape.length / 2) };
-                    outputPos = { x: rotatedShape[0].length - 1, y: Math.floor(rotatedShape.length / 2) };
-                    break;
-                case 'down':
-                    // Input on top side, output on bottom side
-                    inputPos = { x: Math.floor(rotatedShape[0].length / 2), y: 0 };
-                    outputPos = { x: Math.floor(rotatedShape[0].length / 2), y: rotatedShape.length - 1 };
-                    break;
-                case 'left':
-                    // Input on right side, output on left side
-                    inputPos = { x: rotatedShape[0].length - 1, y: Math.floor(rotatedShape.length / 2) };
-                    outputPos = { x: 0, y: Math.floor(rotatedShape.length / 2) };
-                    break;
-                case 'up':
-                    // Input on bottom side, output on top side
-                    inputPos = { x: Math.floor(rotatedShape[0].length / 2), y: rotatedShape.length - 1 };
-                    outputPos = { x: Math.floor(rotatedShape[0].length / 2), y: 0 };
-                    break;
+            // Get machine ID from the machine object
+            const machineId = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
+            
+            // Get the machine constructor from the registry
+            let machineConstructor = null;
+            if (this.machineFactory && this.machineFactory.machineRegistry && 
+                typeof this.machineFactory.machineRegistry.machineTypes === 'object') {
+                machineConstructor = this.machineFactory.machineRegistry.machineTypes.get(machineId);
+            }
+            
+            // Use the getIOPositionsForDirection method from the constructor if available
+            if (machineConstructor && typeof machineConstructor.getIOPositionsForDirection === 'function') {
+                // Get positions from the machine's own implementation
+                const ioPositions = machineConstructor.getIOPositionsForDirection(machineId, direction);
+                inputPos = ioPositions.inputPos;
+                outputPos = ioPositions.outputPos;
+                console.log(`[PREVIEW] Using ${machineId}'s getIOPositionsForDirection: in(${inputPos.x},${inputPos.y}), out(${outputPos.x},${outputPos.y})`);
+            } 
+            // Otherwise, fallback to BaseMachine's implementation
+            else if (typeof BaseMachine !== 'undefined' && BaseMachine.getIOPositionsForDirection) {
+                const ioPositions = BaseMachine.getIOPositionsForDirection(machineId, direction);
+                inputPos = ioPositions.inputPos;
+                outputPos = ioPositions.outputPos;
+                console.log(`[PREVIEW] Using BaseMachine.getIOPositionsForDirection for ${machineId}: in(${inputPos.x},${inputPos.y}), out(${outputPos.x},${outputPos.y})`);
+            }
+            // If neither method is available, use the backup hardcoded positions (should rarely happen)
+            else {
+                console.warn(`[PREVIEW] getIOPositionsForDirection not found for ${machineId}. Using fallbacks.`);
+                switch (direction) {
+                    case 'right':
+                        // Input on left side, output on right side
+                        inputPos = { x: 0, y: Math.floor(rotatedShape.length / 2) };
+                        outputPos = { x: rotatedShape[0].length - 1, y: Math.floor(rotatedShape.length / 2) };
+                        break;
+                    case 'down':
+                        // Input on top side, output on bottom side
+                        inputPos = { x: Math.floor(rotatedShape[0].length / 2), y: 0 };
+                        outputPos = { x: Math.floor(rotatedShape[0].length / 2), y: rotatedShape.length - 1 };
+                        break;
+                    case 'left':
+                        // Input on right side, output on left side
+                        inputPos = { x: rotatedShape[0].length - 1, y: Math.floor(rotatedShape.length / 2) };
+                        outputPos = { x: 0, y: Math.floor(rotatedShape.length / 2) };
+                        break;
+                    case 'up':
+                        // Input on bottom side, output on top side
+                        inputPos = { x: Math.floor(rotatedShape[0].length / 2), y: rotatedShape.length - 1 };
+                        outputPos = { x: Math.floor(rotatedShape[0].length / 2), y: 0 };
+                        break;
+                }
             }
         }
         
@@ -1785,99 +1869,91 @@ export default class GameScene extends Phaser.Scene {
      * @returns {Object|null} The placed machine object or null if placement failed
      */
     placeMachine(machineType, gridX, gridY, rotation = 0) {
+        console.log(`[GameScene.placeMachine] ENTERED for ${machineType ? machineType.id : 'INVALID TYPE'} at (${gridX}, ${gridY}), rotation ${rotation}`); // LOG P0
         try {
-            // Check if the position is valid
-            if (!this.grid.isInBounds(
-                this.grid.gridToWorld(gridX, gridY).x, 
-                this.grid.gridToWorld(gridX, gridY).y
-            )) {
+            // Check 1: Initial bounds check (using gridToWorld)
+            const worldPosCheck = this.grid.gridToWorld(gridX, gridY);
+            if (!this.grid.isInBounds(worldPosCheck.x, worldPosCheck.y)) {
+                console.warn(`[GameScene.placeMachine] Exit P1: Initial bounds check failed for world pos derived from (${gridX}, ${gridY})`); 
                 return null;
             }
             
-            // Validate parameters
+            // Check 2: Validate machineType object
             if (!machineType) {
+                 console.warn(`[GameScene.placeMachine] Exit P2: Invalid machineType object passed (null/undefined).`); 
                 return null;
             }
-            
+            // Check 3: Validate machineType format
             if (typeof machineType !== 'object' || !machineType.id) {
+                 console.warn(`[GameScene.placeMachine] Exit P3: Invalid machineType format (not object or no id). Type: ${typeof machineType}, ID: ${machineType ? machineType.id : 'N/A'}`); 
                 return null;
             }
             
-            // Get the direction from rotation
+            // Get direction from rotation (assuming degrees for now)
             const direction = this.getDirectionFromRotation(rotation);
-            //console.log(`[DEBUG] Direction: ${direction}`);
+            console.log(`[GameScene.placeMachine] Calculated direction: ${direction} from rotation ${rotation}`); // LOG P4
             
-            // Get the machine type from the factory
-            const machineTypeObj = this.machineFactory.getMachineTypeById(machineType.id);
-            if (!machineTypeObj) {
-                return null;
-            }
-            
-            // Get the rotated shape
+            // Check 5: Validate shape generation (use shape from machineType passed in)
             let shape;
             try {
-                shape = this.grid.getRotatedShape(machineTypeObj.shape, rotation);
-                
-                // Validate the rotated shape
-                if (!Array.isArray(shape) || shape.length === 0) {
+                if (!machineType.shape) {
+                    console.warn(`[GameScene.placeMachine] Exit P5a: machineType object is missing .shape property.`); 
+                    return null;
+                }
+                shape = this.grid.getRotatedShape(machineType.shape, rotation); 
+                if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0])) {
+                     console.warn(`[GameScene.placeMachine] Exit P5b: Invalid rotated shape generated. Shape was:`, shape); 
                     return null;
                 }
             } catch (shapeError) {
+                console.error('[GameScene.placeMachine] Exit P5c: Error getting rotated shape:', shapeError); 
                 return null;
             }
             
-            // Check if we can place the machine at the current position
+            // Check 6: Final placement check using derived direction
             let canPlace = false;
             try {
-                canPlace = this.grid.canPlaceMachine(machineTypeObj, gridX, gridY, this.getDirectionFromRotation(rotation));
+                canPlace = this.grid.canPlaceMachine(machineType, gridX, gridY, direction); 
             } catch (canPlaceError) {
-                canPlace = false;
+                console.error('[GameScene.placeMachine] Exit P6a: Error checking canPlaceMachine:', canPlaceError);
+                return null; // Exit on error during check
             }
-            
             if (!canPlace) {
+                console.warn(`[GameScene.placeMachine] Exit P6b: Final canPlace check failed for ${machineType.id} at (${gridX}, ${gridY}), direction ${direction}`); 
                 return null;
             }
-            
-            // Calculate the top-left position for the container
-            let topLeftPos = this.grid.gridToWorldTopLeft(gridX, gridY);
-            if (!topLeftPos) { // Handle case where coordinates might be invalid briefly
-                console.warn(`[placeMachine] Could not get top-left for (${gridX}, ${gridY}), falling back to center.`);
-                topLeftPos = this.grid.gridToWorld(gridX, gridY); 
-            }
+            console.log(`[GameScene.placeMachine] Check P6 passed: Can place ${machineType.id}`); // LOG P6
 
-            // Use the calculated top-left as the preset position for the container
-            const presetPosition = { x: topLeftPos.x, y: topLeftPos.y };
-
-            // Create the machine using the factory with exact position
+            // Create the machine using the factory
             let machineObj;
             try {
-                // *** ADDED CHECK ***
                 if (!this.machineFactory || typeof this.machineFactory.createMachine !== 'function') {
-                    console.error("[GameScene] Error: this.machineFactory is invalid or missing createMachine method.");
+                     console.error("[GameScene.placeMachine] Exit P7a: this.machineFactory is invalid or missing createMachine method."); 
                     return null; 
                 }
-                // *** END CHECK ***
-
-                console.log(`[GameScene] Attempting to create machine: ${machineTypeObj.id}`); // Log before creation
+                console.log(`[GameScene.placeMachine] Calling machineFactory.createMachine for ${machineType.id} at (${gridX},${gridY})`); // LOG P7
                 machineObj = this.machineFactory.createMachine(
-                    machineTypeObj.id,
+                    machineType.id, 
                     gridX,
                     gridY,
                     direction,
                     rotation,
-                    this.grid,
-                    presetPosition
+                    this.grid 
                 );
-                console.log(`[GameScene] Result of createMachine for ${machineTypeObj.id}:`, machineObj ? 'Success' : 'Failed/Null'); // Log result
-            } catch (createError) {
-                console.error(`[GameScene] Error during machineFactory.createMachine for ${machineTypeObj.id}:`, createError); // Log error
+                 console.log(`[GameScene.placeMachine] machineFactory.createMachine result: ${machineObj ? 'Success' : 'Failed/Null'}`); // LOG P8
+
+                 if (!machineObj) { // Explicit check if creation failed
+                    console.error("[GameScene.placeMachine] Exit P8a: machineFactory.createMachine returned null/undefined.");
                 return null;
             }
             
-            if (!machineObj) {
-                console.error(`[GameScene] Machine object is null or undefined after creation attempt for ${machineTypeObj.id}.`); // Add specific log here
+            } catch (createError) {
+                console.error(`[GameScene.placeMachine] Exit P7b: Error during machineFactory.createMachine call:`, createError); 
                 return null;
             }
+            
+            // --- If we get here, machineObj should be valid --- 
+            console.log(`[GameScene.placeMachine] Machine object created successfully:`, machineObj); // LOG P9
             
             // Ensure the machine is visible
             if (machineObj.container) {
@@ -1905,20 +1981,23 @@ export default class GameScene extends Phaser.Scene {
             
             // Register the machine with the factory grid
             try {
-                // Pass all required parameters to grid.placeMachine
                 this.grid.placeMachine(
                     machineObj,
                     gridX,
                     gridY,
                     direction
                 );
+                console.log(`[GameScene.placeMachine] Called grid.placeMachine for ${machineObj.id}`); // LOG P10
             } catch (gridError) {
-                // Continue even if grid registration fails, as we've already created the machine
+                console.error('[GameScene.placeMachine] Error during grid.placeMachine:', gridError);
+                // Decide if we should destroy the created machineObj if grid placement fails
+                if (machineObj && typeof machineObj.destroy === 'function') machineObj.destroy();
+                return null; // Exit if grid placement fails
             }
             
-            // Add the machine to the scene
+            // Add the machine to the scene's tracking array
             this.machines.push(machineObj);
-            console.log(`[GameScene] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`); // Added log
+            console.log(`[GameScene.placeMachine] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`); // LOG P11
             
             // Always play a sound when placing a machine
             try {
@@ -1937,18 +2016,11 @@ export default class GameScene extends Phaser.Scene {
                 }
             }
             
+            console.log(`[GameScene.placeMachine] Successfully placed ${machineObj.id}`); // LOG P12
             return machineObj;
+
         } catch (error) {
-            
-            // Try to exit placement mode to recover
-            if (this.isPlacingMachine) {
-                try {
-                    this.exitMachinePlacementMode();
-                } catch (e) {
-                    // Ignore errors in error handler
-                }
-            }
-            
+            console.error(`[GameScene.placeMachine] Unhandled error in placeMachine for ${machineType ? machineType.id : 'unknown'}:`, error); 
             return null;
         }
     }
@@ -2675,29 +2747,31 @@ export default class GameScene extends Phaser.Scene {
                                  // 3. Final Cleanup after animation
                                  if (this.grid && targetObject.gridX !== undefined && targetObject.gridY !== undefined) {
                                      if (isMachine) {
-                                         // --- MODIFIED: Pass the machine object itself ---
-                                        this.grid.removeMachine(targetObject); 
+                                        this.grid.removeMachine(targetObject); // Remove from grid data
+                                        if (targetObject && typeof targetObject.destroy === 'function') {
+                                            targetObject.destroy(); // Then destroy the machine object itself
+                                        }
                                      } else {
                                          // Assumes nodes occupy single cells
                                          const cell = this.grid.getCell(targetObject.gridX, targetObject.gridY);
                                          if(cell && cell.object === targetObject) {
-                                             // --- MODIFIED: Use setCell instead of clearCellObject ---
                                              this.grid.setCell(targetObject.gridX, targetObject.gridY, { type: 'empty' });
                                          }
-                                         // --- ADDED: Call destroy for nodes here --- 
-                                         targetObject.destroy(); // Destroy the node object after clearing cell
+                                         if (targetObject && typeof targetObject.destroy === 'function') {
+                                            targetObject.destroy(); // Destroy the node object
+                                         }
                                      }
                                  } else if (isMachine) {
-                                      // --- ADDED: Fallback destroy if grid/coords missing for machine ---
                                       console.warn(`[Disintegrate] Machine missing grid/coords, destroying directly.`);
+                                      if (targetObject && typeof targetObject.destroy === 'function') {
                                       targetObject.destroy(); 
-                                 } else {
-                                      // --- ADDED: Fallback destroy if grid/coords missing for node ---
+                                      }
+                                 } else { // Is a Node, missing grid/coords
                                        console.warn(`[Disintegrate] Node missing grid/coords, destroying directly.`);
+                                      if (targetObject && typeof targetObject.destroy === 'function') {
                                       targetObject.destroy(); 
                                  }
-                                 // --- REMOVED: Redundant destroy call here, handled by removeMachine or above ---
-                                 // targetObject.destroy(); 
+                                 }
                              }
                          });
                      }
@@ -3019,6 +3093,45 @@ export default class GameScene extends Phaser.Scene {
             }
         }
         this.activeUpgradesText.setText(displayText);
+    }
+
+    deleteConveyorOnClick(conveyor) {
+        if (this.paused || this.gameOver || !conveyor) return;
+
+        console.log(`Attempting to delete conveyor at grid (${conveyor.gridX}, ${conveyor.gridY})`);
+
+        // 1. Delete items on the belt
+        if (conveyor.itemsOnBelt && conveyor.itemsOnBelt.length > 0) {
+            console.log(`Deleting ${conveyor.itemsOnBelt.length} items from conveyor.`);
+            conveyor.itemsOnBelt.forEach(itemSprite => {
+                if (itemSprite && typeof itemSprite.destroy === 'function') {
+                    itemSprite.destroy();
+                }
+            });
+            conveyor.itemsOnBelt = []; // Clear the array
+        }
+
+        // 2. Remove from the scene's machines array
+        const machineIndex = this.machines.indexOf(conveyor);
+        if (machineIndex > -1) {
+            this.machines.splice(machineIndex, 1);
+            console.log('Removed conveyor from scene machines array.');
+        }
+
+        // 3. Remove from grid
+        if (this.grid && typeof this.grid.removeMachine === 'function') {
+            this.grid.removeMachine(conveyor); // removeMachine should handle clearing grid cells
+            console.log('Called grid.removeMachine.');
+        }
+
+        // 4. Destroy the conveyor game object (container and its contents)
+        if (typeof conveyor.destroy === 'function') {
+            conveyor.destroy();
+            console.log('Destroyed conveyor game object.');
+        }
+
+        // 5. Play a sound
+        this.playSound('destroy'); // Assuming you have a 'destroy' sound effect
     }
 
     // -------------------------

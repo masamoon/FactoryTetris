@@ -446,15 +446,23 @@ export default class ConveyorMachine extends BaseMachine {
         let targetEntity = null;
         let targetEntityType = 'none';
 
-        // Prioritize checking for a machine first
-        if (targetCell && targetCell.machine) {
-            targetEntity = targetCell.machine;
+        // Check for an object in the target cell first
+        if (targetCell && targetCell.object) {
+            targetEntity = targetCell.object;
+            // Determine if it's a machine or another type of node based on its properties or type
+            if (targetEntity instanceof BaseMachine) { // Check if it's a machine instance
             targetEntityType = 'machine';
-        } 
-        // If no machine, check for a node-like object (delivery, etc.)
-        else if (targetCell && targetCell.object) {
-             targetEntity = targetCell.object;
-             targetEntityType = targetCell.type; // e.g., 'delivery-node'
+            } else if (targetCell.type === 'delivery-node' || targetCell.type === 'upgrade-node' || targetCell.type === 'node') {
+                targetEntityType = targetCell.type; // e.g., 'delivery-node', 'upgrade-node'
+            } else {
+                // Could be an unknown object, or a machine not inheriting BaseMachine but still having acceptItem
+                // For now, if it has acceptItem, let's try to treat it as a generic target
+                if (typeof targetEntity.acceptItem === 'function') {
+                    targetEntityType = 'generic-target'; 
+                } else {
+                    targetEntity = null; // Not a valid target if it can't accept items
+                }
+            }
         }
 
         // Check if we found a valid target entity with the necessary methods
@@ -615,5 +623,38 @@ export default class ConveyorMachine extends BaseMachine {
 
         // Call the base destroy method for common cleanup (container, etc.)
         super.destroy();
+    }
+
+    /**
+     * Get input and output positions for each direction
+     * This is the single source of truth for Conveyor I/O positions
+     * @param {string} machineId - The machine ID (should be 'conveyor')
+     * @param {string} direction - The direction ('right', 'down', 'left', 'up')
+     * @returns {Object} An object with inputPos and outputPos coordinates
+     */
+    static getIOPositionsForDirection(machineId, direction) {
+        // Conveyors are simple - input and output are at the same position (flow is determined by direction)
+        const pos = { x: 0, y: 0 };  // For 1x1 conveyor
+        return { inputPos: pos, outputPos: pos };
+    }
+
+    /**
+     * Get a preview sprite for the machine selection panel
+     */
+    static getPreviewSprite(scene, x, y, direction = 'right') {
+        // Define the machine's 1x1 shape
+        const shape = [[1]];
+        
+        // Get input/output positions using the single source of truth
+        const ioPositions = ConveyorMachine.getIOPositionsForDirection('conveyor', direction);
+        
+        return BaseMachine.getStandardPreviewSprite(scene, x, y, {
+            machineId: 'conveyor',
+            shape: shape,
+            label: "→",
+            inputPos: ioPositions.inputPos,
+            outputPos: ioPositions.outputPos,
+            direction: direction
+        });
     }
 } 

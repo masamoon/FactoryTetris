@@ -83,9 +83,10 @@ export default class MachineRegistry {
         }
 
         try {
-            console.log(`[MachineRegistry] Attempting: new ${MachineConstructor.name}(...)`); // Log before new()
+            console.log(`[MachineRegistry] Attempting: new ${MachineConstructor.name}(...)`);
+            console.log(`[MachineRegistry] --> Calling constructor with scene: ${scene ? scene.scene.key : 'INVALID'}, config keys: ${config ? Object.keys(config).join(', ') : 'N/A'}`);
             const instance = new MachineConstructor(scene, config);
-            console.log(`[MachineRegistry] Instance created successfully for ${id}`); // Log success
+            console.log(`[MachineRegistry] Instance created successfully for ${id}`);
             return instance;
         } catch (error) {
             console.error(`[MachineRegistry] Error during new ${MachineConstructor.name}(...) for ID ${id}:`, error); // Log error during new()
@@ -99,26 +100,30 @@ export default class MachineRegistry {
      * @param {Phaser.Scene} scene - The scene to create the sprite in
      * @param {number} x - The x coordinate
      * @param {number} y - The y coordinate
+     * @param {string} direction - The direction for the preview (default: 'right')
      * @returns {Phaser.GameObjects.Container} The preview sprite
      * @throws {Error} If the machine type is not registered
      */
-    createMachinePreview(id, scene, x, y) {
+    createMachinePreview(id, scene, x, y, direction = 'right') {
         if (!this.hasMachineType(id)) {
             throw new Error(`Machine type '${id}' is not registered`);
         }
         
         // Get the machine constructor
         const MachineConstructor = this.machineTypes.get(id);
+        console.log(`[MachineRegistry] Creating preview for ${id} in direction: ${direction}`);
         
         // Create a static preview instead of a full machine instance
         if (MachineConstructor.getPreviewSprite) {
-            // If the class has a static preview method, use it
-            return MachineConstructor.getPreviewSprite(scene, x, y);
+            console.log(`[MachineRegistry] Using STATIC getPreviewSprite for ${id} with direction ${direction}`);
+            // If the class has a static preview method, use it with direction
+            return MachineConstructor.getPreviewSprite(scene, x, y, direction);
         } else {
+            console.log(`[MachineRegistry] Static getPreviewSprite NOT FOUND for ${id}. Falling back to instance method.`);
             // Create a minimal config with just enough for a preview
             const config = {
-                // Don't pass grid reference for previews
-                preview: true
+                preview: true,
+                direction: direction // Pass direction to the constructor
             };
             
             // Create a temporary instance with minimal configuration
@@ -148,19 +153,37 @@ export default class MachineRegistry {
             return MachineConstructor.getConfig();
         }
         
-        // Create a temporary machine instance with minimal configuration
-        const tempMachine = new MachineConstructor(null, { preview: true });
-        
-        return {
-            id: tempMachine.id,
-            name: tempMachine.name,
-            description: tempMachine.description,
-            shape: tempMachine.shape,
-            inputTypes: tempMachine.inputTypes,
-            outputTypes: tempMachine.outputTypes,
-            processingTime: tempMachine.processingTime,
-            direction: tempMachine.direction
-        };
+        try {
+            // Create a temporary machine instance with minimal configuration
+            // Add a dummy grid to prevent "this.grid is undefined" errors
+            const tempMachine = new MachineConstructor(null, { 
+                preview: true,
+                grid: {}, // Provide a dummy grid object
+                skipInteractivity: true // Add a flag to skip interactivity setup
+            });
+            
+            return {
+                id: tempMachine.id,
+                name: tempMachine.name,
+                description: tempMachine.description,
+                shape: tempMachine.shape,
+                inputTypes: tempMachine.inputTypes || [],
+                outputTypes: tempMachine.outputTypes || [],
+                processingTime: tempMachine.processingTime,
+                direction: tempMachine.direction || 'right'
+            };
+        } catch (error) {
+            console.error(`Error getting config for machine type ${id}:`, error);
+            // Return a minimal fallback config
+            return {
+                id,
+                name: id.charAt(0).toUpperCase() + id.slice(1).replace('-', ' '),
+                shape: [[1]], // Default 1x1 shape
+                inputTypes: [],
+                outputTypes: [],
+                direction: 'right'
+            };
+        }
     }
     
     /**

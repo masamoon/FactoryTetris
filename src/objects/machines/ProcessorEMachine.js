@@ -3,273 +3,163 @@ import { GAME_CONFIG } from '../../config/gameConfig';
 
 /**
  * Processor E Machine
- * Processes basic resources into advanced resources (I-Shape)
+ * Processes basic resources into advanced resources (Cross Shape)
  */
 export default class ProcessorEMachine extends BaseMachine {
+    /**
+     * Create a new processor E machine
+     * @param {Phaser.Scene} scene - The scene this machine belongs to
+     * @param {Object} config - Configuration object
+     */
     constructor(scene, config) {
+        // Call the parent constructor
         super(scene, config);
+        
+        // Store the config reference
         this.config = config;
     }
 
+    /**
+     * Override the base class method to define processor-specific properties
+     */
     initMachineProperties() {
+        // Define machine identifier properties
         this.id = 'processor-e';
         this.name = 'Processor E';
-        this.description = 'Processes basic resources into advanced resources. (I-Shape)';
+        this.description = 'Processes basic resources into advanced resources (L Shape)';
         
+        // Define the original shape - a 3x3 cross
         const originalShape = [
-            [1],
-            [1],
-            [1],
-            [1]
+            [1, 1],
+            [0, 1],
+            [0, 1]
         ];
         
+        // Set input/output types
         this.inputTypes = ['basic-resource'];
         this.outputTypes = ['advanced-resource'];
-        this.processingTime = 3300; 
+        this.processingTime = 4000; // 4 seconds
         this.defaultDirection = 'right'; 
         
-        this.isProcessing = false;
-        this.processingProgress = 0;
+        // Initialize using the single source of truth for I/O positions
+        const ioPositions = ProcessorEMachine.getIOPositionsForDirection('processor-e', this.defaultDirection);
+        this.inputCoord = ioPositions.inputPos;
+        this.outputCoord = ioPositions.outputPos;
+        
+        // Required inputs for processing
         this.requiredInputs = {
-            'basic-resource': 1
+            'basic-resource': 2 // Requires 2 basic resources (more than others)
         };
         
+        // Set the machine shape
         this.shape = originalShape;
         
-        this.inputInventory = {
-            'basic-resource': 0
-        };
-        this.outputInventory = {
-            'advanced-resource': 0
-        };
-        
-        console.log(`[ProcessorE] Initialized with I-Shape.`);
-    }
-
-    createVisuals() {
-        super.createVisuals(); 
-        if (this.container && this.container.list) {
-            let existingLabel = this.container.list.find(item => item instanceof Phaser.GameObjects.Text);
-            if(existingLabel){
-                existingLabel.setText("E");
-            } else {
-                const cellSize = this.grid.cellSize;
-                const rotatedShape = this.grid.getRotatedShape(this.shape, this.direction || this.defaultDirection);
-                const shapeCenterX = (rotatedShape[0].length - 1) / 2;
-                const shapeCenterY = (rotatedShape.length - 1) / 2;
-                const visualCenterX = shapeCenterX * cellSize + cellSize / 2;
-                const visualCenterY = shapeCenterY * cellSize + cellSize / 2;
-                const newLabel = this.scene.add.text(visualCenterX, visualCenterY, "E", {
-                    fontFamily: 'Arial',
-                    fontSize: 14,
-                    color: '#ffffff'
-                }).setOrigin(0.5);
-                this.container.add(newLabel);
-            }
-        }
-
-        const cellSize = this.grid.cellSize; 
-        const rotatedShapeForBar = this.grid.getRotatedShape(this.shape, this.direction || this.defaultDirection);
-        const shapeCenterXForBar = (rotatedShapeForBar[0].length - 1) / 2;
-        const shapeCenterYForBar = (rotatedShapeForBar.length - 1) / 2;
-        const adjustedVisualCenterX = shapeCenterXForBar * cellSize + cellSize / 2;
-        const adjustedVisualCenterY = shapeCenterYForBar * cellSize + cellSize / 2;
-
-        this.progressBar = this.scene.add.rectangle(
-            adjustedVisualCenterX, 
-            adjustedVisualCenterY + cellSize * 0.6, 
-            cellSize * 1.5, 
-            6, 
-            0x000000 
-        ).setOrigin(0.5);
-        this.progressBar.setDepth(1); 
-        this.container.add(this.progressBar);
-        
-        this.progressFill = this.scene.add.rectangle(
-            this.progressBar.x - this.progressBar.width / 2,
-            this.progressBar.y,
-            0, 
-            this.progressBar.height,
-            0x00ff00 
-        ).setOrigin(0, 0.5);
-        this.progressFill.setDepth(2);
-        this.container.add(this.progressFill);
-        
-        this.progressBar.setVisible(false);
-        this.progressFill.setVisible(false);
-    }
-
-    update(time, delta) {
-        super.update(time, delta); 
-        
-        if (this.isProcessing) {
-            const speedModifier = this.scene.upgradeManager.getProcessorSpeedModifier();
-            const effectiveDelta = delta * speedModifier; 
-
-            this.processingProgress += effectiveDelta; 
-
-            const progressRatio = Math.min(1, this.processingProgress / this.processingTime);
-            if (this.progressFill && this.progressBar) {
-                 this.progressFill.width = this.progressBar.width * progressRatio;
-            }
-            
-            if (this.processingProgress >= this.processingTime) {
-                this.completeProcessing();
-            }
-        } else {
-            if (this.canProcess()) {
-                this.startProcessing();
-            }
-        }
-
-        if (this.hasOutput()) {
-            this.pushOutput(); 
-        }
+        // Log initialization for better debugging
+        console.log(`[ProcessorE] Initialized with properties:
+            Input types: ${this.inputTypes}
+            Output types: ${this.outputTypes}
+            Processing time: ${this.processingTime}ms
+            I/O positions for ${this.defaultDirection}: Input(${this.inputCoord.x},${this.inputCoord.y}), Output(${this.outputCoord.x},${this.outputCoord.y})
+        `);
     }
     
-    canProcess() {
-        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-            const currentAmount = this.inputInventory[resourceType] || 0;
-            if (currentAmount < amount) {
-                return false;
-            }
-        }
+    /**
+     * Get input and output positions for each direction
+     * This is the single source of truth for ProcessorE I/O positions
+     * @param {string} machineId - The machine ID (should be 'processor-e')
+     * @param {string} direction - The direction ('right', 'down', 'left', 'up')
+     * @returns {Object} An object with inputPos and outputPos coordinates
+     */
+    static getIOPositionsForDirection(machineId, direction) {
+        // Define direction-specific positions for the cross-shaped processor
+        let inputPos, outputPos;
         
-        const outputType = this.outputTypes[0];
-        const currentOutput = this.outputInventory[outputType] || 0;
-        if (currentOutput >= 5) { 
-            return false;
-        }
-        
-        return true;
-    }
-    
-    startProcessing() {
-        for (const type in this.requiredInputs) {
-            this.inputInventory[type] -= this.requiredInputs[type];
-        }
-        
-        this.isProcessing = true;
-        this.processingProgress = 0;
-        
-        if (this.progressBar && this.progressFill) { 
-             this.progressBar.setVisible(true);
-             this.progressFill.setVisible(true);
-             this.progressFill.width = 0; 
-        }
-        
-        if (this.scene && this.scene.playSound) {
-            this.scene.playSound('processing');
-        }
-        
-        console.log(`[${this.id}] Started processing.`);
-    }
-    
-    completeProcessing() {
-        this.outputTypes.forEach(type => {
-            if (this.outputInventory[type] !== undefined) {
-                this.outputInventory[type]++;
-            } else {
-                console.warn(`[${this.id}] Output inventory does not have key: ${type}`);
-            }
-        });
-        
-        this.isProcessing = false;
-        this.processingProgress = 0;
-        
-        if (this.progressBar && this.progressFill) { 
-            this.progressBar.setVisible(false);
-            this.progressFill.setVisible(false);
-        }
-        
-        if (this.scene && this.scene.playSound) {
-            this.scene.playSound('complete');
-        }
-        
-        console.log(`[${this.id}] Completed processing. Output: ${JSON.stringify(this.outputInventory)}`);
-        
-        this.pushOutput(); // This will call BaseMachine.pushOutput()
-    }
-
-    findTargetForOutput() {
-        if (!this.grid) {
-            console.warn(`[${this.id}] Cannot find target: grid reference is missing`);
-            return null;
-        }
-
-        const occupiedCells = this.getOccupiedCells();
-        if (!occupiedCells || occupiedCells.length === 0) {
-             console.warn(`[${this.id}] Cannot find target: machine occupies no cells.`);
-            return null; 
-        }
-
-        let dx = 0, dy = 0;
-        switch (this.direction) {
-            case 'right': dx = 1; break;
-            case 'down':  dy = 1; break;
-            case 'left':  dx = -1; break;
-            case 'up':    dy = -1; break;
+        // L shape shape: [[1,1], [0,1], [0,1]]
+        // Ensure I/O positions are on cells with value 1
+        switch(direction) {
+            case 'right': // Original orientation
+                inputPos = { x: 0, y: 0 };  // Left-middle (on horizontal bar)
+                outputPos = { x: 1, y: 2 }; // Right-middle (on horizontal bar)
+                break;
+            case 'down':  // 90° clockwise
+                inputPos = { x: 2, y: 0 };  // Top-middle (on vertical bar)
+                outputPos = { x: 0, y: 1 }; // Bottom-middle (on vertical bar)
+                break;
+            case 'left':  // 180° 
+                inputPos = { x: 1, y: 2 };  // Right-middle (on horizontal bar)
+                outputPos = { x: 0, y: 0 }; // Left-middle (on horizontal bar)
+                break;
+            case 'up':    // 270° clockwise
+                inputPos = { x: 0, y: 1 };  // Bottom-middle (on vertical bar)
+                outputPos = { x: 2, y: 0 }; // Top-middle (on vertical bar)
+                break;
             default:
-                console.warn(`[${this.id}] Invalid direction: ${this.direction}`);
-                return null;
-        }
-
-        for (const cell of occupiedCells) {
-            const outputFaceAbsX = cell.x;
-            const outputFaceAbsY = cell.y;
-
-            const targetX = outputFaceAbsX + dx;
-            const targetY = outputFaceAbsY + dy;
-            
-            if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
-                continue; 
-            }
-            
-            const isSelf = occupiedCells.some(occupied => occupied.x === targetX && occupied.y === targetY);
-            if (isSelf) {
-                continue; 
-            }
-
-            const targetCell = this.grid.getCell(targetX, targetY);
-            if (!targetCell) {
-                continue; 
-            }
-            
-            if (targetCell.type === 'delivery-node' && targetCell.object) {
-                 return { type: 'delivery-node', target: targetCell.object, outputFaceX: outputFaceAbsX, outputFaceY: outputFaceAbsY };
-            }
-            if (targetCell.type === 'machine' && targetCell.machine) {
-                 return { type: 'machine', target: targetCell.machine, outputFaceX: outputFaceAbsX, outputFaceY: outputFaceAbsY };
-            }
+                inputPos = { x: 0, y: 0 };  // Left-middle (default)
+                outputPos = { x: 1, y: 2 }; // Right-middle (default)
         }
         
-        return null;
+        return { inputPos, outputPos };
     }
-
-    static getPreviewSprite(scene, x, y) {
-        const container = scene.add.container(x, y);
-        const shape = [ [1], [1], [1], [1] ];
-        const cellSize = 10; 
-        const shapeCenterX = (shape[0].length - 1) / 2;
-        const shapeCenterY = (shape.length - 1) / 2;
-
-        for (let r = 0; r < shape.length; r++) {
-            for (let c = 0; c < shape[r].length; c++) {
-                if (shape[r][c] === 1) {
-                    const partX = (c - shapeCenterX) * cellSize;
-                    const partY = (r - shapeCenterY) * cellSize;
-                    let color = 0x44ff44; 
-                    if (r === 0 && c === 0) color = 0x4aa8eb; 
-                    else if (r === 3 && c === 0) color = 0xffa520; 
-                    
-                    const rect = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
-                    rect.setStrokeStyle(1, 0x555555);
-                    container.add(rect);
-                }
+    
+    /**
+     * Override the createVisuals method to customize the processor appearance
+     */
+    createVisuals() {
+        // Call the base class to create the common visuals
+        super.createVisuals(); 
+        
+        // Add processor-specific visuals using the standardized method
+        if (this.container) {
+            this.createProcessorVisuals("E", {
+                coreColor: 0xff00ff, // Purple color
+                coreShape: 'circle',
+                fontSize: 16
+            });
             }
         }
-        const label = scene.add.text(0, 0, "E", { fontSize: 9, color: '#ffffff' }).setOrigin(0.5);
-        container.add(label);
-        return container;
+
+    /**
+     * Get a preview sprite for the machine selection panel
+     */
+    static getPreviewSprite(scene, x, y, direction = 'right') {
+        // Use the standard preview sprite with E-specific options
+        const shape = [
+            [1, 1],
+            [0, 1],
+            [0, 1]
+        ];
+        
+        // Get input/output positions using the single source of truth
+        const ioPositions = ProcessorEMachine.getIOPositionsForDirection('processor-e', direction);
+        
+        return BaseMachine.getStandardPreviewSprite(scene, x, y, {
+            machineId: 'processor-e',
+            shape: shape,
+            label: "E",
+            inputPos: ioPositions.inputPos,
+            outputPos: ioPositions.outputPos,
+            direction: direction
+        });
+    }
+    
+    /**
+     * Get standard configuration for this machine type
+     */
+    static getConfig() {
+        return BaseMachine.getStandardConfig({
+            id: 'processor-e',
+            name: 'Processor E',
+            description: 'Processes basic resources into advanced resources (L shape)',
+            shape: [
+                [1, 1],
+                [0, 1],
+                [0, 1]
+            ],
+            inputTypes: ['basic-resource'],
+            outputTypes: ['advanced-resource'],
+            processingTime: 4000,
+            defaultDirection: 'right',
+            requiredInputs: { 'basic-resource': 2 }
+        });
     }
 } 

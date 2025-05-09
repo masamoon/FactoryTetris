@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../../config/gameConfig';
+import { GRID_CONFIG } from '../../config/gameConfig';
+import ConveyorMachine from './ConveyorMachine';
 
 /**
  * Base class for all machine types
@@ -246,215 +248,167 @@ export default class BaseMachine {
     }
     
     /**
-     * Create the visual representation of the machine
-     * This method can be overridden by subclasses to customize appearance
+     * Create the visual representation of the machine.
+     * Handles container creation, shape drawing, progress bar, direction indicator, and interactivity.
+     * Subclasses should call super.createVisuals() and then add machine-specific elements (labels, cores).
      */
     createVisuals() {
-        // Skip visual creation if we don't have a grid reference
+        if (this.isPreview) {
+            console.warn(`[${this.id}] Skipping visuals for preview instance.`);
+            return; // Don't create visuals for preview instances
+        }
         if (!this.grid) {
-            console.warn('Cannot create visuals for machine: grid reference is missing');
+            console.warn(`[${this.id}] Cannot create visuals: grid reference is missing`);
             return;
         }
 
-        // *** ADDED: Get the correctly rotated shape for visuals ***
-        // Use the current direction if available, otherwise derive from rotation
+        // Get the current direction and rotated shape
         const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
-        const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection); // Use direction string
+        let rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
 
-        // *** VALIDATE the rotated shape ***
-        if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0) {
-            console.error(`[${this.id}] Failed to get valid rotated shape for direction ${currentDirection}. Using default.`);
-            rotatedShape = [[1]]; // Fallback to default shape
+        if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0 || !Array.isArray(rotatedShape[0])) {
+            console.error(`[${this.id}] Failed to get valid rotated shape for direction ${currentDirection}. Using default [[1]].`);
+            rotatedShape = [[1]];
         }
+        const shapeWidth = rotatedShape[0].length;
+        const shapeHeight = rotatedShape.length;
 
-        // *** MODIFIED: Calculate world position using top-left of the anchor cell ***
+        // --- Enhanced Debugging for Rotation ---
+        console.log(`[${this.id}] ----- ROTATION DEBUG START -----`);
+        console.log(`Direction: ${currentDirection}`);
+        console.log(`Original shape: ${JSON.stringify(this.shape)}`);
+        console.log(`Rotated shape: ${JSON.stringify(rotatedShape)}`);
+        console.log(`Original input: ${JSON.stringify(this.inputCoord)}`);
+        console.log(`Original output: ${JSON.stringify(this.outputCoord)}`);
+        console.log(`Shape dimensions after rotation: ${shapeWidth}x${shapeHeight}`);
+        
+        // --- Calculate Input/Output Coords --- 
+        let rotatedInputPos = null;
+        let rotatedOutputPos = null;
+        
+        // Use the single source of truth for I/O positions
+        const ioPositions = this.constructor.getIOPositionsForDirection 
+            ? this.constructor.getIOPositionsForDirection(this.id, currentDirection)
+            : BaseMachine.getIOPositionsForDirection(this.id, currentDirection);
+            
+        rotatedInputPos = ioPositions.inputPos;
+        rotatedOutputPos = ioPositions.outputPos;
+        
+        // Log the rotation result for debugging
+        console.log(`Rotated input: ${JSON.stringify(rotatedInputPos)}`);
+        console.log(`Rotated output: ${JSON.stringify(rotatedOutputPos)}`);
+        console.log(`[${this.id}] ----- ROTATION DEBUG END -----`);
+
+        // --- Container Setup --- 
         const topLeftPos = this.grid.gridToWorldTopLeft(this.gridX, this.gridY);
-        
-        // Add more detailed logging to track positions
-  
-        
-        // Create container for machine parts
-        if (this.presetPosition) {
-            // If a preset position was provided in the config, use it directly
-            // TODO: Re-evaluate if presetPosition is still needed/correct with this change
-            console.warn(`[${this.id}] Using presetPosition, visual alignment might be incorrect.`);
-            this.container = this.scene.add.container(this.presetPosition.x, this.presetPosition.y);
-        } else {
-            // *** MODIFIED: Use the calculated top-left position for the container ***
-            this.container = this.scene.add.container(topLeftPos.x, topLeftPos.y);
-        }
-        
-        // Now that we've created the container, set a reference to it in the scene for debugging
-        if (!this.scene.machineContainers) {
-            this.scene.machineContainers = [];
-        }
-        this.scene.machineContainers.push(this.container);
-        
-        
-        // Store references to input and output squares
-        this.inputSquare = null;
-        this.outputSquare = null;
-        
-        // Determine input and output positions based on direction
-        let inputPos = { x: -1, y: -1 };
-        let outputPos = { x: -1, y: -1 };
-        
-        if (this.direction !== 'none') {
-            // For machines with direction, determine input and output positions
-            switch (this.direction) {
-                case 'right':
-                    // Input on left side, output on right side
-                    inputPos = { x: 0, y: Math.floor(this.shape.length / 2) };
-                    outputPos = { x: this.shape[0].length - 1, y: Math.floor(this.shape.length / 2) };
-                    break;
-                case 'down':
-                    // Input on top side, output on bottom side
-                    inputPos = { x: Math.floor(this.shape[0].length / 2), y: 0 };
-                    outputPos = { x: Math.floor(this.shape[0].length / 2), y: this.shape.length - 1 };
-                    break;
-                case 'left':
-                    // Input on right side, output on left side
-                    inputPos = { x: this.shape[0].length - 1, y: Math.floor(this.shape.length / 2) };
-                    outputPos = { x: 0, y: Math.floor(this.shape.length / 2) };
-                    break;
-                case 'up':
-                    // Input on bottom side, output on top side
-                    inputPos = { x: Math.floor(this.shape[0].length / 2), y: this.shape.length - 1 };
-                    outputPos = { x: Math.floor(this.shape[0].length / 2), y: 0 };
-                    break;
+        if (!topLeftPos) {
+             console.error(`[${this.id}] Could not get top-left position for (${this.gridX}, ${this.gridY}). Aborting visuals.`);
+             return;
             }
-        }
+        this.container = this.scene.add.container(topLeftPos.x, topLeftPos.y);
+
+        // --- Draw Shape Parts --- 
+        this.inputSquare = null; // Reset references
+        this.outputSquare = null;
+        const cellSize = this.grid.cellSize;
         
-        // Calculate the center point of the shape in terms of cell coordinates
-        const shapeCenterX = (this.shape[0].length - 1) / 2;
-        const shapeCenterY = (this.shape.length - 1) / 2;
-        
-        // Create machine parts based on shape
-        for (let y = 0; y < rotatedShape.length; y++) {
-            for (let x = 0; x < rotatedShape[y].length; x++) {
-                // Only create visuals for cells with value 1 (occupied)
+        // Loop through each cell in the rotated shape
+        for (let y = 0; y < shapeHeight; y++) {
+            for (let x = 0; x < shapeWidth; x++) {
                 if (rotatedShape[y][x] === 1) {
-                    // *** MODIFIED: Calculate part position relative to container's top-left origin ***
-                    // Position the center of the part rectangle correctly within its cell
-                    const partCenterX = x * this.grid.cellSize + this.grid.cellSize / 2;
-                    const partCenterY = y * this.grid.cellSize + this.grid.cellSize / 2;
+                    const partCenterX = x * cellSize + cellSize / 2;
+                    const partCenterY = y * cellSize + cellSize / 2;
                     
-                    // *** REMOVED old adjustedX/Y calculation ***
-                    // const partX = x * this.grid.cellSize;
-                    // const partY = y * this.grid.cellSize;
-                    // const adjustedX = partX - this.grid.cellSize; 
-                    // const adjustedY = partY - this.grid.cellSize;
+                    // Determine if this is an input or output cell using rotated positions
+                    let partColor = 0x44ff44; // Default green
+                    let isInput = false;
+                    let isOutput = false;
                     
-                    let partColor = 0x44ff44; // Default green color (same as when dragging)
-                    
-                    // For cargo loaders, color all outer edges blue
-                    if (this.id === 'cargo-loader') {
-                        // For cargo loader, all sides can be input
-                        if ((x === 0 || x === rotatedShape[0].length - 1 || y === 0 || y === rotatedShape.length - 1)) {
-                            partColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
+                    // Check if this is the input cell using rotated coordinates
+                    if (rotatedInputPos && x === rotatedInputPos.x && y === rotatedInputPos.y) {
+                        // Verify this is a valid cell in the rotated shape
+                        if (rotatedShape[y][x] === 1) {
+                            isInput = true;
+                            partColor = 0x4aa8eb; // Blue for input
+                        } else {
+                            console.warn(`[${this.id}] Input coordinates (${x},${y}) land on a 0 value in the shape! Keeping as normal cell.`);
+                        }
+                    }
+                    // Check if this is the output cell using rotated coordinates
+                    else if (rotatedOutputPos && x === rotatedOutputPos.x && y === rotatedOutputPos.y) {
+                        // Verify this is a valid cell in the rotated shape
+                        if (rotatedShape[y][x] === 1) {
+                            isOutput = true;
+                            partColor = 0xffa520; // Orange for output
+                        } else {
+                            console.warn(`[${this.id}] Output coordinates (${x},${y}) land on a 0 value in the shape! Keeping as normal cell.`);
                         }
                     }
                     
-                    // *** MODIFIED: Create part using calculated center positions ***
-                    const part = this.scene.add.rectangle(partCenterX, partCenterY, this.grid.cellSize - 4, this.grid.cellSize - 4, partColor);
+                    // Create the cell rectangle
+                    const part = this.scene.add.rectangle(partCenterX, partCenterY, cellSize - 4, cellSize - 4, partColor);
+                    part.setStrokeStyle(1, 0x333333); 
                     this.container.add(part);
                     
                     // Store references to input and output squares
-                    if (this.direction !== 'none' && x === outputPos.x && y === outputPos.y) {
+                    if (isInput) {
+                        this.inputSquare = part;
+                        console.log(`[${this.id}] Set inputSquare at (${x},${y}) with color ${partColor.toString(16)}`);
+                    }
+                    if (isOutput) {
                         this.outputSquare = part;
+                        console.log(`[${this.id}] Set outputSquare at (${x},${y}) with color ${partColor.toString(16)}`);
                     }
                 }
             }
         }
+
+        // --- Calculate Visual Center (relative to container 0,0) --- 
+        const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+        const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
         
-        // Add machine type indicator at the center of the machine
-        // Position relative to the VISUAL center of the shape, not container (0,0)
-        const visualCenterX = shapeCenterX * this.grid.cellSize;
-        const visualCenterY = shapeCenterY * this.grid.cellSize;
-        
-        // *** MODIFIED: Adjust center based on container origin (top-left) and part centering ***
-        const adjustedVisualCenterX = visualCenterX + this.grid.cellSize / 2;
-        const adjustedVisualCenterY = visualCenterY + this.grid.cellSize / 2;
-        
-        // Create a background circle for the label
-        // *** MODIFIED: Use adjusted center position ***
-        const labelBackground = this.scene.add.circle(adjustedVisualCenterX, adjustedVisualCenterY, 10, 0x000000, 0.3);
-        this.container.add(labelBackground);
-        
-        // Create the machine label
-        // *** MODIFIED: Use adjusted center position ***
-        const machineLabel = this.scene.add.text(adjustedVisualCenterX, adjustedVisualCenterY, this.id.charAt(0).toUpperCase(), {
-            fontFamily: 'Arial',
-            fontSize: 14,
-            color: '#ffffff'
-        }).setOrigin(0.5);
-        this.container.add(machineLabel);
-        
-        // Add processing indicator relative to adjusted visual center
-        // *** MODIFIED: Use adjusted center position ***
+        // --- Progress Bar --- 
+        // Position below the visual center
         this.progressBar = this.scene.add.rectangle(
-            adjustedVisualCenterX, 
-            adjustedVisualCenterY + this.grid.cellSize / 2, 
-            this.grid.cellSize - 10, 
-            4, 
-            0x00ff00
-        );
-        this.progressBar.scaleX = 0;
+            visualCenterX, 
+            visualCenterY + cellSize * 0.6, 
+            cellSize * shapeWidth * 0.8, // Adjust width based on shape width
+            6, 
+            0x000000 
+        ).setOrigin(0.5);
+        this.progressBar.setDepth(1); 
         this.container.add(this.progressBar);
         
-        // COMPLETELY NEW APPROACH FOR DIRECTION INDICATOR
-        // Instead of adding it to the container, add it directly to the scene
-        // at the absolute position where the machine is
+        this.progressFill = this.scene.add.rectangle(
+            this.progressBar.x - this.progressBar.width / 2,
+            this.progressBar.y,
+            0, 
+            this.progressBar.height,
+            0x00ff00 
+        ).setOrigin(0, 0.5);
+        this.progressFill.setDepth(2);
+        this.container.add(this.progressFill);
+        
+        this.progressBar.setVisible(false);
+        this.progressFill.setVisible(false);
+
+        // --- Direction Indicator (Absolute Position) --- 
         if (this.direction !== 'none') {
-            // *** MODIFIED: Calculate absolute center based on top-left container pos + visual center offset ***
-            const absoluteCenterX = this.container.x + adjustedVisualCenterX;
-            const absoluteCenterY = this.container.y + adjustedVisualCenterY;
+            const absoluteCenterX = this.container.x + visualCenterX;
+            const absoluteCenterY = this.container.y + visualCenterY;
+            const indicatorColor = 0xff9500; 
             
-            // Create the direction indicator directly in the scene, not in the container
-            const indicatorColor = 0xff9500; // Default orange color, removed extractor check
-            
-            // *** MODIFIED: Use calculated absolute center position ***
             this.directionIndicator = this.scene.add.triangle(
-                absoluteCenterX,  // Place at calculated absolute center X
-                absoluteCenterY,  // Place at calculated absolute center Y
-                -4, -6,     // left top
-                -4, 6,      // left bottom
-                8, 0,       // right point
-                indicatorColor
+                absoluteCenterX, absoluteCenterY, -4, -6, -4, 6, 8, 0, indicatorColor
             ).setOrigin(0.5, 0.5);
             
-            // Rotate based on direction
-            switch (this.direction) {
-                case 'right':
-                    this.directionIndicator.rotation = 0; // Point right (0 degrees)
-                    break;
-                case 'down':
-                    this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
-                    break;
-                case 'left':
-                    this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
-                    break;
-                case 'up':
-                    this.directionIndicator.rotation = 3 * Math.PI / 2; // Point up (270 degrees)
-                    break;
-            }
-            
-            // Set the depth to ensure it appears above the machine
-            this.directionIndicator.setDepth(this.container.depth + 1);
-            
+            this.updateDirectionIndicatorVisuals(); // Use helper to set rotation
+            this.directionIndicator.setDepth(this.container.depth + 10); // Ensure visibility
         }
         
-        // Add input/output indicators
-        this.addResourceTypeIndicators();
-        
-        // Add placement animation
+        // --- Common additions --- 
         this.addPlacementAnimation();
-        
-        // Add interactive features
         this.addInteractivity();
-        
-        // Create resource visualizations
-        this.createResourceVisualizations();
     }
     
     /**
@@ -589,6 +543,17 @@ export default class BaseMachine {
      * Add interactive features to the machine
      */
     addInteractivity() {
+        // Skip interactivity if explicitly requested (for preview/config purposes)
+        if (this.config && this.config.skipInteractivity) {
+            return;
+        }
+        
+        // Skip if grid is not available
+        if (!this.grid) {
+            console.warn(`Cannot add interactivity to machine ${this.id || 'unknown'} - grid is undefined`);
+            return;
+        }
+
         // *** ADDED: Get rotated shape needed for calculations ***
         const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
         const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
@@ -703,21 +668,42 @@ export default class BaseMachine {
             tooltipContent += '\nWaiting for resources';
         }
         
-        // Add inventory info
-        if (this.inputTypes && this.inputTypes.length > 0) {
-            tooltipContent += '\nInputs: ';
-            this.inputTypes.forEach(type => {
-                const count = this.inputInventory[type] || 0;
-                tooltipContent += `${type}(${count}) `;
-            });
-        }
-        
-        if (this.outputTypes && this.outputTypes.length > 0) {
-            tooltipContent += '\nOutputs: ';
-            this.outputTypes.forEach(type => {
-                const count = this.outputInventory[type] || 0;
-                tooltipContent += `${type}(${count}) `;
-            });
+        // Check if the machine is a ConveyorMachine
+        if (this instanceof ConveyorMachine) {
+            tooltipContent += '\nItems on belt: ';
+            if (this.itemsOnBelt && this.itemsOnBelt.length > 0) {
+                const itemCounts = {};
+                this.itemsOnBelt.forEach(itemObject => {
+                    const itemType = itemObject.itemData.type;
+                    itemCounts[itemType] = (itemCounts[itemType] || 0) + (itemObject.itemData.amount || 1);
+                });
+                if (Object.keys(itemCounts).length > 0) {
+                    tooltipContent += Object.entries(itemCounts)
+                        .map(([type, count]) => `${type}(${count})`)
+                        .join(', ');
+                } else {
+                    tooltipContent += 'Empty';
+                }
+            } else {
+                tooltipContent += 'Empty';
+            }
+        } else {
+            // Existing inventory info for other machines
+            if (this.inputTypes && this.inputTypes.length > 0) {
+                tooltipContent += '\nInputs: ';
+                this.inputTypes.forEach(type => {
+                    const count = this.inputInventory[type] || 0;
+                    tooltipContent += `${type}(${count}) `;
+                });
+            }
+            
+            if (this.outputTypes && this.outputTypes.length > 0) {
+                tooltipContent += '\nOutputs: ';
+                this.outputTypes.forEach(type => {
+                    const count = this.outputInventory[type] || 0;
+                    tooltipContent += `${type}(${count}) `;
+                });
+            }
         }
         
         // --- MODIFIED: Use fixed position and top-left origin for text --- 
@@ -781,7 +767,49 @@ export default class BaseMachine {
      * @param {number} delta - The time since the last update
      */
     update(time, delta) {
+        // --- Standard Processing Logic --- 
+        if (this.isProcessing) {
+            // Apply speed modifier if upgrade manager exists
+            let effectiveDelta = delta;
+            if (this.scene.upgradeManager && typeof this.scene.upgradeManager.getProcessorSpeedModifier === 'function') {
+                 effectiveDelta = delta * this.scene.upgradeManager.getProcessorSpeedModifier();
+            }
+
+            this.processingProgress += effectiveDelta; // Use potentially modified delta
+
+            // Update progress bar visual if it exists
+            if (this.progressFill && this.progressBar) {
+                 const progressRatio = Math.min(1, this.processingProgress / this.processingTime);
+                 this.progressFill.width = this.progressBar.width * progressRatio;
+            } else {
+                // If bar doesn't exist, log warning periodically? (Might be spammy)
+                // if (this.scene.time.now % 5000 < 20) console.warn(`[${this.id}] isProcessing=true but no progress bar visuals.`);
+            }
+            
+            // Check if processing is complete
+            if (this.processingProgress >= this.processingTime) {
+                this.completeProcessing(); // Handles outputting resources, resetting state
+            }
+        } else {
+            // If not processing, check if we can start
+            if (this.canProcess()) {
+                this.startProcessing(); // Handles consuming resources, setting state
+            }
+            
+            // NEW: Continuously try to push output when not processing
+            // This ensures outputs move to belts/machines even when idle
+            if (this.hasOutput()) {
+                this.pushOutput();
+            }
+        }
+        // --- End Standard Processing Logic ---
+
         try {
+            // New: Attempt to pull from an adjacent input node
+            if (!this.isProcessing) { // Only pull if not currently busy and can accept more
+                this.tryPullFromInputNode();
+            }
+
             // Call animation update if defined
             if (this.animateUpdate && typeof this.animateUpdate === 'function') {
                 try {
@@ -817,6 +845,86 @@ export default class BaseMachine {
             }
         } catch (error) {
             console.error(`[${this.id || 'UnknownMachine'}] Unhandled error in update method:`, error);
+        }
+    }
+    
+    /**
+     * NEW METHOD: Attempts to pull a resource from an adjacent ResourceNode
+     * into the machine's input inventory.
+     * Allows pulling from multiple adjacent nodes in the same tick if possible.
+     */
+    tryPullFromInputNode() {
+        if (!this.grid || this.isProcessing || !this.getOccupiedCells) {
+             if (this.scene.time.now % 3000 < 20) { console.log(`[${this.id}] tryPullFromInputNode: Skipping (no grid OR processing OR no getOccupiedCells)`); }
+            return;
+        }
+
+        const occupiedCells = this.getOccupiedCells();
+        if (!occupiedCells || occupiedCells.length === 0) {
+            if (this.scene.time.now % 3000 < 20) { console.log(`[${this.id}] tryPullFromInputNode: Skipping (no occupied cells)`); }
+            return;
+        }
+
+        // Periodic log for occupied cells to reduce spam if needed
+        // if (this.scene.time.now % 5000 < 20) { 
+        //     console.log(`[${this.id}] tryPullFromInputNode: Occupied cells:`, JSON.stringify(occupiedCells));
+        // }
+
+        for (const partCell of occupiedCells) { // For each cell the machine itself occupies
+            const neighbors = [
+                { dx: 0, dy: -1, side: 'up' },    // Up
+                { dx: 0, dy: 1,  side: 'down' },  // Down
+                { dx: -1, dy: 0, side: 'left' }, // Left
+                { dx: 1, dy: 0,  side: 'right' }  // Right
+            ];
+
+            for (const offset of neighbors) {
+                const potentialNodeX = partCell.x + offset.dx;
+                const potentialNodeY = partCell.y + offset.dy;
+                
+                // Periodic log for checking neighbors to reduce spam
+                // if (this.scene.time.now % 1000 < 20) {
+                //      console.log(`[${this.id}] Checking neighbor of partCell (${partCell.x},${partCell.y}) at (${potentialNodeX}, ${potentialNodeY}) for node.`);
+                // }
+
+                // A. Check bounds
+                if (potentialNodeX < 0 || potentialNodeX >= this.grid.width || potentialNodeY < 0 || potentialNodeY >= this.grid.height) {
+                    continue;
+                }
+
+                // B. Check if it's part of the machine itself
+                if (occupiedCells.some(oc => oc.x === potentialNodeX && oc.y === potentialNodeY)) {
+                    continue;
+                }
+
+                const targetCell = this.grid.getCell(potentialNodeX, potentialNodeY);
+
+                if (targetCell && targetCell.type === 'node' && targetCell.object && typeof targetCell.object.extractResource === 'function') {
+                    const resourceNode = targetCell.object;
+
+                    if (!resourceNode.resourceType || !resourceNode.resourceType.id) {
+                        if (this.scene.time.now % 3000 < 20) { console.warn(`[${this.id}] ResourceNode at (${potentialNodeX},${potentialNodeY}) is missing resourceType.id`); }
+                        continue; 
+                    }
+                    const resourceTypeFromNode = resourceNode.resourceType.id;
+
+                    if (this.canAcceptInput(resourceTypeFromNode)) {
+                        const extractedItem = resourceNode.extractResource();
+
+                        if (extractedItem && extractedItem.type === resourceTypeFromNode && extractedItem.amount > 0) {
+                            this.inputInventory[resourceTypeFromNode] = (this.inputInventory[resourceTypeFromNode] || 0) + extractedItem.amount;
+                            console.log(`[${this.id}] at (${this.gridX},${this.gridY}) PULLED ${extractedItem.amount} ${resourceTypeFromNode} from ResourceNode at (${potentialNodeX},${potentialNodeY}) via partCell (${partCell.x},${partCell.y}). Input:`, JSON.stringify(this.inputInventory));
+                            
+                            this.scene.tweens.add({
+                                targets: this.container,
+                                scaleX: 1.02, scaleY: 1.02,
+                                duration: 80, yoyo: true, ease: 'Sine.easeInOut'
+                            });
+                            // DO NOT return here, to allow pulling from other nodes if available
+                        }
+                    } 
+                }
+            }
         }
     }
     
@@ -923,29 +1031,128 @@ export default class BaseMachine {
     }
     
     /**
-     * Check if the machine can process resources
-     * @returns {boolean} True if the machine can process, false otherwise
+     * Check if the machine has enough input resources and output capacity to start processing.
+     * Assumes requiredInputs and outputTypes are defined.
+     * @returns {boolean} True if the machine can process, false otherwise.
      */
     canProcess() {
-        // Implementation will be similar to the original Machine class
-        // This is a placeholder for now
-        return false;
+        if (this.isProcessing) {
+             // console.log(`[${this.id}] canProcess: Already processing.`);
+            return false; // Already processing
+        }
+
+        // Check if requiredInputs is defined
+        if (!this.requiredInputs || Object.keys(this.requiredInputs).length === 0) {
+            // console.log(`[${this.id}] canProcess: No required inputs defined.`);
+            return false; // Cannot process if nothing is required (or definition missing)
+        }
+
+        // 1. Check if enough inputs are available
+        for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
+            if ((this.inputInventory[resourceType] || 0) < amount) {
+                // console.log(`[${this.id}] canProcess: Not enough ${resourceType}. Need ${amount}, Have ${(this.inputInventory[resourceType] || 0)}`);
+                return false; // Not enough of this input resource
+            }
+        }
+
+        // 2. Check if output inventory has space
+        // Use a defined capacity or a default. Assumes single output type for simplicity for now.
+        const outputCapacity = this.outputCapacity || 5; // Default capacity of 5 if not specified
+        if (this.outputTypes && this.outputTypes.length > 0) {
+            const outputType = this.outputTypes[0]; // Check capacity for the first output type
+            if ((this.outputInventory[outputType] || 0) >= outputCapacity) {
+                // console.log(`[${this.id}] canProcess: Output inventory full for ${outputType}. Capacity: ${outputCapacity}`);
+                return false; // Output inventory for this type is full
+            }
+        } else {
+             // console.log(`[${this.id}] canProcess: No output types defined.`);
+             // If no output types, we technically can process, but it won't produce anything.
+             // Let's allow it for now, maybe some machines just consume?
+        }
+
+        // console.log(`[${this.id}] canProcess: Checks passed. Ready to process.`);
+        return true; // All checks passed
     }
     
     /**
      * Start processing resources
+     * Consumes inputs based on requiredInputs and sets processing state.
      */
     startProcessing() {
-        // Implementation will be similar to the original Machine class
-        // This is a placeholder for now
+        // Double-check if we can actually process (safety check)
+        if (!this.canProcess()) {
+            console.warn(`[${this.id}] startProcessing called but canProcess() is false.`);
+            return;
+        }
+
+        // Consume required inputs
+        if (this.requiredInputs) {
+            for (const type in this.requiredInputs) {
+                if (this.inputInventory[type] !== undefined) {
+                    this.inputInventory[type] -= this.requiredInputs[type];
+                } else {
+                    console.error(`[${this.id}] Input inventory missing required type: ${type}`);
+                    // Should not happen if canProcess passed, but good to check
+                }
+            }
+        }
+        
+        // Set processing state
+        this.isProcessing = true;
+        this.processingProgress = 0;
+        
+        // Show progress bar if it exists
+        if (this.progressBar && this.progressFill) { 
+             this.progressBar.setVisible(true);
+             this.progressFill.setVisible(true);
+             this.progressFill.width = 0; // Reset fill width
+        }
+        
+        // Play processing sound (if available)
+        if (this.scene && this.scene.playSound) {
+            this.scene.playSound('processing'); // Assuming a generic sound
+        }
+        
+        console.log(`[${this.id}] Started processing. Inputs remaining:`, JSON.stringify(this.inputInventory));
     }
     
     /**
      * Complete processing resources
+     * Adds outputs based on outputTypes, resets state, and calls pushOutput.
      */
     completeProcessing() {
-        // Implementation will be similar to the original Machine class
-        // This is a placeholder for now
+        // Add output resources
+        if (this.outputTypes) {
+            this.outputTypes.forEach(type => {
+                if (this.outputInventory[type] !== undefined) {
+                    this.outputInventory[type]++;
+                } else {
+                    // Initialize if missing (shouldn't happen if initInventories ran)
+                    console.warn(`[${this.id}] Output inventory was missing key: ${type}. Initializing to 1.`);
+                    this.outputInventory[type] = 1;
+                }
+            });
+        }
+        
+        // Reset processing state
+        this.isProcessing = false;
+        this.processingProgress = 0;
+        
+        // Hide progress bar if it exists
+        if (this.progressBar && this.progressFill) { 
+            this.progressBar.setVisible(false);
+            this.progressFill.setVisible(false);
+        }
+        
+        // Play completion sound (if available)
+        if (this.scene && this.scene.playSound) {
+            this.scene.playSound('complete'); // Assuming a generic sound
+        }
+        
+        console.log(`[${this.id}] Completed processing. Output: ${JSON.stringify(this.outputInventory)}`);
+        
+        // Immediately try to push the new output
+        this.pushOutput();
     }
 
     /**
@@ -989,6 +1196,14 @@ export default class BaseMachine {
         }
 
         const targetInfo = findTargetMethod.call(this);
+        // console.log(`[${this.id}] transferResources: findTargetMethod result:`, JSON.stringify(targetInfo)); // <<< LOG 1 (stringify to see content)
+        // MODIFIED LOG 1 to avoid cyclic error:
+        if (targetInfo) {
+            console.log(`[${this.id}] transferResources: findTargetMethod result - Type: ${targetInfo.type}, Target ID: ${targetInfo.target ? targetInfo.target.id : 'N/A'}, OutputFaceX: ${targetInfo.outputFaceX}, OutputFaceY: ${targetInfo.outputFaceY}`);
+        } else {
+            console.log(`[${this.id}] transferResources: findTargetMethod result: null or undefined`);
+        }
+
         if (!targetInfo) {
             // findTargetForOutput should log if no target is found
             return; 
@@ -1034,11 +1249,14 @@ export default class BaseMachine {
         // Handle transfer to another Machine
         else if (targetInfo.type === 'machine') {
             const targetMachine = targetInfo.target;
+            console.log(`[${this.id}] transferResources: Target type is 'machine'. Actual target object:`, targetMachine); // <<< LOG 2
             
             // --- MODIFIED: Check for acceptItem method --- 
             if (targetMachine && typeof targetMachine.canAcceptInput === 'function' && typeof targetMachine.acceptItem === 'function') {
+                console.log(`[${this.id}] transferResources: Target machine ${targetMachine.id} has canAcceptInput and acceptItem.`); // <<< LOG 3
                 // Check if target machine can accept the resource type and has space
                 if (targetMachine.canAcceptInput(resourceTypeToTransfer)) {
+                    console.log(`[${this.id}] transferResources: Target machine ${targetMachine.id} CAN accept ${resourceTypeToTransfer}.`); // <<< LOG 4
                     
                     // *** ADDED: Directional check for conveyors ***
                     let allowTransfer = true;
@@ -1050,14 +1268,14 @@ export default class BaseMachine {
                         const targetY = targetMachine.gridY;
                         
                         // Check if conveyor points back towards the cell this machine outputted from
-                        if ((targetDirection === 'left'  && targetX === outputFaceX + 1 && targetY === outputFaceY) || // Target is right, points left
+                       /* if ((targetDirection === 'left'  && targetX === outputFaceX + 1 && targetY === outputFaceY) || // Target is right, points left
                             (targetDirection === 'right' && targetX === outputFaceX - 1 && targetY === outputFaceY) || // Target is left, points right
                             (targetDirection === 'up'    && targetY === outputFaceY + 1 && targetX === outputFaceX) || // Target is below, points up
                             (targetDirection === 'down'  && targetY === outputFaceY - 1 && targetX === outputFaceX)) { // Target is above, points down
                             
                             // console.warn(`[${this.name}] Preventing transfer to Conveyor at (${targetX}, ${targetY}) because its direction (${targetDirection}) points back towards output face (${outputFaceX}, ${outputFaceY}).`);
                             allowTransfer = false;
-                        }
+                        } */
                     }
                     // *** END Directional check ***
 
@@ -1065,8 +1283,10 @@ export default class BaseMachine {
                     if (allowTransfer) {
                         // --- MODIFIED: Call acceptItem with item object --- 
                         const itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
+                        console.log(`[${this.id}] transferResources: Attempting to call acceptItem on ${targetMachine.id} with`, itemToTransfer); // <<< LOG 5
                         if (targetMachine.acceptItem(itemToTransfer)) { 
                             transferred = true;
+                            console.log(`[${this.id}] transferResources: Successfully transferred ${resourceTypeToTransfer} to ${targetMachine.id}`); // <<< LOG 6
                             this.createResourceTransferEffect(resourceTypeToTransfer, targetMachine);
                         } else {
                             console.warn(`[${this.name}] Target machine ${targetMachine.name} acceptItem returned false for ${resourceTypeToTransfer}`);
@@ -1080,7 +1300,7 @@ export default class BaseMachine {
                  let reason = "is invalid";
                  if (targetMachine && typeof targetMachine.acceptItem !== 'function') reason = "is missing acceptItem method";
                  else if (targetMachine && typeof targetMachine.canAcceptInput !== 'function') reason = "is missing canAcceptInput method";
-                 console.warn(`[${this.name}] Target machine ${reason}.`);
+                 console.warn(`[${this.name}] Target machine ${targetMachine.id || '(no id)'} ${reason}. Target object:`, targetMachine); // <<< LOG 7 (Added targetMachine log)
             }
         }
 
@@ -1163,6 +1383,235 @@ export default class BaseMachine {
     }
     
     /**
+     * Find the adjacent machine or node in the machine's output direction.
+     * Checks all cells along the output face of the machine.
+     * @returns {object|null} An object { type: 'machine'/'delivery-node', target: object, outputFaceX: number, outputFaceY: number } or null if no valid target found.
+     */
+    findTargetForOutput() {
+        if (!this.grid) {
+            console.warn(`[${this.id}] Cannot find target: grid reference is missing`);
+            return null;
+        }
+
+        const occupiedCells = this.getOccupiedCells();
+        if (!occupiedCells || occupiedCells.length === 0) {
+             console.warn(`[${this.id}] Cannot find target: machine occupies no cells.`);
+            return null; 
+        }
+
+        // Get the output position from the standard method based on the machine's direction
+        let outputPos = null;
+        try {
+            // Use static method to get the output position based on machine ID and direction
+            const machineId = this.id.split('-')[0]; // Extract base machine type (e.g., "processorA" from "processorA-123")
+            const ioPositions = BaseMachine.getIOPositionsForDirection(machineId, this.direction);
+            if (ioPositions && ioPositions.outputPos) {
+                outputPos = ioPositions.outputPos;
+            }
+        } catch (error) {
+            console.warn(`[${this.id}] Error getting output position: ${error.message}`);
+        }
+
+        // If we found a specific output position, prioritize checking cells adjacent to it
+        if (outputPos) {
+            // Find cells that match the output position in our rotated shape
+            let outputCells = [];
+            
+            // Get the rotated shape to correctly identify the output cell
+            let rotatedShape = this.shape;
+            if (typeof this.grid.getRotatedShape === 'function') {
+                rotatedShape = this.grid.getRotatedShape(this.shape, this.direction);
+            }
+            
+            // Find the cell(s) that match our output position in the rotated shape
+            for (let y = 0; y < rotatedShape.length; y++) {
+                for (let x = 0; x < rotatedShape[y].length; x++) {
+                    if (rotatedShape[y][x] === 1 && x === outputPos.x && y === outputPos.y) {
+                        // Found an output cell - convert to grid coordinates
+                        outputCells.push({
+                            x: this.gridX + x,
+                            y: this.gridY + y
+                        });
+                    }
+                }
+            }
+            
+            // If we found output cells, check adjacent cells in all directions
+            if (outputCells.length > 0) {
+                const directions = [
+                    {dx: 1, dy: 0},  // right
+                    {dx: 0, dy: 1},  // down
+                    {dx: -1, dy: 0}, // left
+                    {dx: 0, dy: -1}  // up
+                ];
+                
+                // First, try to find a target in the machine's facing direction
+                const facingTarget = this.checkForTargetInDirection(
+                    outputCells,
+                    occupiedCells,
+                    this.getDirectionOffset(this.direction)
+                );
+                if (facingTarget) return facingTarget;
+                
+                // If no target in the facing direction, check all other directions
+                for (const dir of directions) {
+                    // Skip if this is the facing direction we already checked
+                    if (this.isDirectionOffset(dir, this.direction)) continue;
+                    
+                    const target = this.checkForTargetInDirection(outputCells, occupiedCells, dir);
+                    if (target) return target;
+                }
+            }
+        }
+        
+        // Fall back to checking all occupied cells in all directions if no output position or no target found
+        const directions = [
+            {dx: 1, dy: 0},  // right
+            {dx: 0, dy: 1},  // down
+            {dx: -1, dy: 0}, // left
+            {dx: 0, dy: -1}  // up
+        ];
+        
+        // Try each direction
+        for (const dir of directions) {
+            for (const cell of occupiedCells) {
+                const outputFaceAbsX = cell.x;
+                const outputFaceAbsY = cell.y;
+                
+                const targetX = outputFaceAbsX + dir.dx;
+                const targetY = outputFaceAbsY + dir.dy;
+                
+                // Skip if out of bounds
+                if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+                    continue;
+                }
+                
+                // Skip if target is part of this machine
+                const isSelf = occupiedCells.some(occupied => occupied.x === targetX && occupied.y === targetY);
+                if (isSelf) {
+                    continue;
+                }
+                
+                // Check the target cell
+                const targetCell = this.grid.getCell(targetX, targetY);
+                if (!targetCell) {
+                    continue;
+                }
+                
+                // Check for delivery node
+                if (targetCell.type === 'delivery-node' && targetCell.object) {
+                    return { 
+                        type: 'delivery-node', 
+                        target: targetCell.object, 
+                        outputFaceX: outputFaceAbsX, 
+                        outputFaceY: outputFaceAbsY 
+                    };
+                }
+                
+                // Check for machine
+                if (targetCell.object && (targetCell.type === 'machine' || targetCell.object instanceof BaseMachine)) {
+                    return { 
+                        type: 'machine', 
+                        target: targetCell.object, 
+                        outputFaceX: outputFaceAbsX, 
+                        outputFaceY: outputFaceAbsY 
+                    };
+                }
+            }
+        }
+        
+        // No valid target found
+        return null;
+    }
+    
+    /**
+     * Helper method to check for a target in a specific direction
+     * @param {Array<{x: number, y: number}>} outputCells - Array of cells considered output cells
+     * @param {Array<{x: number, y: number}>} occupiedCells - All cells occupied by this machine
+     * @param {Object} direction - Direction to check {dx, dy}
+     * @returns {Object|null} Target info object or null if no target found
+     * @private
+     */
+    checkForTargetInDirection(outputCells, occupiedCells, direction) {
+        for (const cell of outputCells) {
+            const outputFaceAbsX = cell.x;
+            const outputFaceAbsY = cell.y;
+            
+            const targetX = outputFaceAbsX + direction.dx;
+            const targetY = outputFaceAbsY + direction.dy;
+            
+            // Skip if out of bounds
+            if (targetX < 0 || targetX >= this.grid.width || targetY < 0 || targetY >= this.grid.height) {
+                continue;
+            }
+            
+            // Skip if target is part of this machine
+            const isSelf = occupiedCells.some(occupied => occupied.x === targetX && occupied.y === targetY);
+            if (isSelf) {
+                continue;
+            }
+            
+            // Check the target cell
+            const targetCell = this.grid.getCell(targetX, targetY);
+            if (!targetCell) {
+                continue;
+            }
+            
+            // Check for delivery node
+            if (targetCell.type === 'delivery-node' && targetCell.object) {
+                return { 
+                    type: 'delivery-node', 
+                    target: targetCell.object, 
+                    outputFaceX: outputFaceAbsX, 
+                    outputFaceY: outputFaceAbsY 
+                };
+            }
+            
+            // Check for machine
+            if (targetCell.object && (targetCell.type === 'machine' || targetCell.object instanceof BaseMachine)) {
+                return { 
+                    type: 'machine', 
+                    target: targetCell.object, 
+                    outputFaceX: outputFaceAbsX, 
+                    outputFaceY: outputFaceAbsY 
+                };
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Helper method to convert a direction name to offset values
+     * @param {string} direction - Direction name ('right', 'down', 'left', 'up')
+     * @returns {Object} Direction offset {dx, dy}
+     * @private
+     */
+    getDirectionOffset(direction) {
+        switch (direction) {
+            case 'right': return {dx: 1, dy: 0};
+            case 'down': return {dx: 0, dy: 1};
+            case 'left': return {dx: -1, dy: 0};
+            case 'up': return {dx: 0, dy: -1};
+            default: 
+                console.warn(`[${this.id}] Invalid direction: ${direction} in getDirectionOffset`);
+                return {dx: 0, dy: 0};
+        }
+    }
+    
+    /**
+     * Helper method to check if a direction offset matches a direction name
+     * @param {Object} offset - Direction offset {dx, dy}
+     * @param {string} direction - Direction name ('right', 'down', 'left', 'up')
+     * @returns {boolean} True if the offset matches the direction
+     * @private
+     */
+    isDirectionOffset(offset, direction) {
+        const dirOffset = this.getDirectionOffset(direction);
+        return offset.dx === dirOffset.dx && offset.dy === dirOffset.dy;
+    }
+    
+    /**
      * Find connected machine in the output direction
      * @returns {Machine|null} The connected machine or null if none
      */
@@ -1217,26 +1666,171 @@ export default class BaseMachine {
     
     /**
      * Get a preview sprite for the machine selection panel
-     * This method should be overridden by subclasses
-     * @returns {Phaser.GameObjects.Container} A container with the preview sprite
+     * This static method provides a standard preview for processor machines
+     * @param {Phaser.Scene} scene - The scene to create the sprite in
+     * @param {number} x - The x coordinate
+     * @param {number} y - The y coordinate
+     * @param {Object} options - Configuration options:
+     *   - {Array<Array<number>>} shape - The shape array for the machine
+     *   - {string} label - The label to display (default is first letter of ID)
+     *   - {Object} inputPos - The position of the input in the shape {x, y}
+     *   - {Object} outputPos - The position of the output in the shape {x, y}
+     *   - {string} direction - The direction for the preview ('right', 'down', 'left', 'up')
+     *   - {Object} directionMap - Optional map of coordinates for each direction
+     * @returns {Phaser.GameObjects.Container} The preview sprite
      */
-    getPreviewSprite(scene, x, y) {
-        // Create a simplified version of the machine for the selection panel
+    static getStandardPreviewSprite(scene, x, y, options = {}) {
         const container = scene.add.container(x, y);
+        const shape = options.shape || [[1]];
+        const cellSize = 16; // Smaller size for preview
+        const shapeCenterX = (shape[0].length - 1) / 2;
+        const shapeCenterY = (shape.length - 1) / 2;
+        const direction = options.direction || 'right';
+        const machineId = options.machineId || 'unknown-machine';
         
-        // Create a simple rectangle as a placeholder
-        const rect = scene.add.rectangle(0, 0, 24, 24, 0x44ff44); // Default green color (same as when dragging)
-        container.add(rect);
+        // Get input/output positions using the single source of truth
+        let inputPos, outputPos;
         
-        // Add a label
-        const label = scene.add.text(0, 0, this.id.charAt(0).toUpperCase(), {
-            fontFamily: 'Arial',
-            fontSize: 14,
-            color: '#ffffff'
+        // Try to get positions from provided options first
+        if (options.inputPos && options.outputPos) {
+            inputPos = options.inputPos;
+            outputPos = options.outputPos;
+        } 
+        // Then try direction-specific mapping
+        else if (options.directionMap && options.directionMap[direction]) {
+            const dirPositions = options.directionMap[direction];
+            inputPos = dirPositions.inputPos;
+            outputPos = dirPositions.outputPos;
+        }
+        // Finally use the shared getIOPositionsForDirection method
+        else {
+            // Use either the class-specific method or the BaseMachine default
+            const ioPositions = BaseMachine.getIOPositionsForDirection(machineId, direction);
+            inputPos = ioPositions.inputPos;
+            outputPos = ioPositions.outputPos;
+        }
+        
+        // --- Enhanced Debug for Preview ---
+        console.log(`[Preview] ----- PREVIEW DEBUG -----`);
+        console.log(`[Preview] Direction: ${direction}`);
+        console.log(`[Preview] Shape: ${JSON.stringify(shape)}`);
+        console.log(`[Preview] Input: ${JSON.stringify(inputPos)}`);
+        console.log(`[Preview] Output: ${JSON.stringify(outputPos)}`);
+        console.log(`[Preview] ----- END PREVIEW DEBUG -----`);
+
+        // Draw the machine shape
+        for (let r = 0; r < shape.length; r++) {
+            for (let c = 0; c < shape[r].length; c++) {
+                if (shape[r][c] === 1) {
+                    const partX = (c - shapeCenterX) * cellSize;
+                    const partY = (r - shapeCenterY) * cellSize;
+                    
+                    // Determine cell color
+                    let color = 0x44ff44; // Default green
+                    
+                    // Check for input/output cells directly (no rotation math)
+                    if (c === inputPos.x && r === inputPos.y) {
+                        // Verify this is a valid cell in the shape
+                        if (shape[r][c] === 1) {
+                            color = 0x4aa8eb; // Blue input
+                            console.log(`[Preview] Colored cell (${c},${r}) BLUE for input`);
+                        } else {
+                            console.warn(`[Preview] WARNING: Input coord (${c},${r}) lands on a 0 in the shape! Keeping green.`);
+                        }
+                    } else if (c === outputPos.x && r === outputPos.y) {
+                        // Verify this is a valid cell in the shape
+                        if (shape[r][c] === 1) {
+                            color = 0xffa520; // Orange output
+                            console.log(`[Preview] Colored cell (${c},${r}) ORANGE for output`);
+                        } else {
+                            console.warn(`[Preview] WARNING: Output coord (${c},${r}) lands on a 0 in the shape! Keeping green.`);
+                        }
+                    }
+                    
+                    const rect = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
+                    rect.setStrokeStyle(1, 0x555555);
+                    container.add(rect);
+                }
+            }
+        }
+        
+        // Add machine label
+        const label = scene.add.text(0, 0, options.label || "?", { 
+            fontSize: 12, color: '#ffffff' 
         }).setOrigin(0.5);
         container.add(label);
         
         return container;
+    }
+
+    /**
+     * Create processor-style visuals that can be reused across different processor machines
+     * @param {string} labelText - The label text to display at the center (usually a single letter)
+     * @param {Object} options - Additional options (optional)
+     *   - {boolean} addCore - Whether to add a processor core visual (default: true)
+     *   - {number} coreColor - Color for the processor core (default: 0x00ccff)
+     *   - {string} coreShape - Shape of core: 'circle' or 'square' (default: 'circle')
+     *   - {number} fontSize - Font size for the label (default: 14)
+     */
+    createProcessorVisuals(labelText, options = {}) {
+        // Ensure base visuals are created first
+        if (!this.container) {
+            super.createVisuals();
+            if (!this.container) {
+                console.error(`[${this.id}] Base visuals failed to create container. Aborting processor visuals.`);
+                return;
+            }
+        }
+        
+        // Default options
+        const addCore = options.addCore !== undefined ? options.addCore : true;
+        const coreColor = options.coreColor || 0x00ccff; // Default cyan
+        const coreShape = options.coreShape || 'circle';
+        const fontSize = options.fontSize || 14;
+        
+        // Get dimensions from the rotated shape
+        const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
+        const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
+        if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0 || !Array.isArray(rotatedShape[0])) {
+            console.error(`[${this.id}] Cannot get valid rotated shape. Aborting processor visuals.`);
+            return;
+        }
+        
+        const shapeWidth = rotatedShape[0].length;
+        const shapeHeight = rotatedShape.length;
+        const cellSize = this.grid.cellSize;
+        const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+        const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+        
+        // Add machine type label
+        const machineLabel = this.scene.add.text(visualCenterX, visualCenterY, labelText, {
+            fontFamily: 'Arial', fontSize: fontSize, color: '#ffffff'
+        }).setOrigin(0.5);
+        this.container.add(machineLabel);
+        
+        // Add processor core if requested
+        if (addCore) {
+            if (coreShape === 'circle') {
+                this.processorCore = this.scene.add.circle(
+                    visualCenterX, visualCenterY, cellSize / 4, coreColor
+                );
+            } else {
+                this.processorCore = this.scene.add.rectangle(
+                    visualCenterX, visualCenterY, cellSize / 2, cellSize / 2, coreColor
+                );
+            }
+            
+            this.processorCore.setStrokeStyle(1, 0xffffff);
+            this.container.add(this.processorCore);
+            this.processorCore.setDepth(machineLabel.depth - 1); // Core below label
+        }
+        
+        return {
+            centerX: visualCenterX,
+            centerY: visualCenterY,
+            machineLabel: machineLabel,
+            processorCore: this.processorCore
+        };
     }
     
     /**
@@ -1308,7 +1902,7 @@ export default class BaseMachine {
         }
         
         // Base implementation does nothing
-        // Child classes should override this method to provide machine-specific adjustments
+        // Child classes should override this method as needed
         console.log(`BaseMachine.adjustContainerPosition: Base implementation called for ${this.id || 'unknown'} machine`);
         
         // Get the shape for this machine
@@ -1424,19 +2018,27 @@ export default class BaseMachine {
     standardizeColors(machine = this) {
         if (!machine || !machine.container || !machine.container.list) return;
         
+        console.log(`[${machine.id || 'unknown'}] Standardizing colors. inputSquare:`, 
+            machine.inputSquare ? 'exists' : 'null',
+            'outputSquare:', machine.outputSquare ? 'exists' : 'null');
+        
         // Get all parts that are rectangles (the visual building blocks)
         const rectangleParts = machine.container.list.filter(part => 
             part.type === 'Rectangle' && 
             part !== machine.progressBar && 
+            part !== machine.progressFill &&
             !part.isResourceIndicator
         );
         
-        const hasInput = machine.inputSquare || (machine.inputTypes && machine.inputTypes.length > 0);
-        const hasOutput = machine.outputSquare || (machine.outputTypes && machine.outputTypes.length > 0);
+        const hasInput = machine.inputSquare !== null || (machine.inputTypes && machine.inputTypes.length > 0);
+        const hasOutput = machine.outputSquare !== null || (machine.outputTypes && machine.outputTypes.length > 0);
+        
+        console.log(`[${machine.id || 'unknown'}] hasInput: ${hasInput}, hasOutput: ${hasOutput}, rectangleParts: ${rectangleParts.length}`);
         
         // Process each rectangle part
-        rectangleParts.forEach(part => {
-            if (part === machine.progressBar) return;
+        rectangleParts.forEach((part, index) => {
+            // Skip progress bar parts
+            if (part === machine.progressBar || part === machine.progressFill) return;
             
             // Use consistent bright colors for input/output, green otherwise
             if (hasInput && part === machine.inputSquare) {
@@ -1453,5 +2055,160 @@ export default class BaseMachine {
                  }
             }
         });
+    }
+
+    /** Helper to calculate rotated relative position within the shape matrix */
+    getRelativeRotatedPos(originalPos, direction, shapeWidth, shapeHeight) {
+        if (!originalPos) return null;
+
+        // Debug the incoming parameters
+        console.log(`[${this.id || 'unknown'}] ROTATION DEBUG - Original(${originalPos.x},${originalPos.y}), Direction=${direction}, Shape=${shapeWidth}x${shapeHeight}`);
+        
+        // Shorthand for original coordinates
+        const ox = originalPos.x;
+        const oy = originalPos.y;
+        
+        // The original shape dimensions (before rotation)
+        const originalWidth = this.shape ? this.shape[0].length : shapeWidth;
+        const originalHeight = this.shape ? this.shape.length : shapeHeight;
+        
+        console.log(`[${this.id || 'unknown'}] ROTATION DEBUG - Using originalSize=${originalWidth}x${originalHeight}`);
+        
+        let result;
+        
+        // Apply rotation based on direction - ENSURE CONSISTENCY WITH createVisuals
+        switch (direction) {
+            case 'right': // 0° - no change
+                result = { x: ox, y: oy };
+                break;
+                
+            case 'down': // 90° clockwise
+                // Formula for 90° CW rotation:
+                result = { x: oy, y: originalWidth - 1 - ox };
+                break;
+                
+            case 'left': // 180° clockwise
+                // Formula for 180° rotation:
+                result = { x: originalWidth - 1 - ox, y: originalHeight - 1 - oy };
+                break;
+                
+            case 'up': // 270° clockwise
+                // Formula for 270° CW rotation:
+                result = { x: originalHeight - 1 - oy, y: ox };
+                break;
+                
+            default:
+                console.warn(`[${this.id || 'unknown'}] Unknown direction: ${direction}, returning original position`);
+                result = { x: ox, y: oy };
+        }
+        
+        console.log(`[${this.id || 'unknown'}] ROTATION RESULT - Original(${ox},${oy}) -> Rotated(${result.x},${result.y}) for direction ${direction}`);
+        return result;
+    }
+
+    /** Helper to set direction indicator rotation based on this.direction */
+    updateDirectionIndicatorVisuals() {
+        if (!this.directionIndicator) return;
+        switch (this.direction) {
+            case 'right': this.directionIndicator.rotation = 0; break;
+            case 'down': this.directionIndicator.rotation = Math.PI / 2; break;
+            case 'left': this.directionIndicator.rotation = Math.PI; break;
+            case 'up': this.directionIndicator.rotation = 3 * Math.PI / 2; break;
+        }
+    }
+
+    /**
+     * Get a preview sprite for the machine selection panel
+     * This method should be overridden by subclasses to provide custom previews
+     * or it will use a default implementation.
+     * @param {Phaser.Scene} scene - The scene to create the sprite in
+     * @param {number} x - The x coordinate 
+     * @param {number} y - The y coordinate
+     * @returns {Phaser.GameObjects.Container} A container with the preview sprite
+     */
+    getPreviewSprite(scene, x, y) {
+        // Create a simplified version of the machine for the selection panel
+        const container = scene.add.container(x, y);
+        
+        // Create a simple rectangle as a placeholder
+        const rect = scene.add.rectangle(0, 0, 24, 24, 0x44ff44); // Default green color
+        container.add(rect);
+        
+        // Add a label
+        const label = scene.add.text(0, 0, this.id.charAt(0).toUpperCase(), {
+            fontFamily: 'Arial',
+            fontSize: 14,
+            color: '#ffffff'
+        }).setOrigin(0.5);
+        container.add(label);
+        
+        return container;
+    }
+
+    /**
+     * Get standard machine configuration
+     * This static method provides standard configuration that can be used by processor machines
+     * @param {Object} options - Configuration options
+     * @returns {Object} The machine configuration
+     */
+    static getStandardConfig(options = {}) {
+        const id = options.id || 'unknown-machine';
+        const defaultName = id.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        
+        return {
+            id: id,
+            name: options.name || defaultName,
+            description: options.description || 'Standard processor machine',
+            shape: options.shape || [[1, 1], [1, 1]], // Default to 2x2
+            inputTypes: options.inputTypes || ['basic-resource'],
+            outputTypes: options.outputTypes || ['advanced-resource'],
+            processingTime: options.processingTime || 3000,
+            direction: options.direction || 'right',
+            defaultDirection: options.defaultDirection || 'right',
+            requiredInputs: options.requiredInputs || { 'basic-resource': 1 }
+        };
+    }
+
+    /**
+     * Get input and output positions for a given direction
+     * This is the single source of truth for I/O positions for all machines
+     * @param {string} machineId - The machine ID
+     * @param {string} direction - The direction ('right', 'down', 'left', 'up')
+     * @returns {Object} An object with inputPos and outputPos coordinates
+     */
+    static getIOPositionsForDirection(machineId, direction) {
+        // Default implementation for simple machines
+        // Specific machine classes should override this with their own static method
+        
+        // Default positions for a generic 1x1 machine
+        let inputPos = { x: 0, y: 0 };
+        let outputPos = { x: 0, y: 0 };
+        
+        // For a generic machine, place input on one side and output on the opposite
+        switch(direction) {
+            case 'right':
+                inputPos = { x: 0, y: 0 };  // Left
+                outputPos = { x: 0, y: 0 }; // Right (same coordinate, direction determines flow)
+                break;
+            case 'down':
+                inputPos = { x: 0, y: 0 };  // Top
+                outputPos = { x: 0, y: 0 }; // Bottom (same coordinate, direction determines flow)
+                break;
+            case 'left':
+                inputPos = { x: 0, y: 0 };  // Right
+                outputPos = { x: 0, y: 0 }; // Left (same coordinate, direction determines flow)
+                break;
+            case 'up':
+                inputPos = { x: 0, y: 0 };  // Bottom
+                outputPos = { x: 0, y: 0 }; // Top (same coordinate, direction determines flow)
+                break;
+        }
+        
+        // Log a warning if this base implementation is used for a specific machine
+        if (machineId !== 'base-machine' && machineId !== 'unknown-machine' && machineId !== 'conveyor') {
+            console.warn(`Using default I/O positions for ${machineId}. Should implement getIOPositionsForDirection in ${machineId} class.`);
+        }
+        
+        return { inputPos, outputPos };
     }
 } 
