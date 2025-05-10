@@ -12,6 +12,7 @@ import { UPGRADE_PACKAGE_TYPE, upgradesConfig, UPGRADE_TYPES } from '../config/u
 import { UpgradeScene } from './UpgradeScene.js'; // Import UpgradeScene
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
+import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
 
 export default class GameScene extends Phaser.Scene {
     constructor() {
@@ -116,8 +117,7 @@ export default class GameScene extends Phaser.Scene {
             callbackScope: this,
             loop: true
         });
-        // ---> ADD LOG HERE <---
-        console.log(`[TIMER_DEBUG] nodeSpawnTimer created:`, this.nodeSpawnTimer ? `Exists, Delay: ${this.nodeSpawnTimer.delay}, Paused: ${this.nodeSpawnTimer.paused}` : 'FAILED TO CREATE');
+        //console.log(`[TIMER_DEBUG] nodeSpawnTimer created:`, this.nodeSpawnTimer ? `Exists, Delay: ${this.nodeSpawnTimer.delay}, Paused: ${this.nodeSpawnTimer.paused}` : 'FAILED TO CREATE');
         
         // ADD UPGRADE NODE SPAWN TIMER
         this.upgradeNodeSpawnTimer = this.time.addEvent({
@@ -200,7 +200,7 @@ export default class GameScene extends Phaser.Scene {
         
         // ---> ADD TIMER PROGRESS LOG HERE <---
         if (this.nodeSpawnTimer && this.time.now % 1000 < 20) { // Log roughly once per second
-            console.log(`[TIMER_DEBUG] nodeSpawnTimer Progress: ${(this.nodeSpawnTimer.getProgress() * 100).toFixed(1)}% (${this.nodeSpawnTimer.getRemaining().toFixed(0)}ms remaining) Paused: ${this.nodeSpawnTimer.paused}`);
+            //console.log(`[TIMER_DEBUG] nodeSpawnTimer Progress: ${(this.nodeSpawnTimer.getProgress() * 100).toFixed(1)}% (${this.nodeSpawnTimer.getRemaining().toFixed(0)}ms remaining) Paused: ${this.nodeSpawnTimer.paused}`);
         }
         
         // --- Momentum Decay ---
@@ -1004,7 +1004,7 @@ export default class GameScene extends Phaser.Scene {
                     }
 
                     // Determine cell color based on position in the shape
-                    let cellColor = 0x44ff44; // Default green
+                    let cellColor = MACHINE_COLORS[machine.id] || 0x44ff44; // Unique color for this machine type
                     
                     // Change color for input/output cells
                     if (machine.id === 'cargo-loader') {
@@ -1995,12 +1995,7 @@ export default class GameScene extends Phaser.Scene {
                 }
             }
             
-            // Apply standardized colors
-            try {
-                this.standardizeColors(machineObj);
-            } catch (colorError) {
-                // Continue even if color standardization fails
-            }
+           
             
             // Register the machine with the factory grid
             try {
@@ -2048,85 +2043,7 @@ export default class GameScene extends Phaser.Scene {
         }
     }
 
-    /**
-     * Standardize the colors of a machine to ensure visual consistency
-     * @param {BaseMachine} machine - The machine to standardize colors for
-     */
-    standardizeColors(machine) {
-        if (!machine || !machine.container || !machine.container.list) return;
-        
-        //console.log(`[DEBUG] Standardizing colors for machine: ${machine.id}`);
-        
-        // Get all parts that are rectangles (the visual building blocks)
-        const rectangleParts = machine.container.list.filter(part => 
-            part.type === 'Rectangle' && 
-            part !== machine.progressBar && 
-            !part.isResourceIndicator
-        );
-        
-        //console.log(`[DEBUG] Found ${rectangleParts.length} rectangle parts to standardize`);
-        
-        // Determine which parts are input/output based on their position in the container
-        // or based on references if available
-        const hasInput = machine.inputSquare || machine.inputTypes.length > 0;
-        const hasOutput = machine.outputSquare || machine.outputTypes.length > 0;
-        
-        // Process each rectangle part
-        rectangleParts.forEach(part => {
-            // Skip special parts like progress bars
-            if (part === machine.progressBar) return;
-            
-            // For extractor: special handling
-            if (machine.id === 'extractor') {
-                if (part === machine.outputSquare) {
-                    part.fillColor = 0xffa520; // Bright orange for output
-                } else if (part === machine.body) {
-                    part.fillColor = 0x555555; // Dark gray for extractor body (special case)
-                } else if (part === machine.drillBit) {
-                    part.fillColor = 0x888888; // Gray for drill bit (special case)
-                } else {
-                    part.fillColor = 0x44ff44; // Green for all other parts
-                }
-            }
-            // For conveyor: special handling
-            else if (machine.id === 'conveyor') {
-                // Always enforce conveyor color regardless of previous value
-                const oldColor = part.fillColor !== 0x888888 ? `0x${part.fillColor.toString(16)}` : "already correct";
-                part.fillColor = 0x888888; // Gray for conveyor base
-                console.log(`[GameScene][${machine.id}] Set conveyor part to gray (0x888888). Previous color: ${oldColor}`);
-                
-                // Store this part as a conveyor part (for later color enforcement)
-                if (!machine.conveyorParts) machine.conveyorParts = [];
-                machine.conveyorParts.push(part);
-            }
-            // For all other machines
-            else {
-                // If we have explicit input/output references, use them
-                if (hasInput && part === machine.inputSquare) {
-                    part.fillColor = 0x4aa8eb; // Bright blue for input
-                } else if (hasOutput && part === machine.outputSquare) {
-                    part.fillColor = 0xffa520; // Bright orange for output
-                } else if (part.fillColor !== 0x44ff44) { // If not already green
-                    // Skip parts that should have special colors (the centered core of advanced processor)
-                    if (machine.id === 'advanced-processor' && 
-                        part.x === machine.container.x + (machine.shape[0].length * machine.grid.cellSize) / 2 && 
-                        part.y === machine.container.y + (machine.shape.length * machine.grid.cellSize) / 2) {
-                        part.fillColor = 0xffaa44; // Keep the special color for the core
-                    } else {
-                        part.fillColor = 0x44ff44; // Green for all other parts
-                    }
-                }
-            }
-        });
-        
-        // Add debug logging for conveyor final colors
-        if (machine.id === 'conveyor') {
-            console.log(`[GameScene][${machine.id}] After standardizeColors, rectangle parts colors:`);
-            rectangleParts.forEach((part, index) => {
-                console.log(`Part ${index}: 0x${part.fillColor.toString(16)}`);
-            });
-        }
-    }
+   
 
     /**
      * Helper method to debug machine rotation information
@@ -2871,14 +2788,14 @@ export default class GameScene extends Phaser.Scene {
     /** Spawns a Resource Node and a Delivery Node pair */
     spawnNode() { 
         // Log `this` context FIRST and use double quotes for the string
-        console.log("[SPAWN_DEBUG] Verifying 'this' context:", this instanceof GameScene ? 'Correct (GameScene)' : 'INCORRECT CONTEXT!', this);
+        //console.log("[SPAWN_DEBUG] Verifying 'this' context:", this instanceof GameScene ? 'Correct (GameScene)' : 'INCORRECT CONTEXT!', this);
         
         try { // <-- Add try here
             // --- Start of original spawnNode logic --- 
-            console.log(`[SPAWN_DEBUG] spawnNode called at time ${this.time.now.toFixed(0)}`); 
+            //console.log(`[SPAWN_DEBUG] spawnNode called at time ${this.time.now.toFixed(0)}`); 
 
             if (this.gameOver || this.paused || this.isPausedForUpgrade) { 
-                 console.log(`[SPAWN_DEBUG] Aborted spawn due to game state (gameOver/paused).`);
+                 //console.log(`[SPAWN_DEBUG] Aborted spawn due to game state (gameOver/paused).`);
                  return;
             }
             
@@ -3064,11 +2981,11 @@ export default class GameScene extends Phaser.Scene {
         this.gameTimer.paused = true;
         if (this.nodeSpawnTimer) {
             this.nodeSpawnTimer.paused = true;
-            console.log("[TIMER_DEBUG] Paused nodeSpawnTimer for upgrade screen."); // Log pause
+            //console.log("[TIMER_DEBUG] Paused nodeSpawnTimer for upgrade screen."); // Log pause
         }
         if (this.upgradeNodeSpawnTimer) {
             this.upgradeNodeSpawnTimer.paused = true;
-            console.log("[TIMER_DEBUG] Paused upgradeNodeSpawnTimer for upgrade screen."); 
+            //console.log("[TIMER_DEBUG] Paused upgradeNodeSpawnTimer for upgrade screen."); 
         }
 
         // Pause physics if necessary (optional, depending on your game)
@@ -3091,11 +3008,11 @@ export default class GameScene extends Phaser.Scene {
         // Resume timers explicitly if they were paused
         if (this.nodeSpawnTimer && this.nodeSpawnTimer.paused) {
             this.nodeSpawnTimer.paused = false;
-            console.log("[TIMER_DEBUG] Node Spawn Timer Resumed in resumeFromUpgrade");
+            //console.log("[TIMER_DEBUG] Node Spawn Timer Resumed in resumeFromUpgrade");
         }
         if (this.upgradeNodeSpawnTimer && this.upgradeNodeSpawnTimer.paused) {
             this.upgradeNodeSpawnTimer.paused = false;
-            console.log("[TIMER_DEBUG] Upgrade Node Spawn Timer Resumed in resumeFromUpgrade");
+            //console.log("[TIMER_DEBUG] Upgrade Node Spawn Timer Resumed in resumeFromUpgrade");
         }
         if (this.gameTimer && this.gameTimer.paused) {
             this.gameTimer.paused = false;

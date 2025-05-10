@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import MachineRegistry from './machines/MachineRegistry';
+import { MACHINE_COLORS } from './machines/BaseMachine';
 
 export default class MachineFactory {
     constructor(scene, config) {
@@ -604,12 +605,12 @@ export default class MachineFactory {
                 if (shape[y] && shape[y][x] === 1) {
                     const partX = (x - shapeCenterX) * cellSize;
                     const partY = (y - shapeCenterY) * cellSize;
-                    let color = 0x44ff44; // Default green color
-
-                    // Basic Input/Output Coloring (Example - needs refinement)
-                    if (x === 0 && y === 0) color = 0x4aa8eb; // Input-ish
-                    if (x === shapeWidth -1 && y === shapeHeight - 1) color = 0xffa520; // Output-ish
-
+                    // Use unique color for each machine type
+                    let color = MACHINE_COLORS[machineType.id] || 0x44ff44;
+                    // Input/output coloring
+                    if (x === 0 && y === 0) color = 0x4aa8eb; // Input
+                    else if (x === shapeWidth - 1 && y === shapeHeight - 1) color = 0xffa520; // Output
+                    console.log(`[PREVIEW] ${machineType.id} cell (${x},${y}) color: ${color.toString(16)}`);
                     const rect = this.scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
                     rect.setStrokeStyle(1, 0x555555);
                     container.add(rect);

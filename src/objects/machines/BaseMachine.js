@@ -3,6 +3,19 @@ import { GAME_CONFIG } from '../../config/gameConfig';
 import { GRID_CONFIG } from '../../config/gameConfig';
 import ConveyorMachine from './ConveyorMachine';
 
+// Unique colors for each machine type
+const MACHINE_COLORS = {
+    'processor-a': 0x4e79a7, // blue
+    'processor-b': 0xf28e2b, // orange
+    'processor-c': 0xe15759, // red
+    'processor-d': 0x76b7b2, // teal
+    'processor-e': 0x59a14f, // green
+    'advanced-processor': 0xedc948, // yellow
+    'conveyor': 0x888888, // gray
+    // Add more as needed
+};
+export { MACHINE_COLORS };
+
 /**
  * Base class for all machine types
  * This class provides common functionality that all machines share
@@ -320,30 +333,31 @@ export default class BaseMachine {
                     const partCenterY = y * cellSize + cellSize / 2;
                     
                     // Determine if this is an input or output cell using rotated positions
-                    let partColor = 0x44ff44; // Default green
+                    let partColor = MACHINE_COLORS[this.id] || 0x44ff44; // Unique color per machine type
                     let isInput = false;
                     let isOutput = false;
-                    
+                    let cellType = 'body';
                     // Check if this is the input cell using rotated coordinates
                     if (rotatedInputPos && x === rotatedInputPos.x && y === rotatedInputPos.y) {
-                        // Verify this is a valid cell in the rotated shape
                         if (rotatedShape[y][x] === 1) {
                             isInput = true;
                             partColor = 0x4aa8eb; // Blue for input
+                            cellType = 'input';
                         } else {
                             console.warn(`[${this.id}] Input coordinates (${x},${y}) land on a 0 value in the shape! Keeping as normal cell.`);
                         }
                     }
-                    // Check if this is the output cell using rotated coordinates
                     else if (rotatedOutputPos && x === rotatedOutputPos.x && y === rotatedOutputPos.y) {
-                        // Verify this is a valid cell in the rotated shape
                         if (rotatedShape[y][x] === 1) {
                             isOutput = true;
                             partColor = 0xffa520; // Orange for output
+                            cellType = 'output';
                         } else {
                             console.warn(`[${this.id}] Output coordinates (${x},${y}) land on a 0 value in the shape! Keeping as normal cell.`);
                         }
                     }
+                    // Debug log for color and cell type
+                    console.log(`[${this.id}] Drawing cell (${x},${y}) as ${cellType} with color: ${partColor.toString(16)}`);
                     
                     // Create the cell rectangle
                     const part = this.scene.add.rectangle(partCenterX, partCenterY, cellSize - 4, cellSize - 4, partColor);
@@ -606,7 +620,7 @@ export default class BaseMachine {
                     } else if (part === this.outputSquare) {
                         part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
                     } else {
-                        part.fillColor = 0x44ff44; // Default green (same as when dragging)
+                        part.fillColor = MACHINE_COLORS[this.id] || 0x44ff44; // Restore unique color
                     }
                 }
             });
@@ -1737,8 +1751,8 @@ export default class BaseMachine {
                     const partY = (r - shapeCenterY) * cellSize;
                     
                     // Determine cell color
-                    let color = 0x44ff44; // Default green
-                    
+                    //let color = 0x44ff44; // Default green
+                    let color = MACHINE_COLORS[machineId] || 0x44ff44; // Unique color for this machine type
                     // Check for input/output cells directly (no rotation math)
                     if (c === inputPos.x && r === inputPos.y) {
                         // Verify this is a valid cell in the shape
@@ -2022,69 +2036,7 @@ export default class BaseMachine {
         return false;
     }
 
-    /**
-     * Standardize the colors of a machine to ensure visual consistency
-     * @param {BaseMachine} machine - The machine to standardize colors for (usually this)
-     */
-    standardizeColors(machine = this) {
-        if (!machine || !machine.container || !machine.container.list) return;
-        
-        console.log(`[${machine.id || 'unknown'}] Standardizing colors. inputSquare:`, 
-            machine.inputSquare ? 'exists' : 'null',
-            'outputSquare:', machine.outputSquare ? 'exists' : 'null');
-        
-        // Get all parts that are rectangles (the visual building blocks)
-        const rectangleParts = machine.container.list.filter(part => 
-            part.type === 'Rectangle' && 
-            part !== machine.progressBar && 
-            part !== machine.progressFill &&
-            !part.isResourceIndicator
-        );
-        
-        const hasInput = machine.inputSquare !== null || (machine.inputTypes && machine.inputTypes.length > 0);
-        const hasOutput = machine.outputSquare !== null || (machine.outputTypes && machine.outputTypes.length > 0);
-        
-        console.log(`[${machine.id || 'unknown'}] hasInput: ${hasInput}, hasOutput: ${hasOutput}, rectangleParts: ${rectangleParts.length}`);
-        
-        // Process each rectangle part
-        rectangleParts.forEach((part, index) => {
-            // Skip progress bar parts
-            if (part === machine.progressBar || part === machine.progressFill) return;
-            
-            // Use consistent bright colors for input/output, green otherwise
-            if (hasInput && part === machine.inputSquare) {
-                part.fillColor = 0x4aa8eb; // Bright blue for input
-            } else if (hasOutput && part === machine.outputSquare) {
-                part.fillColor = 0xffa520; // Bright orange for output
-            } else {
-                 // Check for special cases like extractor parts if needed
-                 /* if (machine.id === 'extractor' && part === machine.body) {
-                     part.fillColor = 0x555555; 
-                 } else */
-                 if (machine.id === 'conveyor') {
-                    // Always enforce conveyor color regardless of previous value
-                    const oldColor = part.fillColor !== 0x888888 ? `0x${part.fillColor.toString(16)}` : "already correct";
-                    part.fillColor = 0x888888; // Gray for conveyor
-                    console.log(`[${machine.id}] Set conveyor part to gray (0x888888). Previous color: ${oldColor}`);
-                    
-                    // Store this part as a conveyor part (for later color enforcement)
-                    if (!machine.conveyorParts) machine.conveyorParts = [];
-                    machine.conveyorParts.push(part);
-                 }
-                 else if (part.fillColor !== 0x44ff44) { // Only change if not already green
-                    part.fillColor = 0x44ff44; // Green for all other parts
-                 }
-            }
-        });
-        
-        // Add debug logging for conveyor final colors
-        if (machine.id === 'conveyor') {
-            console.log(`[${machine.id}] After standardizeColors, rectangle parts colors:`);
-            rectangleParts.forEach((part, index) => {
-                console.log(`Part ${index}: 0x${part.fillColor.toString(16)}`);
-            });
-        }
-    }
+
 
     /** Helper to calculate rotated relative position within the shape matrix */
     getRelativeRotatedPos(originalPos, direction, shapeWidth, shapeHeight) {
