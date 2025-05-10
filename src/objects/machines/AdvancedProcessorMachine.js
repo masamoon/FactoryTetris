@@ -17,6 +17,83 @@ export default class AdvancedProcessorMachine extends BaseMachine {
         
         // Store the config reference
         this.config = config;
+        
+        // Add a debug interval to check inputs periodically
+        this.debugInterval = setInterval(() => {
+            if (this.scene && !this.scene.gameOver) {
+                this.logInputStatus();
+            }
+        }, 5000);
+    }
+    
+    /**
+     * Log the input status to help diagnose issues
+     */
+    logInputStatus() {
+        console.log(`[AdvancedProcessor] at (${this.gridX},${this.gridY}) Input status:`, 
+            JSON.stringify(this.inputInventory), 
+            `Can process: ${this.canProcess()}`
+        );
+        
+        // Check adjacent cells for potential inputs
+        const adjacentMachines = this.findAdjacentMachines();
+        if (adjacentMachines.length > 0) {
+            console.log(`[AdvancedProcessor] Adjacent machines:`, 
+                adjacentMachines.map(m => `${m.id} at (${m.gridX},${m.gridY}) with outputs: ${JSON.stringify(m.outputInventory)}`).join(', ')
+            );
+        } else {
+            console.log(`[AdvancedProcessor] No adjacent machines found`);
+        }
+    }
+    
+    /**
+     * Find machines adjacent to this one
+     * @returns {Array} Array of adjacent machines
+     */
+    findAdjacentMachines() {
+        if (!this.grid) return [];
+        
+        const adjacentMachines = [];
+        const occupiedCells = this.getOccupiedCells();
+        
+        // Check all cells occupied by this machine
+        for (const cell of occupiedCells) {
+            // Check in all four directions
+            const directions = [
+                {dx: 1, dy: 0},  // right
+                {dx: 0, dy: 1},  // down
+                {dx: -1, dy: 0}, // left
+                {dx: 0, dy: -1}  // up
+            ];
+            
+            for (const dir of directions) {
+                const nx = cell.x + dir.dx;
+                const ny = cell.y + dir.dy;
+                
+                // Skip if out of bounds
+                if (nx < 0 || nx >= this.grid.width || ny < 0 || ny >= this.grid.height) {
+                    continue;
+                }
+                
+                // Skip if it's one of our own cells
+                if (occupiedCells.some(oc => oc.x === nx && oc.y === ny)) {
+                    continue;
+                }
+                
+                // Check the cell
+                try {
+                    const neighborCell = this.grid.getCell(nx, ny);
+                    if (neighborCell && neighborCell.type === 'machine' && neighborCell.object && 
+                        neighborCell.object !== this && !adjacentMachines.includes(neighborCell.object)) {
+                        adjacentMachines.push(neighborCell.object);
+                    }
+                } catch (e) {
+                    console.warn(`[AdvancedProcessor] Error checking cell (${nx},${ny}):`, e);
+                }
+            }
+        }
+        
+        return adjacentMachines;
     }
 
     /**
@@ -61,6 +138,38 @@ export default class AdvancedProcessorMachine extends BaseMachine {
             Processing time: ${this.processingTime}ms
             I/O positions for ${this.defaultDirection}: Input(${this.inputCoord.x},${this.inputCoord.y}), Output(${this.outputCoord.x},${this.outputCoord.y})
         `);
+    }
+    
+    /**
+     * Override destroy to clean up interval
+     */
+    destroy() {
+        if (this.debugInterval) {
+            clearInterval(this.debugInterval);
+            this.debugInterval = null;
+        }
+        super.destroy();
+    }
+    
+    /**
+     * Override the canAcceptInput method to ensure we properly handle advanced resources
+     */
+    canAcceptInput(resourceTypeId) {
+     
+        return super.canAcceptInput(resourceTypeId);
+    }
+    
+    /**
+     * Override acceptItem to add extra logging
+     */
+    acceptItem(itemData, sourceMachine = null) {
+        //console.log(`[AdvancedProcessor] acceptItem called with item:`, itemData);
+        
+        // Call the parent method
+        const result = super.acceptItem(itemData, sourceMachine);
+        
+        //console.log(`[AdvancedProcessor] acceptItem result: ${result}`);
+        return result;
     }
     
     /**

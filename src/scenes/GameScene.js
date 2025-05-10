@@ -1344,52 +1344,75 @@ export default class GameScene extends Phaser.Scene {
 
         // 1. Clear the factory grid (will now have animations)
         this.clearPlacedItems();
+        
+        // 2. Increment round number
+        this.currentRound++;
+        
+        // 3. GROW THE GRID if configured to do so
+        if (GRID_CONFIG.growthPerRound > 0 && this.grid) {
+            // Calculate new dimensions based on growth parameters
+            const newWidth = Math.min(
+                this.grid.width + GRID_CONFIG.growthPerRound,
+                GRID_CONFIG.maxWidth
+            );
+            const newHeight = Math.min(
+                this.grid.height + GRID_CONFIG.growthPerRound,
+                GRID_CONFIG.maxHeight
+            );
+            
+            // Only resize if dimensions will actually change
+            if (newWidth > this.grid.width || newHeight > this.grid.height) {
+                console.log(`[GameScene.advanceRound] Growing grid for round ${this.currentRound}`);
+                this.grid.resize(newWidth, newHeight);
+                
+                // Add a visual effect to highlight the grid expansion
+                this.cameras.main.flash(500, 0, 255, 0, 0.3); // Green flash
+                
+                // Create a visual indicator for the new grid cells
+                const gridHighlight = this.add.graphics();
+                gridHighlight.fillStyle(0x00ff00, 0.3); // Semi-transparent green
+                
+                // Calculate grid position
+                const gridWidth = this.grid.width * this.grid.cellSize;
+                const gridHeight = this.grid.height * this.grid.cellSize;
+                const startX = this.grid.x - gridWidth / 2;
+                const startY = this.grid.y - gridHeight / 2;
+                
+                gridHighlight.fillRect(startX, startY, gridWidth, gridHeight);
+                
+                // Fade out the highlight
+                this.tweens.add({
+                    targets: gridHighlight,
+                    alpha: 0,
+                    duration: 2000,
+                    onComplete: () => {
+                        gridHighlight.destroy();
+                    }
+                });
+            }
+        }
 
-        // *** ADDED: Spawn initial nodes for the new round ***
-        console.log(`[RoundStart] Spawning initial nodes for round ${this.currentRound + 1}...`); // Log before spawning
+        // 4. Spawn initial nodes for the new round
+        console.log(`[RoundStart] Spawning initial nodes for round ${this.currentRound}...`);
         const nodesToSpawn = GAME_CONFIG.initialNodeCount || 3; // Default to 3 if not set
         for (let i = 0; i < nodesToSpawn; i++) {
             this.spawnNode(); // Spawn one pair (Resource + Delivery)
         }
-        // *** END ADDED ***
 
-        // 2. Reset score
+        // 5. Reset score
         this.score = 0;
 
-        // 3. Increment round number
-        this.currentRound++;
-
-        // 4. Reset score threshold for the new round
+        // 6. Reset score threshold for the new round
         this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound);
 
-        // 5. Update UI displays
+        // 7. Update UI displays
         this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
         this.roundText.setText(`ROUND: ${this.currentRound}`);
 
-        // 6. Update difficulty explicitly upon advancing round (affects node SPAWN rate)
+        // 8. Update difficulty explicitly upon advancing round (affects node SPAWN rate)
         this.updateDifficulty();
 
-        // 7. Optional: Add a visual indication of round start/change
-        /* REMOVED: Large round announcement text
-        const roundAnnounce = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, `ROUND ${this.currentRound}`, {
-            fontFamily: 'Arial Black',
-            fontSize: '48px',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 6
-        }).setOrigin(0.5).setDepth(1000); // Ensure it's on top
-
-        this.tweens.add({
-            targets: roundAnnounce,
-            alpha: 0,
-            scale: 1.5,
-            duration: 1500,
-            ease: 'Power1',
-            onComplete: () => { roundAnnounce.destroy(); }
-        });
-        */
-
-        console.log(`Advanced to round ${this.currentRound}. New score threshold: ${this.currentRoundScoreThreshold}`);
+        console.log(`Advanced to round ${this.currentRound}. New score threshold: ${this.currentRoundScoreThreshold}. Grid size: ${this.grid.width}x${this.grid.height}`);
     }
     
     togglePause() {

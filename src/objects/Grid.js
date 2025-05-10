@@ -942,4 +942,56 @@ export default class Grid {
     /* placeExtractor(machine, gridX, gridY) {
        // ... entire method commented out ...
     } */
+    
+    /**
+     * Resizes the grid to new dimensions
+     * @param {number} newWidth - The new width in cells
+     * @param {number} newHeight - The new height in cells
+     */
+    resize(newWidth, newHeight) {
+        if (newWidth <= 0 || newHeight <= 0) {
+            console.error(`[Grid.resize] Invalid dimensions: ${newWidth}x${newHeight}`);
+            return false;
+        }
+        
+        console.log(`[Grid.resize] Resizing grid from ${this.width}x${this.height} to ${newWidth}x${newHeight}`);
+        
+        // Store current dimensions
+        const oldWidth = this.width;
+        const oldHeight = this.height;
+        
+        // Update dimensions
+        this.width = newWidth;
+        this.height = newHeight;
+        
+        // Create new cells for expanded area
+        if (!this.cells) {
+            this.cells = [];
+        }
+        
+        // Resize existing rows and add new rows
+        for (let y = 0; y < newHeight; y++) {
+            // For existing rows, extend if needed
+            if (y < oldHeight) {
+                // Extend existing row if new width is greater
+                if (newWidth > oldWidth) {
+                    for (let x = oldWidth; x < newWidth; x++) {
+                        this.cells[y][x] = { type: 'empty' };
+                    }
+                }
+            } else {
+                // Create a new row
+                this.cells[y] = [];
+                for (let x = 0; x < newWidth; x++) {
+                    this.cells[y][x] = { type: 'empty' };
+                }
+            }
+        }
+        
+        // Redraw the grid with new dimensions
+        this.drawGrid();
+        
+        console.log(`[Grid.resize] Grid resized successfully to ${this.width}x${this.height}`);
+        return true;
+    }
 } 

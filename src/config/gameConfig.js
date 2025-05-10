@@ -5,8 +5,11 @@ export const GRID_CONFIG = {
     factoryHeight: 10,
     x: 200, // Update x position to center in the factory area (width*0.05 + width*0.4/2)
     y: 220, // Adjusted Y center to align logical grid top (startY=60) with visual background top (Y=60)
-    width: 10, // Add width in cells
-    height: 10 // Add height in cells
+    width: 10, // Initial width in cells
+    height: 10, // Initial height in cells
+    growthPerRound: 1, // How many cells to add in each dimension per round
+    maxWidth: 16, // Maximum width the grid can grow to
+    maxHeight: 16 // Maximum height the grid can grow to
 };
 
 // Game configuration

@@ -1196,8 +1196,7 @@ export default class BaseMachine {
         }
 
         const targetInfo = findTargetMethod.call(this);
-        // console.log(`[${this.id}] transferResources: findTargetMethod result:`, JSON.stringify(targetInfo)); // <<< LOG 1 (stringify to see content)
-        // MODIFIED LOG 1 to avoid cyclic error:
+        // MODIFIED LOG to avoid cyclic error:
         if (targetInfo) {
             console.log(`[${this.id}] transferResources: findTargetMethod result - Type: ${targetInfo.type}, Target ID: ${targetInfo.target ? targetInfo.target.id : 'N/A'}, OutputFaceX: ${targetInfo.outputFaceX}, OutputFaceY: ${targetInfo.outputFaceY}`);
         } else {
@@ -1249,14 +1248,26 @@ export default class BaseMachine {
         // Handle transfer to another Machine
         else if (targetInfo.type === 'machine') {
             const targetMachine = targetInfo.target;
-            console.log(`[${this.id}] transferResources: Target type is 'machine'. Actual target object:`, targetMachine); // <<< LOG 2
+            console.log(`[${this.id}] transferResources: Target type is 'machine'. Target: ${targetMachine.id} at (${targetMachine.gridX}, ${targetMachine.gridY})`);
+            
+            // Check if the target machine is an Advanced Processor and we're transferring advanced-resource
+            const isAdvancedProcessor = targetMachine.id === 'advanced-processor';
+            const isAdvancedResource = resourceTypeToTransfer === 'advanced-resource';
+            
+            if (isAdvancedProcessor && isAdvancedResource) {
+                console.log(`[${this.id}] transferResources: Attempting to send advanced-resource to Advanced Processor`);
+            }
             
             // --- MODIFIED: Check for acceptItem method --- 
             if (targetMachine && typeof targetMachine.canAcceptInput === 'function' && typeof targetMachine.acceptItem === 'function') {
-                console.log(`[${this.id}] transferResources: Target machine ${targetMachine.id} has canAcceptInput and acceptItem.`); // <<< LOG 3
+                console.log(`[${this.id}] transferResources: Target machine ${targetMachine.id} has canAcceptInput and acceptItem.`);
+                
                 // Check if target machine can accept the resource type and has space
-                if (targetMachine.canAcceptInput(resourceTypeToTransfer)) {
-                    console.log(`[${this.id}] transferResources: Target machine ${targetMachine.id} CAN accept ${resourceTypeToTransfer}.`); // <<< LOG 4
+                // Special handling for advanced processor to ensure it can accept advanced resources
+                let canAccept = targetMachine.canAcceptInput(resourceTypeToTransfer);
+                
+                if (canAccept) {
+                    console.log(`[${this.id}] transferResources: Target machine ${targetMachine.id} CAN accept ${resourceTypeToTransfer}.`);
                     
                     // *** ADDED: Directional check for conveyors ***
                     let allowTransfer = true;
@@ -1283,10 +1294,10 @@ export default class BaseMachine {
                     if (allowTransfer) {
                         // --- MODIFIED: Call acceptItem with item object --- 
                         const itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
-                        console.log(`[${this.id}] transferResources: Attempting to call acceptItem on ${targetMachine.id} with`, itemToTransfer); // <<< LOG 5
-                        if (targetMachine.acceptItem(itemToTransfer)) { 
+                        console.log(`[${this.id}] transferResources: Attempting to call acceptItem on ${targetMachine.id} with`, itemToTransfer);
+                        if (targetMachine.acceptItem(itemToTransfer, this)) { // Pass this as sourceMachine for better tracing
                             transferred = true;
-                            console.log(`[${this.id}] transferResources: Successfully transferred ${resourceTypeToTransfer} to ${targetMachine.id}`); // <<< LOG 6
+                            console.log(`[${this.id}] transferResources: Successfully transferred ${resourceTypeToTransfer} to ${targetMachine.id}`);
                             this.createResourceTransferEffect(resourceTypeToTransfer, targetMachine);
                         } else {
                             console.warn(`[${this.name}] Target machine ${targetMachine.name} acceptItem returned false for ${resourceTypeToTransfer}`);
@@ -1300,7 +1311,7 @@ export default class BaseMachine {
                  let reason = "is invalid";
                  if (targetMachine && typeof targetMachine.acceptItem !== 'function') reason = "is missing acceptItem method";
                  else if (targetMachine && typeof targetMachine.canAcceptInput !== 'function') reason = "is missing canAcceptInput method";
-                 console.warn(`[${this.name}] Target machine ${targetMachine.id || '(no id)'} ${reason}. Target object:`, targetMachine); // <<< LOG 7 (Added targetMachine log)
+                 console.warn(`[${this.name}] Target machine ${targetMachine.id || '(no id)'} ${reason}.`);
             }
         }
 
@@ -1403,8 +1414,8 @@ export default class BaseMachine {
         let outputPos = null;
         try {
             // Use static method to get the output position based on machine ID and direction
-            const machineId = this.id.split('-')[0]; // Extract base machine type (e.g., "processorA" from "processorA-123")
-            const ioPositions = BaseMachine.getIOPositionsForDirection(machineId, this.direction);
+            const machineId = this.id;
+            const ioPositions = this.constructor.getIOPositionsForDirection(machineId, this.direction);
             if (ioPositions && ioPositions.outputPos) {
                 outputPos = ioPositions.outputPos;
             }
