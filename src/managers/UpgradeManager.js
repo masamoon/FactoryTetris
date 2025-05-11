@@ -6,6 +6,8 @@ export class UpgradeManager {
         // e.g., { 'processor_efficiency': 1, 'resource_bounty': 2 }
         this.currentUpgrades = {};
         this.upgradesDelivered = 0;
+        // Track procedural upgrades (one-off, non-tiered)
+        this.activeProceduralUpgrades = new Set();
     }
 
     // --- Getters for current modifiers ---
@@ -43,14 +45,32 @@ export class UpgradeManager {
     // --- Upgrade Application Logic ---
 
     applyUpgrade(upgradeType) {
-        const currentLevel = this.currentUpgrades[upgradeType] || 0;
-        const maxLevel = upgradesConfig[upgradeType]?.tiers.length || 0;
-
-        if (currentLevel < maxLevel) {
-            this.currentUpgrades[upgradeType] = currentLevel + 1;
-            console.log(`Applied upgrade: ${upgradeType}, New Level: ${this.currentUpgrades[upgradeType]}`);
+        const config = upgradesConfig[upgradeType];
+        if (!config) {
+            console.warn(`Unknown upgrade type: ${upgradeType}`);
+            return;
+        }
+        // If this is a tiered upgrade
+        if (config.tiers) {
+            const currentLevel = this.currentUpgrades[upgradeType] || 0;
+            const maxLevel = config.tiers.length || 0;
+            if (currentLevel < maxLevel) {
+                this.currentUpgrades[upgradeType] = currentLevel + 1;
+                console.log(`Applied upgrade: ${upgradeType}, New Level: ${this.currentUpgrades[upgradeType]}`);
+            } else {
+                console.warn(`Upgrade ${upgradeType} already at max level.`);
+            }
         } else {
-            console.warn(`Upgrade ${upgradeType} already at max level.`);
+            // Procedural upgrade (one-off)
+            if (!this.activeProceduralUpgrades.has(upgradeType)) {
+                this.activeProceduralUpgrades.add(upgradeType);
+                if (typeof config.effect === 'function') {
+                    config.effect(this); // Pass the manager or game context
+                }
+                console.log(`Applied procedural upgrade: ${upgradeType}`);
+            } else {
+                console.warn(`Procedural upgrade ${upgradeType} already active.`);
+            }
         }
     }
 
@@ -74,26 +94,44 @@ export class UpgradeManager {
         const availableUpgrades = [];
         const maxTierAvailable = this.getCurrentMaxTier();
 
+        // Tiered upgrades
         for (const type in upgradesConfig) {
             const config = upgradesConfig[type];
-            const currentLevel = this.currentUpgrades[type] || 0;
-            const nextLevel = currentLevel + 1;
-
-            // Check if the next tier exists and is within the currently allowed max tier
-            const nextTierInfo = config.tiers.find(t => t.level === nextLevel);
-            if (nextTierInfo && nextLevel <= maxTierAvailable) {
-                availableUpgrades.push({
-                    type: type,
-                    level: nextLevel,
-                    name: config.name,
-                    description: nextTierInfo.description, // Show description of the *next* level
-                    // icon: config.icon // Add icon later
-                });
+            if (config.tiers) {
+                const currentLevel = this.currentUpgrades[type] || 0;
+                const nextLevel = currentLevel + 1;
+                // Check if the next tier exists and is within the currently allowed max tier
+                const nextTierInfo = config.tiers.find(t => t.level === nextLevel);
+                if (nextTierInfo && nextLevel <= maxTierAvailable) {
+                    availableUpgrades.push({
+                        type: type,
+                        level: nextLevel,
+                        name: config.name,
+                        description: nextTierInfo.description, // Show description of the *next* level
+                        // icon: config.icon // Add icon later
+                    });
+                }
+            } else {
+                // Procedural upgrade (one-off)
+                if (!this.activeProceduralUpgrades.has(type)) {
+                    availableUpgrades.push({
+                        type: type,
+                        name: config.name,
+                        description: config.description,
+                        rarity: config.rarity || 'common',
+                        // icon: config.icon // Add icon later
+                    });
+                }
             }
         }
 
         // Shuffle and pick 'count' upgrades
         Phaser.Utils.Array.Shuffle(availableUpgrades);
         return availableUpgrades.slice(0, count);
+    }
+
+    // Check if a procedural upgrade is active
+    isProceduralUpgradeActive(upgradeType) {
+        return this.activeProceduralUpgrades.has(upgradeType);
     }
 } 

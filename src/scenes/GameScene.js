@@ -57,6 +57,9 @@ export default class GameScene extends Phaser.Scene {
         // TODO: Add logic to spawn UpgradeNode periodically
 
         this.isPausedForUpgrade = false; // Flag for upgrade pause state
+        this.inputMode = 'desktop'; // 'desktop' or 'touch'
+        this.isTouchPlacing = false;
+        this.touchPreviewGridPos = null;
     }
         
     preload() {
@@ -174,6 +177,20 @@ export default class GameScene extends Phaser.Scene {
              color: '#ffffff'
         });
 
+        // Add momentum value text on top of the bar
+        this.momentumValueText = this.add.text(
+            momentumBarX + momentumBarWidth / 2,
+            momentumBarY + momentumBarHeight / 2,
+            `${Math.round(this.currentMomentum)} / ${this.maxMomentum}`,
+            {
+                fontFamily: 'Arial',
+                fontSize: 16,
+                color: '#ffffff',
+                align: 'center'
+            }
+        ).setOrigin(0.5);
+        this.momentumValueText.setDepth(10);
+
         // Call the initial update for the bar
         this.updateMomentumUI();
 
@@ -192,6 +209,14 @@ export default class GameScene extends Phaser.Scene {
         this.events.on('triggerUpgradeSelection', this.showUpgradeScreen, this);
         // ADD EVENT LISTENER FOR UPGRADE COMPLETION
         this.events.on('upgradeSelected', this.resumeFromUpgrade, this); // Listen for signal from UpgradeScene
+
+        // Add a toggle button or key for switching input modes
+        this.input.keyboard.on('keydown-M', () => {
+            this.inputMode = this.inputMode === 'desktop' ? 'touch' : 'desktop';
+            this.showInputModeMessage();
+        });
+        // Optionally, add a UI button for mobile users
+        // ... existing code ...
     }
     
     update(time, delta) { // Add time, delta parameters
@@ -736,64 +761,95 @@ export default class GameScene extends Phaser.Scene {
         
         // Add mouse click handler for machine placement
         this.input.on('pointerdown', (pointer) => {
-            console.log('[POINTERDOWN] Click detected.');
-            if (pointer.leftButtonDown()) {
-                console.log('[POINTERDOWN] Left button down.');
-                const worldX = pointer.worldX;
-                const worldY = pointer.worldY;
+            if (this.inputMode === 'touch') {
+                // Touch mode: first tap shows preview, second tap confirms
+                const gridPos = this.grid.worldToGrid(pointer.worldX, pointer.worldY);
+                if (!this.isPlacingMachine) return;
+                if (!this.isTouchPlacing) {
+                    // First tap: show preview
+                    this.isTouchPlacing = true;
+                    this.touchPreviewGridPos = gridPos;
+                    this.updatePlacementPreviewAt(gridPos);
+                    // Show a floating 'Place' button
+                    this.showPlaceButton(gridPos);
+                } else {
+                    // Second tap: confirm placement
+                    this.tryPlaceMachineAt(this.touchPreviewGridPos);
+                    this.isTouchPlacing = false;
+                    this.touchPreviewGridPos = null;
+                    this.removePlaceButton();
+                }
+            } else {
+                // Desktop mode: normal placement
+                console.log('[POINTERDOWN] Click detected.');
+                if (pointer.leftButtonDown()) {
+                    console.log('[POINTERDOWN] Left button down.');
+                    const worldX = pointer.worldX;
+                    const worldY = pointer.worldY;
 
-                // Priority 1: Check for conveyor deletion if NOT in active machine placement mode
-                const isPlacingMachine = this.machineFactory && this.machineFactory.selectedMachineType;
-                console.log(`[POINTERDOWN] Is placing machine? ${isPlacingMachine}`);
+                    // Priority 1: Check for conveyor deletion if NOT in active machine placement mode
+                    const isPlacingMachine = this.machineFactory && this.machineFactory.selectedMachineType;
+                    console.log(`[POINTERDOWN] Is placing machine? ${isPlacingMachine}`);
 
-                if (!isPlacingMachine) {
-                    console.log('[POINTERDOWN] Not actively placing. Checking for conveyor deletion.');
-                    if (this.grid.isInBounds(worldX, worldY)) {
-                        console.log('[POINTERDOWN] Click is in grid bounds.');
-                        const gridPos = this.grid.worldToGrid(worldX, worldY);
-                        if (gridPos) {
-                            console.log(`[POINTERDOWN] Grid position: (${gridPos.x}, ${gridPos.y})`);
-                            const cell = this.grid.getCell(gridPos.x, gridPos.y);
-                            if (cell && cell.object) {
-                                console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
-                                if (cell.object instanceof ConveyorMachine) {
-                                    console.log('[POINTERDOWN] Conveyor detected! Calling deleteConveyorOnClick.');
-                                    this.deleteConveyorOnClick(cell.object);
-                                    return; // Deletion handled, stop further processing for this click
+                    if (!isPlacingMachine) {
+                        console.log('[POINTERDOWN] Not actively placing. Checking for conveyor deletion.');
+                        if (this.grid.isInBounds(worldX, worldY)) {
+                            console.log('[POINTERDOWN] Click is in grid bounds.');
+                            const gridPos = this.grid.worldToGrid(worldX, worldY);
+                            if (gridPos) {
+                                console.log(`[POINTERDOWN] Grid position: (${gridPos.x}, ${gridPos.y})`);
+                                const cell = this.grid.getCell(gridPos.x, gridPos.y);
+                                if (cell && cell.object) {
+                                    console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
+                                    if (cell.object instanceof ConveyorMachine) {
+                                        console.log('[POINTERDOWN] Conveyor detected! Calling deleteConveyorOnClick.');
+                                        this.deleteConveyorOnClick(cell.object);
+                                        return; // Deletion handled, stop further processing for this click
+                                    } else {
+                                        console.log('[POINTERDOWN] Cell object is not a ConveyorMachine.');
+                                    }
                                 } else {
-                                    console.log('[POINTERDOWN] Cell object is not a ConveyorMachine.');
+                                    console.log('[POINTERDOWN] Cell is empty or has no object.');
                                 }
                             } else {
-                                console.log('[POINTERDOWN] Cell is empty or has no object.');
+                                console.log('[POINTERDOWN] Could not convert to grid position.');
                             }
                         } else {
-                            console.log('[POINTERDOWN] Could not convert to grid position.');
+                            console.log('[POINTERDOWN] Click is out of grid bounds for deletion check.');
                         }
-                    } else {
-                        console.log('[POINTERDOWN] Click is out of grid bounds for deletion check.');
                     }
-                }
 
-                // Priority 2: Handle machine placement if a machine type is selected
-                if (isPlacingMachine) {
-                    console.log('[POINTERDOWN] Attempting machine placement.');
-                    // Ensure the click is within the factory grid for placement
-                    console.log(`[POINTERDOWN] About to check isInBounds for (${worldX.toFixed(1)}, ${worldY.toFixed(1)})`); // <<< LOG 1
-                    const isBoundsOk = this.grid.isInBounds(worldX, worldY);
-                    console.log(`[POINTERDOWN] isInBounds returned: ${isBoundsOk}`); // <<< LOG 2
+                    // Priority 2: Handle machine placement if a machine type is selected
+                    if (isPlacingMachine) {
+                        console.log('[POINTERDOWN] Attempting machine placement.');
+                        // Ensure the click is within the factory grid for placement
+                        console.log(`[POINTERDOWN] About to check isInBounds for (${worldX.toFixed(1)}, ${worldY.toFixed(1)})`); // <<< LOG 1
+                        const isBoundsOk = this.grid.isInBounds(worldX, worldY);
+                        console.log(`[POINTERDOWN] isInBounds returned: ${isBoundsOk}`); // <<< LOG 2
 
-                    if (isBoundsOk) { 
-                         console.log('[POINTERDOWN] Bounds OK. Calling handlePlaceMachine.'); // <<< LOG 3
+                        if (isBoundsOk) { 
+                             console.log('[POINTERDOWN] Bounds OK. Calling handlePlaceMachine.'); // <<< LOG 3
                 this.machineFactory.handlePlaceMachine(pointer);
-                    } else {
-                        console.log('[POINTERDOWN] Bounds NOT OK. Click is out of grid bounds.'); // <<< LOG 4 (This should NOT appear if isBoundsOk is true)
-                        // Optionally, you might want to clear selection if clicking outside
-                        // this.machineFactory.clearSelection();
+                        } else {
+                            console.log('[POINTERDOWN] Bounds NOT OK. Click is out of grid bounds.'); // <<< LOG 4 (This should NOT appear if isBoundsOk is true)
+                            // Optionally, you might want to clear selection if clicking outside
+                            // this.machineFactory.clearSelection();
+                        }
                     }
-                }
 
-            } else {
-                console.log('[POINTERDOWN] Not left button or button not down.');
+                } else {
+                    console.log('[POINTERDOWN] Not left button or button not down.');
+                }
+            }
+        });
+        this.input.on('pointermove', (pointer) => {
+            if (this.inputMode === 'touch' && this.isTouchPlacing) {
+                const gridPos = this.grid.worldToGrid(pointer.worldX, pointer.worldY);
+                if (gridPos && (!this.touchPreviewGridPos || gridPos.x !== this.touchPreviewGridPos.x || gridPos.y !== this.touchPreviewGridPos.y)) {
+                    this.touchPreviewGridPos = gridPos;
+                    this.updatePlacementPreviewAt(gridPos);
+                    this.movePlaceButton(gridPos);
+                }
             }
         });
     }
@@ -2783,6 +2839,11 @@ export default class GameScene extends Phaser.Scene {
 
         this.momentumBar.fillStyle(color, 1);
         this.momentumBar.fillRect(barX, barY, barWidth * percentage, barHeight);
+
+        // Update the momentum value text
+        if (this.momentumValueText) {
+            this.momentumValueText.setText(`${Math.round(this.currentMomentum)} / ${this.maxMomentum}`);
+        }
     }
 
     /** Spawns a Resource Node and a Delivery Node pair */
@@ -3090,4 +3151,60 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // -------------------------
+
+    showInputModeMessage() {
+        const msg = `Input mode: ${this.inputMode.toUpperCase()}`;
+        if (this.inputModeText) this.inputModeText.destroy();
+        this.inputModeText = this.add.text(10, 10, msg, { fontSize: 18, color: '#fff', backgroundColor: '#222' }).setScrollFactor(0).setDepth(2000);
+        this.time.delayedCall(1500, () => { if (this.inputModeText) this.inputModeText.destroy(); }, [], this);
+    }
+
+    updatePlacementPreviewAt(gridPos) {
+        if (!this.selectedMachineType) return;
+        // Create a dummy machine object for the preview at gridPos
+        const previewMachine = {
+            id: this.selectedMachineType.id,
+            type: this.selectedMachineType.id,
+            shape: this.selectedMachineType.shape,
+            direction: this.selectedMachineType.direction || 'right',
+            rotation: this.selectedMachineType.rotation || 0,
+            machineType: this.selectedMachineType,
+            gridX: gridPos.x,
+            gridY: gridPos.y
+        };
+        this.updatePlacementPreview(previewMachine);
+    }
+
+    showPlaceButton(gridPos) {
+        this.removePlaceButton();
+        const world = this.grid.gridToWorld(gridPos.x, gridPos.y);
+        this.placeBtn = this.add.text(world.x, world.y - 32, 'Place', { fontSize: 18, color: '#fff', backgroundColor: '#4a6fb5', padding: { x: 10, y: 4 } })
+            .setOrigin(0.5)
+            .setInteractive({ useHandCursor: true })
+            .setDepth(2000);
+        this.placeBtn.on('pointerdown', () => {
+            if (this.isTouchPlacing && this.touchPreviewGridPos) {
+                this.tryPlaceMachineAt(this.touchPreviewGridPos);
+                this.isTouchPlacing = false;
+                this.touchPreviewGridPos = null;
+                this.removePlaceButton();
+            }
+        });
+    }
+    movePlaceButton(gridPos) {
+        if (this.placeBtn) {
+            const world = this.grid.gridToWorld(gridPos.x, gridPos.y);
+            this.placeBtn.setPosition(world.x, world.y - 32);
+        }
+    }
+    removePlaceButton() {
+        if (this.placeBtn) {
+            this.placeBtn.destroy();
+            this.placeBtn = null;
+        }
+    }
+    tryPlaceMachineAt(gridPos) {
+        if (!this.selectedMachineType || !gridPos) return;
+        this.placeMachine(this.selectedMachineType, gridPos.x, gridPos.y, this.selectedMachineType.rotation || 0);
+    }
 } 

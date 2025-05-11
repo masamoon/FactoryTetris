@@ -23,6 +23,11 @@ export default class ConveyorMachine extends BaseMachine {
         // Array to hold items currently being transported visually
         // Each element: { visual: Phaser.GameObjects.GameObject, itemData: {type, amount}, progress: number (0-1) }
         this.itemsOnBelt = [];
+        this.itemVisualsGroup = this.scene.add.group();
+        
+        // Add extraction cooldown properties
+        this.extractCooldown = 1000; // 1 second cooldown between extractions
+        this.lastExtractTime = 0; // Last time we extracted a resource
     }
 
     /**
@@ -229,12 +234,23 @@ export default class ConveyorMachine extends BaseMachine {
      * NEW METHOD: Tries to extract a resource/package from an adjacent node.
      */
     tryExtractFromSource() {
-        // Check if input inventory is full (use a reasonable capacity)
-        const currentInputTotal = Object.values(this.inputInventory).reduce((a, b) => a + b, 0);
-        const inputCapacity = 5; // Example capacity
-        if (currentInputTotal >= inputCapacity) {
-            // console.log(`[CONVEYOR_EXTRACT] Input full at (${this.gridX}, ${this.gridY})`);
-            return; // Cannot accept more input
+        // Check cooldown timer
+        const now = this.scene.time.now;
+        if (now < this.lastExtractTime + this.extractCooldown) {
+            return; // Still on cooldown
+        }
+        
+        // Check if belt is at capacity
+        if (this.itemsOnBelt.length >= this.maxCapacity) {
+            // console.log(`[CONVEYOR_EXTRACT] Belt full at (${this.gridX}, ${this.gridY})`);
+            return; // Belt is at maximum capacity
+        }
+
+        // Check if the start of the belt is blocked
+        const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+        if (firstItemProgress < 0.1) { // Only extract if the first item has moved at least 10% along the belt
+            // console.log(`[CONVEYOR_EXTRACT] Start of belt blocked at (${this.gridX}, ${this.gridY})`);
+            return; // Start of belt is blocked
         }
 
         // Determine source cell coordinates based on direction (opposite of transfer target)
@@ -269,6 +285,9 @@ export default class ConveyorMachine extends BaseMachine {
 
         // If an item was successfully extracted
         if (extractedItem && extractedItem.type) {
+            // Set last extract time when successful
+            this.lastExtractTime = now;
+            
             console.log(`[CONVEYOR_EXTRACT] Extracted item \'${extractedItem.type}\' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`);
             
             // --- ADD ITEM VISUAL LOGIC ---

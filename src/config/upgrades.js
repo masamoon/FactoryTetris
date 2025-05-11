@@ -58,6 +58,25 @@ export const upgradesConfig = {
         ],
         // icon: 'node_longevity_icon'
     },
+    // --- Procedural/Random Upgrades ---
+    magnetized_belts: {
+        name: 'Magnetized Belts',
+        description: 'Conveyors pull in nearby loose resources.',
+        rarity: 'rare',
+        effect: (game) => { /* TODO: Implement effect */ },
+    },
+    quantum_splitter: {
+        name: 'Quantum Splitter',
+        description: 'Processors have a 10% chance to duplicate output.',
+        rarity: 'epic',
+        effect: (game) => { /* TODO: Implement effect */ },
+    },
+    overflow_buffer: {
+        name: 'Overflow Buffer',
+        description: 'Output inventory can temporarily exceed its cap.',
+        rarity: 'rare',
+        effect: (game) => { /* TODO: Implement effect */ },
+    },
 };
 
 export const UPGRADE_PACKAGE_TYPE = 'upgrade_package';

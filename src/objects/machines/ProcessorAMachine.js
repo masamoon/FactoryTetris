@@ -140,10 +140,10 @@ export default class ProcessorAMachine extends BaseMachine {
         this.container.add(machineLabel);
         
         // Add processor core visual element (relative to container 0,0)
-        this.processorCore = this.scene.add.circle(visualCenterX, visualCenterY, cellSize / 4, 0xff5500);
-        this.processorCore.setStrokeStyle(1, 0xffffff);
-        this.container.add(this.processorCore);
-        this.processorCore.setDepth(machineLabel.depth + 1); // Ensure core is above label background if any
+       // this.processorCore = this.scene.add.circle(visualCenterX, visualCenterY, cellSize / 4, 0xff5500);
+       // this.processorCore.setStrokeStyle(1, 0xffffff);
+       // this.container.add(this.processorCore);
+       // this.processorCore.setDepth(machineLabel.depth + 1); // Ensure core is above label background if any
 
         // Optional: Adjust container position if needed AFTER adding all elements
         // this.adjustContainerPosition(); // BaseMachine.adjustContainerPosition currently does nothing

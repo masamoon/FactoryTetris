@@ -1293,19 +1293,28 @@ export default class BaseMachine {
                         const targetY = targetMachine.gridY;
                         
                         // Check if conveyor points back towards the cell this machine outputted from
-                       /* if ((targetDirection === 'left'  && targetX === outputFaceX + 1 && targetY === outputFaceY) || // Target is right, points left
+                        if ((targetDirection === 'left'  && targetX === outputFaceX + 1 && targetY === outputFaceY) || // Target is right, points left
                             (targetDirection === 'right' && targetX === outputFaceX - 1 && targetY === outputFaceY) || // Target is left, points right
                             (targetDirection === 'up'    && targetY === outputFaceY + 1 && targetX === outputFaceX) || // Target is below, points up
                             (targetDirection === 'down'  && targetY === outputFaceY - 1 && targetX === outputFaceX)) { // Target is above, points down
                             
-                            // console.warn(`[${this.name}] Preventing transfer to Conveyor at (${targetX}, ${targetY}) because its direction (${targetDirection}) points back towards output face (${outputFaceX}, ${outputFaceY}).`);
+                            console.warn(`[${this.name}] Preventing transfer to Conveyor at (${targetX}, ${targetY}) because its direction (${targetDirection}) points back towards output face (${outputFaceX}, ${outputFaceY}).`);
                             allowTransfer = false;
-                        } */
+                        }
                     }
                     // *** END Directional check ***
 
                     // Attempt transfer only if allowed (basic acceptance AND directional check passed)
                     if (allowTransfer) {
+                        // Special handling for advanced processor if needed
+                        if (isAdvancedProcessor && isAdvancedResource) {
+                            // Give bonus or special effect when advanced resources go to advanced processor
+                            if (this.scene && this.scene.addScore) {
+                                // Award bonus points when feeding advanced resources to advanced processor
+                                this.scene.addScore(10);
+                            }
+                        }
+
                         // --- MODIFIED: Call acceptItem with item object --- 
                         const itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
                         console.log(`[${this.id}] transferResources: Attempting to call acceptItem on ${targetMachine.id} with`, itemToTransfer);
@@ -1736,12 +1745,7 @@ export default class BaseMachine {
         }
         
         // --- Enhanced Debug for Preview ---
-        console.log(`[Preview] ----- PREVIEW DEBUG -----`);
-        console.log(`[Preview] Direction: ${direction}`);
-        console.log(`[Preview] Shape: ${JSON.stringify(shape)}`);
-        console.log(`[Preview] Input: ${JSON.stringify(inputPos)}`);
-        console.log(`[Preview] Output: ${JSON.stringify(outputPos)}`);
-        console.log(`[Preview] ----- END PREVIEW DEBUG -----`);
+       
 
         // Draw the machine shape
         for (let r = 0; r < shape.length; r++) {
