@@ -29,8 +29,10 @@ export default class GameScene extends Phaser.Scene {
         // Momentum state
         this.currentMomentum = 0;
         this.maxMomentum = 100; // Example max value
-        this.momentumDecayRate = 1; // Example: 1 unit per second
+        this.baseMomentumDecayRate = 1; // Base decay rate per second
         this.momentumGainFactor = 0.5; // Example: Gain 0.5 momentum per score point
+        this.comboThreshold = 90; // Momentum threshold for combo bonus (90%)
+        this.comboMultiplier = 2; // 2x score multiplier when in combo mode
         
         // Initialize collections
         this.resourceNodes = [];
@@ -210,7 +212,10 @@ export default class GameScene extends Phaser.Scene {
         
         // --- Momentum Decay ---
         const deltaTimeSeconds = delta / 1000;
-        this.currentMomentum -= this.momentumDecayRate * deltaTimeSeconds;
+        // Calculate level-based decay rate (increases with level)
+        const levelFactor = 1 + (this.currentLevel - 1) * 0.1; // Increase by 10% per level
+        const effectiveDecayRate = this.baseMomentumDecayRate * levelFactor;
+        this.currentMomentum -= effectiveDecayRate * deltaTimeSeconds;
         this.currentMomentum = Math.max(0, this.currentMomentum); // Clamp at 0
 
         // --- Update Momentum UI ---
@@ -1342,7 +1347,16 @@ export default class GameScene extends Phaser.Scene {
     addScore(points) {
         if (this.gameOver) return; // Don't add score if game is over
 
-        this.score += points;
+        // Check for combo bonus (momentum > 90%)
+        let comboActive = this.currentMomentum >= this.comboThreshold;
+        let effectivePoints = points;
+        
+        if (comboActive) {
+            effectivePoints = points * this.comboMultiplier;
+            console.log(`COMBO x${this.comboMultiplier}! ${points} → ${effectivePoints} points`);
+        }
+
+        this.score += effectivePoints;
         this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
 
         // Increase Momentum
@@ -1353,6 +1367,34 @@ export default class GameScene extends Phaser.Scene {
         if (this.score >= this.currentLevelScoreThreshold) {
             console.log(`[LEVEL_DEBUG] Score ${this.score} reached threshold ${this.currentLevelScoreThreshold} - advancing level`);
             this.advanceLevel();
+        }
+        
+        // Show visual feedback for combo
+        if (comboActive) {
+            // Create a combo text effect
+            const comboText = this.add.text(
+                this.cameras.main.width * 0.5,
+                this.cameras.main.height * 0.35,
+                `COMBO x${this.comboMultiplier}!`,
+                {
+                    fontFamily: 'Arial Black',
+                    fontSize: 32,
+                    color: '#ffff00',
+                    stroke: '#000000',
+                    strokeThickness: 4,
+                    align: 'center'
+                }
+            ).setOrigin(0.5);
+            
+            // Add an effect to the combo text
+            this.tweens.add({
+                targets: comboText,
+                scale: { from: 0.5, to: 1.5 },
+                alpha: { from: 1, to: 0 },
+                duration: 800,
+                ease: 'Power2',
+                onComplete: () => comboText.destroy()
+            });
         }
     }
 
@@ -2833,12 +2875,31 @@ export default class GameScene extends Phaser.Scene {
             color = 0xff0000; // Red
         }
 
+        // Special effect for combo threshold
+        if (percentage >= this.comboThreshold / 100) {
+            // Use a pulsing gold color for combo mode
+            const pulseValue = 0.7 + 0.3 * Math.sin(this.time.now / 100);
+            color = Phaser.Display.Color.GetColor(
+                255, // Red
+                215 * pulseValue, // Pulsing gold
+                0    // Blue
+            );
+            
+            // Draw a golden glow around the bar
+            this.momentumBar.lineStyle(3, 0xffdd00, 0.7);
+            this.momentumBar.strokeRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
+        }
+
         this.momentumBar.fillStyle(color, 1);
         this.momentumBar.fillRect(barX, barY, barWidth * percentage, barHeight);
 
         // Update the momentum value text
         if (this.momentumValueText) {
-            this.momentumValueText.setText(`${Math.round(this.currentMomentum)} / ${this.maxMomentum}`);
+            let text = `${Math.round(this.currentMomentum)} / ${this.maxMomentum}`;
+            if (percentage >= this.comboThreshold / 100) {
+                text = `${text} COMBO!`;
+            }
+            this.momentumValueText.setText(text);
         }
     }
 
