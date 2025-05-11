@@ -17,17 +17,56 @@ export default class ConveyorMachine extends BaseMachine {
     constructor(scene, config) {
         super(scene, config);
         
-        // Initialize conveyor-specific properties
-        this.transportSpeed = 50; // Pixels per second
-        this.maxCapacity = 3; // Maximum number of items visually on the conveyor at once
-        // Array to hold items currently being transported visually
-        // Each element: { visual: Phaser.GameObjects.GameObject, itemData: {type, amount}, progress: number (0-1) }
+        // Items currently on this belt
         this.itemsOnBelt = [];
-        this.itemVisualsGroup = this.scene.add.group();
+        this.itemVisualsGroup = scene ? scene.add.group() : null;
+        this.baseMaxCapacity = 3; // Base maximum items allowed on the belt at once
+        this.maxCapacity = this.baseMaxCapacity;
+        this.transportSpeed = 40; // Speed in pixels per second
         
         // Add extraction cooldown properties
-        this.extractCooldown = 1000; // 1 second cooldown between extractions
+        this.baseExtractionCooldown = 1000; // 1 second base cooldown between extractions
+        this.extractCooldown = this.baseExtractionCooldown;
         this.lastExtractTime = 0; // Last time we extracted a resource
+        
+        // Apply upgrade modifiers if upgrade manager exists (with safety check)
+        try {
+            this.updateFromUpgrades();
+        } catch (error) {
+            console.error('[CONVEYOR] Error in constructor during updateFromUpgrades:', error);
+            // Ensure default values are set if update fails
+            this.maxCapacity = this.baseMaxCapacity;
+            this.extractCooldown = this.baseExtractionCooldown;
+        }
+    }
+
+    /**
+     * Updates properties based on current upgrade levels
+     * Called after construction and whenever upgrades change
+     */
+    updateFromUpgrades() {
+        // Add protection against null scene
+        if (!this.scene) {
+            console.warn('[CONVEYOR] updateFromUpgrades called with null scene reference');
+            // Set default values
+            this.maxCapacity = this.baseMaxCapacity || 3;
+            this.extractCooldown = this.baseExtractionCooldown || 1000;
+            // Belt speed is handled in updateItemsOnBelt
+            return;
+        }
+        
+        // Normal upgrade handling when scene is available
+        if (this.scene.upgradeManager) {
+            // Apply inventory capacity upgrade
+            const capacityMod = this.scene.upgradeManager.getInventoryCapacityModifier();
+            this.maxCapacity = Math.floor(this.baseMaxCapacity * capacityMod);
+            
+            // Apply extraction speed upgrade (lower cooldown = faster extraction)
+            const extractionMod = this.scene.upgradeManager.getExtractionSpeedModifier();
+            this.extractCooldown = Math.floor(this.baseExtractionCooldown * extractionMod);
+            
+            // Transport speed is already handled by getConveyorSpeedModifier
+        }
     }
 
     /**
@@ -202,16 +241,40 @@ export default class ConveyorMachine extends BaseMachine {
      * Override the update method to handle conveyor-specific logic
      */
     update(time, delta) {
-        // --- ADDED: Try to extract from source node --- 
-        this.tryExtractFromSource();
-
-        // Debug the current state (keep disabled unless needed)
-        /* if (this.scene.time.now % 3000 < 16) { 
-           console.log(`Conveyor at (${this.gridX}, ${this.gridY}): Input: ${JSON.stringify(this.inputInventory)}, Output: ${JSON.stringify(this.outputInventory)}`);
-        } */
+        // Safety check - if scene is null, we can't proceed
+        if (!this.scene) {
+            console.warn('[CONVEYOR] Update called with null scene at', this.gridX, this.gridY);
+            return;
+        }
         
+        // NEW: Check for resources in BaseMachine inventory and transfer to conveyor belt
+        this.checkBaseMachineInventory();
+        
+        // Call base update
+        super.update(time, delta);
+
+        // Periodically update from upgrades (every 2 seconds)
+        if (time % 2000 < 20) {
+            try {
+                this.updateFromUpgrades();
+            } catch (error) {
+                console.error('[CONVEYOR] Error during updateFromUpgrades in update:', error);
+            }
+        }
+        
+        // --- ADDED: Try to extract from source node --- 
+        try {
+            this.tryExtractFromSource();
+        } catch (error) {
+            console.error('[CONVEYOR] Error during tryExtractFromSource:', error);
+        }
+
         // Move items along the conveyor and attempt transfer
-        this.updateItemsOnBelt(delta);
+        try {
+            this.updateItemsOnBelt(delta);
+        } catch (error) {
+            console.error('[CONVEYOR] Error during updateItemsOnBelt:', error);
+        }
         
         // Ensure the base stays gray even if other code changes it
         if (this.container && this.container.list) {
@@ -231,25 +294,68 @@ export default class ConveyorMachine extends BaseMachine {
     }
     
     /**
+     * NEW METHOD: Checks if there are resources in the BaseMachine inventory and transfers them to the belt
+     */
+    checkBaseMachineInventory() {
+        // Get inputInventory from BaseMachine parent class
+        if (!this.inputInventory) return;
+        
+        // Check for any resources in the input inventory
+        let resourcesFound = false;
+        for (const resourceType in this.inputInventory) {
+            const count = this.inputInventory[resourceType];
+            if (count > 0) {
+                resourcesFound = true;
+                // Limit to transferring one resource per update to prevent belt overload
+                console.log(`[CONVEYOR] Found ${count} ${resourceType} in BaseMachine inventory at (${this.gridX}, ${this.gridY})`);
+                
+                // Create item data to add to belt
+                const itemData = { type: resourceType, amount: 1 };
+                
+                // Try to add it to the belt
+                const success = this.addItemVisual(itemData);
+                
+                if (success) {
+                    // Decrement the inventory count
+                    this.inputInventory[resourceType]--;
+                    console.log(`[CONVEYOR] Transferred 1 ${resourceType} from inventory to belt. Remaining: ${this.inputInventory[resourceType]}`);
+                    break; // Only transfer one item per update to prevent overwhelming the belt
+                }
+            }
+        }
+        
+        // Log if no resources were found or everything was transferred
+        if (!resourcesFound && this.debugInventoryCheck) {
+            this.debugInventoryCheck = false;
+            console.log(`[CONVEYOR] No resources in BaseMachine inventory at (${this.gridX}, ${this.gridY})`);
+        }
+    }
+
+    /**
      * NEW METHOD: Tries to extract a resource/package from an adjacent node.
      */
     tryExtractFromSource() {
-        // Check cooldown timer
+        // Additional safety check for scene
+        if (!this.scene || !this.grid) {
+            return; // Skip extraction if critical dependencies are missing
+        }
+        
+        // Check conveyor's own cooldown timer
         const now = this.scene.time.now;
         if (now < this.lastExtractTime + this.extractCooldown) {
-            return; // Still on cooldown
+            return; // Conveyor still on cooldown
         }
         
         // Check if belt is at capacity
         if (this.itemsOnBelt.length >= this.maxCapacity) {
-            // console.log(`[CONVEYOR_EXTRACT] Belt full at (${this.gridX}, ${this.gridY})`);
+            console.log(`[CONVEYOR_EXTRACT] Belt full at (${this.gridX}, ${this.gridY}): ${this.itemsOnBelt.length}/${this.maxCapacity}`);
             return; // Belt is at maximum capacity
         }
 
         // Check if the start of the belt is blocked
         const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
         if (firstItemProgress < 0.1) { // Only extract if the first item has moved at least 10% along the belt
-            // console.log(`[CONVEYOR_EXTRACT] Start of belt blocked at (${this.gridX}, ${this.gridY})`);
+            console.log(`[CONVEYOR_EXTRACT] Start of belt blocked at (${this.gridX}, ${this.gridY}), progress: ${firstItemProgress.toFixed(2)}`);
             return; // Start of belt is blocked
         }
 
@@ -273,13 +379,14 @@ export default class ConveyorMachine extends BaseMachine {
         const sourceCell = this.grid.getCell(sourceX, sourceY);
 
         if (!sourceCell || !sourceCell.object) {
+            // No log needed for empty cells - would be too noisy
             return; // No object in source cell
         }
         
         let extractedItem = null;
         // Check if it's a ResourceNode or UpgradeNode and try extracting
         if ((sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') && typeof sourceCell.object.extractResource === 'function') {
-            // console.log(`[CONVEYOR_EXTRACT] Found node type '${sourceCell.type}' at (${sourceX}, ${sourceY}). Attempting extraction.`);
+            console.log(`[CONVEYOR_EXTRACT] Attempting extraction from ${sourceCell.type} at (${sourceX}, ${sourceY})`);
             extractedItem = sourceCell.object.extractResource(); 
         }
 
@@ -295,50 +402,84 @@ export default class ConveyorMachine extends BaseMachine {
                 // Check if the first item on the belt (if any) is near the start
                 // Prevent stacking visuals right at the beginning
                 const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+                console.log(`[CONVEYOR_EXTRACT] First item progress check: ${firstItemProgress.toFixed(2)} (needs > 0.1)`);
+                
                 if (firstItemProgress > 0.1) { // Only add if start is clear (10% progress)
+                    console.log(`[CONVEYOR_EXTRACT] Adding visual for ${extractedItem.type} on conveyor at (${this.gridX}, ${this.gridY})`);
                     this.addItemVisual(extractedItem); 
+                    console.log(`[CONVEYOR_EXTRACT] Current belt items: ${this.itemsOnBelt.length}`);
                 } else {
-                    console.log(`[CONVEYOR_EXTRACT] Start of belt blocked at (${this.gridX}, ${this.gridY}), cannot add visual.`);
+                    console.log(`[CONVEYOR_EXTRACT] Start of belt blocked at (${this.gridX}, ${this.gridY}), progress ${firstItemProgress.toFixed(2)} < 0.1`);
                 }
             } else {
                  console.log(`[CONVEYOR_EXTRACT] Belt full at (${this.gridX}, ${this.gridY}), cannot add visual.`);
             }
             // --- END ITEM VISUAL LOGIC ---
-            
-            // For conveyors, items are now directly visualized and tracked in itemsOnBelt
-        } /* else if (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') {
-             console.log(`[CONVEYOR_EXTRACT] Node at (${sourceX}, ${sourceY}) exists but extractResource returned null (likely depleted).`);
-        } */
+        } else if (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') {
+            // Only log this occasionally to avoid spam
+            if (now % 3000 < 16) {
+                console.log(`[CONVEYOR_EXTRACT] Node at (${sourceX}, ${sourceY}) returned no item during extraction attempt`);
+            }
+        }
     }
     
     /**
      * Adds a visual representation of an item to the belt.
      * @param {object} itemData - The item data {type, amount}
+     * @returns {boolean} True if the item was successfully added, false otherwise
      */
     addItemVisual(itemData) {
-        // --- ADDED Safety Check ---
-        if (!this.container || !this.grid || !this.itemVisualsGroup) {
-            console.error(`[CONVEYOR] Cannot add item visual at (${this.gridX}, ${this.gridY}): Container, grid, or group missing.`);
-            return; 
+        try {
+            // --- ADDED Safety Check ---
+            if (!this.container || !this.grid || !this.itemVisualsGroup) {
+                console.error(`[CONVEYOR] Cannot add item visual at (${this.gridX}, ${this.gridY}): Container, grid, or group missing.`);
+                return false; 
+            }
+            // --- END Safety Check ---
+    
+            // Additional safety check for item data
+            if (!itemData || !itemData.type) {
+                console.error(`[CONVEYOR] Cannot add item visual: Invalid item data`, itemData);
+                return false;
+            }
+            
+            // Check belt capacity
+            if (this.itemsOnBelt.length >= this.maxCapacity) {
+                console.log(`[CONVEYOR] Cannot add visual: Belt full (${this.itemsOnBelt.length}/${this.maxCapacity})`);
+                return false;
+            }
+            
+            // Check start of belt clearance
+            const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+            if (firstItemProgress < 0.1) {
+                console.log(`[CONVEYOR] Cannot add visual: Start of belt blocked (progress: ${firstItemProgress.toFixed(2)})`);
+                return false;
+            }
+    
+            const visual = this.createItemVisual(itemData.type);
+            if (!visual) {
+                console.error(`[CONVEYOR] Could not create visual for item type: ${itemData.type}`);
+                return false; // Could not create visual
+            }
+    
+            const startPos = this.getItemPosition(0); // Position at progress 0
+            visual.setPosition(startPos.x, startPos.y);
+            
+            // Add visual to the container for rendering AND to the group for management
+            this.container.add(visual); 
+            this.itemVisualsGroup.add(visual); 
+    
+            this.itemsOnBelt.unshift({ // Add to the beginning of the array (items move index 0 -> end)
+                visual: visual,
+                itemData: itemData,
+                progress: 0
+            });
+            console.log(`[CONVEYOR] Added visual for ${itemData.type} to belt (${this.gridX}, ${this.gridY}). Total items: ${this.itemsOnBelt.length}`);
+            return true; // Successfully added
+        } catch (error) {
+            console.error(`[CONVEYOR] Error adding item visual:`, error);
+            return false;
         }
-        // --- END Safety Check ---
-
-        const visual = this.createItemVisual(itemData.type);
-        if (!visual) return; // Could not create visual
-
-        const startPos = this.getItemPosition(0); // Position at progress 0
-        visual.setPosition(startPos.x, startPos.y);
-        
-        // Add visual to the container for rendering AND to the group for management
-        this.container.add(visual); 
-        this.itemVisualsGroup.add(visual); 
-
-        this.itemsOnBelt.unshift({ // Add to the beginning of the array (items move index 0 -> end)
-            visual: visual,
-            itemData: itemData,
-            progress: 0
-        });
-        console.log(`[CONVEYOR] Added visual for ${itemData.type} to belt (${this.gridX}, ${this.gridY}). Total items: ${this.itemsOnBelt.length}`);
     }
     
     /**

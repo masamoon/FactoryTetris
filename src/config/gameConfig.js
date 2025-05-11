@@ -158,17 +158,9 @@ export const GAME_CONFIG = {
         'mega-resource': 300     // Corresponds to points in resourceTypes
     },
 
-    // Round configuration
-    roundScoreThresholds: [
-        1000,  // Score needed to complete Round 1
-        2500,  // Score needed to complete Round 2
-        5000,  // Score needed to complete Round 3
-        10000, // Score needed to complete Round 4
-        // Add more thresholds for subsequent rounds
-    ],
-    // If rounds exceed defined thresholds, use a formula?
-    // Example: lastThreshold + roundNumber * 100
-    scoreIncreaseFactorPerRound: 1.5, // Or multiply previous threshold by 1.5?
+    // Level system (renamed from round system)
+    levelScoreThresholds: [100, 250, 400, 600, 850, 1100, 1400, 1750, 2150, 2600], // Score needed for each level
+    scoreIncreaseFactorPerLevel: 1.3, // Multiply previous threshold by this for levels beyond defined thresholds
 
     // --- REMOVED CLEAR FACTORY COOLDOWN CONFIG ---
     initialClearCooldown: 60000, // 1 minute

@@ -2,17 +2,20 @@ import Phaser from 'phaser';
 
 export class UpgradeScene extends Phaser.Scene {
     constructor() {
-        super({ key: 'UpgradeScene' });
+        super('UpgradeScene');
         this.upgradeManager = null;
-        this.callingSceneKey = 'GameScene'; // Default, can be overridden if needed
+        this.callingSceneKey = null;
+        this.isLevelUp = false;
+        this.upgradeChoices = [];
+        this.selectedUpgrade = null;
     }
 
     init(data) {
         this.upgradeManager = data.upgradeManager;
-        // Optionally receive the calling scene key if multiple scenes could trigger this
-        if (data.callingSceneKey) {
-            this.callingSceneKey = data.callingSceneKey;
-        }
+        this.callingSceneKey = data.callingSceneKey || 'GameScene';
+        this.isLevelUp = data.isLevelUp || false;
+        this.upgradeChoices = [];
+        this.selectedUpgrade = null;
     }
 
     create() {
@@ -22,14 +25,33 @@ export class UpgradeScene extends Phaser.Scene {
             return;
         }
 
-        // Dim the background
-        this.add.rectangle(0, 0, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.7)
-            .setOrigin(0, 0);
+        // Create a semi-transparent dark overlay
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+        
+        this.overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
+        
+        // Add title
+        let titleText = this.isLevelUp ? 
+            'LEVEL UP! Choose an Upgrade' : 
+            'Choose an Upgrade';
+            
+        this.title = this.add.text(width / 2, height * 0.15, titleText, {
+            fontFamily: 'Arial',
+            fontSize: 28,
+            color: '#ffffff',
+            align: 'center'
+        }).setOrigin(0.5);
 
-        // Get upgrade choices
-        const choices = this.upgradeManager.getUpgradeChoices(3);
+        // Get upgrade choices from manager
+        this.upgradeChoices = this.upgradeManager.getUpgradeChoices(3);
+        
+        // Create upgrade cards
+        this.createUpgradeCards();
+    }
 
-        if (choices.length === 0) {
+    createUpgradeCards() {
+        if (this.upgradeChoices.length === 0) {
             console.log("No available upgrades to choose from.");
             // Display a message and close?
             this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 - 50, 'No upgrades available!', {
@@ -39,18 +61,13 @@ export class UpgradeScene extends Phaser.Scene {
             return;
         }
 
-        // Title
-        this.add.text(this.cameras.main.width / 2, 100, 'Choose an Upgrade', {
-            fontSize: '32px', fill: '#ffd700', stroke: '#000000', strokeThickness: 4
-        }).setOrigin(0.5);
-
         // Display choices
         const buttonYStart = 200;
         const buttonYStep = 120;
         const buttonWidth = 400;
         const buttonHeight = 100;
 
-        choices.forEach((choice, index) => {
+        this.upgradeChoices.forEach((choice, index) => {
             const y = buttonYStart + index * buttonYStep;
             this.createUpgradeButton(this.cameras.main.width / 2, y, buttonWidth, buttonHeight, choice);
         });

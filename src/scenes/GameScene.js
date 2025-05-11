@@ -23,8 +23,8 @@ export default class GameScene extends Phaser.Scene {
         this.gameTime = 0; // in seconds
         this.gameOver = false;
         this.paused = false;
-        this.currentRound = 1; // Add current round tracking
-        this.currentRoundScoreThreshold = 0; // Add score threshold tracking
+        this.currentLevel = 1; // Changed from currentRound
+        this.currentLevelScoreThreshold = 0; // Changed from currentRoundScoreThreshold
         
         // Momentum state
         this.currentMomentum = 0;
@@ -36,25 +36,18 @@ export default class GameScene extends Phaser.Scene {
         this.resourceNodes = [];
         this.machines = [];
         this.deliveryNodes = []; // Add deliveryNodes array
-        this.upgradeNodes = []; // Use this instead of single tracker for consistency? Let's stick to single for now.
-        this.currentUpgradeNode = null; // Tracks the active upgrade node
-        this.upgradeNodeSpawnTimer = null; // Timer for spawning upgrade nodes
-
-        // --- REMOVED CLEAR FACTORY COOLDOWN STATE ---
-/*
-        this.lastClearTime = -Infinity; // Allow first use immediately
-        this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
-        this.clearButton = null;
-        this.clearStatusText = null;
-*/
+        
+        // NOTE: Upgrade nodes are no longer used - we now get upgrades when leveling up
+        // These properties can be removed in a future cleanup
+        this.upgradeNodes = [];
+        this.currentUpgradeNode = null;
+        this.upgradeNodeSpawnTimer = null;
 
         // Initialize Upgrade Manager
         this.upgradeManager = new UpgradeManager();
 
         // Example: Log initial modifier (remove later)
         console.log("Initial Processor Speed Mod:", this.upgradeManager.getProcessorSpeedModifier());
-
-        // TODO: Add logic to spawn UpgradeNode periodically
 
         this.isPausedForUpgrade = false; // Flag for upgrade pause state
         this.inputMode = 'desktop'; // 'desktop' or 'touch'
@@ -122,17 +115,6 @@ export default class GameScene extends Phaser.Scene {
         });
         //console.log(`[TIMER_DEBUG] nodeSpawnTimer created:`, this.nodeSpawnTimer ? `Exists, Delay: ${this.nodeSpawnTimer.delay}, Paused: ${this.nodeSpawnTimer.paused}` : 'FAILED TO CREATE');
         
-        // ADD UPGRADE NODE SPAWN TIMER
-        this.upgradeNodeSpawnTimer = this.time.addEvent({
-            delay: GAME_CONFIG.upgradeNodeSpawnDelay, 
-            callback: this.trySpawnUpgradeNode, // Restore original callback
-            // callback: () => { console.error("[TIMER_DEBUG] Minimal upgradeNodeSpawnTimer CALLBACK FIRED!"); }, // Remove test callback
-            callbackScope: this,
-            loop: true
-        });
-        // ---> ADD LOG HERE <---
-        console.log(`[TIMER_DEBUG] upgradeNodeSpawnTimer created:`, this.upgradeNodeSpawnTimer ? `Exists, Delay: ${this.upgradeNodeSpawnTimer.delay}, Paused: ${this.upgradeNodeSpawnTimer.paused}` : 'FAILED TO CREATE');
-        
         // Setup difficulty timer
         this.difficultyTimer = this.time.addEvent({
             delay: 30000, // 30 seconds
@@ -145,18 +127,16 @@ export default class GameScene extends Phaser.Scene {
         this.score = 0;
         this.gameTime = 0;
         this.gameOver = false;
-        this.currentRound = 1; // Start at round 1
-        this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound); // Get initial threshold
+        this.currentLevel = 1; // Start at level 1
+        this.currentLevelScoreThreshold = this.getScoreThresholdForLevel(this.currentLevel); // Get initial threshold
+        
+        // Log the initial threshold for debugging
+        console.log(`[LEVEL_DEBUG] Initial level ${this.currentLevel}, threshold: ${this.currentLevelScoreThreshold}`);
+        
         this.currentMomentum = this.maxMomentum / 2; // Start with half momentum
 
         // Play background music
         this.playBackgroundMusic();
-
-        // --- REMOVED CLEAR COOLDOWN INITIALIZATION ---
-/*
-        this.lastClearTime = -Infinity; // Allow first use
-        this.currentClearCooldown = GAME_CONFIG.initialClearCooldown;
-*/
 
         // Momentum UI
         this.momentumBarBg = this.add.graphics();
@@ -289,14 +269,14 @@ export default class GameScene extends Phaser.Scene {
         const height = this.cameras.main.height;
         
         // Score display (Adjust position slightly)
-        this.scoreText = this.add.text(width * 0.55, height * 0.72, `SCORE: 0 / ${this.currentRoundScoreThreshold}`, {
+        this.scoreText = this.add.text(width * 0.55, height * 0.72, `SCORE: 0 / ${this.currentLevelScoreThreshold}`, {
             fontFamily: 'Arial',
             fontSize: 20, // Slightly smaller
             color: '#ffffff'
         });
         
-        // Round Display
-        this.roundText = this.add.text(width * 0.55, height * 0.77, `ROUND: ${this.currentRound}`, {
+        // Level Display (Changed from Round Display)
+        this.levelText = this.add.text(width * 0.55, height * 0.77, `LEVEL: ${this.currentLevel}`, {
              fontFamily: 'Arial',
              fontSize: 20, // Slightly smaller
              color: '#ffffff'
@@ -319,6 +299,12 @@ export default class GameScene extends Phaser.Scene {
         // Pause button
         this.createButton(width * 0.9, height * 0.05, 'PAUSE', () => {
             this.togglePause();
+        });
+        
+        // Debug Level Up button (for testing)
+        this.createButton(width * 0.9, height * 0.1, 'DEBUG LVL UP', () => {
+            console.log("[DEBUG] Forcing level advancement");
+            this.advanceLevel();
         });
         
         // --- ADD CLEAR FACTORY UI HERE --- 
@@ -1200,9 +1186,9 @@ export default class GameScene extends Phaser.Scene {
             this.deliveryNodes = [];
         }
 
-        // Create initial resource nodes using the spawn method, which now handles rounds
+        // Create initial resource nodes using the spawn method, which now handles levels
         for (let i = 0; i < GAME_CONFIG.initialNodeCount; i++) {
-            this.spawnResourceNode(); // Will use this.currentRound (should be 1)
+            this.spawnResourceNode(); // Will use this.currentLevel (should be 1)
         }
 
         // Spawn one initial delivery node (no changes needed here for resource node scaling)
@@ -1272,7 +1258,7 @@ export default class GameScene extends Phaser.Scene {
                 gridY: emptySpot.y,
                 resourceType: resourceTypeIndex,
                 lifespan: GAME_CONFIG.nodeLifespan
-            }, this.currentRound, this.upgradeManager); // Pass this.upgradeManager here
+            }, this.currentLevel, this.upgradeManager); // Pass this.upgradeManager here
 
             this.resourceNodes.push(node);
             this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
@@ -1357,42 +1343,48 @@ export default class GameScene extends Phaser.Scene {
         if (this.gameOver) return; // Don't add score if game is over
 
         this.score += points;
-        this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
+        this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
 
         // Increase Momentum
         this.currentMomentum += points * this.momentumGainFactor;
         this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum, 0, this.maxMomentum);
 
-        // Update UI Texts
-        // this.updateMomentumUI(); // Update is called every frame anyway
-
-        // Check if round threshold is met
-        if (this.score >= this.currentRoundScoreThreshold) {
-            this.advanceRound();
+        // Check if level threshold is met
+        if (this.score >= this.currentLevelScoreThreshold) {
+            console.log(`[LEVEL_DEBUG] Score ${this.score} reached threshold ${this.currentLevelScoreThreshold} - advancing level`);
+            this.advanceLevel();
         }
     }
 
-    getScoreThresholdForRound(round) {
-        const thresholds = GAME_CONFIG.roundScoreThresholds;
-        // Round is 1-based, array is 0-based
-        if (round - 1 < thresholds.length) {
-            return thresholds[round - 1];
+    getScoreThresholdForLevel(level) {
+        // Access the thresholds from the game config
+        const thresholds = GAME_CONFIG.levelScoreThresholds || GAME_CONFIG.roundScoreThresholds; // Support both names
+        
+        // Log the thresholds loaded from config
+        console.log(`[LEVEL_DEBUG] Loaded score thresholds:`, thresholds);
+        
+        // Level is 1-based, array is 0-based
+        if (level - 1 < thresholds.length) {
+            const threshold = thresholds[level - 1];
+            console.log(`[LEVEL_DEBUG] Using defined threshold ${threshold} for level ${level}`);
+            return threshold;
         } else {
-            // Calculate threshold for rounds beyond the defined array
-            // Use the last defined threshold and multiply by the factor for each subsequent round
+            // Calculate threshold for levels beyond the defined array
+            // Use the last defined threshold and multiply by the factor for each subsequent level
             let threshold = thresholds[thresholds.length - 1];
-            const factor = GAME_CONFIG.scoreIncreaseFactorPerRound;
-            for (let i = thresholds.length; i < round; i++) {
+            const factor = GAME_CONFIG.scoreIncreaseFactorPerLevel || GAME_CONFIG.scoreIncreaseFactorPerRound;
+            for (let i = thresholds.length; i < level; i++) {
                 threshold = Math.floor(threshold * factor); // Use Math.floor to keep it integer
             }
+            console.log(`[LEVEL_DEBUG] Calculated threshold ${threshold} for level ${level}`);
             return threshold;
         }
     }
 
-    advanceRound() {
-        console.log(`Round ${this.currentRound} completed! Advancing to next round.`);
+    advanceLevel() {
+        console.log(`Level ${this.currentLevel} completed! Advancing to next level.`);
 
-        // Optional: Play a sound effect for round completion
+        // Optional: Play a sound effect for level completion
         this.playSound('round-complete');
 
         // --- REMOVED camera flash ***
@@ -1401,10 +1393,11 @@ export default class GameScene extends Phaser.Scene {
         // 1. Clear the factory grid (will now have animations)
         this.clearPlacedItems();
         
-        // 2. Increment round number
-        this.currentRound++;
+        // 2. Increment level number
+        this.currentLevel++;
         
         // 3. GROW THE GRID if configured to do so
+        /* GRID EXPANSION DISABLED
         if (GRID_CONFIG.growthPerRound > 0 && this.grid) {
             // Calculate new dimensions based on growth parameters
             const newWidth = Math.min(
@@ -1418,7 +1411,7 @@ export default class GameScene extends Phaser.Scene {
             
             // Only resize if dimensions will actually change
             if (newWidth > this.grid.width || newHeight > this.grid.height) {
-                console.log(`[GameScene.advanceRound] Growing grid for round ${this.currentRound}`);
+                console.log(`[GameScene.advanceLevel] Growing grid for level ${this.currentLevel}`);
                 this.grid.resize(newWidth, newHeight);
                 
                 // Add a visual effect to highlight the grid expansion
@@ -1447,28 +1440,34 @@ export default class GameScene extends Phaser.Scene {
                 });
             }
         }
+        */
 
-        // 4. Spawn initial nodes for the new round
-        console.log(`[RoundStart] Spawning initial nodes for round ${this.currentRound}...`);
-        const nodesToSpawn = GAME_CONFIG.initialNodeCount || 3; // Default to 3 if not set
-        for (let i = 0; i < nodesToSpawn; i++) {
-            this.spawnNode(); // Spawn one pair (Resource + Delivery)
+        // 3. Spawn initial nodes for the new level - MODIFIED: Immediately spawn nodes
+        console.log(`[LevelStart] Immediately spawning initial nodes for level ${this.currentLevel}...`);
+        // Spawn 2 resource nodes
+        for (let i = 0; i < 2; i++) {
+            this.spawnResourceNode();
         }
+        // Spawn 1 delivery node
+        this.spawnDeliveryNode();
+
+        // 4. Show upgrade screen when leveling up
+        this.showUpgradeScreen();
 
         // 5. Reset score
         this.score = 0;
 
-        // 6. Reset score threshold for the new round
-        this.currentRoundScoreThreshold = this.getScoreThresholdForRound(this.currentRound);
+        // 6. Reset score threshold for the new level
+        this.currentLevelScoreThreshold = this.getScoreThresholdForLevel(this.currentLevel);
 
         // 7. Update UI displays
-        this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
-        this.roundText.setText(`ROUND: ${this.currentRound}`);
+        this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
+        this.levelText.setText(`LEVEL: ${this.currentLevel}`);
 
-        // 8. Update difficulty explicitly upon advancing round (affects node SPAWN rate)
+        // 8. Update difficulty explicitly upon advancing level (affects node SPAWN rate)
         this.updateDifficulty();
 
-        console.log(`Advanced to round ${this.currentRound}. New score threshold: ${this.currentRoundScoreThreshold}. Grid size: ${this.grid.width}x${this.grid.height}`);
+        console.log(`Advanced to level ${this.currentLevel}. New score threshold: ${this.currentLevelScoreThreshold}. Grid size: ${this.grid.width}x${this.grid.height}`);
     }
     
     togglePause() {
@@ -1546,18 +1545,15 @@ export default class GameScene extends Phaser.Scene {
         // Stop all timers
         this.gameTimer.remove();
         if (this.nodeSpawnTimer) {
-            console.log("[TIMER_DEBUG] Removing nodeSpawnTimer in endGame."); // Log removal
+            console.log("[TIMER_DEBUG] Removing nodeSpawnTimer in endGame.");
             this.nodeSpawnTimer.remove();
-        }
-        if (this.upgradeNodeSpawnTimer) {
-             console.log("[TIMER_DEBUG] Removing upgradeNodeSpawnTimer in endGame.");
-             this.upgradeNodeSpawnTimer.remove(); 
         }
         
         // Transition to game over scene
         this.scene.start('GameOverScene', {
             score: this.score,
-            timeSurvived: this.gameTime
+            timeSurvived: this.gameTime,
+            finalLevel: this.currentLevel // Add final level reached
         });
     }
     
@@ -2699,7 +2695,7 @@ export default class GameScene extends Phaser.Scene {
              console.log(`Adding ${salvagedScore} from salvaged resources.`);
              // --- MODIFIED: Add score directly, bypassing advanceRound check ---
              this.score += salvagedScore;
-             this.scoreText.setText(`SCORE: ${this.score} / ${this.currentRoundScoreThreshold}`);
+             this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
              // We explicitly DO NOT call this.addScore() here to prevent recursion.
              // --- END MODIFICATION ---
         }
@@ -2905,7 +2901,7 @@ export default class GameScene extends Phaser.Scene {
                 gridY: emptySpot1.y,
                 resourceType: resourceTypeIndex,
                 lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier() 
-            }, this.currentRound, this.upgradeManager); // Pass this.upgradeManager here
+            }, this.currentLevel, this.upgradeManager); // Pass this.upgradeManager here
             this.resourceNodes.push(resourceNode);
             this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
             console.log(`[SPAWN_DEBUG] Successfully created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`);
@@ -3035,33 +3031,32 @@ export default class GameScene extends Phaser.Scene {
     showUpgradeScreen() {
         if (this.isPausedForUpgrade) return; // Prevent multiple launches
 
-        console.log("Showing Upgrade Screen...");
+        console.log("Showing Upgrade Screen for level up...");
         this.isPausedForUpgrade = true;
 
         // Pause timers
         this.gameTimer.paused = true;
         if (this.nodeSpawnTimer) {
             this.nodeSpawnTimer.paused = true;
-            //console.log("[TIMER_DEBUG] Paused nodeSpawnTimer for upgrade screen."); // Log pause
         }
-        if (this.upgradeNodeSpawnTimer) {
-            this.upgradeNodeSpawnTimer.paused = true;
-            //console.log("[TIMER_DEBUG] Paused upgradeNodeSpawnTimer for upgrade screen."); 
-        }
-
-        // Pause physics if necessary (optional, depending on your game)
-        // this.physics.pause(); 
 
         // Launch Upgrade Scene, passing the manager
         this.scene.launch('UpgradeScene', { 
             upgradeManager: this.upgradeManager,
-            callingSceneKey: this.scene.key // Pass own key
+            callingSceneKey: this.scene.key, // Pass own key
+            isLevelUp: true // Indicate this is from a level up
         });
     }
 
     resumeFromUpgrade() {
         console.log("[GameScene] Resuming from upgrade selection.");
         this.isPausedForUpgrade = false;
+        
+        // Increment the upgrade counter in UpgradeManager
+        if (this.upgradeManager) {
+            this.upgradeManager.incrementUpgradesDelivered();
+        }
+        
         // Potentially re-enable game systems if they were specifically paused beyond the scene's pause
         this.physics.world.resume();
         this.time.paused = false;
@@ -3069,11 +3064,6 @@ export default class GameScene extends Phaser.Scene {
         // Resume timers explicitly if they were paused
         if (this.nodeSpawnTimer && this.nodeSpawnTimer.paused) {
             this.nodeSpawnTimer.paused = false;
-            //console.log("[TIMER_DEBUG] Node Spawn Timer Resumed in resumeFromUpgrade");
-        }
-        if (this.upgradeNodeSpawnTimer && this.upgradeNodeSpawnTimer.paused) {
-            this.upgradeNodeSpawnTimer.paused = false;
-            //console.log("[TIMER_DEBUG] Upgrade Node Spawn Timer Resumed in resumeFromUpgrade");
         }
         if (this.gameTimer && this.gameTimer.paused) {
             this.gameTimer.paused = false;
@@ -3206,5 +3196,54 @@ export default class GameScene extends Phaser.Scene {
     tryPlaceMachineAt(gridPos) {
         if (!this.selectedMachineType || !gridPos) return;
         this.placeMachine(this.selectedMachineType, gridPos.x, gridPos.y, this.selectedMachineType.rotation || 0);
+    }
+
+    /**
+     * Spawns a single delivery node at an empty cell
+     * @returns {DeliveryNode|null} The spawned delivery node or null if unsuccessful
+     */
+    spawnDeliveryNode() {
+        try {
+            if (this.gameOver || this.paused) return null;
+
+            // Ensure deliveryNodes is initialized
+            if (!this.deliveryNodes) {
+                this.deliveryNodes = [];
+            }
+
+            // Find an empty spot on the factory grid
+            const emptySpot = this.grid.findEmptyCell();
+            if (!emptySpot) {
+                console.warn('[GAME] No empty cells found for delivery node placement');
+                return null;
+            }
+
+            // Convert grid position to world coordinates
+            const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
+            if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
+                console.error('[GAME] Invalid world position for delivery node:', worldPos);
+                return null;
+            }
+
+            // Create a new delivery node
+            const deliveryNode = new DeliveryNode(this, {
+                x: worldPos.x,
+                y: worldPos.y,
+                gridX: emptySpot.x,
+                gridY: emptySpot.y,
+                lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier(),
+                pointsPerResource: 10
+            });
+
+            this.deliveryNodes.push(deliveryNode);
+            this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
+
+            console.log(`[GAME] Created delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
+            return deliveryNode;
+
+        } catch (error) {
+            console.error('[GAME] Error creating delivery node:', error);
+            return null;
+        }
     }
 } 

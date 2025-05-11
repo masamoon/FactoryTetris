@@ -42,6 +42,14 @@ export class UpgradeManager {
         return this.getModifier(UPGRADE_TYPES.NODE_LONGEVITY);
     }
 
+    getInventoryCapacityModifier() {
+        return this.getModifier(UPGRADE_TYPES.INVENTORY_CAPACITY);
+    }
+
+    getExtractionSpeedModifier() {
+        return this.getModifier(UPGRADE_TYPES.EXTRACTION_SPEED);
+    }
+
     // --- Upgrade Application Logic ---
 
     applyUpgrade(upgradeType) {

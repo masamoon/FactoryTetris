@@ -4,6 +4,8 @@ export const UPGRADE_TYPES = {
     PROCESSOR_EFFICIENCY: 'processor_efficiency',
     CONVEYOR_SPEED: 'conveyor_speed',
     NODE_LONGEVITY: 'node_longevity',
+    INVENTORY_CAPACITY: 'inventory_capacity',
+    EXTRACTION_SPEED: 'extraction_speed',
 };
 
 export const upgradesConfig = {
@@ -57,6 +59,26 @@ export const upgradesConfig = {
             { level: 3, modifier: 2.00, description: '+100% Node Lifespan' },
         ],
         // icon: 'node_longevity_icon'
+    },
+    [UPGRADE_TYPES.INVENTORY_CAPACITY]: {
+        name: 'Inventory Expansion',
+        description: 'Increases capacity of all machines.',
+        tiers: [
+            { level: 1, modifier: 1.25, description: '+25% Inventory Capacity' },
+            { level: 2, modifier: 1.50, description: '+50% Inventory Capacity' },
+            { level: 3, modifier: 2.00, description: '+100% Inventory Capacity' },
+        ],
+        // icon: 'inventory_capacity_icon'
+    },
+    [UPGRADE_TYPES.EXTRACTION_SPEED]: {
+        name: 'Rapid Extraction',
+        description: 'Resource extraction is faster.',
+        tiers: [
+            { level: 1, modifier: 0.75, description: '25% Faster Extraction' },
+            { level: 2, modifier: 0.50, description: '50% Faster Extraction' },
+            { level: 3, modifier: 0.33, description: '67% Faster Extraction' },
+        ],
+        // icon: 'extraction_speed_icon'
     },
     // --- Procedural/Random Upgrades ---
     magnetized_belts: {

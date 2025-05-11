@@ -40,8 +40,8 @@ export default class ResourceNode {
         const regenModifier = this.upgradeManager.getResourceRegenModifier();
         const generationDelay = baseDelay / regenModifier; 
         
-        // Add cooldown for pushing resources
-        this.pushCooldown = 500; // ms - Push resources every 0.5 seconds if possible
+        // Add cooldown for pushing/extracting resources
+        this.pushCooldown = 800; // Increased to 800ms - push/extract resources no more than every 0.8 seconds
         this.lastPushTime = 0;
         
         //console.log(`Created resource node at (${this.gridX}, ${this.gridY}) for round ${this.round} with ${this.resources}/${this.maxResources} ${this.resourceType.id}, gen delay: ${generationDelay}ms`);
@@ -196,24 +196,22 @@ export default class ResourceNode {
     pushResourcesToConveyors() {
         // Check cooldown
         const now = this.scene.time.now;
-        if (now < this.lastPushTime + this.pushCooldown) {
+        if (now - this.lastPushTime < this.pushCooldown) {
             return; // Still on cooldown
         }
 
-        // Check if we have resources to push
+        // If no resources available, don't attempt to push
         if (this.resources <= 0) {
-            return; // No resources
+            return;
         }
 
+        // Offset positions for adjacent cells
         const adjacentOffsets = [
-            { dx: 1, dy: 0, requiredDirection: 'right' }, // Right
-            { dx: -1, dy: 0, requiredDirection: 'left' }, // Left
-            { dx: 0, dy: 1, requiredDirection: 'down' },  // Down
-            { dx: 0, dy: -1, requiredDirection: 'up' }    // Up
+            { dx: 1, dy: 0 },  // Right
+            { dx: 0, dy: 1 },  // Down
+            { dx: -1, dy: 0 }, // Left
+            { dx: 0, dy: -1 }  // Up
         ];
-
-        // Shuffle offsets to push randomly if multiple conveyors are available
-        Phaser.Utils.Array.Shuffle(adjacentOffsets);
 
         for (const offset of adjacentOffsets) {
             const targetX = this.gridX + offset.dx;
@@ -336,6 +334,13 @@ export default class ResourceNode {
      * @returns {object|null} An object { type: string, amount: number } or null if no resources.
      */
     extractResource() {
+        // Apply the same cooldown as in pushResourcesToConveyors
+        const now = this.scene.time.now;
+        if (now - this.lastPushTime < this.pushCooldown) {
+            //console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) extraction attempt on cooldown`);
+            return null; // Still on cooldown
+        }
+
         if (this.resources > 0) {
             const bountyModifier = this.upgradeManager.getResourceBountyModifier();
             const amountExtracted = Math.max(1, Math.floor(1 * bountyModifier)); // Ensure at least 1 is extracted
@@ -343,6 +348,9 @@ export default class ResourceNode {
             // Decrement resources, but don't go below zero
             const resourcesConsumed = 1; // Always consumes 1 base unit per extraction attempt
             this.resources = Math.max(0, this.resources - resourcesConsumed); 
+            
+            // Update cooldown timestamp
+            this.lastPushTime = now;
             
             console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) extracted ${amountExtracted} ${this.resourceType.id}, remaining: ${this.resources}`);
 
