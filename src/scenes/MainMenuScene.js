@@ -25,7 +25,7 @@ export default class MainMenuScene extends Phaser.Scene {
         console.log('[MainMenuScene] Background set to dark grey');
 
         // Title text with a more thematic font
-        this.add.text(centerX, centerY - 100, 'FACTORY TETRIS', { // Positioned higher
+        this.add.text(centerX, centerY - 100, 'GRIDFORGE', { // Positioned higher
             fontFamily: '"Courier New", Courier, monospace', // Monospace font
             fontSize: '48px', // Larger size
             color: '#ffffff',
