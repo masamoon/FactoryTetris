@@ -69,7 +69,7 @@ export default class AdvancedProcessor1Machine extends BaseMachine {
         
         // Add processor-specific visuals using the standardized method
         if (this.container) {
-            this.createProcessorVisuals("MGA1", {
+            this.createProcessorVisuals("AP1", {
                 coreColor: 0xaa44aa, // Purple color
                 coreShape: 'square',
                 fontSize: 10
@@ -118,16 +118,16 @@ export default class AdvancedProcessor1Machine extends BaseMachine {
                 outputPos = { x: 2, y: 0 }; // Top-right corner
                 break;
             case 'down':  // 90° clockwise - rotated to [[1,1], [0,1], [1,1]]
-                inputPos = { x: 0, y: 0 };  // Top-left corner
-                outputPos = { x: 0, y: 2 }; // Bottom-left corner
+                inputPos = { x: 1, y: 0 };  // Top-left corner
+                outputPos = { x: 1, y: 2 }; // Bottom-left corner
                 break;
             case 'left':  // 180° - rotated to [[1,1,1], [1,0,1]]
                 inputPos = { x: 2, y: 1 };  // Bottom-right corner
                 outputPos = { x: 0, y: 1 }; // Bottom-left corner
                 break;
             case 'up':    // 270° clockwise - rotated to [[1,1], [1,0], [1,1]]
-                inputPos = { x: 1, y: 2 };  // Bottom-right corner
-                outputPos = { x: 1, y: 0 }; // Top-right corner
+                inputPos = { x: 0, y: 2 };  // Bottom-right corner
+                outputPos = { x: 0, y: 0 }; // Top-right corner
                 break;
             default:
                 inputPos = { x: 0, y: 0 };  // Default top-left

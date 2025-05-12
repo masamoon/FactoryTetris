@@ -93,7 +93,7 @@ export default class AdvancedProcessor2Machine extends BaseMachine {
         return BaseMachine.getStandardPreviewSprite(scene, x, y, {
             machineId: 'advanced-processor-2',
             shape: shape,
-            label: "MGA2",
+            label: "AP2",
             inputPos: ioPositions.inputPos,
             outputPos: ioPositions.outputPos,
             direction: direction
@@ -122,8 +122,8 @@ export default class AdvancedProcessor2Machine extends BaseMachine {
                 outputPos = { x: 1, y: 3 }; // Bottom-right corner
                 break;
             case 'left':  // 180° - rotated to [[0,0,0,1], [1,1,1,1]]
-                inputPos = { x: 3, y: 1 };  // Bottom-right corner
-                outputPos = { x: 0, y: 0 }; // Top-left corner
+                inputPos = { x: 3, y: 0 };  // Bottom-right corner
+                outputPos = { x: 0, y: 1 }; // Top-left corner
                 break;
             case 'up':    // 270° clockwise - rotated to [[0,1], [0,1], [0,1], [1,1]]
                 inputPos = { x: 1, y: 3 };  // Bottom-right corner

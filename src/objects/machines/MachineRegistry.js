@@ -170,6 +170,7 @@ export default class MachineRegistry {
                 inputTypes: tempMachine.inputTypes || [],
                 outputTypes: tempMachine.outputTypes || [],
                 processingTime: tempMachine.processingTime,
+                requiredInputs: tempMachine.requiredInputs || {},
                 direction: tempMachine.direction || 'right'
             };
         } catch (error) {
@@ -181,6 +182,7 @@ export default class MachineRegistry {
                 shape: [[1]], // Default 1x1 shape
                 inputTypes: [],
                 outputTypes: [],
+                requiredInputs: {},
                 direction: 'right'
             };
         }

@@ -11,6 +11,8 @@ const MACHINE_COLORS = {
     'processor-d': 0x76b7b2, // teal
     'processor-e': 0x59a14f, // green
     'advanced-processor': 0xedc948, // yellow
+    'advanced-processor-1': 0xaa44aa, // purple
+    'advanced-processor-2': 0xedc948, // yellow
     'conveyor': 0x888888, // gray
     // Add more as needed
 };

@@ -806,7 +806,7 @@ export default class MachineFactory {
     }
 
     /**
-     * Show a tooltip with machine information
+     * Show a tooltip for a machine type
      * @param {Object} machineType - The machine type to show info for
      * @param {number} x - X position for the tooltip
      * @param {number} y - Y position for the tooltip
@@ -815,28 +815,29 @@ export default class MachineFactory {
         // Remove any existing tooltip
         this.hideMachineTooltip();
         
-        // Create tooltip container
+        // Create tooltip container - add directly to scene instead of container
         this.tooltip = this.scene.add.container(x, y);
-        this.container.add(this.tooltip);
+        // Set a high depth to ensure the tooltip is on top of everything
+        this.tooltip.setDepth(1000);
         
-        // Create tooltip background
+        // Create tooltip background (make it slightly taller for better spacing)
         const padding = 10;
         const tooltipBg = this.scene.add.rectangle(
             0, 
             0, 
             200, 
-            80, 
+            100, // Increase initial height for better spacing
             0x000000, 
             0.8
         );
         tooltipBg.setStrokeStyle(1, 0xffffff, 0.5);
         this.tooltip.add(tooltipBg);
         
-        // Add machine name
+        // Add machine name (moved up for more spacing)
         const nameText = this.scene.add.text(
             0, 
-            -25, 
-            machineType.name, 
+            -35, // Moved up to create more space
+            machineType.name || "Unknown Machine", 
             {
                 fontFamily: 'Arial',
                 fontSize: 14,
@@ -846,50 +847,66 @@ export default class MachineFactory {
         ).setOrigin(0.5);
         this.tooltip.add(nameText);
         
-        // Add machine description with safety check
-        const description = machineType && typeof machineType.description === 'string' 
-                          ? machineType.description 
-                          : 'No description available.';
-
-        const descText = this.scene.add.text(
+        // Format input/output information
+        let tooltipText = '';
+        
+        // Add inputs with quantities if available
+        if (machineType.requiredInputs && Object.keys(machineType.requiredInputs).length > 0) {
+            tooltipText += 'Inputs:\n';
+            for (const [type, amount] of Object.entries(machineType.requiredInputs)) {
+                tooltipText += `  • ${amount}× ${this.formatResourceName(type)}\n`;
+            }
+        } else if (machineType.inputTypes && machineType.inputTypes.length > 0) {
+            tooltipText += 'Inputs:\n';
+            machineType.inputTypes.forEach(type => {
+                tooltipText += `  • ${this.formatResourceName(type)}\n`;
+            });
+        }
+        
+        // Add outputs
+        if (machineType.outputTypes && machineType.outputTypes.length > 0) {
+            tooltipText += 'Outputs:\n';
+            machineType.outputTypes.forEach(type => {
+                tooltipText += `  • ${this.formatResourceName(type)}\n`;
+            });
+        }
+        
+        // Add processing time if available
+        if (machineType.processingTime) {
+            tooltipText += `Processing time: ${machineType.processingTime/1000}s`;
+        }
+        
+        // Make sure we have at least some text in the tooltip
+        if (!tooltipText) {
+            tooltipText = "No input/output information available";
+        }
+        
+        // Create tooltip content text (moved down for more spacing)
+        const tooltipContent = this.scene.add.text(
             0, 
-            0, 
-            description, 
+            15, // Moved down to create more space between title and content
+            tooltipText, 
             {
                 fontFamily: 'Arial',
                 fontSize: 12,
-                color: '#cccccc',
-                align: 'center',
+                color: '#ffffff',
+                align: 'left',
                 wordWrap: { width: 180 }
             }
         ).setOrigin(0.5);
-        this.tooltip.add(descText);
+        this.tooltip.add(tooltipContent);
         
-        // Add input/output info
-        let ioText = '';
-        if (machineType.inputTypes && machineType.inputTypes.length > 0) {
-            ioText += 'In: ' + machineType.inputTypes.join(', ');
-        }
-        if (machineType.outputTypes && machineType.outputTypes.length > 0) {
-            if (ioText) ioText += '\n';
-            ioText += 'Out: ' + machineType.outputTypes.join(', ');
-        }
+        // Add a separator line between title and content
+        const separator = this.scene.add.graphics();
+        separator.lineStyle(1, 0x555555, 0.5);
+        separator.lineBetween(-80, -15, 80, -15);
+        this.tooltip.add(separator);
         
-        const ioInfoText = this.scene.add.text(
-            0, 
-            25, 
-            ioText, 
-            {
-                fontFamily: 'Arial',
-                fontSize: 10,
-                color: '#aaaaaa',
-                align: 'center'
-            }
-        ).setOrigin(0.5);
-        this.tooltip.add(ioInfoText);
+        // Adjust background height based on content with increased margin
+        tooltipBg.height = Math.max(100, 80 + tooltipContent.height);
         
-        // Adjust background height based on content
-        tooltipBg.height = Math.max(80, 50 + descText.height + ioInfoText.height);
+        // Log that we're creating a tooltip (for debugging)
+        console.log(`Creating tooltip for ${machineType.id} at (${x}, ${y}) with content: ${tooltipText}`);
         
         // Add a small animation
         this.tooltip.setScale(0.9);
@@ -900,6 +917,21 @@ export default class MachineFactory {
             duration: 200,
             ease: 'Back.easeOut'
         });
+    }
+    
+    /**
+     * Format resource name for display
+     * @param {string} resourceId - The resource ID to format
+     * @returns {string} Formatted resource name
+     */
+    formatResourceName(resourceId) {
+        if (!resourceId) return 'Unknown';
+        
+        // Split by hyphens and capitalize each word
+        return resourceId
+            .split('-')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
     }
 
     /**
