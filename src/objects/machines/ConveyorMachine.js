@@ -907,4 +907,55 @@ export default class ConveyorMachine extends BaseMachine {
             this.showDetailedInfo();
         });
     }
+    
+    /**
+     * Override showTooltip to provide a simpler description for conveyors
+     */
+    showTooltip() {
+        // Remove existing tooltip if any
+        this.hideTooltip();
+        
+        const fixedX = this.scene.cameras.main.width - 260; 
+        const fixedY = 50;
+        const tooltipWidth = 250;
+        const tooltipHeight = 80;
+        
+        const tooltipBg = this.scene.add.rectangle(
+            fixedX, 
+            fixedY, 
+            tooltipWidth, 
+            tooltipHeight, 
+            0x000000, 
+            0.8
+        ).setOrigin(0, 0);
+        tooltipBg.setStrokeStyle(1, 0xffffff);
+        
+        // Simpler tooltip content for conveyor belts
+        let tooltipContent = `${this.name} (${this.direction})\n\n`;
+        tooltipContent += `Transports items along the ${this.direction} direction.\n`;
+        tooltipContent += `Capacity: ${this.itemsOnBelt.length}/${this.maxCapacity} items`;
+        
+        const tooltipText = this.scene.add.text(
+            fixedX + 10,
+            fixedY + 10,
+            tooltipContent, 
+            {
+                fontFamily: 'Arial',
+                fontSize: 12,
+                color: '#ffffff',
+                align: 'left',
+                wordWrap: { width: tooltipWidth - 20 }
+            }
+        ).setOrigin(0, 0);
+        
+        tooltipBg.height = Math.max(tooltipHeight, tooltipText.height + 20);
+
+        this.tooltip = {
+            background: tooltipBg,
+            text: tooltipText
+        };
+        
+        tooltipBg.setDepth(1000);
+        tooltipText.setDepth(1001);
+    }
 } 

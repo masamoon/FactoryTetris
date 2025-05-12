@@ -1,7 +1,7 @@
 {
-  "name": "factory-tetris",
+  "name": "gridforge",
   "version": "0.1.0",
-  "description": "A rogue-lite factory automation game with Tetris-like mechanics",
+  "description": "A rogue-lite factory automation game with unique grid-based mechanics",
   "main": "src/index.js",
   "scripts": {
     "start": "webpack serve --mode=development",

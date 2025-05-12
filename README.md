@@ -1,10 +1,10 @@
-# Factory Tetris
+# Gridforge
 
-A rogue-lite factory automation game with Tetris-like mechanics, built with Phaser 3.
+A rogue-lite factory automation game with unique grid-based mechanics, built with Phaser 3.
 
 ## Overview
 
-Factory Tetris combines the resource management and production line optimization of factory games with the spatial puzzle mechanics of Tetris. Players must place machines to extract and process resources, while deliverying products to delivery nodes and score points to advance to the next round. 
+Gridforge combines the resource management and production line optimization of factory games with spatial puzzle mechanics. Players must place machines to extract and process resources, while deliverying products to delivery nodes and score points to advance to the next round. 
 
 ## Game Features
 
@@ -23,8 +23,8 @@ Factory Tetris combines the resource management and production line optimization
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/factory-tetris.git
-   cd factory-tetris
+   git clone https://github.com/yourusername/gridforge.git
+   cd gridforge
    ```
 
 2. Install dependencies:

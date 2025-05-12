@@ -850,35 +850,44 @@ export default class MachineFactory {
         // Format input/output information
         let tooltipText = '';
         
-        // Add inputs with quantities if available
-        if (machineType.requiredInputs && Object.keys(machineType.requiredInputs).length > 0) {
-            tooltipText += 'Inputs:\n';
-            for (const [type, amount] of Object.entries(machineType.requiredInputs)) {
-                tooltipText += `  • ${amount}× ${this.formatResourceName(type)}\n`;
+        // Special case for conveyor belt - simplified description
+        if (machineType.id === 'conveyor') {
+            tooltipText = 'Transports items between machines and nodes.\n\n';
+            tooltipText += 'Place on resource nodes to extract resources.\n';
+            tooltipText += 'Connect to machines to transfer items.';
+        } else {
+            // Regular machine tooltip for all other machine types
+            
+            // Add inputs with quantities if available
+            if (machineType.requiredInputs && Object.keys(machineType.requiredInputs).length > 0) {
+                tooltipText += 'Inputs:\n';
+                for (const [type, amount] of Object.entries(machineType.requiredInputs)) {
+                    tooltipText += `  • ${amount}× ${this.formatResourceName(type)}\n`;
+                }
+            } else if (machineType.inputTypes && machineType.inputTypes.length > 0) {
+                tooltipText += 'Inputs:\n';
+                machineType.inputTypes.forEach(type => {
+                    tooltipText += `  • ${this.formatResourceName(type)}\n`;
+                });
             }
-        } else if (machineType.inputTypes && machineType.inputTypes.length > 0) {
-            tooltipText += 'Inputs:\n';
-            machineType.inputTypes.forEach(type => {
-                tooltipText += `  • ${this.formatResourceName(type)}\n`;
-            });
-        }
-        
-        // Add outputs
-        if (machineType.outputTypes && machineType.outputTypes.length > 0) {
-            tooltipText += 'Outputs:\n';
-            machineType.outputTypes.forEach(type => {
-                tooltipText += `  • ${this.formatResourceName(type)}\n`;
-            });
-        }
-        
-        // Add processing time if available
-        if (machineType.processingTime) {
-            tooltipText += `Processing time: ${machineType.processingTime/1000}s`;
+            
+            // Add outputs
+            if (machineType.outputTypes && machineType.outputTypes.length > 0) {
+                tooltipText += 'Outputs:\n';
+                machineType.outputTypes.forEach(type => {
+                    tooltipText += `  • ${this.formatResourceName(type)}\n`;
+                });
+            }
+            
+            // Add processing time if available
+            if (machineType.processingTime) {
+                tooltipText += `Processing time: ${machineType.processingTime/1000}s`;
+            }
         }
         
         // Make sure we have at least some text in the tooltip
         if (!tooltipText) {
-            tooltipText = "No input/output information available";
+            tooltipText = "No information available";
         }
         
         // Create tooltip content text (moved down for more spacing)

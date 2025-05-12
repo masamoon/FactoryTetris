@@ -39,7 +39,11 @@ module.exports = {
     },
     compress: true,
     port: 8084,
-    hot: true
+    hot: true,
+    client: {
+      logging: 'warn',
+      overlay: true
+    }
   },
   resolve: {
     extensions: ['.js']

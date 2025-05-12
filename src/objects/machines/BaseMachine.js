@@ -6,13 +6,13 @@ import ConveyorMachine from './ConveyorMachine';
 // Unique colors for each machine type
 const MACHINE_COLORS = {
     'processor-a': 0x4e79a7, // blue
-    'processor-b': 0xf28e2b, // orange
+    'processor-b': 0x03fcfc, // light blue
     'processor-c': 0xe15759, // red
     'processor-d': 0x76b7b2, // teal
     'processor-e': 0x59a14f, // green
     'advanced-processor': 0xedc948, // yellow
     'advanced-processor-1': 0xaa44aa, // purple
-    'advanced-processor-2': 0xedc948, // yellow
+    'advanced-processor-2': 0xfc039d, // pink
     'conveyor': 0x888888, // gray
     // Add more as needed
 };

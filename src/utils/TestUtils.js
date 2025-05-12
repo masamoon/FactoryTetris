@@ -2,7 +2,7 @@
  * TestUtils.js - Utility functions for automated testing
  * 
  * This module provides functions to automate testing of machine placement,
- * rotation, and direction indicators in the Factory Tetris game.
+ * rotation, and direction indicators in the Gridforge game.
  */
 
 export default class TestUtils {

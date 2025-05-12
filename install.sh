@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Factory Tetris Installation Script
+# Gridforge Installation Script
 
-echo "Installing Factory Tetris..."
+echo "Installing Gridforge..."
 
 # Check if Node.js is installed
 if ! command -v node &> /dev/null; then
