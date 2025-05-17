@@ -29,7 +29,7 @@ export default class GameScene extends Phaser.Scene {
         // Momentum state
         this.currentMomentum = 0;
         this.maxMomentum = 100; // Example max value
-        this.baseMomentumDecayRate = 2; // Base decay rate per second
+        this.baseMomentumDecayRate = 1; // Base decay rate per second
         this.momentumGainFactor = 0.20; // Example: Gain 0.5 momentum per score point
         this.comboThreshold = 98; // Momentum threshold for combo bonus (90%)
         this.comboMultiplier = 2; // 2x score multiplier when in combo mode
