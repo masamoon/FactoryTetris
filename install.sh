@@ -19,6 +19,7 @@ fi
 # Install dependencies
 echo "Installing dependencies..."
 npm install
+npm run prepare
 
 # Create necessary directories
 echo "Setting up project structure..."
