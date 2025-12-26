@@ -4,12 +4,9 @@
       "@babel/preset-env",
       {
         "targets": {
-          "browsers": [
-            "last 2 versions",
-            "not dead"
-          ]
+          "browsers": ["last 2 versions", "not dead"]
         }
       }
     ]
   ]
-} 
+}

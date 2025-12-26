@@ -3,10 +3,10 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
-  entry: './src/index.js',
+  entry: './src/index.ts',
   output: {
     path: path.resolve(__dirname, 'dist'),
-    filename: 'bundle.js'
+    filename: 'bundle.js',
   },
   module: {
     rules: [
@@ -16,36 +16,34 @@ module.exports = {
         use: {
           loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env']
-          }
-        }
-      }
-    ]
+            presets: ['@babel/preset-env'],
+          },
+        },
+      },
+    ],
   },
   plugins: [
     new HtmlWebpackPlugin({
       template: './src/index.html',
-      filename: 'index.html'
+      filename: 'index.html',
     }),
     new CopyWebpackPlugin({
-      patterns: [
-        { from: 'src/assets', to: 'assets' }
-      ]
-    })
+      patterns: [{ from: 'src/assets', to: 'assets' }],
+    }),
   ],
   devServer: {
     static: {
-      directory: path.join(__dirname, 'dist')
+      directory: path.join(__dirname, 'dist'),
     },
     compress: true,
     port: 8084,
     hot: true,
     client: {
       logging: 'warn',
-      overlay: true
-    }
+      overlay: true,
+    },
   },
   resolve: {
-    extensions: ['.js']
-  }
-}; 
+    extensions: ['.js'],
+  },
+};

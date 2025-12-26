@@ -27,4 +27,4 @@ function createButton(filename, color) {
 
 // Create buttons
 createButton('src/assets/images/button.png', '#3498db');
-createButton('src/assets/images/button-hover.png', '#2980b9'); 
+createButton('src/assets/images/button-hover.png', '#2980b9');

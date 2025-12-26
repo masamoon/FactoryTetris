@@ -59,34 +59,69 @@ function createMachinePiece(type, color) {
 
   // Define piece shapes (Tetris-like)
   const shapes = {
-    'i': [[0, 0], [0, 1], [0, 2], [0, 3]],
-    'j': [[0, 0], [1, 0], [1, 1], [1, 2]],
-    'l': [[0, 0], [0, 1], [0, 2], [1, 2]],
-    'o': [[0, 0], [0, 1], [1, 0], [1, 1]],
-    's': [[0, 1], [0, 2], [1, 0], [1, 1]],
-    't': [[0, 1], [1, 0], [1, 1], [1, 2]],
-    'z': [[0, 0], [0, 1], [1, 1], [1, 2]]
+    i: [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [0, 3],
+    ],
+    j: [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [1, 2],
+    ],
+    l: [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ],
+    o: [
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+    ],
+    s: [
+      [0, 1],
+      [0, 2],
+      [1, 0],
+      [1, 1],
+    ],
+    t: [
+      [0, 1],
+      [1, 0],
+      [1, 1],
+      [1, 2],
+    ],
+    z: [
+      [0, 0],
+      [0, 1],
+      [1, 1],
+      [1, 2],
+    ],
   };
 
   // Draw piece
   ctx.fillStyle = color;
   shapes[type].forEach(([x, y]) => {
     ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-    
+
     // Draw cell border
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
     ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
-    
+
     // Draw connector lines
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    
+
     // Draw a circle in the middle of each cell
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(x * cellSize + cellSize/2, y * cellSize + cellSize/2, 4, 0, Math.PI * 2);
+    ctx.arc(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2, 4, 0, Math.PI * 2);
     ctx.fill();
   });
 
@@ -137,4 +172,4 @@ createMachinePiece('z', '#1abc9c'); // Turquoise
 createResource('raw-resource', '#8e44ad');
 createResource('product-a', '#3498db');
 createResource('product-b', '#2ecc71');
-createResource('product-c', '#e74c3c'); 
+createResource('product-c', '#e74c3c');
