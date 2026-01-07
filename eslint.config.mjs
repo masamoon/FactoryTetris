@@ -1,11 +1,11 @@
-import js from '@eslint/js'
-import tseslint from 'typescript-eslint'
-import prettier from 'eslint-plugin-prettier'
-import globals from 'globals'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import prettier from 'eslint-plugin-prettier';
+import globals from 'globals';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default [
   {
@@ -15,7 +15,7 @@ export default [
   // Base rules for JS + TS
   js.configs.recommended,
 
-   {
+  {
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -41,6 +41,20 @@ export default [
     },
   },
 
+  // Allow underscore-prefixed unused variables (common pattern for intentionally unused catch params)
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+
   // Prettier
   {
     plugins: {
@@ -59,4 +73,4 @@ export default [
       ],
     },
   },
-]
+];

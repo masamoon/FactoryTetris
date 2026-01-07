@@ -4,12 +4,10 @@ import MachineFactory from '../objects/MachineFactory';
 import ResourceNode from '../objects/ResourceNode';
 import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
-import TestUtils from '../utils/TestUtils';
-import MachineRegistry from '../objects/machines/MachineRegistry';
+// Note: TestUtils and MachineRegistry are used for development/debugging but may appear unused
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
-import { UPGRADE_PACKAGE_TYPE, upgradesConfig, UPGRADE_TYPES } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig + UPGRADE_TYPES
-import { UpgradeScene } from './UpgradeScene.js'; // Import UpgradeScene
+import { UPGRADE_PACKAGE_TYPE, upgradesConfig } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
 import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
@@ -55,6 +53,9 @@ export default class GameScene extends Phaser.Scene {
     this.inputMode = 'desktop'; // 'desktop' or 'touch'
     this.isTouchPlacing = false;
     this.touchPreviewGridPos = null;
+
+    // Player-controlled level up
+    this.pendingLevelUps = 0; // Track queued level-ups that player can claim
   }
 
   preload() {
@@ -206,6 +207,13 @@ export default class GameScene extends Phaser.Scene {
       this.inputMode = this.inputMode === 'desktop' ? 'touch' : 'desktop';
       this.showInputModeMessage();
     });
+
+    // Spacebar to claim a pending level up
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this.pendingLevelUps > 0 && !this.isPausedForUpgrade && !this.paused) {
+        this.claimLevelUp();
+      }
+    });
     // Optionally, add a UI button for mobile users
     // ... existing code ...
   }
@@ -321,11 +329,16 @@ export default class GameScene extends Phaser.Scene {
       this.togglePause();
     });
 
-    // Debug Level Up button (for testing)
-    this.createButton(width * 0.9, height * 0.1, 'DEBUG LVL UP', () => {
-      console.log('[DEBUG] Forcing level advancement');
-      this.advanceLevel();
+    // Level Up button (initially hidden, shown when pendingLevelUps > 0)
+    this.levelUpButton = this.createButton(width * 0.9, height * 0.12, 'LEVEL UP!', () => {
+      this.claimLevelUp();
     });
+    // Make it more prominent with different styling
+    this.levelUpButton.button.fillColor = 0x00aa44;
+    this.levelUpButton.button.setStrokeStyle(2, 0x00ff66);
+    // Initially hidden
+    this.levelUpButton.button.setVisible(false);
+    this.levelUpButton.text.setVisible(false);
 
     // --- ADD CLEAR FACTORY UI HERE ---
     // Clear Factory Button
@@ -347,6 +360,7 @@ export default class GameScene extends Phaser.Scene {
       wordWrap: { width: width * 0.25 }, // Adjust width as needed
     });
     this.updateActiveUpgradesDisplay(); // Initial update
+    this.updateLevelUpButton(); // Initial update for level up button
   }
 
   setupInput() {
@@ -739,7 +753,7 @@ export default class GameScene extends Phaser.Scene {
             try {
               machineToRotate.rotation = 0;
               machineToRotate.direction = 'right';
-            } catch (e) {
+            } catch (_e) {
               // Ignore errors in recovery
             }
           }
@@ -895,8 +909,8 @@ export default class GameScene extends Phaser.Scene {
     // Update the preview with the available machine
     this.updatePlacementPreview(machine);
 
-    const machineName = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
-    //console.log(`[PREVIEW] Created placement preview for ${machineName}`);
+    // const machineName = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
+    // console.log(`[PREVIEW] Created placement preview for ${machineName}`);
   }
 
   /**
@@ -1446,9 +1460,9 @@ export default class GameScene extends Phaser.Scene {
     // Check if level threshold is met
     if (this.score >= this.currentLevelScoreThreshold) {
       console.log(
-        `[LEVEL_DEBUG] Score ${this.score} reached threshold ${this.currentLevelScoreThreshold} - advancing level`
+        `[LEVEL_DEBUG] Score ${this.score} reached threshold ${this.currentLevelScoreThreshold} - queuing level up`
       );
-      this.advanceLevel();
+      this.queueLevelUp();
     }
 
     // Show visual feedback for combo
@@ -1580,8 +1594,8 @@ export default class GameScene extends Phaser.Scene {
     // Spawn 1 delivery node
     this.spawnDeliveryNode();
 
-    // 4. Show upgrade screen when leveling up
-    this.showUpgradeScreen();
+    // 4. NOTE: Upgrade screen is now player-controlled (via button or spacebar)
+    // Do NOT call showUpgradeScreen() here
 
     // 5. Reset score
     this.score = 0;
@@ -1712,7 +1726,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
         try {
           this.sound.play('click');
-        } catch (error) {
+        } catch (_error) {
           this.audioAvailable = false;
           this.registry.set('audioAvailable', false);
         }
@@ -1724,13 +1738,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   addDecorations() {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
-
+    // Note: width and height are intentionally unused - kept for potential future decorations
+    // const width = this.cameras.main.width;
+    // const height = this.cameras.main.height;
     // Add some factory-themed decorations
     //this.add.rectangle(width * 0.5, height * 0.1, width * 0.02, height * 0.8, 0x333333).setOrigin(0.5, 0);
     //this.add.rectangle(width * 0.5, height * 0.1, width * 0.01, height * 0.8, 0x555555).setOrigin(0.5, 0);
-
     // Add some pipes and industrial elements
     //this.addPipe(width * 0.05, height * 0.1, width * 0.4, 0x555555);
     //this.addPipe(width * 0.55, height * 0.1, width * 0.4, 0x555555);
@@ -2022,12 +2035,11 @@ export default class GameScene extends Phaser.Scene {
     // Test all machines in the factory grid
     const gridMachines = this.factoryGrid.getAllMachines();
 
-    gridMachines.forEach((machine, index) => {
+    gridMachines.forEach((machine) => {
       if (!machine || !machine.directionIndicator) return;
 
       const actualRotation = machine.rotation;
       const actualDirection = machine.direction || this.getDirectionFromRotation(actualRotation);
-      const indicatorRotation = machine.directionIndicator.rotation;
 
       // Update the direction indicator to ensure it's correct
       this.updateDirectionIndicator(machine, actualDirection);
@@ -2036,12 +2048,11 @@ export default class GameScene extends Phaser.Scene {
     // Test all machines in the selection panel
     const selectionMachines = this.machineFactory.availableMachines;
 
-    selectionMachines.forEach((machine, index) => {
+    selectionMachines.forEach((machine) => {
       if (!machine || !machine.directionIndicator) return;
 
       const actualRotation = machine.rotation;
       const actualDirection = machine.direction || this.getDirectionFromRotation(actualRotation);
-      const indicatorRotation = machine.directionIndicator.rotation;
 
       // Update the direction indicator to ensure it's correct
       this.updateDirectionIndicator(machine, actualDirection);
@@ -2053,7 +2064,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
       try {
         this.sound.play(key);
-      } catch (error) {
+      } catch (_error) {
         this.audioAvailable = false;
         this.registry.set('audioAvailable', false);
       }
@@ -2220,7 +2231,7 @@ export default class GameScene extends Phaser.Scene {
         // Check if the container has any children
         if (machineObj.container.list) {
           // Make sure all children are visible
-          machineObj.container.list.forEach((child, index) => {
+          machineObj.container.list.forEach((child) => {
             if (child) {
               child.setVisible(true);
               child.setAlpha(1);
@@ -2249,7 +2260,7 @@ export default class GameScene extends Phaser.Scene {
       // Always play a sound when placing a machine
       try {
         this.playSound('place');
-      } catch (soundError) {
+      } catch (_soundError) {
         // Continue even if sound playback fails
       }
 
@@ -2258,7 +2269,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.isPlacingMachine) {
         try {
           this.exitMachinePlacementMode();
-        } catch (modeError) {
+        } catch (_modeError) {
           // Continue even if exit mode fails
         }
       }
@@ -2286,8 +2297,9 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const rotationRad = machine.rotation !== undefined ? machine.rotation : 0;
-    const rotationDeg = ((rotationRad * 180) / Math.PI).toFixed(1);
-    const direction = machine.direction || this.getDirectionFromRotation(rotationRad);
+    // Note: rotationDeg and direction are computed for debugging but logging is commented out
+    // const rotationDeg = ((rotationRad * 180) / Math.PI).toFixed(1);
+    const _direction = machine.direction || this.getDirectionFromRotation(rotationRad);
 
     //console.log(`[ROTATION] ${label}: rotation=${rotationRad.toFixed(4)} rad (${rotationDeg}°), direction=${direction}`);
 
@@ -2314,37 +2326,37 @@ export default class GameScene extends Phaser.Scene {
     //console.log(`[DEBUG] Total parts in container:`, machine.container.list.length);
 
     // Determine input and output positions based on direction
-    let inputPos = { x: -1, y: -1 };
-    let outputPos = { x: -1, y: -1 };
+    let _inputPos = { x: -1, y: -1 };
+    let _outputPos = { x: -1, y: -1 };
 
     if (machine.direction !== 'none') {
       // For machines with direction, determine input and output positions
       switch (machine.direction) {
         case 'right':
           // Input on left side, output on right side
-          inputPos = { x: 0, y: Math.floor(machine.shape.length / 2) };
-          outputPos = { x: machine.shape[0].length - 1, y: Math.floor(machine.shape.length / 2) };
+          _inputPos = { x: 0, y: Math.floor(machine.shape.length / 2) };
+          _outputPos = { x: machine.shape[0].length - 1, y: Math.floor(machine.shape.length / 2) };
           break;
         case 'down':
           // Input on top side, output on bottom side
-          inputPos = { x: Math.floor(machine.shape[0].length / 2), y: 0 };
-          outputPos = { x: Math.floor(machine.shape[0].length / 2), y: machine.shape.length - 1 };
+          _inputPos = { x: Math.floor(machine.shape[0].length / 2), y: 0 };
+          _outputPos = { x: Math.floor(machine.shape[0].length / 2), y: machine.shape.length - 1 };
           break;
         case 'left':
           // Input on right side, output on left side
-          inputPos = { x: machine.shape[0].length - 1, y: Math.floor(machine.shape.length / 2) };
-          outputPos = { x: 0, y: Math.floor(machine.shape.length / 2) };
+          _inputPos = { x: machine.shape[0].length - 1, y: Math.floor(machine.shape.length / 2) };
+          _outputPos = { x: 0, y: Math.floor(machine.shape.length / 2) };
           break;
         case 'up':
           // Input on bottom side, output on top side
-          inputPos = { x: Math.floor(machine.shape[0].length / 2), y: machine.shape.length - 1 };
-          outputPos = { x: Math.floor(machine.shape[0].length / 2), y: 0 };
+          _inputPos = { x: Math.floor(machine.shape[0].length / 2), y: machine.shape.length - 1 };
+          _outputPos = { x: Math.floor(machine.shape[0].length / 2), y: 0 };
           break;
       }
     }
 
-    //console.log(`[DEBUG] Expected input position: (${inputPos.x}, ${inputPos.y})`);
-    //console.log(`[DEBUG] Expected output position: (${outputPos.x}, ${outputPos.y})`);
+    //console.log(`[DEBUG] Expected input position: (${_inputPos.x}, ${_inputPos.y})`);
+    //console.log(`[DEBUG] Expected output position: (${_outputPos.x}, ${_outputPos.y})`);
 
     // Reset inputSquare and outputSquare references
     machine.inputSquare = null;
@@ -2355,12 +2367,12 @@ export default class GameScene extends Phaser.Scene {
     const cellSize = machine.grid.cellSize;
     const parts = [];
 
-    // Log each part first for debugging
-    machine.container.list.forEach((part, index) => {
-      /*console.log(`[DEBUG] Part ${index}:`, part.type, 
-                        part.fillColor ? part.fillColor.toString(16) : 'no fillColor',
-                        part.x, part.y);*/
-    });
+    // Log each part first for debugging (commented out)
+    // machine.container.list.forEach((part, index) => {
+    //   console.log(`[DEBUG] Part ${index}:`, part.type,
+    //                     part.fillColor ? part.fillColor.toString(16) : 'no fillColor',
+    //                     part.x, part.y);
+    // });
 
     // Collect all rectangle parts - be more inclusive
     machine.container.list.forEach((part) => {
@@ -2550,7 +2562,7 @@ export default class GameScene extends Phaser.Scene {
         ) {
           throw new Error('Invalid world position returned');
         }
-      } catch (gridError) {
+      } catch (_gridError) {
         // Create a fallback world position
         worldPos = {
           x: gridX * (this.grid.cellSize || 24),
@@ -2562,7 +2574,7 @@ export default class GameScene extends Phaser.Scene {
       const adjustments = { x: 0, y: 0 };
 
       // Apply direction-specific adjustments based on machine type
-      const cellSize = this.grid.cellSize || 24;
+      // Note: cellSize is declared but currently unused - kept for future direction adjustments
 
       // Now ensure the position is always an integer value to avoid rounding errors
       worldPos.x = Math.round(worldPos.x);
@@ -2572,7 +2584,7 @@ export default class GameScene extends Phaser.Scene {
         worldPos: worldPos,
         adjustments: adjustments,
       };
-    } catch (error) {
+    } catch (_error) {
       // Provide a fallback result
       const cellSize = this.grid ? this.grid.cellSize || 24 : 24;
       return {
@@ -3344,6 +3356,7 @@ export default class GameScene extends Phaser.Scene {
     this.input.enabled = true;
 
     this.updateActiveUpgradesDisplay(); // Update the display after an upgrade might have been selected
+    this.updateLevelUpButton(); // Update level up button in case there are more pending
   }
 
   updateActiveUpgradesDisplay() {
@@ -3532,6 +3545,99 @@ export default class GameScene extends Phaser.Scene {
     } catch (error) {
       console.error('[GAME] Error creating delivery node:', error);
       return null;
+    }
+  }
+
+  // ============================================
+  // Player-Controlled Level Up Functions
+  // ============================================
+
+  /**
+   * Queue a level up instead of immediately showing the upgrade screen.
+   * Called when score threshold is reached.
+   * Does NOT clear the grid - that happens when player claims the level up.
+   */
+  queueLevelUp() {
+    this.pendingLevelUps++;
+    console.log(`[LEVEL_UP] Queued level up. Pending: ${this.pendingLevelUps}`);
+
+    // Reset score and update threshold for continued play
+    this.score = 0;
+    this.currentLevelScoreThreshold = this.getScoreThresholdForLevel(
+      this.currentLevel + this.pendingLevelUps
+    );
+    this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
+
+    // Update the button visibility
+    this.updateLevelUpButton();
+
+    // Play a sound to notify the player
+    this.playSound('round-complete');
+  }
+
+  /**
+   * Called when the player clicks the Level Up button or presses spacebar.
+   * Clears the grid, advances level, shows upgrade screen.
+   */
+  claimLevelUp() {
+    if (this.pendingLevelUps <= 0) {
+      console.log('[LEVEL_UP] No pending level ups to claim');
+      return;
+    }
+
+    this.pendingLevelUps--;
+    console.log(`[LEVEL_UP] Claiming level up. Remaining pending: ${this.pendingLevelUps}`);
+
+    // NOW advance the level (clears grid, spawns nodes)
+    this.advanceLevel();
+
+    // Show the upgrade screen
+    this.showUpgradeScreen();
+
+    // Update button visibility (will be called again after upgrade screen closes, but call here for safety)
+    this.updateLevelUpButton();
+  }
+
+  /**
+   * Updates the Level Up button visibility and text based on pendingLevelUps.
+   */
+  updateLevelUpButton() {
+    if (!this.levelUpButton) return;
+
+    if (this.pendingLevelUps > 0) {
+      this.levelUpButton.button.setVisible(true);
+      this.levelUpButton.text.setVisible(true);
+
+      // Update text to show count if more than 1
+      if (this.pendingLevelUps > 1) {
+        this.levelUpButton.text.setText(`LEVEL UP! (${this.pendingLevelUps})`);
+      } else {
+        this.levelUpButton.text.setText('LEVEL UP!');
+      }
+
+      // Add a pulsing animation if not already animating
+      if (!this.levelUpButtonTween) {
+        this.levelUpButtonTween = this.tweens.add({
+          targets: this.levelUpButton.button,
+          scaleX: 1.05,
+          scaleY: 1.05,
+          yoyo: true,
+          repeat: -1,
+          duration: 500,
+          ease: 'Sine.easeInOut',
+        });
+      }
+    } else {
+      this.levelUpButton.button.setVisible(false);
+      this.levelUpButton.text.setVisible(false);
+
+      // Stop the pulsing animation
+      if (this.levelUpButtonTween) {
+        this.levelUpButtonTween.stop();
+        this.levelUpButtonTween = null;
+        // Reset scale
+        this.levelUpButton.button.setScale(1);
+      }
     }
   }
 }
