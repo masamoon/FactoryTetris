@@ -1,5 +1,4 @@
 import BaseMachine from './BaseMachine';
-import { GAME_CONFIG } from '../../config/gameConfig';
 
 /**
  * Processor A Machine
@@ -126,7 +125,7 @@ export default class ProcessorAMachine extends BaseMachine {
     // Recalculate visual center needed for label/core positioning
     // (since the base method's calculation isn't directly accessible)
     const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
-    const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
+    let rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
     if (
       !rotatedShape ||
       !Array.isArray(rotatedShape) ||

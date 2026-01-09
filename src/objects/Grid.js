@@ -72,12 +72,9 @@ export default class Grid {
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const cell = this.cells[y][x];
-        const cellX = startX + x * this.cellSize + this.cellSize / 2;
-        const cellY = startY + y * this.cellSize + this.cellSize / 2;
-
-        if (cell.type === 'machine') {
+        if (cell && cell.type === 'machine') {
           // Machine cells are drawn by the machine objects
-        } else if (cell.type === 'node') {
+        } else if (cell && cell.type === 'node') {
           // Resource nodes are drawn by the node objects
         } else {
           // Empty cell
@@ -202,8 +199,8 @@ export default class Grid {
             const gridPos = this.worldToGrid(worldX, worldY);
             return gridPos.x >= 0 && gridPos.x < this.width && gridPos.y >= 0 && gridPos.y < this.height;
             */
-    } catch (error) {
-      console.error('[Grid.isInBounds] Error:', error);
+    } catch (_error) {
+      console.error('[Grid.isInBounds] Error:', _error);
       return false;
     }
   }
@@ -251,8 +248,8 @@ export default class Grid {
       }
 
       return { x: gridX, y: gridY };
-    } catch (error) {
-      if (debugGridConv) console.error('[worldToGrid] Error:', error);
+    } catch (_error) {
+      if (debugGridConv) console.error('[worldToGrid] Error:', _error);
       return { x: undefined, y: undefined };
     }
   }
@@ -370,7 +367,7 @@ export default class Grid {
       }
 
       return null; // No empty cells found
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }
@@ -414,13 +411,10 @@ export default class Grid {
 
     // Handle both machine ID string and machine type object
     let machineType;
-    let machineIdStr;
 
     if (typeof machineId === 'object') {
       machineType = machineId;
-      machineIdStr = machineId.id || 'unknown';
     } else {
-      machineIdStr = machineId;
       machineType = this.factory.getMachineTypeById(machineId);
     }
 
@@ -481,7 +475,7 @@ export default class Grid {
             if (cell && cell.type !== 'empty') {
               return false;
             }
-          } catch (error) {
+          } catch (_error) {
             return false;
           }
         }
@@ -628,7 +622,7 @@ export default class Grid {
             } */
 
       return true;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -650,7 +644,7 @@ export default class Grid {
     if (typeof shape === 'string') {
       try {
         parsedShape = JSON.parse(shape);
-      } catch (error) {
+      } catch (_error) {
         return [[1]];
       }
     }
@@ -741,47 +735,6 @@ export default class Grid {
     return rotated;
   }
 
-  // Rotate a shape 180 degrees
-  rotateShape180(shape) {
-    if (!shape || shape.length === 0) return shape;
-
-    const shapeHeight = shape.length;
-    const shapeWidth = shape[0].length;
-    const rotated180 = [];
-
-    for (let i = 0; i < shapeHeight; i++) {
-      rotated180[i] = [];
-      for (let j = 0; j < shapeWidth; j++) {
-        rotated180[i][j] = shape[shapeHeight - 1 - i][shapeWidth - 1 - j];
-      }
-    }
-
-    return rotated180;
-  }
-
-  // Rotate a shape 270 degrees clockwise (or 90 counterclockwise)
-  rotate270Degrees(shape) {
-    if (!shape || shape.length === 0) return shape;
-
-    const shapeHeight = shape.length;
-    const shapeWidth = shape[0].length;
-    const rotated270 = [];
-
-    for (let i = 0; i < shapeWidth; i++) {
-      rotated270[i] = [];
-      for (let j = 0; j < shapeHeight; j++) {
-        rotated270[i][j] = shape[j][shapeWidth - 1 - i];
-      }
-    }
-
-    return rotated270;
-  }
-
-  // These original methods were causing issues, keep them for compatibility but use the newer methods
-  rotateShapeCounterClockwise(shape) {
-    return this.rotate270Degrees(shape);
-  }
-
   // Remove a machine from the grid
   removeMachine(machineInstanceToRemove) {
     if (!machineInstanceToRemove) return;
@@ -798,8 +751,10 @@ export default class Grid {
         `[Grid.removeMachine] Removed ${machineInstanceToRemove.id} from internal machines array.`
       );
     } else {
-      console.warn(
-        `[Grid.removeMachine] Could not find ${machineInstanceToRemove.id} in internal machines array.`
+      // Potentially already removed by another process (e.g. GameScene logic)
+      // No need to warn as it's a common double-call scenario during destruction
+      console.log(
+        `[Grid.removeMachine] ${machineInstanceToRemove.id} was already removed or not found in tracking array.`
       );
     }
 
@@ -873,70 +828,48 @@ export default class Grid {
    * @param {Machine} machine - The machine instance
    */
   markGridCellsOccupied(gridX, gridY, shape, machine) {
-    try {
-      if (!shape || !Array.isArray(shape) || shape.length === 0 || !machine) {
-        return;
-      }
+    if (!shape || !Array.isArray(shape) || shape.length === 0 || !machine) {
+      return;
+    }
 
-      // Get the dimensions of the shape
-      const shapeWidth = shape[0].length;
-      const shapeHeight = shape.length;
+    // Get the dimensions of the shape
+    const shapeWidth = shape[0].length;
+    const shapeHeight = shape.length;
 
-      // Calculate center point for the shape
-      const centerX = gridX;
-      const centerY = gridY;
+    // Calculate center point for the shape (using top-left as anchor to match other methods)
+    const baseX = gridX;
+    const baseY = gridY;
 
-      // Calculate offset from center to top-left corner of the shape's bounding box
-      const offsetX = Math.floor(shapeWidth / 2);
-      const offsetY = Math.floor(shapeHeight / 2);
+    // Mark cells as occupied by the machine
+    for (let y = 0; y < shapeHeight; y++) {
+      for (let x = 0; x < shapeWidth; x++) {
+        if (shape[y][x] === 1) {
+          // Calculate grid coordinates for this shape cell
+          const cellX = baseX + x;
+          const cellY = baseY + y;
 
-      let markedCells = 0;
-
-      // Mark cells as occupied by the machine
-      for (let y = 0; y < shapeHeight; y++) {
-        for (let x = 0; x < shapeWidth; x++) {
-          if (shape[y][x] === 1) {
-            // Calculate grid coordinates for this shape cell
-            // Using the center of the shape as a reference point
-            const cellX = Math.floor(centerX + (x - offsetX));
-            const cellY = Math.floor(centerY + (y - offsetY));
-
-            // Ensure we're within grid bounds
-            if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
-              // Preserve resource node information for extractors
-              /* let resourceNode = null;
-                            const currentCell = this.cells[cellY][cellX];
-                            
-                            // Check if current cell has a resource node
-                            if (currentCell.type === 'node') {
-                                resourceNode = currentCell.object;
-                            } */
-
-              // Create the new cell data
-              this.cells[cellY][cellX] = {
-                type: 'machine',
-                machine: machine,
-                localX: x,
-                localY: y,
-              };
-
-              markedCells++;
-
-              // If there was a resource node, store it in the cell data
-              /* if (resourceNode) {
-                                this.cells[cellY][cellX].resourceNode = resourceNode;
-                            } */
-            }
+          // Ensure we're within grid bounds
+          if (cellX >= 0 && cellX < this.width && cellY >= 0 && cellY < this.height) {
+            // Create the new cell data
+            this.cells[cellY][cellX] = {
+              type: 'machine',
+              object: machine, // Consistent with placeMachine
+              localX: x,
+              localY: y,
+            };
           }
         }
       }
+    }
 
-      // Add machine to the list if it's not already there
-      if (!this.machines.includes(machine)) {
-        this.machines.push(machine);
-      }
-    } catch (error) {
-      throw error; // Rethrow to allow caller to handle cleanup
+    // Add machine to the list if it's not already there
+    // Note: this.machines stores {machine, gridX, gridY, direction} in placeMachine,
+    // but here it seems to want just the machine instance.
+    // However, placeMachine already pushes to this.machines.
+    // Let's check if we should keep this consistency.
+    const machineExists = this.machines.some((m) => (m.machine || m) === machine);
+    if (!machineExists) {
+      this.machines.push(machine);
     }
   }
 
@@ -950,16 +883,16 @@ export default class Grid {
         return;
       }
 
-      let cellsCleared = 0;
-
-      // Remove machine from cells
       for (let y = 0; y < this.height; y++) {
         for (let x = 0; x < this.width; x++) {
           const cell = this.cells[y][x];
-          if (cell && cell.type === 'machine' && cell.machine === machine) {
+          if (
+            cell &&
+            cell.type === 'machine' &&
+            (cell.object === machine || cell.machine === machine)
+          ) {
             // Restore to empty cell
             this.cells[y][x] = { type: 'empty' };
-            cellsCleared++;
           }
         }
       }
@@ -969,8 +902,8 @@ export default class Grid {
       if (index !== -1) {
         this.machines.splice(index, 1);
       }
-    } catch (error) {
-      // Error handling
+    } catch {
+      // Error handling - ignore
     }
   }
 

@@ -825,12 +825,21 @@ export default class GameScene extends Phaser.Scene {
                 const cell = this.grid.getCell(gridPos.x, gridPos.y);
                 if (cell && cell.object) {
                   console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
-                  if (cell.object instanceof ConveyorMachine) {
-                    console.log('[POINTERDOWN] Conveyor detected! Calling deleteConveyorOnClick.');
+
+                  // Exclude advanced logistics from instant one-click deletion
+                  const isBasicConveyor =
+                    cell.object instanceof ConveyorMachine && cell.object.id === 'conveyor';
+
+                  if (isBasicConveyor) {
+                    console.log(
+                      '[POINTERDOWN] Basic conveyor detected! Calling deleteConveyorOnClick.'
+                    );
                     this.deleteConveyorOnClick(cell.object);
                     return; // Deletion handled, stop further processing for this click
                   } else {
-                    console.log('[POINTERDOWN] Cell object is not a ConveyorMachine.');
+                    console.log(
+                      '[POINTERDOWN] Cell object is either a machine or a logistics component. Not instantly deleting.'
+                    );
                   }
                 } else {
                   console.log('[POINTERDOWN] Cell is empty or has no object.');
@@ -3425,11 +3434,9 @@ export default class GameScene extends Phaser.Scene {
       console.log('Removed conveyor from scene machines array.');
     }
 
-    // 3. Remove from grid
-    if (this.grid && typeof this.grid.removeMachine === 'function') {
-      this.grid.removeMachine(conveyor); // removeMachine should handle clearing grid cells
-      console.log('Called grid.removeMachine.');
-    }
+    // 3. Remove from grid - Let the machine's destroy() handle this via grid.removeMachine
+    // (This prevents double-call warnings in Grid objects)
+    console.log('Grid removal will be handled by conveyor.destroy() -> super.destroy()');
 
     // 4. Destroy the conveyor game object (container and its contents)
     if (typeof conveyor.destroy === 'function') {

@@ -73,4 +73,10 @@ export default [
       ],
     },
   },
+  {
+    files: ['debug-server.js', 'webpack.config.js', 'temp_assets/**/*.js'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 ];

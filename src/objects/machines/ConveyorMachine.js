@@ -30,7 +30,8 @@ export default class ConveyorMachine extends BaseMachine {
     this.itemVisualsGroup = scene ? scene.add.group() : null;
     this.baseMaxCapacity = 3; // Base maximum items allowed on the belt at once
     this.maxCapacity = this.baseMaxCapacity;
-    this.transportSpeed = 40; // Speed in pixels per second
+    this.baseTransportSpeed = 40; // Base Speed in pixels per second
+    this.transportSpeed = this.baseTransportSpeed;
 
     // Add extraction cooldown properties
     this.baseExtractionCooldown = 1000; // 1 second base cooldown between extractions
@@ -73,7 +74,11 @@ export default class ConveyorMachine extends BaseMachine {
       const extractionMod = this.scene.upgradeManager.getExtractionSpeedModifier();
       this.extractCooldown = Math.floor(this.baseExtractionCooldown * extractionMod);
 
-      // Transport speed is already handled by getConveyorSpeedModifier
+      // Apply Transport speed upgrade
+      const speedMod = this.scene.upgradeManager.getConveyorSpeedModifier();
+      // Ensure baseTransportSpeed exists (fallback to current transportSpeed if not yet set)
+      if (!this.baseTransportSpeed) this.baseTransportSpeed = 40;
+      this.transportSpeed = this.baseTransportSpeed * speedMod;
     }
   }
 

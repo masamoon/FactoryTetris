@@ -1,3 +1,6 @@
+import { GAME_CONFIG } from '../config/gameConfig';
+import ResourceNode from '../objects/ResourceNode';
+
 /**
  * TestUtils.js - Utility functions for automated testing
  *
@@ -418,7 +421,6 @@ export default class TestUtils {
     const cell = this.scene.factoryGrid.getCell(gridX, gridY);
     if (cell && cell.type === 'empty') {
       // Create a resource node
-      const ResourceNode = require('../objects/ResourceNode').default;
       const worldPos = this.scene.factoryGrid.gridToWorld(gridX, gridY);
 
       // Find the index of the 'coal' resource type
@@ -522,9 +524,6 @@ export default class TestUtils {
       '[TestUtils] Applying fix to direction indicators with mappings:',
       directionMappings
     );
-
-    // Create a new updateDirectionIndicator method that applies the correct rotations
-    const originalMethod = this.scene.updateDirectionIndicator;
 
     // Replace the method with a fixed version
     this.scene.updateDirectionIndicator = (machine, direction) => {
@@ -663,6 +662,3 @@ export default class TestUtils {
     }
   }
 }
-
-// Import the game config
-import { GAME_CONFIG } from '../config/gameConfig';

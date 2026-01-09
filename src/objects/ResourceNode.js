@@ -27,6 +27,7 @@ export default class ResourceNode {
     const roundFactorGenerationRate = 100; // ms reduction per round
 
     // Initialize with resources based on round (using round-1 as factor starts from round 1)
+    // Initialize with resources based on round (using round-1 as factor starts from round 1)
     const bountyModifier = this.upgradeManager.getResourceBountyModifier();
     const initialMin = Math.floor(
       (baseInitialMin + (this.round - 1) * roundFactorInitialMin) * bountyModifier
@@ -36,17 +37,25 @@ export default class ResourceNode {
     );
     this.resources = Phaser.Math.Between(initialMin, initialMax); // Start with resources based on round
 
+    // Apply Node Longevity Modifier to Lifespan
+    const longevityModifier = this.upgradeManager.getNodeLongevityModifier();
+    this.lifespan = Math.floor(config.lifespan * longevityModifier);
+    console.log(
+      `[ResourceNode] Created with lifespan ${this.lifespan} (Base: ${config.lifespan}, Mod: ${longevityModifier})`
+    );
+
     // Max resources based on round
     this.maxResources = baseMaxResources + (this.round - 1) * roundFactorMaxResources;
 
-    // Calculate generation delay based on round AND upgrade modifier
-    const baseDelay = Math.max(
+    // Calculate base generation delay based on round
+    this.baseGenerationDelay = Math.max(
       minGenerationRate,
       baseGenerationRate - (this.round - 1) * roundFactorGenerationRate
     );
-    // Apply the regeneration modifier (divide delay by modifier to speed up)
+
+    // Apply the regeneration modifier
     const regenModifier = this.upgradeManager.getResourceRegenModifier();
-    const generationDelay = baseDelay / regenModifier;
+    const generationDelay = this.baseGenerationDelay / regenModifier;
 
     // Add cooldown for pushing/extracting resources
     this.pushCooldown = 800; // Increased to 800ms - push/extract resources no more than every 0.8 seconds
@@ -200,6 +209,30 @@ export default class ResourceNode {
       //console.log*(`- Type: ${this.resourceType.id}`);
       //console.log*(`- Resources: ${this.resources}/${this.maxResources}`);
       //console.log*(`- Lifespan: ${this.lifespan}/${GAME_CONFIG.nodeLifespan}`);
+    }
+
+    // Check for upgrades periodically (every 2 seconds)
+    if (this.scene.time.now % 2000 < 20) {
+      this.updateFromUpgrades();
+    }
+  }
+
+  /**
+   * Updates properties based on current upgrade levels
+   */
+  updateFromUpgrades() {
+    if (!this.upgradeManager || !this.resourceTimer) return;
+
+    // Update resource generation speed
+    const regenModifier = this.upgradeManager.getResourceRegenModifier();
+    const newDelay = this.baseGenerationDelay / regenModifier;
+
+    if (this.resourceTimer.delay !== newDelay) {
+      // confirm it's valid
+      if (!isNaN(newDelay) && newDelay > 0) {
+        // console.log(`[ResourceNode] Updating gen delay from ${this.resourceTimer.delay} to ${newDelay} (Mod: ${regenModifier})`);
+        this.resourceTimer.delay = newDelay;
+      }
     }
   }
 

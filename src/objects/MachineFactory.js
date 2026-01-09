@@ -28,6 +28,9 @@ export default class MachineFactory {
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
+    this.numLogisticsSlots = 1; // Number of logistics slots
+    this.availableLogistics = []; // Array of currently available logistics machines
+    this.logisticsTypes = []; // Pool of logistics machine types
     // --- End Processor Selection State ---
 
     // Create visual representation
@@ -166,6 +169,11 @@ export default class MachineFactory {
       type.id.toLowerCase().includes('processor')
     );
 
+    // Filter for logistics machines
+    this.logisticsTypes = allMachineTypes.filter((type) =>
+      ['splitter', 'merger', 'underground-belt'].includes(type.id.toLowerCase())
+    );
+
     // Get the conveyor type
     this.conveyorMachineType = allMachineTypes.find((type) => type.id.toLowerCase() === 'conveyor');
 
@@ -178,6 +186,7 @@ export default class MachineFactory {
 
     // Initialize the available processors with random selections
     this.refreshAvailableProcessors();
+    this.refreshAvailableLogistics();
 
     console.log('MachineFactory: Initialization complete.');
     console.log(
@@ -197,6 +206,20 @@ export default class MachineFactory {
     for (let i = 0; i < this.numProcessorSlots; i++) {
       const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
       this.availableProcessors.push(this.processorTypes[randomIndex]);
+    }
+  }
+
+  // Populate logistics slots
+  refreshAvailableLogistics() {
+    if (this.logisticsTypes.length === 0) {
+      this.availableLogistics = [];
+      return;
+    }
+
+    this.availableLogistics = [];
+    for (let i = 0; i < this.numLogisticsSlots; i++) {
+      const randomIndex = Math.floor(Math.random() * this.logisticsTypes.length);
+      this.availableLogistics.push(this.logisticsTypes[randomIndex]);
     }
   }
 
@@ -224,6 +247,22 @@ export default class MachineFactory {
     );
   }
 
+  // Rotate logistics roster
+  rotateLogistics(removedSlotIndex) {
+    if (
+      this.logisticsTypes.length === 0 ||
+      removedSlotIndex < 0 ||
+      removedSlotIndex >= this.availableLogistics.length
+    ) {
+      return;
+    }
+
+    this.availableLogistics.splice(removedSlotIndex, 1);
+    const randomIndex = Math.floor(Math.random() * this.logisticsTypes.length);
+    const newLogistics = this.logisticsTypes[randomIndex];
+    this.availableLogistics.push(newLogistics);
+  }
+
   // Renamed and repurposed method
   createProcessorSelectionPanel() {
     // Ensure we have processor types before displaying
@@ -240,157 +279,114 @@ export default class MachineFactory {
     // Clear any existing preview in the container
     this.processorPreviewContainer.removeAll(true); // Destroy children
 
-    // --- Define positions for processors and conveyor ---
-    // Total items: 3 processors + 1 conveyor = 4 items
-    const totalItems = this.numProcessorSlots + 1; // 3 processors + 1 conveyor
-    const itemSpacing = 45; // Pixels between each item
+    // --- Define positions for processors, logistics, and conveyor ---
+    // Total items: 3 processors + 1 logistics + 1 conveyor = 5 items
+    const totalItems = this.numProcessorSlots + this.numLogisticsSlots + 1;
+    const itemSpacing = 50; // Slightly more spacing
     const totalWidth = (totalItems - 1) * itemSpacing;
-    const startX = -totalWidth / 2; // Center the items
+    const startX = -totalWidth / 2;
     // --- End Positions ---
 
     // --- Display Processors ---
+    let currentItemIndex = 0;
     for (let slotIndex = 0; slotIndex < this.numProcessorSlots; slotIndex++) {
       const machineType = this.availableProcessors[slotIndex];
-      const itemX = startX + slotIndex * itemSpacing;
+      const itemX = startX + currentItemIndex * itemSpacing;
       const itemY = 0;
+      currentItemIndex++;
 
-      if (!machineType) {
-        // Display placeholder if slot is empty
-        const emptyText = this.scene.add
-          .text(itemX, itemY, '?', { fontSize: 16, color: '#888888' })
-          .setOrigin(0.5);
-        this.processorPreviewContainer.add(emptyText);
-        continue;
-      }
-
-      // Create the machine preview sprite
-      let machinePreview;
-      try {
-        if (this.machineRegistry.hasMachineType(machineType.id)) {
-          machinePreview = this.machineRegistry.createMachinePreview(
-            machineType.id,
-            this.scene,
-            itemX,
-            itemY
-          );
-        } else {
-          machinePreview = this.createMachinePreview(machineType, itemX, itemY);
-        }
-      } catch (error) {
-        console.error(`Error creating processor preview for ${machineType.id}:`, error);
-        const errorText = this.scene.add
-          .text(itemX, itemY, 'Err', { fontSize: 8, color: '#ff0000' })
-          .setOrigin(0.5);
-        this.processorPreviewContainer.add(errorText);
-        continue;
-      }
-
-      if (machinePreview) {
-        this.processorPreviewContainer.add(machinePreview);
-        machinePreview.machineType = machineType;
-        machinePreview.slotIndex = slotIndex; // Store slot index for selection
-
-        // --- Processor Interactivity ---
-        const hitAreaSize = 50;
-        machinePreview.setInteractive(
-          new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
-          Phaser.Geom.Rectangle.Contains
-        );
-
-        machinePreview.on('pointerover', () => {
-          machinePreview.setScale(1.1);
-          this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
-        });
-
-        machinePreview.on('pointerout', () => {
-          machinePreview.setScale(1);
-          this.hideMachineTooltip();
-        });
-
-        // Click handler to select this specific processor
-        const capturedSlotIndex = slotIndex; // Capture for closure
-        machinePreview.on('pointerdown', (pointer) => {
-          pointer.event.stopPropagation();
-          this.selectProcessorFromSlot(capturedSlotIndex);
-        });
-        // --- End Processor Interactivity ---
-      }
+      this.addMachinePreviewToPanel(machineType, itemX, itemY, slotIndex, 'processor');
     }
-    // --- End Display Processors ---
 
-    // --- Display Conveyor (always last, on the right) ---
-    const conveyorX = startX + this.numProcessorSlots * itemSpacing;
+    // --- Display Logistics ---
+    for (let slotIndex = 0; slotIndex < this.numLogisticsSlots; slotIndex++) {
+      const machineType = this.availableLogistics[slotIndex];
+      const itemX = startX + currentItemIndex * itemSpacing;
+      const itemY = 0;
+      currentItemIndex++;
+
+      this.addMachinePreviewToPanel(machineType, itemX, itemY, slotIndex, 'logistics');
+    }
+
+    // --- Display Conveyor ---
+    const conveyorX = startX + currentItemIndex * itemSpacing;
     const conveyorY = 0;
-
     if (this.conveyorMachineType) {
-      let conveyorPreview;
-      try {
-        if (this.machineRegistry.hasMachineType(this.conveyorMachineType.id)) {
-          conveyorPreview = this.machineRegistry.createMachinePreview(
-            this.conveyorMachineType.id,
-            this.scene,
-            conveyorX,
-            conveyorY
-          );
-        } else {
-          conveyorPreview = this.createMachinePreview(
-            this.conveyorMachineType,
-            conveyorX,
-            conveyorY
-          );
-        }
-      } catch (error) {
-        console.error(`Error creating conveyor preview:`, error);
-        const errorText = this.scene.add
-          .text(conveyorX, conveyorY, 'C Err', { fontSize: 8, color: '#ff0000' })
-          .setOrigin(0.5);
-        this.processorPreviewContainer.add(errorText);
-        conveyorPreview = null;
-      }
-
-      if (conveyorPreview) {
-        this.processorPreviewContainer.add(conveyorPreview);
-        conveyorPreview.machineType = this.conveyorMachineType;
-        conveyorPreview.slotIndex = -1; // -1 indicates conveyor (unlimited)
-
-        // --- Conveyor Interactivity ---
-        const hitAreaSize = 50;
-        conveyorPreview.setInteractive(
-          new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
-          Phaser.Geom.Rectangle.Contains
-        );
-
-        conveyorPreview.on('pointerover', () => {
-          conveyorPreview.setScale(1.1);
-          this.showMachineTooltip(
-            this.conveyorMachineType,
-            this.x + conveyorX,
-            this.y + conveyorY + 40
-          );
-        });
-
-        conveyorPreview.on('pointerout', () => {
-          conveyorPreview.setScale(1);
-          this.hideMachineTooltip();
-        });
-
-        // Click handler to select conveyor (unlimited, no slot refresh)
-        conveyorPreview.on('pointerdown', (pointer) => {
-          pointer.event.stopPropagation();
-          console.log('Conveyor preview clicked');
-          this.lastSelectedSlotIndex = -1; // Mark as conveyor
-          this.selectMachineType(this.conveyorMachineType);
-        });
-        // --- End Conveyor Interactivity ---
-      }
-    } else {
-      // Placeholder if conveyor not found
-      const noConvText = this.scene.add
-        .text(conveyorX, conveyorY, 'No Conv', { fontSize: 8, color: '#888888' })
-        .setOrigin(0.5);
-      this.processorPreviewContainer.add(noConvText);
+      this.addMachinePreviewToPanel(this.conveyorMachineType, conveyorX, conveyorY, -1, 'conveyor');
     }
-    // --- End Display Conveyor ---
+  }
+
+  /**
+   * Helper to add a machine preview with a label and interactivity to the panel.
+   */
+  addMachinePreviewToPanel(machineType, itemX, itemY, slotIndex, category) {
+    if (!machineType) {
+      const emptyText = this.scene.add
+        .text(itemX, itemY, '?', { fontSize: 16, color: '#888888' })
+        .setOrigin(0.5);
+      this.processorPreviewContainer.add(emptyText);
+      return;
+    }
+
+    let machinePreview;
+    try {
+      if (this.machineRegistry.hasMachineType(machineType.id)) {
+        machinePreview = this.machineRegistry.createMachinePreview(
+          machineType.id,
+          this.scene,
+          itemX,
+          itemY
+        );
+      } else {
+        machinePreview = this.createMachinePreview(machineType, itemX, itemY);
+      }
+    } catch (error) {
+      console.error(`Error creating preview for ${machineType.id}:`, error);
+      const errorText = this.scene.add
+        .text(itemX, itemY, 'Err', { fontSize: 8, color: '#ff0000' })
+        .setOrigin(0.5);
+      this.processorPreviewContainer.add(errorText);
+      return;
+    }
+
+    if (machinePreview) {
+      this.processorPreviewContainer.add(machinePreview);
+      machinePreview.machineType = machineType;
+      machinePreview.slotIndex = slotIndex;
+      machinePreview.category = category;
+
+      // Interactivity
+      const hitAreaSize = 50;
+      machinePreview.setInteractive(
+        new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
+        Phaser.Geom.Rectangle.Contains
+      );
+
+      machinePreview.on('pointerover', () => {
+        machinePreview.setScale(1.1);
+        this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
+      });
+
+      machinePreview.on('pointerout', () => {
+        machinePreview.setScale(1);
+        this.hideMachineTooltip();
+      });
+
+      machinePreview.on('pointerdown', (pointer) => {
+        pointer.event.stopPropagation();
+        if (category === 'processor') {
+          this.lastSelectedSlotIndex = slotIndex;
+          this.lastSelectedCategory = 'processor';
+        } else if (category === 'logistics') {
+          this.lastSelectedSlotIndex = slotIndex;
+          this.lastSelectedCategory = 'logistics';
+        } else {
+          this.lastSelectedSlotIndex = -1;
+          this.lastSelectedCategory = 'conveyor';
+        }
+        this.selectMachineType(machineType);
+      });
+    }
   }
 
   // Select a processor from a specific slot
@@ -439,26 +435,15 @@ export default class MachineFactory {
     // Double check that the machine type has a proper shape
     if (!machineType.shape || !Array.isArray(machineType.shape)) {
       // Set appropriate default shapes based on machine type
-      switch (
-        machineType.id.toLowerCase() // Use lowercase for safety
-      ) {
-        /* case 'extractor':
-                    machineType.shape = [[1, 1], [1, 1]]; // 2x2 shape
-                    break; */
+      const id = machineType.id.toLowerCase();
+      switch (id) {
         case 'processor-a':
-          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === 'processor-a')
-            ?.shape || [
-            [1, 1],
-            [1, 0],
-            [1, 0],
-          ];
-          break;
         case 'processor-b':
-          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === 'processor-b')
-            ?.shape || [
-            [0, 1, 0],
-            [1, 1, 1],
-          ];
+        case 'splitter':
+        case 'merger':
+        case 'underground-belt':
+          console.log(`[MachineFactory] Selecting machine type: ${id}`);
+          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === id)?.shape;
           break;
         case 'advanced-processor':
           machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === 'advanced-processor')
@@ -600,17 +585,22 @@ export default class MachineFactory {
             // Play a placement sound
             this.scene.playSound('place');
 
-            // If a processor was placed (not conveyor), rotate the roster
-            if (
-              this.lastSelectedSlotIndex >= 0 &&
-              this.lastSelectedSlotIndex < this.numProcessorSlots
+            // If a processor or logistics was placed, rotate the roster
+            if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex >= 0) {
+              this.rotateProcessors(this.lastSelectedSlotIndex);
+              this.displayCurrentProcessorPreview();
+              this.clearSelection();
+            } else if (
+              this.lastSelectedCategory === 'logistics' &&
+              this.lastSelectedSlotIndex >= 0
             ) {
-              const slotToRotate = this.lastSelectedSlotIndex;
-              this.lastSelectedSlotIndex = -1; // Reset before rotation to ensure clean state
-              this.rotateProcessors(slotToRotate);
-              this.displayCurrentProcessorPreview(); // Update the display
-              this.clearSelection(); // Clear selection after placing a processor
+              this.rotateLogistics(this.lastSelectedSlotIndex);
+              this.displayCurrentProcessorPreview();
+              this.clearSelection();
             }
+            // Reset category and slot
+            this.lastSelectedCategory = null;
+            this.lastSelectedSlotIndex = -1;
             // Conveyor (lastSelectedSlotIndex === -1) stays selected for unlimited placement
           }
         } catch (_error) {

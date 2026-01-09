@@ -8,6 +8,9 @@ import ProcessorDMachine from './ProcessorDMachine';
 import ProcessorEMachine from './ProcessorEMachine';
 import AdvancedProcessor1Machine from './AdvancedProcessor1Machine';
 import AdvancedProcessor2Machine from './AdvancedProcessor2Machine';
+import SplitterMachine from './SplitterMachine';
+import MergerMachine from './MergerMachine';
+import UndergroundBeltMachine from './UndergroundBeltMachine';
 
 /**
  * Registry for all machine types
@@ -32,6 +35,9 @@ export default class MachineRegistry {
     this.registerMachineType('processor-e', ProcessorEMachine);
     this.registerMachineType('advanced-processor-1', AdvancedProcessor1Machine);
     this.registerMachineType('advanced-processor-2', AdvancedProcessor2Machine);
+    this.registerMachineType('splitter', SplitterMachine);
+    this.registerMachineType('merger', MergerMachine);
+    this.registerMachineType('underground-belt', UndergroundBeltMachine);
   }
 
   /**
@@ -190,14 +196,29 @@ export default class MachineRegistry {
       };
     } catch (error) {
       console.error(`Error getting config for machine type ${id}:`, error);
+
+      if (MachineConstructor && typeof MachineConstructor.getConfig === 'function') {
+        const config = MachineConstructor.getConfig();
+        console.log(
+          `[MachineRegistry] getMachineConfig(${id}) -> Using static getConfig() after instance creation failure:`,
+          config.id
+        );
+        return config;
+      }
+
+      console.log(`[MachineRegistry] getMachineConfig(${id}) -> Using fallback configuration`);
       // Return a minimal fallback config
       return {
-        id,
-        name: id.charAt(0).toUpperCase() + id.slice(1).replace('-', ' '),
-        shape: [[1]], // Default 1x1 shape
-        inputTypes: [],
-        outputTypes: [],
-        requiredInputs: {},
+        id: id,
+        name: id
+          .split('-')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' '),
+        description: 'Machine description',
+        shape: [[1]],
+        inputTypes: ['basic-resource'],
+        outputTypes: ['basic-resource'],
+        processingTime: 1000,
         direction: 'right',
       };
     }

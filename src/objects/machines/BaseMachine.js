@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import ConveyorMachine from './ConveyorMachine';
 import { processResource } from '../../utils/PurityUtils';
 
 // Unique colors for each machine type
@@ -13,6 +12,9 @@ const MACHINE_COLORS = {
   'advanced-processor-1': 0xaa44aa, // purple
   'advanced-processor-2': 0xfc039d, // pink
   conveyor: 0x888888, // gray
+  splitter: 0xaa88ff, // light purple
+  merger: 0xff88aa, // light pink
+  'underground-belt': 0x444444, // dark gray
   // Add more as needed
 };
 export { MACHINE_COLORS };
@@ -59,6 +61,12 @@ export default class BaseMachine {
     this.isProcessing = false;
     this.processingProgress = 0;
     this.isSelected = false;
+
+    // Harmonic Interference properties
+    this.isInterfered = false;
+    this.efficiency = 1.0;
+    this.lastInterferenceCheck = 0;
+    this.interferencePulseTimer = 0;
 
     // Initialize with base properties
     this.initBaseProperties();
@@ -765,6 +773,11 @@ export default class BaseMachine {
     // Create tooltip text with inventory info
     let tooltipContent = `${this.name} (${this.direction})`;
 
+    // Show Efficiency/Interference warning
+    if (this.efficiency !== undefined && this.efficiency < 1.0) {
+      tooltipContent += `\n⚠️ INTERFERENCE: Efficiency ${(this.efficiency * 100).toFixed(0)}%`;
+    }
+
     // Add processing status
     if (this.isProcessing) {
       const progressPercent = Math.floor((this.processingProgress / this.processingTime) * 100);
@@ -775,8 +788,8 @@ export default class BaseMachine {
       tooltipContent += '\nWaiting for resources';
     }
 
-    // Check if the machine is a ConveyorMachine
-    if (this instanceof ConveyorMachine) {
+    // Check if the machine is a Conveyor-like machine
+    if (this.itemsOnBelt) {
       tooltipContent += '\nItems on belt: ';
       if (this.itemsOnBelt && this.itemsOnBelt.length > 0) {
         const itemCounts = {};
@@ -881,6 +894,14 @@ export default class BaseMachine {
    * @param {number} delta - The time since the last update
    */
   update(time, delta) {
+    // Throttle interference checks (every 500ms)
+    if (time > (this.lastInterferenceCheck || 0) + 500) {
+      if (typeof this.checkInterference === 'function') {
+        this.checkInterference();
+      }
+      this.lastInterferenceCheck = time;
+    }
+
     // --- Standard Processing Logic ---
     if (this.isProcessing) {
       // Apply speed modifier if upgrade manager exists
@@ -891,6 +912,9 @@ export default class BaseMachine {
       ) {
         effectiveDelta = delta * this.scene.upgradeManager.getProcessorSpeedModifier();
       }
+
+      // Apply Harmonic Interference Efficiency
+      effectiveDelta *= this.efficiency !== undefined ? this.efficiency : 1.0;
 
       this.processingProgress += effectiveDelta; // Use potentially modified delta
 
@@ -1064,9 +1088,7 @@ export default class BaseMachine {
                 (this.inputInventory[typeToStore] || 0) + extractedItem.amount;
 
               console.log(
-                `[${this.id}] at (${this.gridX},${
-                  this.gridY
-                }) PULLED ${extractedItem.amount} ${typeToStore} (Node type: ${resourceTypeFromNode}) ` +
+                `[${this.id}] at (${this.gridX},${this.gridY}) PULLED ${extractedItem.amount} ${typeToStore} (Node type: ${resourceTypeFromNode}) ` +
                   `from ResourceNode at (${potentialNodeX},${potentialNodeY}) via partCell (${partCell.x},${partCell.y}). Input:`,
                 JSON.stringify(this.inputInventory)
               );
@@ -1422,12 +1444,50 @@ export default class BaseMachine {
     // Find the target machine/node using the (potentially overridden) findTargetForOutput method
     // Note: findTargetForOutput might be defined in the base class or overridden in a subclass
     const findTargetMethod = this.findTargetForOutput || this.findConnectedMachine; // Fallback to old method name if needed
-    if (!findTargetMethod || typeof findTargetMethod !== 'function') {
-      console.warn(`[${this.name}] No findTargetForOutput or findConnectedMachine method found.`);
-      return;
+
+    let targetInfo = null;
+    if (findTargetMethod && typeof findTargetMethod === 'function') {
+      targetInfo = findTargetMethod.call(this);
     }
 
-    const targetInfo = findTargetMethod.call(this);
+    // FALLBACK: If no specific target output found, scan all adjacent cells for a DeliveryNode
+    // This makes the game more forgiving if the player places a delivery point slightly off-axis
+    if (!targetInfo) {
+      // Define adjacent offsets
+      const offsets = [
+        { x: 1, y: 0 },
+        { x: -1, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: -1 },
+      ];
+
+      // Scan occupied cells
+      const occupied = this.getOccupiedCells();
+
+      for (const cell of occupied) {
+        for (const offset of offsets) {
+          const tx = cell.x + offset.x;
+          const ty = cell.y + offset.y;
+
+          // Check bounds
+          if (this.grid && tx >= 0 && tx < this.grid.width && ty >= 0 && ty < this.grid.height) {
+            const tCell = this.grid.getCell(tx, ty);
+            // If we find a delivery node and we are not overlapping it
+            if (tCell && tCell.type === 'delivery-node' && tCell.object) {
+              // found one!
+              targetInfo = {
+                type: 'delivery-node',
+                target: tCell.object,
+                outputFaceX: cell.x,
+                outputFaceY: cell.y,
+              };
+              break;
+            }
+          }
+        }
+        if (targetInfo) break;
+      }
+    }
     // MODIFIED LOG to avoid cyclic error:
     if (targetInfo) {
       console.log(
@@ -2691,5 +2751,111 @@ export default class BaseMachine {
     }
 
     return { inputPos, outputPos };
+  }
+
+  /**
+   * Check for Harmonic Interference from adjacent machines
+   * Machines placed directly adjacent (N/S/E/W) suffer processing penalty
+   * unless the neighbor is a Conveyor
+   */
+  checkInterference() {
+    if (!this.grid || !this.scene) return;
+
+    // Define cardinal directions
+    const directions = [
+      { x: 0, y: -1 }, // Up
+      { x: 0, y: 1 }, // Down
+      { x: -1, y: 0 }, // Left
+      { x: 1, y: 0 }, // Right
+    ];
+
+    let foundInterference = false;
+
+    // Conveyors themselves don't suffer from interference
+    if (this.id === 'conveyor') {
+      this.isInterfered = false;
+      this.efficiency = 1.0;
+      return;
+    }
+
+    // Iterate through cells occupied by THIS machine to check their neighbors
+    // This supports multi-tile machines
+    const myCells = this.getOccupiedCells
+      ? this.getOccupiedCells()
+      : [{ x: this.gridX, y: this.gridY }];
+
+    for (const cell of myCells) {
+      for (const dir of directions) {
+        const neighborX = cell.x + dir.x;
+        const neighborY = cell.y + dir.y;
+
+        // Check boundary
+        if (!this.grid.isInBounds(neighborX, neighborY)) continue;
+
+        // Don't check against my own cells
+        if (myCells.some((c) => c.x === neighborX && c.y === neighborY)) continue;
+
+        const neighborCell = this.grid.getCell(neighborX, neighborY);
+
+        // If there's a machine there
+        if (neighborCell && neighborCell.type === 'machine' && neighborCell.object) {
+          const neighborMachine = neighborCell.object;
+
+          // If the neighbor is a CONVEYOR, it does NOT cause interference
+          if (neighborMachine.id !== 'conveyor') {
+            // It's a non-conveyor machine -> INTERFERENCE!
+            foundInterference = true;
+            break;
+          }
+        }
+      }
+      if (foundInterference) break;
+    }
+
+    // Apply results
+    if (foundInterference) {
+      if (!this.isInterfered) {
+        // Just started interfering
+        this.isInterfered = true;
+        this.efficiency = 0.5; // 50% speed
+        // Trigger visual warning start
+        this.setInterferenceVisualState(true);
+      }
+    } else {
+      if (this.isInterfered) {
+        // Interference ended
+        this.isInterfered = false;
+        this.efficiency = 1.0;
+        // Clear visual warning
+        this.setInterferenceVisualState(false);
+      }
+    }
+  }
+
+  /**
+   * Updates visual state for interference (tinting/untinting)
+   * @param {boolean} active - Whether interference is active
+   */
+  setInterferenceVisualState(active) {
+    if (!this.container || !this.container.list) return;
+
+    // Use a red tint for interference
+    const interferenceColor = 0xff4444;
+
+    this.container.list.forEach((part) => {
+      // Targets standard parts, excluding specific UI elements
+      if (
+        part.type === 'Rectangle' &&
+        part !== this.progressBar &&
+        part !== this.progressFill &&
+        !part.isResourceIndicator
+      ) {
+        if (active) {
+          part.setTint(interferenceColor);
+        } else {
+          part.clearTint();
+        }
+      }
+    });
   }
 }

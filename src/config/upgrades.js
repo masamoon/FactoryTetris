@@ -87,7 +87,7 @@ export const upgradesConfig = {
     name: 'Quantum Splitter',
     description: 'Processors have a 20% chance to duplicate output.',
     rarity: 'epic',
-    effect: (game) => {
+    effect: (_game) => {
       // Hook into the BaseMachine's completeProcessing method
       // Apply monkeypatch at runtime to all processor machines
       const originalCompleteProcessing = BaseMachine.prototype.completeProcessing;
@@ -209,7 +209,7 @@ export const upgradesConfig = {
     name: 'Overflow Buffer',
     description: 'Output inventory can exceed its cap.',
     rarity: 'rare',
-    effect: (game) => {
+    effect: (_game) => {
       // Hook into the canProcess method to modify capacity check
       const originalCanProcess = BaseMachine.prototype.canProcess;
 

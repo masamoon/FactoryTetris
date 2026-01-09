@@ -1,3 +1,4 @@
+import Phaser from 'phaser';
 import { upgradesConfig, UPGRADE_TYPES, TIER_THRESHOLDS } from '../config/upgrades.js';
 
 export class UpgradeManager {

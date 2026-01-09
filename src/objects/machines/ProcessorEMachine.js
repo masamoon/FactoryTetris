@@ -1,5 +1,4 @@
 import BaseMachine from './BaseMachine';
-import { GAME_CONFIG } from '../../config/gameConfig';
 
 /**
  * Processor E Machine
