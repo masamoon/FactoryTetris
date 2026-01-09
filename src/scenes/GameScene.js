@@ -1111,25 +1111,9 @@ export default class GameScene extends Phaser.Scene {
           // Determine cell color based on position in the shape
           let cellColor = MACHINE_COLORS[machine.id] || 0x44ff44; // Unique color for this machine type
 
-          // Change color for input/output cells
-          if (machine.id === 'cargo-loader') {
-            // For cargo loader, all sides can be input
-            if (
-              x === 0 ||
-              x === rotatedShape[0].length - 1 ||
-              y === 0 ||
-              y === rotatedShape.length - 1
-            ) {
-              cellColor = 0x4aa8eb; // Brighter blue for input
-            }
-          } else if (direction !== 'none') {
-            // For normal processors
-            if (x === inputPos.x && y === inputPos.y) {
-              cellColor = 0x4aa8eb; // Brighter blue for input
-            } else if (x === outputPos.x && y === outputPos.y) {
-              cellColor = 0xffa520; // Brighter orange for output
-            }
-          }
+          // Change color for input/output cells - REMOVED to match placed machine style
+          // if (machine.id === 'cargo-loader') { ... } else if (direction !== 'none') { ... }
+          // Kept uniform color logic only
 
           // Draw the cell directly at its world position
           this.placementPreview.fillStyle(cellColor, canPlace ? 0.7 : 0.3);
@@ -1153,13 +1137,49 @@ export default class GameScene extends Phaser.Scene {
             this.placementPreview.strokeCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
           }
 
-          // If this is an output cell, draw 'OUT' text
+          // If this is an output cell, draw output arrow
           if (x === outputPos.x && y === outputPos.y) {
-            this.placementPreview.lineStyle(1, 0xffffff, 0.8);
-            this.placementPreview.fillStyle(0x000000, 0.5);
-            // *** MODIFIED: Use cell center position ***
-            this.placementPreview.fillCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
-            this.placementPreview.strokeCircle(cellWorldCenterPos.x, cellWorldCenterPos.y, 8);
+            const arrowSize = this.grid.cellSize * 0.3;
+            const cx = cellWorldCenterPos.x;
+            const cy = cellWorldCenterPos.y;
+
+            this.placementPreview.lineStyle(1, 0xffffff, 1);
+            this.placementPreview.fillStyle(0xffffff, 1);
+
+            this.placementPreview.beginPath();
+
+            // Draw arrow based on direction
+            switch (direction) {
+              case 'right':
+                this.placementPreview.moveTo(cx + arrowSize * 0.75, cy);
+                this.placementPreview.lineTo(cx - arrowSize * 0.75, cy - arrowSize * 0.7);
+                this.placementPreview.lineTo(cx - arrowSize * 0.75, cy + arrowSize * 0.7);
+                break;
+              case 'down':
+                this.placementPreview.moveTo(cx, cy + arrowSize * 0.75);
+                this.placementPreview.lineTo(cx + arrowSize * 0.7, cy - arrowSize * 0.75);
+                this.placementPreview.lineTo(cx - arrowSize * 0.7, cy - arrowSize * 0.75);
+                break;
+              case 'left':
+                this.placementPreview.moveTo(cx - arrowSize * 0.75, cy);
+                this.placementPreview.lineTo(cx + arrowSize * 0.75, cy + arrowSize * 0.7);
+                this.placementPreview.lineTo(cx + arrowSize * 0.75, cy - arrowSize * 0.7);
+                break;
+              case 'up':
+                this.placementPreview.moveTo(cx, cy - arrowSize * 0.75);
+                this.placementPreview.lineTo(cx - arrowSize * 0.7, cy + arrowSize * 0.75);
+                this.placementPreview.lineTo(cx + arrowSize * 0.7, cy + arrowSize * 0.75);
+                break;
+              default:
+                // Default right
+                this.placementPreview.moveTo(cx + arrowSize * 0.75, cy);
+                this.placementPreview.lineTo(cx - arrowSize * 0.75, cy - arrowSize * 0.7);
+                this.placementPreview.lineTo(cx - arrowSize * 0.75, cy + arrowSize * 0.7);
+            }
+
+            this.placementPreview.closePath();
+            this.placementPreview.fillPath();
+            this.placementPreview.strokePath();
           }
         }
       }

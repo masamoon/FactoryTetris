@@ -1,6 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_CONFIG } from '../../config/gameConfig';
-import { GRID_CONFIG } from '../../config/gameConfig';
 import ConveyorMachine from './ConveyorMachine';
 
 // Unique colors for each machine type
@@ -47,7 +45,7 @@ export default class BaseMachine {
       this.grid = config.grid;
       this.gridX = config.gridX !== undefined ? config.gridX : 0;
       this.gridY = config.gridY !== undefined ? config.gridY : 0;
-      this.rotation = config.rotation !== undefined ? config.rotation : 0;
+      this._rotation = config.rotation !== undefined ? config.rotation : 0; // Use backing field
 
       // Set direction based on rotation
       this.direction = config.direction || this.getDirectionFromRotation(this.rotation);
@@ -108,6 +106,24 @@ export default class BaseMachine {
       // Initialize keyboard controls
       this.initKeyboardControls();
     }
+  }
+
+  /**
+   * Get the rotation in degrees
+   */
+  get rotation() {
+    return this._rotation;
+  }
+
+  /**
+   * Set the rotation in degrees/radians
+   * Note: Visual rotation is handled by drawing the rotated shape directly,
+   * so we don't apply container.rotation. This value is stored for direction calculations.
+   */
+  set rotation(value) {
+    this._rotation = value;
+    // Note: We don't apply container.rotation because we draw the rotated shape directly
+    // The visual representation is updated by recreating visuals, not by rotating the container
   }
 
   /**
@@ -280,8 +296,9 @@ export default class BaseMachine {
       return;
     }
 
-    // Get the current direction and rotated shape
-    const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
+    // Get the actual rotated shape based on current direction
+    // We draw the ROTATED shape directly - NO container rotation needed
+    const currentDirection = this.direction || 'right';
     let rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
 
     if (
@@ -290,28 +307,18 @@ export default class BaseMachine {
       rotatedShape.length === 0 ||
       !Array.isArray(rotatedShape[0])
     ) {
-      console.error(
-        `[${this.id}] Failed to get valid rotated shape for direction ${currentDirection}. Using default [[1]].`
-      );
-      rotatedShape = [[1]];
+      console.error(`[${this.id}] Invalid rotated shape. Using original shape.`);
+      rotatedShape = this.shape || [[1]];
     }
+
     const shapeWidth = rotatedShape[0].length;
     const shapeHeight = rotatedShape.length;
 
-    // --- Enhanced Debugging for Rotation ---
-    console.log(`[${this.id}] ----- ROTATION DEBUG START -----`);
-    console.log(`Direction: ${currentDirection}`);
-    console.log(`Original shape: ${JSON.stringify(this.shape)}`);
-    console.log(`Rotated shape: ${JSON.stringify(rotatedShape)}`);
-    console.log(`Original input: ${JSON.stringify(this.inputCoord)}`);
-    console.log(`Original output: ${JSON.stringify(this.outputCoord)}`);
-    console.log(`Shape dimensions after rotation: ${shapeWidth}x${shapeHeight}`);
-
-    // --- Calculate Input/Output Coords ---
+    // --- Calculate Input/Output positions for the CURRENT direction ---
     let rotatedInputPos = null;
     let rotatedOutputPos = null;
 
-    // Use the single source of truth for I/O positions
+    // Use the single source of truth for I/O positions with the actual direction
     const ioPositions = this.constructor.getIOPositionsForDirection
       ? this.constructor.getIOPositionsForDirection(this.id, currentDirection)
       : BaseMachine.getIOPositionsForDirection(this.id, currentDirection);
@@ -319,12 +326,13 @@ export default class BaseMachine {
     rotatedInputPos = ioPositions.inputPos;
     rotatedOutputPos = ioPositions.outputPos;
 
-    // Log the rotation result for debugging
-    console.log(`Rotated input: ${JSON.stringify(rotatedInputPos)}`);
-    console.log(`Rotated output: ${JSON.stringify(rotatedOutputPos)}`);
-    console.log(`[${this.id}] ----- ROTATION DEBUG END -----`);
-
     // --- Container Setup ---
+    // Calculate visual center based on the rotated shape dimensions
+    const cellSize = this.grid.cellSize;
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+
+    // Position container at the VISUAL CENTER of the rotated shape
     const topLeftPos = this.grid.gridToWorldTopLeft(this.gridX, this.gridY);
     if (!topLeftPos) {
       console.error(
@@ -332,59 +340,53 @@ export default class BaseMachine {
       );
       return;
     }
-    this.container = this.scene.add.container(topLeftPos.x, topLeftPos.y);
+
+    // Set container position to the center point of the rotated shape
+    this.container = this.scene.add.container(
+      topLeftPos.x + visualCenterX,
+      topLeftPos.y + visualCenterY
+    );
+    // NO container rotation - we're drawing the rotated shape directly
+    // The rotation value is stored for other purposes but not applied to container visually
+    this._rotation = this.rotation; // Keep the rotation value but don't apply it visually
 
     // --- Draw Shape Parts ---
     this.inputSquare = null; // Reset references
     this.outputSquare = null;
-    const cellSize = this.grid.cellSize;
 
-    // Loop through each cell in the rotated shape
+    // Loop through each cell in the ROTATED shape
+    // All cells use the unique machine color for easy identification
+    const machineColor = MACHINE_COLORS[this.id] || 0x44ff44;
+
     for (let y = 0; y < shapeHeight; y++) {
       for (let x = 0; x < shapeWidth; x++) {
         if (rotatedShape[y][x] === 1) {
-          const partCenterX = x * cellSize + cellSize / 2;
-          const partCenterY = y * cellSize + cellSize / 2;
+          // Calculate part position relative to the CENTER (0,0 in container)
+          const partCenterX = x * cellSize + cellSize / 2 - visualCenterX;
+          const partCenterY = y * cellSize + cellSize / 2 - visualCenterY;
 
-          // Determine if this is an input or output cell using rotated positions
-          let partColor = MACHINE_COLORS[this.id] || 0x44ff44; // Unique color per machine type
+          // Determine if this is an input or output cell
           let isInput = false;
           let isOutput = false;
-          let cellType = 'body';
-          // Check if this is the input cell using rotated coordinates
+
+          // Check if this is the input cell
           if (rotatedInputPos && x === rotatedInputPos.x && y === rotatedInputPos.y) {
             if (rotatedShape[y][x] === 1) {
               isInput = true;
-              partColor = 0x4aa8eb; // Blue for input
-              cellType = 'input';
-            } else {
-              console.warn(
-                `[${this.id}] Input coordinates (${x},${y}) land on a 0 value in the shape! Keeping as normal cell.`
-              );
             }
           } else if (rotatedOutputPos && x === rotatedOutputPos.x && y === rotatedOutputPos.y) {
             if (rotatedShape[y][x] === 1) {
               isOutput = true;
-              partColor = 0xffa520; // Orange for output
-              cellType = 'output';
-            } else {
-              console.warn(
-                `[${this.id}] Output coordinates (${x},${y}) land on a 0 value in the shape! Keeping as normal cell.`
-              );
             }
           }
-          // Debug log for color and cell type
-          console.log(
-            `[${this.id}] Drawing cell (${x},${y}) as ${cellType} with color: ${partColor.toString(16)}`
-          );
 
-          // Create the cell rectangle
+          // Create the cell rectangle - all cells use the same unique machine color
           const part = this.scene.add.rectangle(
             partCenterX,
             partCenterY,
             cellSize - 4,
             cellSize - 4,
-            partColor
+            machineColor
           );
           part.setStrokeStyle(1, 0x333333);
           this.container.add(part);
@@ -392,30 +394,57 @@ export default class BaseMachine {
           // Store references to input and output squares
           if (isInput) {
             this.inputSquare = part;
-            console.log(
-              `[${this.id}] Set inputSquare at (${x},${y}) with color ${partColor.toString(16)}`
-            );
           }
           if (isOutput) {
             this.outputSquare = part;
-            console.log(
-              `[${this.id}] Set outputSquare at (${x},${y}) with color ${partColor.toString(16)}`
-            );
+
+            // Add output arrow indicator on the output cell
+            const arrowSize = cellSize * 0.3;
+            const outputArrow = this.scene.add
+              .triangle(
+                partCenterX,
+                partCenterY,
+                -arrowSize * 0.75,
+                -arrowSize * 0.7,
+                -arrowSize * 0.75,
+                arrowSize * 0.7,
+                arrowSize * 0.75,
+                0,
+                0xffffff
+              )
+              .setOrigin(0.5, 0.5);
+
+            // Rotate arrow based on output direction
+            switch (currentDirection) {
+              case 'right':
+                outputArrow.rotation = 0;
+                break;
+              case 'down':
+                outputArrow.rotation = Math.PI / 2;
+                break;
+              case 'left':
+                outputArrow.rotation = Math.PI;
+                break;
+              case 'up':
+                outputArrow.rotation = (3 * Math.PI) / 2;
+                break;
+            }
+
+            outputArrow.setDepth(1);
+            this.container.add(outputArrow);
+            this.outputArrow = outputArrow;
           }
         }
       }
     }
 
-    // --- Calculate Visual Center (relative to container 0,0) ---
-    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
-    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
-
     // --- Progress Bar ---
     // Position below the visual center
+    // Centered at 0,0 locally, offset by y
     this.progressBar = this.scene.add
       .rectangle(
-        visualCenterX,
-        visualCenterY + cellSize * 0.6,
+        0, // Center X
+        cellSize * 0.6, // Offset Y from center
         cellSize * shapeWidth * 0.8, // Adjust width based on shape width
         6,
         0x000000
@@ -439,19 +468,7 @@ export default class BaseMachine {
     this.progressBar.setVisible(false);
     this.progressFill.setVisible(false);
 
-    // --- Direction Indicator (Absolute Position) ---
-    if (this.direction !== 'none') {
-      const absoluteCenterX = this.container.x + visualCenterX;
-      const absoluteCenterY = this.container.y + visualCenterY;
-      const indicatorColor = 0xff9500;
-
-      this.directionIndicator = this.scene.add
-        .triangle(absoluteCenterX, absoluteCenterY, -4, -6, -4, 6, 8, 0, indicatorColor)
-        .setOrigin(0.5, 0.5);
-
-      this.updateDirectionIndicatorVisuals(); // Use helper to set rotation
-      this.directionIndicator.setDepth(this.container.depth + 10); // Ensure visibility
-    }
+    // --- Direction indicator removed - output arrow on output cell is sufficient ---
 
     // --- Common additions ---
     this.addPlacementAnimation();
@@ -462,15 +479,15 @@ export default class BaseMachine {
    * Add resource type indicators to the machine
    */
   addResourceTypeIndicators() {
-    // *** ADDED: Get rotated shape needed for calculations ***
-    const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
-    const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
+    // --- Use Standard Shape (Container rotates) ---
+    // const currentDirection = 'right';
+    const rotatedShape = this.shape;
+
     if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0) {
-      rotatedShape = [[1]]; // Fallback
+      return;
     }
 
     // Calculate width and height based on shape
-    // *** MODIFIED: Use rotatedShape ***
     const width = rotatedShape[0].length * this.grid.cellSize;
     const height = rotatedShape.length * this.grid.cellSize;
 
@@ -479,10 +496,12 @@ export default class BaseMachine {
     const halfHeight = height / 2;
 
     // Add a more prominent input indicator
+    // Add a more prominent input indicator
     if (this.inputTypes.length > 0) {
       // Determine input direction (opposite of output direction)
+      // Use 'right' as base direction since we are in local unrotated space
       let inputDirection = 'none';
-      switch (this.direction) {
+      switch ('right') {
         case 'right':
           inputDirection = 'left';
           break;
@@ -632,14 +651,13 @@ export default class BaseMachine {
     }
 
     // *** ADDED: Get rotated shape needed for calculations ***
-    const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
-    const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
+    // Use Standard Shape
+    const rotatedShape = this.shape;
     if (!rotatedShape || !Array.isArray(rotatedShape) || rotatedShape.length === 0) {
-      rotatedShape = [[1]]; // Fallback
+      return;
     }
 
     // Calculate the width and height of the machine in pixels
-    // *** MODIFIED: Use rotatedShape ***
     const width = rotatedShape[0].length * this.grid.cellSize;
     const height = rotatedShape.length * this.grid.cellSize;
 
@@ -653,20 +671,13 @@ export default class BaseMachine {
 
     // Add hover effect
     this.container.on('pointerover', () => {
-      // Highlight the machine
+      // Highlight the machine - brighten all cells uniformly
+      const machineColor = MACHINE_COLORS[this.id] || 0x44ff44;
+      const brightenedColor = this.brightenColor(machineColor, 40);
+
       this.container.list.forEach((part) => {
         if (part.type === 'Rectangle' && part !== this.progressBar && !part.isResourceIndicator) {
-          // Don't change color of input/output squares
-          if (part === this.inputSquare || part === this.outputSquare) {
-            // Just make them slightly brighter
-            if (part === this.inputSquare) {
-              part.fillColor = 0x55c4ff; // Even brighter blue for input hover
-            } else {
-              part.fillColor = 0xffb640; // Brighter orange for hover
-            }
-          } else {
-            part.fillColor = 0x55ff55; // Brighter green for hover
-          }
+          part.fillColor = brightenedColor;
         }
       });
 
@@ -675,17 +686,12 @@ export default class BaseMachine {
     });
 
     this.container.on('pointerout', () => {
-      // Remove highlight - restore to the same colors used in createVisuals (green scheme)
+      // Remove highlight - restore to unique machine color for all cells
+      const machineColor = MACHINE_COLORS[this.id] || 0x44ff44;
+
       this.container.list.forEach((part) => {
         if (part.type === 'Rectangle' && part !== this.progressBar && !part.isResourceIndicator) {
-          // Restore original colors (matching the green scheme from createVisuals)
-          if (part === this.inputSquare) {
-            part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-          } else if (part === this.outputSquare) {
-            part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-          } else {
-            part.fillColor = MACHINE_COLORS[this.id] || 0x44ff44; // Restore unique color
-          }
+          part.fillColor = machineColor;
         }
       });
 
@@ -694,10 +700,33 @@ export default class BaseMachine {
     });
 
     // Add click handler
-    this.container.on('pointerdown', () => {
-      // Show detailed info or controls
+    this.container.on('pointerdown', (pointer) => {
+      // Stop propagation to prevent placing a new machine immediately if one is selected
+      if (pointer.event) {
+        pointer.event.stopPropagation();
+      }
+
+      this.setSelected(true);
       this.showDetailedInfo();
     });
+  }
+
+  /**
+   * Helper to brighten a color by a percentage
+   * @param {number} color - Hex color value
+   * @param {number} percent - Brightness increase percentage (0-100)
+   * @returns {number} Brightened hex color
+   */
+  brightenColor(color, percent) {
+    const r = (color >> 16) & 0xff;
+    const g = (color >> 8) & 0xff;
+    const b = color & 0xff;
+
+    const brightenedR = Math.min(255, Math.floor(r + (255 - r) * (percent / 100)));
+    const brightenedG = Math.min(255, Math.floor(g + (255 - g) * (percent / 100)));
+    const brightenedB = Math.min(255, Math.floor(b + (255 - b) * (percent / 100)));
+
+    return (brightenedR << 16) | (brightenedG << 8) | brightenedB;
   }
 
   /**
@@ -1138,7 +1167,7 @@ export default class BaseMachine {
    * @param {object} item - The item to transfer
    * @returns {boolean} True if the transfer was successful
    */
-  transferItemToNextMachine(item) {
+  transferItemToNextMachine(_item) {
     // This would require grid and factory logic to find the next machine
     // Default implementation - subclasses or factory should handle this
     return false;
@@ -1846,7 +1875,7 @@ export default class BaseMachine {
    * @param {string} resourceType - The type of resource being transferred
    * @param {Machine} targetMachine - The machine receiving the resource
    */
-  createResourceTransferEffect(resourceType, targetMachine) {
+  createResourceTransferEffect(_resourceType, _targetMachine) {
     // Implementation will be similar to the original Machine class
     // This is a placeholder for now
   }
@@ -1854,35 +1883,6 @@ export default class BaseMachine {
   /**
    * Destroy the machine and clean up resources
    */
-  destroy() {
-    // Destroy the main container and its children
-    if (this.container) {
-      this.container.destroy();
-      this.container = null; // Nullify reference
-    }
-
-    // Destroy the direction indicator (added directly to scene)
-    if (this.directionIndicator) {
-      this.directionIndicator.destroy();
-      this.directionIndicator = null; // Nullify reference
-    }
-
-    // Destroy tooltip if it exists
-    if (this.tooltip) {
-      this.hideTooltip(); // Should handle destroying tooltip objects
-    }
-
-    // Destroy info panel if it exists
-    if (this.infoPanel) {
-      this.hideDetailedInfo(); // Should handle destroying info panel objects
-    }
-
-    // Remove ESC key listener to prevent memory leaks
-    if (this.escKey) {
-      this.escKey.off('down', this.handleEscKey, this);
-      this.escKey = null;
-    }
-  }
 
   /**
    * Get a preview sprite for the machine selection panel
@@ -1903,71 +1903,93 @@ export default class BaseMachine {
     const container = scene.add.container(x, y);
     const shape = options.shape || [[1]];
     const cellSize = 16; // Smaller size for preview
-    const shapeCenterX = (shape[0].length - 1) / 2;
-    const shapeCenterY = (shape.length - 1) / 2;
+    const shapeWidth = shape[0].length;
+    const shapeHeight = shape.length;
+    // Calculate visual center X (horizontal centering stays the same)
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    // For Y, use bottom-alignment so all pieces sit on the same baseline
+    // Instead of centering, align bottom edge at y=0, so pieces extend upward
+    // This means row (shapeHeight-1) should be at y=0, and earlier rows go negative
     const direction = options.direction || 'right';
     const machineId = options.machineId || 'unknown-machine';
 
     // Get input/output positions using the single source of truth
-    let inputPos, outputPos;
+    let outputPos;
 
     // Try to get positions from provided options first
     if (options.inputPos && options.outputPos) {
-      inputPos = options.inputPos;
+      // inputPos = options.inputPos;
       outputPos = options.outputPos;
     }
     // Then try direction-specific mapping
     else if (options.directionMap && options.directionMap[direction]) {
       const dirPositions = options.directionMap[direction];
-      inputPos = dirPositions.inputPos;
+      // inputPos = dirPositions.inputPos;
       outputPos = dirPositions.outputPos;
     }
     // Finally use the shared getIOPositionsForDirection method
     else {
       // Use either the class-specific method or the BaseMachine default
       const ioPositions = BaseMachine.getIOPositionsForDirection(machineId, direction);
-      inputPos = ioPositions.inputPos;
+      // inputPos = ioPositions.inputPos;
       outputPos = ioPositions.outputPos;
     }
 
     // --- Enhanced Debug for Preview ---
 
+    // All cells use the unique machine color
+    const machineColor = MACHINE_COLORS[machineId] || 0x44ff44;
+
     // Draw the machine shape
     for (let r = 0; r < shape.length; r++) {
       for (let c = 0; c < shape[r].length; c++) {
         if (shape[r][c] === 1) {
-          const partX = (c - shapeCenterX) * cellSize;
-          const partY = (r - shapeCenterY) * cellSize;
+          // Calculate part position relative to visual center (same as createVisuals)
+          const partX = c * cellSize + cellSize / 2 - visualCenterX;
+          // Bottom-align: last row at y=0, earlier rows go negative
+          const partY = (r - shapeHeight + 1) * cellSize + cellSize / 2;
 
-          // Determine cell color
-          //let color = 0x44ff44; // Default green
-          let color = MACHINE_COLORS[machineId] || 0x44ff44; // Unique color for this machine type
-          // Check for input/output cells directly (no rotation math)
-          if (c === inputPos.x && r === inputPos.y) {
-            // Verify this is a valid cell in the shape
-            if (shape[r][c] === 1) {
-              color = 0x4aa8eb; // Blue input
-              console.log(`[Preview] Colored cell (${c},${r}) BLUE for input`);
-            } else {
-              console.warn(
-                `[Preview] WARNING: Input coord (${c},${r}) lands on a 0 in the shape! Keeping green.`
-              );
-            }
-          } else if (c === outputPos.x && r === outputPos.y) {
-            // Verify this is a valid cell in the shape
-            if (shape[r][c] === 1) {
-              color = 0xffa520; // Orange output
-              console.log(`[Preview] Colored cell (${c},${r}) ORANGE for output`);
-            } else {
-              console.warn(
-                `[Preview] WARNING: Output coord (${c},${r}) lands on a 0 in the shape! Keeping green.`
-              );
-            }
-          }
-
-          const rect = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
+          // All cells use the unique machine color
+          const rect = scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, machineColor);
           rect.setStrokeStyle(1, 0x555555);
           container.add(rect);
+
+          // Add output arrow on output cell
+          if (c === outputPos.x && r === outputPos.y && shape[r][c] === 1) {
+            const arrowSize = cellSize * 0.3;
+            const outputArrow = scene.add
+              .triangle(
+                partX,
+                partY,
+                -arrowSize * 0.75,
+                -arrowSize * 0.7,
+                -arrowSize * 0.75,
+                arrowSize * 0.7,
+                arrowSize * 0.75,
+                0,
+                0xffffff
+              )
+              .setOrigin(0.5, 0.5);
+
+            // Rotate arrow based on direction
+            switch (direction) {
+              case 'right':
+                outputArrow.rotation = 0;
+                break;
+              case 'down':
+                outputArrow.rotation = Math.PI / 2;
+                break;
+              case 'left':
+                outputArrow.rotation = Math.PI;
+                break;
+              case 'up':
+                outputArrow.rotation = (3 * Math.PI) / 2;
+                break;
+            }
+
+            outputArrow.setDepth(1);
+            container.add(outputArrow);
+          }
         }
       }
     }
@@ -2010,25 +2032,21 @@ export default class BaseMachine {
     const coreColor = options.coreColor || 0x00ccff; // Default cyan
     const coreShape = options.coreShape || 'circle';
     const fontSize = options.fontSize || 14;
+    const cellSize = this.grid ? this.grid.cellSize : 32; // Get cell size from grid or use default
+
+    // We already positioned the container at the visual center.
+    // So all "Centered" elements should be at (0,0).
 
     // Get dimensions from the rotated shape
-    const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
-    const rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
-    if (
-      !rotatedShape ||
-      !Array.isArray(rotatedShape) ||
-      rotatedShape.length === 0 ||
-      !Array.isArray(rotatedShape[0])
-    ) {
-      console.error(`[${this.id}] Cannot get valid rotated shape. Aborting processor visuals.`);
-      return;
-    }
+    // ... (existing code unchanged for getting shape) ...
+    // Note: createProcessorVisuals recalculates visualCenter, but since we are now
+    // pivoting around the center, the center coordinates in the container are (0,0).
 
-    const shapeWidth = rotatedShape[0].length;
-    const shapeHeight = rotatedShape.length;
-    const cellSize = this.grid.cellSize;
-    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
-    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+    // We already positioned the container at the visual center.
+    // So all "Centered" elements should be at (0,0).
+
+    const visualCenterX = 0;
+    const visualCenterY = 0;
 
     // Add machine type label
     const machineLabel = this.scene.add
@@ -2079,6 +2097,13 @@ export default class BaseMachine {
     // Add ESC key handler to unselect the machine
     this.escKey = this.scene.input.keyboard.addKey('ESC');
     this.escKey.on('down', this.handleEscKey, this);
+
+    // Add DELETE/BACKSPACE handler to destroy the machine
+    this.deleteKey = this.scene.input.keyboard.addKey('DELETE');
+    this.deleteKey.on('down', this.handleDeleteKey, this);
+
+    this.backspaceKey = this.scene.input.keyboard.addKey('BACKSPACE');
+    this.backspaceKey.on('down', this.handleDeleteKey, this);
   }
 
   /**
@@ -2093,6 +2118,65 @@ export default class BaseMachine {
       if (this.scene.machineFactory) {
         this.scene.machineFactory.clearSelection();
       }
+    }
+  }
+
+  /**
+   * Handle DELETE/BACKSPACE key press
+   */
+  handleDeleteKey() {
+    if (this.isSelected) {
+      if (this.scene && this.scene.playSound) {
+        this.scene.playSound('destroy'); // Assuming sound exists
+      }
+      this.destroy();
+    }
+  }
+
+  /**
+   * Destroy the machine and cleanup
+   */
+  destroy() {
+    // Destroy tooltip if it exists
+    if (this.tooltip) {
+      this.hideTooltip();
+    }
+
+    // Destroy info panel if it exists
+    if (this.infoPanel) {
+      this.hideDetailedInfo();
+    }
+
+    // Remove from grid
+    if (this.grid) {
+      // Try removeMachineAt first (common pattern) or removeMachine
+      if (this.grid.removeMachineAt) {
+        this.grid.removeMachineAt(this.gridX, this.gridY);
+      } else if (this.grid.removeMachine) {
+        this.grid.removeMachine(this);
+      }
+    }
+
+    // Unregister inputs/keys
+    if (this.escKey) {
+      this.escKey.destroy();
+    }
+    if (this.deleteKey) {
+      this.deleteKey.destroy();
+    }
+    if (this.backspaceKey) {
+      this.backspaceKey.destroy();
+    }
+
+    // Destroy direction indicator (added directly to scene, not container)
+    if (this.directionIndicator) {
+      this.directionIndicator.destroy();
+      this.directionIndicator = null;
+    }
+
+    // Destroy container
+    if (this.container) {
+      this.container.destroy();
     }
   }
 
@@ -2152,7 +2236,7 @@ export default class BaseMachine {
     if (!shape) return;
 
     // Calculate the cell size
-    const cellSize = this.grid ? this.grid.cellSize : 32;
+    // const cellSize = this.grid ? this.grid.cellSize : 32;
 
     // Calculate center offsets based on shape dimensions
     const width = shape[0].length;
@@ -2223,7 +2307,7 @@ export default class BaseMachine {
    * @param {BaseMachine} [sourceMachine=null] - The machine sending the resource (optional).
    * @returns {boolean} True if the item was accepted, false otherwise.
    */
-  acceptItem(itemData, sourceMachine = null) {
+  acceptItem(itemData, _sourceMachine = null) {
     if (!itemData || !itemData.type) {
       console.warn(`[${this.name}] received invalid itemData at (${this.gridX}, ${this.gridY})`);
       return false;

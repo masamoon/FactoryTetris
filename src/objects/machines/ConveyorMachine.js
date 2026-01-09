@@ -1,8 +1,9 @@
+import Phaser from 'phaser';
 import BaseMachine from './BaseMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
 import { UPGRADE_PACKAGE_TYPE } from '../../config/upgrades.js'; // Import upgrade package type
-import ResourceNode from '../ResourceNode'; // Import ResourceNode
-import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
+// import ResourceNode from '../ResourceNode'; // Import ResourceNode
+// import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
 
 /**
  * Conveyor Belt Machine
@@ -204,48 +205,7 @@ export default class ConveyorMachine extends BaseMachine {
     this.container.add(roller2);
     console.log('[CONVEYOR] Created rollers with color:', roller1.fillColor.toString(16));
 
-    // Add direction indicator
-    // Get the absolute position of the machine in the world
-    const absoluteX = this.container.x;
-    const absoluteY = this.container.y;
-
-    // Create the direction indicator directly in the scene, not in the container
-    const indicatorColor = 0xff9500;
-
-    this.directionIndicator = this.scene.add
-      .triangle(
-        absoluteX, // Place exactly at machine center X
-        absoluteY, // Place exactly at machine center Y
-        -4,
-        -6, // left top
-        -4,
-        6, // left bottom
-        8,
-        0, // right point
-        indicatorColor
-      )
-      .setOrigin(0.5, 0.5);
-
-    // Rotate based on direction
-    switch (this.direction) {
-      case 'right':
-        this.directionIndicator.rotation = 0; // Point right (0 degrees)
-        break;
-      case 'down':
-        this.directionIndicator.rotation = Math.PI / 2; // Point down (90 degrees)
-        break;
-      case 'left':
-        this.directionIndicator.rotation = Math.PI; // Point left (180 degrees)
-        break;
-      case 'up':
-        this.directionIndicator.rotation = (3 * Math.PI) / 2; // Point up (270 degrees)
-        break;
-    }
-
-    // Set the depth to ensure it appears above the machine
-    this.directionIndicator.setDepth(this.container.depth + 1);
-
-    console.log(`Direction indicator created at absolute position (${absoluteX}, ${absoluteY})`);
+    // Direction indicator removed - belt animation already shows direction
 
     // Add machine type indicator
     const machineLabel = this.scene.add
@@ -456,7 +416,7 @@ export default class ConveyorMachine extends BaseMachine {
       this.lastExtractTime = now;
 
       console.log(
-        `[CONVEYOR_EXTRACT] Extracted item \'${extractedItem.type}\' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`
+        `[CONVEYOR_EXTRACT] Extracted item '${extractedItem.type}' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`
       );
 
       // --- ADD ITEM VISUAL LOGIC ---
@@ -847,7 +807,7 @@ export default class ConveyorMachine extends BaseMachine {
    * @param {BaseMachine} [sourceMachine=null] - The machine that sent the resource (optional)
    * @returns {boolean} True if the item was accepted, false otherwise.
    */
-  acceptItem(itemData, sourceMachine = null) {
+  acceptItem(itemData, _sourceMachine = null) {
     // --- Add Reason Logging ---
     if (!itemData || !itemData.type) {
       console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Invalid itemData.`);
@@ -946,7 +906,7 @@ export default class ConveyorMachine extends BaseMachine {
    * @param {string} direction - The direction ('right', 'down', 'left', 'up')
    * @returns {Object} An object with inputPos and outputPos coordinates
    */
-  static getIOPositionsForDirection(machineId, direction) {
+  static getIOPositionsForDirection(_machineId, _direction) {
     // Conveyors are simple - input and output are at the same position (flow is determined by direction)
     const pos = { x: 0, y: 0 }; // For 1x1 conveyor
     return { inputPos: pos, outputPos: pos };

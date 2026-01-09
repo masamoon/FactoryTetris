@@ -21,12 +21,14 @@ export default class MachineFactory {
     this.selectedMachineType = null;
     this.placementGhost = null;
 
-    // --- Processor Rotation State ---
+    // --- Processor Selection State ---
     this.processorTypes = [];
-    this.currentProcessorIndex = 0;
+    this.numProcessorSlots = 3; // Number of processor slots to display
+    this.availableProcessors = []; // Array of currently available processor types (one per slot)
+    this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
-    // --- End Processor Rotation State ---
+    // --- End Processor Selection State ---
 
     // Create visual representation
     this.createVisuals();
@@ -168,14 +170,58 @@ export default class MachineFactory {
     this.conveyorMachineType = allMachineTypes.find((type) => type.id.toLowerCase() === 'conveyor');
 
     if (this.processorTypes.length === 0) {
-      console.warn('MachineFactory: No processor types found for rotation panel.');
+      console.warn('MachineFactory: No processor types found for selection panel.');
     }
     if (!this.conveyorMachineType) {
       console.warn('MachineFactory: Conveyor machine type not found.');
     }
+
+    // Initialize the available processors with random selections
+    this.refreshAvailableProcessors();
+
     console.log('MachineFactory: Initialization complete.');
-    // console.log("Processors:", this.processorTypes.map(p => p.id));
-    // console.log("Conveyor:", this.conveyorMachineType?.id);
+    console.log(
+      'Available processors:',
+      this.availableProcessors.map((p) => p?.id)
+    );
+  }
+
+  // Populate all processor slots with random processors from the pool
+  refreshAvailableProcessors() {
+    if (this.processorTypes.length === 0) {
+      this.availableProcessors = [];
+      return;
+    }
+
+    this.availableProcessors = [];
+    for (let i = 0; i < this.numProcessorSlots; i++) {
+      const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
+      this.availableProcessors.push(this.processorTypes[randomIndex]);
+    }
+  }
+
+  // Rotate the processor list: remove the selected one, shift others, add new one at end
+  rotateProcessors(removedSlotIndex) {
+    if (
+      this.processorTypes.length === 0 ||
+      removedSlotIndex < 0 ||
+      removedSlotIndex >= this.availableProcessors.length
+    ) {
+      return;
+    }
+
+    // Remove the used processor
+    // distinct from just replacing it, we want the others to shift filling the gap
+    this.availableProcessors.splice(removedSlotIndex, 1);
+
+    // Add a new random processor to the end
+    const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
+    const newProcessor = this.processorTypes[randomIndex];
+    this.availableProcessors.push(newProcessor);
+
+    console.log(
+      `Rotated processors: removed index ${removedSlotIndex}, added ${newProcessor.id} at end`
+    );
   }
 
   // Renamed and repurposed method
@@ -189,102 +235,93 @@ export default class MachineFactory {
     this.displayCurrentProcessorPreview();
   }
 
-  // New method to display the currently selected processor preview
+  // Display all available processor previews and conveyor
   displayCurrentProcessorPreview() {
     // Clear any existing preview in the container
     this.processorPreviewContainer.removeAll(true); // Destroy children
 
-    // --- Define positions for processor and conveyor ---
-    // Place processor on the left, conveyor on the right using fixed pixel offsets
-    const previewSpacing = 30; // Pixels from center
-    const processorX = -previewSpacing; // Offset left
-    const processorY = 0;
-    const conveyorX = previewSpacing; // Offset right
-    const conveyorY = 0;
+    // --- Define positions for processors and conveyor ---
+    // Total items: 3 processors + 1 conveyor = 4 items
+    const totalItems = this.numProcessorSlots + 1; // 3 processors + 1 conveyor
+    const itemSpacing = 45; // Pixels between each item
+    const totalWidth = (totalItems - 1) * itemSpacing;
+    const startX = -totalWidth / 2; // Center the items
     // --- End Positions ---
 
-    // --- Display Processor ---
-    if (this.processorTypes.length > 0) {
-      // Get the current processor type based on the index
-      const machineType = this.processorTypes[this.currentProcessorIndex];
+    // --- Display Processors ---
+    for (let slotIndex = 0; slotIndex < this.numProcessorSlots; slotIndex++) {
+      const machineType = this.availableProcessors[slotIndex];
+      const itemX = startX + slotIndex * itemSpacing;
+      const itemY = 0;
+
       if (!machineType) {
-        console.error(`Processor type at index ${this.currentProcessorIndex} is undefined.`);
-        // Potentially display an error placeholder
-      } else {
-        // Create the machine preview sprite
-        let machinePreview;
-        try {
-          if (this.machineRegistry.hasMachineType(machineType.id)) {
-            console.log(
-              `[MachineFactory.displayCurrentProcessorPreview] Found ${machineType.id} in registry. Attempting machineRegistry.createMachinePreview.`
-            );
-            machinePreview = this.machineRegistry.createMachinePreview(
-              machineType.id,
-              this.scene,
-              processorX, // Use processor position
-              processorY
-            );
-          } else {
-            console.warn(
-              `[MachineFactory.displayCurrentProcessorPreview] Processor type ${machineType.id} NOT in registry. Using Factory's own createMachinePreview.`
-            );
-            machinePreview = this.createMachinePreview(machineType, processorX, processorY);
-          }
-        } catch (error) {
-          console.error(`Error creating processor preview for ${machineType.id}:`, error);
-          const errorText = this.scene.add
-            .text(processorX, processorY, 'P Err', { fontSize: 8, color: '#ff0000' })
-            .setOrigin(0.5);
-          this.processorPreviewContainer.add(errorText);
-          machinePreview = null; // Ensure it's null
-        }
-
-        if (machinePreview) {
-          this.processorPreviewContainer.add(machinePreview);
-          machinePreview.machineType = machineType;
-
-          // --- Processor Interactivity ---
-          const hitAreaSize = 60;
-          machinePreview.setInteractive(
-            new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
-            Phaser.Geom.Rectangle.Contains
-          );
-
-          machinePreview.on('pointerover', () => {
-            machinePreview.setScale(1.1);
-            this.showMachineTooltip(machineType, this.x + processorX, this.y + processorY + 40);
-          });
-
-          machinePreview.on('pointerout', () => {
-            machinePreview.setScale(1);
-            this.hideMachineTooltip();
-          });
-
-          // Click handler to select and rotate processor
-          machinePreview.on('pointerdown', (pointer) => {
-            pointer.event.stopPropagation();
-            this.selectAndRotateProcessor();
-          });
-          // --- End Processor Interactivity ---
-        } else {
-          // Optionally add error placeholder if creation failed and wasn't caught
-          console.error(`Failed to create processor preview for ${machineType.id}`);
-          const errorText = this.scene.add
-            .text(processorX, processorY, 'P Fail', { fontSize: 8, color: '#ff0000' })
-            .setOrigin(0.5);
-          this.processorPreviewContainer.add(errorText);
-        }
+        // Display placeholder if slot is empty
+        const emptyText = this.scene.add
+          .text(itemX, itemY, '?', { fontSize: 16, color: '#888888' })
+          .setOrigin(0.5);
+        this.processorPreviewContainer.add(emptyText);
+        continue;
       }
-    } else {
-      // Optionally display a placeholder if no processors are found
-      const noProcText = this.scene.add
-        .text(processorX, processorY, 'No Proc', { fontSize: 8, color: '#888888' })
-        .setOrigin(0.5);
-      this.processorPreviewContainer.add(noProcText);
-    }
-    // --- End Display Processor ---
 
-    // --- Display Conveyor ---
+      // Create the machine preview sprite
+      let machinePreview;
+      try {
+        if (this.machineRegistry.hasMachineType(machineType.id)) {
+          machinePreview = this.machineRegistry.createMachinePreview(
+            machineType.id,
+            this.scene,
+            itemX,
+            itemY
+          );
+        } else {
+          machinePreview = this.createMachinePreview(machineType, itemX, itemY);
+        }
+      } catch (error) {
+        console.error(`Error creating processor preview for ${machineType.id}:`, error);
+        const errorText = this.scene.add
+          .text(itemX, itemY, 'Err', { fontSize: 8, color: '#ff0000' })
+          .setOrigin(0.5);
+        this.processorPreviewContainer.add(errorText);
+        continue;
+      }
+
+      if (machinePreview) {
+        this.processorPreviewContainer.add(machinePreview);
+        machinePreview.machineType = machineType;
+        machinePreview.slotIndex = slotIndex; // Store slot index for selection
+
+        // --- Processor Interactivity ---
+        const hitAreaSize = 50;
+        machinePreview.setInteractive(
+          new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
+          Phaser.Geom.Rectangle.Contains
+        );
+
+        machinePreview.on('pointerover', () => {
+          machinePreview.setScale(1.1);
+          this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
+        });
+
+        machinePreview.on('pointerout', () => {
+          machinePreview.setScale(1);
+          this.hideMachineTooltip();
+        });
+
+        // Click handler to select this specific processor
+        const capturedSlotIndex = slotIndex; // Capture for closure
+        machinePreview.on('pointerdown', (pointer) => {
+          pointer.event.stopPropagation();
+          this.selectProcessorFromSlot(capturedSlotIndex);
+        });
+        // --- End Processor Interactivity ---
+      }
+    }
+    // --- End Display Processors ---
+
+    // --- Display Conveyor (always last, on the right) ---
+    const conveyorX = startX + this.numProcessorSlots * itemSpacing;
+    const conveyorY = 0;
+
     if (this.conveyorMachineType) {
       let conveyorPreview;
       try {
@@ -292,13 +329,10 @@ export default class MachineFactory {
           conveyorPreview = this.machineRegistry.createMachinePreview(
             this.conveyorMachineType.id,
             this.scene,
-            conveyorX, // Use conveyor position
+            conveyorX,
             conveyorY
           );
         } else {
-          console.warn(
-            `Conveyor type ${this.conveyorMachineType.id} not in registry, using fallback preview creation.`
-          );
           conveyorPreview = this.createMachinePreview(
             this.conveyorMachineType,
             conveyorX,
@@ -311,15 +345,16 @@ export default class MachineFactory {
           .text(conveyorX, conveyorY, 'C Err', { fontSize: 8, color: '#ff0000' })
           .setOrigin(0.5);
         this.processorPreviewContainer.add(errorText);
-        conveyorPreview = null; // Ensure it's null
+        conveyorPreview = null;
       }
 
       if (conveyorPreview) {
         this.processorPreviewContainer.add(conveyorPreview);
         conveyorPreview.machineType = this.conveyorMachineType;
+        conveyorPreview.slotIndex = -1; // -1 indicates conveyor (unlimited)
 
         // --- Conveyor Interactivity ---
-        const hitAreaSize = 60;
+        const hitAreaSize = 50;
         conveyorPreview.setInteractive(
           new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
           Phaser.Geom.Rectangle.Contains
@@ -339,22 +374,17 @@ export default class MachineFactory {
           this.hideMachineTooltip();
         });
 
-        // Click handler to select conveyor (no rotation)
+        // Click handler to select conveyor (unlimited, no slot refresh)
         conveyorPreview.on('pointerdown', (pointer) => {
           pointer.event.stopPropagation();
           console.log('Conveyor preview clicked');
+          this.lastSelectedSlotIndex = -1; // Mark as conveyor
           this.selectMachineType(this.conveyorMachineType);
         });
         // --- End Conveyor Interactivity ---
-      } else {
-        console.error(`Failed to create conveyor preview`);
-        const errorText = this.scene.add
-          .text(conveyorX, conveyorY, 'C Fail', { fontSize: 8, color: '#ff0000' })
-          .setOrigin(0.5);
-        this.processorPreviewContainer.add(errorText);
       }
     } else {
-      // Optionally display placeholder if conveyor not found
+      // Placeholder if conveyor not found
       const noConvText = this.scene.add
         .text(conveyorX, conveyorY, 'No Conv', { fontSize: 8, color: '#888888' })
         .setOrigin(0.5);
@@ -363,23 +393,26 @@ export default class MachineFactory {
     // --- End Display Conveyor ---
   }
 
-  // New method to handle selection and rotation
-  selectAndRotateProcessor() {
-    if (this.processorTypes.length === 0) return;
+  // Select a processor from a specific slot
+  selectProcessorFromSlot(slotIndex) {
+    if (slotIndex < 0 || slotIndex >= this.availableProcessors.length) {
+      console.warn(`Invalid slot index: ${slotIndex}`);
+      return;
+    }
 
-    // 1. Select the currently displayed machine type
-    const currentMachineType = this.processorTypes[this.currentProcessorIndex];
-    this.selectMachineType(currentMachineType); // Existing method handles ghost, etc.
+    const machineType = this.availableProcessors[slotIndex];
+    if (!machineType) {
+      console.warn(`No processor in slot ${slotIndex}`);
+      return;
+    }
 
-    // 2. Advance the index for the *next* display
-    this.currentProcessorIndex = (this.currentProcessorIndex + 1) % this.processorTypes.length;
+    // Track which slot was selected (for refresh after placement)
+    this.lastSelectedSlotIndex = slotIndex;
 
-    // 3. Update the preview display
-    this.displayCurrentProcessorPreview();
+    // Select the machine type
+    this.selectMachineType(machineType);
 
-    console.log(
-      `Selected ${currentMachineType.id}, next processor preview will be ${this.processorTypes[this.currentProcessorIndex].id}`
-    );
+    console.log(`Selected ${machineType.id} from slot ${slotIndex}`);
   }
 
   // Helper function to brighten a color
@@ -567,11 +600,20 @@ export default class MachineFactory {
             // Play a placement sound
             this.scene.playSound('place');
 
-            // We may NOT want to clear the selection to allow placing multiple machines
-            // Uncomment the next line to clear selection after placement
-            // this.clearSelection();
+            // If a processor was placed (not conveyor), rotate the roster
+            if (
+              this.lastSelectedSlotIndex >= 0 &&
+              this.lastSelectedSlotIndex < this.numProcessorSlots
+            ) {
+              const slotToRotate = this.lastSelectedSlotIndex;
+              this.lastSelectedSlotIndex = -1; // Reset before rotation to ensure clean state
+              this.rotateProcessors(slotToRotate);
+              this.displayCurrentProcessorPreview(); // Update the display
+              this.clearSelection(); // Clear selection after placing a processor
+            }
+            // Conveyor (lastSelectedSlotIndex === -1) stays selected for unlimited placement
           }
-        } catch (error) {
+        } catch (_error) {
           // Error during machine placement
         }
       }
@@ -661,39 +703,65 @@ export default class MachineFactory {
     const shape = machineType.shape || [[1]]; // Default to 1x1 if shape is missing
     const shapeWidth = shape[0]?.length || 1;
     const shapeHeight = shape.length || 1;
-    const shapeCenterX = (shapeWidth - 1) / 2;
-    const shapeCenterY = (shapeHeight - 1) / 2;
+    // Calculate visual center X (horizontal centering)
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    // For Y, use bottom-alignment so pieces don't need visualCenterY
     // --- End Default Shape Handling ---
 
     // Determine input and output positions based on direction (Use default 'right' for preview)
-    const direction = machineType.defaultDirection || 'right';
-    let inputPos = { x: -1, y: -1 };
-    let outputPos = { x: -1, y: -1 };
+    // Determine input and output positions based on direction (Use default 'right' for preview)
+    // const direction = machineType.defaultDirection || 'right';
+    // let inputPos = { x: -1, y: -1 };
+    // let outputPos = { x: -1, y: -1 };
 
     // Simplified input/output logic for preview based on common patterns
     // This might need to be generalized or rely on static properties if machines vary greatly
     // Or better yet, use the static getPreviewSprite from the machine class itself!
-    console.warn(
-      'Using generic createMachinePreview - prefer static getPreviewSprite on machine classes for accuracy.'
-    );
 
     // --- Generic Preview Drawing (Placeholder/Fallback) ---
-    // Draw each cell based on the shape using center-relative positioning
+    // All cells use the unique machine color
+    const machineColor = MACHINE_COLORS[machineType.id] || 0x44ff44;
+
+    // Draw each cell based on the shape using bottom-aligned positioning
     for (let y = 0; y < shapeHeight; y++) {
       for (let x = 0; x < shapeWidth; x++) {
         if (shape[y] && shape[y][x] === 1) {
-          const partX = (x - shapeCenterX) * cellSize;
-          const partY = (y - shapeCenterY) * cellSize;
-          // Use unique color for each machine type
-          let color = MACHINE_COLORS[machineType.id] || 0x44ff44;
-          // Input/output coloring
-          if (x === 0 && y === 0)
-            color = 0x4aa8eb; // Input
-          else if (x === shapeWidth - 1 && y === shapeHeight - 1) color = 0xffa520; // Output
-          console.log(`[PREVIEW] ${machineType.id} cell (${x},${y}) color: ${color.toString(16)}`);
-          const rect = this.scene.add.rectangle(partX, partY, cellSize - 2, cellSize - 2, color);
+          // Calculate part position: X centered, Y bottom-aligned
+          const partX = x * cellSize + cellSize / 2 - visualCenterX;
+          // Bottom-align: last row at y=0, earlier rows go negative
+          const partY = (y - shapeHeight + 1) * cellSize + cellSize / 2;
+
+          const rect = this.scene.add.rectangle(
+            partX,
+            partY,
+            cellSize - 2,
+            cellSize - 2,
+            machineColor
+          );
           rect.setStrokeStyle(1, 0x555555);
           container.add(rect);
+
+          // Add output arrow on the last cell (fallback output position)
+          if (x === shapeWidth - 1 && y === shapeHeight - 1) {
+            const arrowSize = cellSize * 0.3;
+            const outputArrow = this.scene.add
+              .triangle(
+                partX,
+                partY,
+                -arrowSize * 0.75,
+                -arrowSize * 0.7,
+                -arrowSize * 0.75,
+                arrowSize * 0.7,
+                arrowSize * 0.75,
+                0,
+                0xffffff
+              )
+              .setOrigin(0.5, 0.5);
+            // Default to pointing right for preview
+            outputArrow.rotation = 0;
+            outputArrow.setDepth(1);
+            container.add(outputArrow);
+          }
         }
       }
     }
@@ -710,10 +778,7 @@ export default class MachineFactory {
       .setOrigin(0.5);
     container.add(label);
 
-    // Add a simple direction indicator (pointing right by default for preview)
-    const indicator = this.createDirectionIndicator(0, 0, 'right');
-    container.add(indicator);
-
+    // Remove the old direction indicator (now using output arrow instead)
     return container;
   }
 
@@ -951,7 +1016,7 @@ export default class MachineFactory {
     this.tooltip.setDepth(1000);
 
     // Create tooltip background (make it slightly taller for better spacing)
-    const padding = 10;
+    // const padding = 10;
     const tooltipBg = this.scene.add.rectangle(
       0,
       0,
@@ -1096,7 +1161,7 @@ export default class MachineFactory {
    * @param {number} y - Y position for the machine
    * @returns {Phaser.GameObjects.Container} The created machine
    */
-  createMachineOfType(machineType, x, y) {
+  createMachineOfType(machineType, _x, _y) {
     console.warn('createMachineOfType is potentially redundant. Consider using createMachine.');
     // Create the machine using the registry/preview method - Needs review
     // This implementation seems wrong - it's creating another *preview* not a machine instance.
@@ -1191,7 +1256,7 @@ export default class MachineFactory {
       }
 
       return null;
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }
