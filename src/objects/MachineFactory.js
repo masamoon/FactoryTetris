@@ -28,7 +28,7 @@ export default class MachineFactory {
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
-    this.numLogisticsSlots = 1; // Number of logistics slots
+    this.numLogisticsSlots = 3; // Number of logistics slots (Splitter, Merger, Underground)
     this.availableLogistics = []; // Array of currently available logistics machines
     this.logisticsTypes = []; // Pool of logistics machine types
 
@@ -213,17 +213,15 @@ export default class MachineFactory {
   }
 
   // Populate logistics slots
+  // Populate logistics slots
   refreshAvailableLogistics() {
     if (this.logisticsTypes.length === 0) {
       this.availableLogistics = [];
       return;
     }
 
-    this.availableLogistics = [];
-    for (let i = 0; i < this.numLogisticsSlots; i++) {
-      const randomIndex = Math.floor(Math.random() * this.logisticsTypes.length);
-      this.availableLogistics.push(this.logisticsTypes[randomIndex]);
-    }
+    // Always include all logistics types in order
+    this.availableLogistics = [...this.logisticsTypes];
   }
 
   // Rotate the processor list: remove the selected one, shift others, add new one at end
@@ -251,19 +249,11 @@ export default class MachineFactory {
   }
 
   // Rotate logistics roster
-  rotateLogistics(removedSlotIndex) {
-    if (
-      this.logisticsTypes.length === 0 ||
-      removedSlotIndex < 0 ||
-      removedSlotIndex >= this.availableLogistics.length
-    ) {
-      return;
-    }
-
-    this.availableLogistics.splice(removedSlotIndex, 1);
-    const randomIndex = Math.floor(Math.random() * this.logisticsTypes.length);
-    const newLogistics = this.logisticsTypes[randomIndex];
-    this.availableLogistics.push(newLogistics);
+  // Rotate logistics roster - NOW DISABLED for static logistics
+  rotateLogistics(_removedSlotIndex) {
+    // Logistics items (belts, splitters, mergers, underground) do not rotate.
+    // They are always available.
+    return;
   }
 
   // Renamed and repurposed method
@@ -776,22 +766,24 @@ export default class MachineFactory {
             // Play a placement sound
             this.scene.playSound('place');
 
-            // If a processor or logistics was placed, rotate the roster
+            // If a processor or logistics was placed
             if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex >= 0) {
               this.rotateProcessors(this.lastSelectedSlotIndex);
               this.displayCurrentProcessorPreview();
               this.clearSelection();
+              // Reset category and slot for processors only (as they deselect)
+              this.lastSelectedCategory = null;
+              this.lastSelectedSlotIndex = -1;
             } else if (
               this.lastSelectedCategory === 'logistics' &&
               this.lastSelectedSlotIndex >= 0
             ) {
               this.rotateLogistics(this.lastSelectedSlotIndex);
               this.displayCurrentProcessorPreview();
-              this.clearSelection();
+              // DO NOT clear selection for logistics - keep them valid for next placement
+              // DO NOT reset lastSelectedCategory/Index so we know what slot we are on
             }
-            // Reset category and slot
-            this.lastSelectedCategory = null;
-            this.lastSelectedSlotIndex = -1;
+
             // Conveyor (lastSelectedSlotIndex === -1) stays selected for unlimited placement
           }
         } catch (_error) {

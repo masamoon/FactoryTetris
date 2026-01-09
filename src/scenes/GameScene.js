@@ -827,14 +827,16 @@ export default class GameScene extends Phaser.Scene {
                   console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
 
                   // Exclude advanced logistics from instant one-click deletion
-                  const isBasicConveyor =
-                    cell.object instanceof ConveyorMachine && cell.object.id === 'conveyor';
+                  const logisticsIds = ['conveyor', 'splitter', 'merger', 'underground-belt'];
+                  const isLogisticsItem =
+                    (cell.object instanceof BaseMachine || cell.object.machineType) &&
+                    logisticsIds.includes(cell.object.id);
 
-                  if (isBasicConveyor) {
+                  if (isLogisticsItem) {
                     console.log(
-                      '[POINTERDOWN] Basic conveyor detected! Calling deleteConveyorOnClick.'
+                      '[POINTERDOWN] Logistics item detected! Calling deleteLogisticsOnClick.'
                     );
-                    this.deleteConveyorOnClick(cell.object);
+                    this.deleteLogisticsOnClick(cell.object);
                     return; // Deletion handled, stop further processing for this click
                   } else {
                     console.log(
@@ -3515,37 +3517,37 @@ export default class GameScene extends Phaser.Scene {
     this.activeUpgradesText.setText(displayText);
   }
 
-  deleteConveyorOnClick(conveyor) {
-    if (this.paused || this.gameOver || !conveyor) return;
+  deleteLogisticsOnClick(machine) {
+    if (this.paused || this.gameOver || !machine) return;
 
-    console.log(`Attempting to delete conveyor at grid (${conveyor.gridX}, ${conveyor.gridY})`);
+    console.log(`Attempting to delete logistics item at grid (${machine.gridX}, ${machine.gridY})`);
 
-    // 1. Delete items on the belt
-    if (conveyor.itemsOnBelt && conveyor.itemsOnBelt.length > 0) {
-      console.log(`Deleting ${conveyor.itemsOnBelt.length} items from conveyor.`);
-      conveyor.itemsOnBelt.forEach((itemSprite) => {
+    // 1. Delete items on the belt (if applicable)
+    if (machine.itemsOnBelt && machine.itemsOnBelt.length > 0) {
+      console.log(`Deleting ${machine.itemsOnBelt.length} items from machine belt.`);
+      machine.itemsOnBelt.forEach((itemSprite) => {
         if (itemSprite && typeof itemSprite.destroy === 'function') {
           itemSprite.destroy();
         }
       });
-      conveyor.itemsOnBelt = []; // Clear the array
+      machine.itemsOnBelt = []; // Clear the array
     }
 
     // 2. Remove from the scene's machines array
-    const machineIndex = this.machines.indexOf(conveyor);
+    const machineIndex = this.machines.indexOf(machine);
     if (machineIndex > -1) {
       this.machines.splice(machineIndex, 1);
-      console.log('Removed conveyor from scene machines array.');
+      console.log('Removed machine from scene machines array.');
     }
 
     // 3. Remove from grid - Let the machine's destroy() handle this via grid.removeMachine
     // (This prevents double-call warnings in Grid objects)
-    console.log('Grid removal will be handled by conveyor.destroy() -> super.destroy()');
+    console.log('Grid removal will be handled by machine.destroy() -> super.destroy()');
 
-    // 4. Destroy the conveyor game object (container and its contents)
-    if (typeof conveyor.destroy === 'function') {
-      conveyor.destroy();
-      console.log('Destroyed conveyor game object.');
+    // 4. Destroy the game object (container and its contents)
+    if (typeof machine.destroy === 'function') {
+      machine.destroy();
+      console.log('Destroyed machine game object.');
     }
 
     // 5. Play a sound
