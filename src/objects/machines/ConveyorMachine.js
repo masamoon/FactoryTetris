@@ -1,7 +1,14 @@
 import Phaser from 'phaser';
 import BaseMachine from './BaseMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
-import { UPGRADE_PACKAGE_TYPE } from '../../config/upgrades.js'; // Import upgrade package type
+import { UPGRADE_PACKAGE_TYPE } from '../../config/upgrades.js';
+import {
+  getPurityColor,
+  getPurityScale,
+  shouldShowGlow,
+  getGlowIntensity,
+  shouldShowTrail,
+} from '../../utils/PurityUtils';
 // import ResourceNode from '../ResourceNode'; // Import ResourceNode
 // import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
 
@@ -222,6 +229,48 @@ export default class ConveyorMachine extends BaseMachine {
 
     // Add interactive features
     this.addInteractivity();
+
+    // --- ADDED: Particle Emitter for Trails ---
+    // Ensure particle texture exists
+    if (this.scene && !this.scene.textures.exists('white-particle')) {
+      const graphics = this.scene.make.graphics({ x: 0, y: 0, add: false });
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillCircle(4, 4, 4);
+      graphics.generateTexture('white-particle', 8, 8);
+    }
+
+    // Create emitter manager
+    try {
+      if (this.scene && this.scene.add.particles) {
+        const emitterConfig = {
+          x: 0,
+          y: 0,
+          speed: { min: 10, max: 30 },
+          angle: { min: 0, max: 360 },
+          scale: { start: 0.5, end: 0 },
+          alpha: { start: 0.6, end: 0 },
+          lifespan: 400,
+          blendMode: 'ADD',
+          frequency: -1, // Manual emission
+          quantity: 1,
+        };
+
+        this.particleManager = this.scene.add.particles(0, 0, 'white-particle', emitterConfig);
+        this.particleManager.setDepth(0); // Behind items
+
+        // Add directly to container? Particles might not follow validly if container rotates/scales weirdly,
+        // but for conveyor it should be fine.
+        this.container.add(this.particleManager);
+
+        if (this.particleManager.createEmitter) {
+          this.trailEmitter = this.particleManager.createEmitter(emitterConfig);
+        } else {
+          this.trailEmitter = this.particleManager;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not create particle emitter for conveyor:', e);
+    }
   }
 
   /**
@@ -495,7 +544,8 @@ export default class ConveyorMachine extends BaseMachine {
         return false;
       }
 
-      const visual = this.createItemVisual(itemData.type);
+      // Pass the full itemData to createItemVisual to support purity properties
+      const visual = this.createItemVisual(itemData);
       if (!visual) {
         console.error(`[CONVEYOR] Could not create visual for item type: ${itemData.type}`);
         return false; // Could not create visual
@@ -525,11 +575,23 @@ export default class ConveyorMachine extends BaseMachine {
   }
 
   /**
-   * Creates a visual GameObject for a given item type.
-   * @param {string} itemType
+   * Creates a visual GameObject for a given item type or data object.
+   * @param {string|object} itemInput - Item type string OR item data object
    * @returns {Phaser.GameObjects.GameObject | null}
    */
-  createItemVisual(itemType) {
+  createItemVisual(itemInput) {
+    // Determine type and data
+    let itemType = '';
+    let itemData = null;
+
+    if (typeof itemInput === 'string') {
+      itemType = itemInput;
+      itemData = { type: itemInput, amount: 1 };
+    } else if (itemInput && typeof itemInput === 'object') {
+      itemType = itemInput.type;
+      itemData = itemInput;
+    }
+
     // --- ADDED Safety Check ---
     if (!this.grid) {
       console.error(
@@ -551,8 +613,64 @@ export default class ConveyorMachine extends BaseMachine {
         // Fallback to square if sprite missing
         visual = this.scene.add.rectangle(0, 0, size, size, 0xff00ff); // Magenta fallback
       }
+    } else if (itemType === 'purity-resource') {
+      // --- PURITY RESOURCE VISUAL ---
+      const purity = itemData.purity || 1;
+      const color = getPurityColor(purity);
+      const scale = getPurityScale(purity);
+      const showGlow = shouldShowGlow(purity);
+
+      // Use a Container to handle complex visuals (layers, glow)
+      const container = this.scene.add.container(0, 0);
+
+      // Glow layer (behind)
+      if (showGlow) {
+        const glowIntensity = getGlowIntensity(purity);
+        const glowSize = size * 2.0 * scale;
+        const glow = this.scene.add.circle(0, 0, glowSize / 2, color, glowIntensity * 0.5);
+        // Add a tween for pulsing glow
+        this.scene.tweens.add({
+          targets: glow,
+          alpha: glowIntensity * 0.8,
+          scale: 1.2,
+          duration: 500 + Math.random() * 500,
+          yoyo: true,
+          repeat: -1,
+        });
+        container.add(glow);
+        container.glowShape = glow; // Reference for updates
+      }
+
+      // Main shape (diamond for purity resources to distinguish)
+      // Draw a rotated square (diamond)
+      const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, color);
+      diamond.rotation = Math.PI / 4;
+      diamond.setStrokeStyle(1.5, 0xffffff); // White border for 'pure' look
+
+      container.add(diamond);
+      container.mainShape = diamond; // Reference for updates
+
+      // Add numeric badge for high purity
+      if (purity > 1) {
+        // Small text badge
+        const badge = this.scene.add
+          .text(0, 0, `${purity}`, {
+            fontFamily: 'Arial',
+            fontSize: '10px',
+            fontStyle: 'bold',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5);
+        container.add(badge);
+      }
+
+      visual = container;
+      visual.isPurityVisual = true; // Flag for updates
+      visual.purityLevel = purity; // Store for reference
     } else {
-      // For resources, use colored squares based on type (get color from config?)
+      // For legacy resources, use colored squares based on type (get color from config?)
       const resourceConf = GAME_CONFIG.resourceTypes.find((rt) => rt.id === itemType);
       const color = resourceConf ? resourceConf.color : 0xaaaaaa; // Default grey
       visual = this.scene.add.rectangle(0, 0, size, size, color);
@@ -659,6 +777,31 @@ export default class ConveyorMachine extends BaseMachine {
       // Update visual position
       const newPos = this.getItemPosition(currentItem.progress);
       currentItem.visual.setPosition(newPos.x, newPos.y);
+
+      // --- VISUAL UPDATE FOR RAINBOW/GLOW EFFECTS & TRAILS ---
+      if (currentItem.visual.isPurityVisual && this.scene) {
+        const purity = currentItem.visual.purityLevel;
+
+        // Particle Trail
+        if (shouldShowTrail(purity) && this.trailEmitter) {
+          // Emit relative to item position.
+          // Note: trailEmitter is in local container space (0,0 is center of machine)
+          // item position is also in local container space.
+          // emitParticleAt(x, y) emits relative to the Emitter's position (which is 0,0 locally)
+          this.trailEmitter.emitParticleAt(currentItem.visual.x, currentItem.visual.y);
+        }
+
+        // Purity 6+ has rainbow effect (dynamic color)
+        if (purity >= 6) {
+          const newColor = getPurityColor(purity, this.scene.time.now);
+          if (currentItem.visual.mainShape) {
+            currentItem.visual.mainShape.fillColor = newColor;
+          }
+          if (currentItem.visual.glowShape) {
+            currentItem.visual.glowShape.fillColor = newColor;
+          }
+        }
+      }
 
       // If item reached the end this frame, attempt transfer
       if (currentItem.progress >= 1) {
@@ -858,9 +1001,15 @@ export default class ConveyorMachine extends BaseMachine {
    * @returns {boolean} True if the resource type is accepted, false otherwise.
    */
   canAcceptInput(resourceTypeId) {
+    // Check key constraints first
+    if (this.itemsOnBelt.length >= this.maxCapacity) return false;
+
+    // Check if start of belt is blocked
+    const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+    if (firstItemProgress < 0.1) return false;
+
+    if (resourceTypeId === 'purity-resource') return true;
     const acceptsType = this.inputTypes.includes(resourceTypeId);
-    // Log removed for brevity now, re-add if needed:
-    // console.log(`[DEBUG] Conveyor at (${this.gridX}, ${this.gridY}) checking canAcceptInput for type '${resourceTypeId}': Result=${acceptsType}`);
     return acceptsType;
   }
 

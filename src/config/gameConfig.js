@@ -29,6 +29,45 @@ export const GAME_CONFIG = {
     { id: 'mega-resource', name: 'Mega Resource', color: 0xff00ff, points: 300 },
   ],
 
+  // Purity system configuration
+  purityConfig: {
+    // Base points per purity level: purity 1 = 5, purity 2 = 15, etc.
+    basePoints: [5, 15, 40, 100, 250],
+    // For purity 6+: points = 250 * 2^(purity - 5)
+
+    // Colors for each purity level (index 0 = purity 1)
+    colors: [
+      0x8b4513, // Purity 1: Brown (Raw Ore)
+      0xcd853f, // Purity 2: Orange (Refined)
+      0xffd700, // Purity 3: Gold (Purified)
+      0xfffacd, // Purity 4: White Gold (Crystal)
+      0xffffff, // Purity 5: White (Prismatic)
+      // Purity 6+: Rainbow shimmer (handled dynamically)
+    ],
+
+    // Glow settings per purity level
+    glowStart: 4, // Purity level at which glow begins
+
+    // Scale multiplier per purity level: 0.85 + (purity - 1) * 0.05
+    baseScale: 0.85,
+    scaleIncrement: 0.05,
+
+    // Trail types per purity level
+    trailStart: 3, // Purity level at which trails begin
+
+    // Soft chain cap to prevent exploits
+    maxChain: 20,
+  },
+
+  // Chain multiplier configuration
+  chainConfig: {
+    // Multipliers for chain counts
+    multipliers: [1.0, 1.2, 1.5, 2.0, 3.0], // chain 1-5
+    // For chain 6+: 3.0 + (chain - 5) * 0.5
+    baseMultiplierAfter5: 3.0,
+    incrementAfter5: 0.5,
+  },
+
   // Resource nodes
   initialNodeCount: 3,
   nodeSpawnRate: 15000, // ms

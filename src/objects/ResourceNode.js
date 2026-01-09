@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
-import { UpgradeManager } from '../managers/UpgradeManager';
+import { _UpgradeManager } from '../managers/UpgradeManager';
+import { createPurityResource } from '../utils/PurityUtils';
 
 export default class ResourceNode {
   constructor(scene, config, round, upgradeManager) {
@@ -75,7 +76,7 @@ export default class ResourceNode {
 
   createVisuals() {
     // Create container for node parts
-    const cellSize = this.scene.factoryGrid.cellSize;
+    const _cellSize = this.scene.factoryGrid.cellSize;
     this.container = this.scene.add.container(this.x, this.y);
 
     // Set color based on resource type
@@ -244,8 +245,9 @@ export default class ResourceNode {
       // --- Priority 1: Push directly to adjacent Machine (non-conveyor) ---
       if (cell && cell.type === 'machine' && cell.machine && cell.machine.id !== 'conveyor') {
         const targetMachine = cell.machine;
-        if (targetMachine.canAcceptInput && targetMachine.canAcceptInput(this.resourceType.id)) {
-          const itemToPush = { type: this.resourceType.id, amount: 1 };
+        if (targetMachine.canAcceptInput && targetMachine.canAcceptInput('purity-resource')) {
+          // Create purity resource with initial purity 1
+          const itemToPush = createPurityResource(1);
           if (targetMachine.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
@@ -272,9 +274,10 @@ export default class ResourceNode {
         if (
           isPointingAway &&
           conveyor.canAcceptInput &&
-          conveyor.canAcceptInput(this.resourceType.id)
+          conveyor.canAcceptInput('purity-resource')
         ) {
-          const itemToPush = { type: this.resourceType.id, amount: 1 };
+          // Create purity resource with initial purity 1
+          const itemToPush = createPurityResource(1);
           if (conveyor.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
@@ -384,11 +387,10 @@ export default class ResourceNode {
         this.resourceIndicator.setText(this.resources.toString());
       }
 
-      // Return the resource object with potentially increased amount
-      return {
-        type: this.resourceType.id,
-        amount: amountExtracted,
-      };
+      // Return purity resource with initial purity 1
+      const purityResource = createPurityResource(1);
+      purityResource.amount = amountExtracted;
+      return purityResource;
     } else {
       //console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) attempt to extract failed, no resources.`);
       return null; // No resources available

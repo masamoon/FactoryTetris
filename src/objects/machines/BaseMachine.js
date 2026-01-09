@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import ConveyorMachine from './ConveyorMachine';
+import { processResource } from '../../utils/PurityUtils';
 
 // Unique colors for each machine type
 const MACHINE_COLORS = {
@@ -171,6 +172,10 @@ export default class BaseMachine {
         this.outputInventory[type] = 0;
       });
     }
+
+    // Initialize queues for preserving object data (purity/chain)
+    this.inputQueue = [];
+    this.outputQueue = [];
   }
 
   /**
@@ -797,6 +802,11 @@ export default class BaseMachine {
           const count = this.inputInventory[type] || 0;
           tooltipContent += `${type}(${count}) `;
         });
+
+        // Explicitly show purity-resource if present (as it acts as a wildcard)
+        if (this.inputInventory['purity-resource'] > 0) {
+          tooltipContent += `\nWildcard: purity-resource(${this.inputInventory['purity-resource']})`;
+        }
       }
 
       if (this.outputTypes && this.outputTypes.length > 0) {
@@ -1045,15 +1055,35 @@ export default class BaseMachine {
 
             if (
               extractedItem &&
-              extractedItem.type === resourceTypeFromNode &&
+              (extractedItem.type === resourceTypeFromNode ||
+                extractedItem.type === 'purity-resource') &&
               extractedItem.amount > 0
             ) {
-              this.inputInventory[resourceTypeFromNode] =
-                (this.inputInventory[resourceTypeFromNode] || 0) + extractedItem.amount;
+              const typeToStore = extractedItem.type;
+              this.inputInventory[typeToStore] =
+                (this.inputInventory[typeToStore] || 0) + extractedItem.amount;
+
               console.log(
-                `[${this.id}] at (${this.gridX},${this.gridY}) PULLED ${extractedItem.amount} ${resourceTypeFromNode} from ResourceNode at (${potentialNodeX},${potentialNodeY}) via partCell (${partCell.x},${partCell.y}). Input:`,
+                `[${this.id}] at (${this.gridX},${
+                  this.gridY
+                }) PULLED ${extractedItem.amount} ${typeToStore} (Node type: ${resourceTypeFromNode}) ` +
+                  `from ResourceNode at (${potentialNodeX},${potentialNodeY}) via partCell (${partCell.x},${partCell.y}). Input:`,
                 JSON.stringify(this.inputInventory)
               );
+
+              // Handle purity resource queueing for pulled items
+              if (typeToStore === 'purity-resource' && this.inputQueue) {
+                // Ensure the item has all required purity properties
+                // extractedItem should already be a valid purity object from extractResource
+                if (extractedItem.purity !== undefined) {
+                  this.inputQueue.push(extractedItem);
+                } else {
+                  console.warn(
+                    `[${this.id}] Pulled purity-resource without purity level!`,
+                    extractedItem
+                  );
+                }
+              }
 
               this.scene.tweens.add({
                 targets: this.container,
@@ -1192,9 +1222,21 @@ export default class BaseMachine {
 
     // 1. Check if enough inputs are available
     for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-      if ((this.inputInventory[resourceType] || 0) < amount) {
-        // console.log(`[${this.id}] canProcess: Not enough ${resourceType}. Need ${amount}, Have ${(this.inputInventory[resourceType] || 0)}`);
-        return false; // Not enough of this input resource
+      // Check for specific resource type
+      const specificAmount = this.inputInventory[resourceType] || 0;
+
+      // Check for generic purity-resource as substitute
+      const purityAmount = this.inputInventory['purity-resource'] || 0;
+
+      if (specificAmount + purityAmount < amount) {
+        // Detailed logging to debug why processing isn't starting
+        if (this.scene.time.now % 1000 < 20) {
+          // Throttle logs
+          console.log(
+            `[${this.id}] canProcess: Not enough ${resourceType}. Need ${amount}, Have Specific:${specificAmount} + Purity:${purityAmount}. Total: ${specificAmount + purityAmount}`
+          );
+        }
+        return false; // Not enough of this input resource (even with substitutions)
       }
     }
 
@@ -1231,11 +1273,35 @@ export default class BaseMachine {
     // Consume required inputs
     if (this.requiredInputs) {
       for (const type in this.requiredInputs) {
-        if (this.inputInventory[type] !== undefined) {
-          this.inputInventory[type] -= this.requiredInputs[type];
-        } else {
-          console.error(`[${this.id}] Input inventory missing required type: ${type}`);
-          // Should not happen if canProcess passed, but good to check
+        const requiredAmount = this.requiredInputs[type];
+        let remainingNeeded = requiredAmount;
+
+        // 1. Try to consume specific type first
+        if (this.inputInventory[type] && this.inputInventory[type] > 0) {
+          const consumeAmount = Math.min(this.inputInventory[type], remainingNeeded);
+          this.inputInventory[type] -= consumeAmount;
+          remainingNeeded -= consumeAmount;
+        }
+
+        // 2. Consume purity-resource for the rest
+        if (remainingNeeded > 0) {
+          if (
+            this.inputInventory['purity-resource'] &&
+            this.inputInventory['purity-resource'] >= remainingNeeded
+          ) {
+            this.inputInventory['purity-resource'] -= remainingNeeded;
+            remainingNeeded = 0;
+          } else {
+            // This shouldn't happen if canProcess passed, but as a fallback
+            console.error(
+              `[${this.id}] startProcessing: Inconsistency! Could not consume full amount for ${type}.`
+            );
+            // Force consume what we have of purity resource? Or just leave it broken?
+            // Let's consume what we have to be safe
+            if (this.inputInventory['purity-resource']) {
+              this.inputInventory['purity-resource'] = 0;
+            }
+          }
         }
       }
     }
@@ -1301,6 +1367,22 @@ export default class BaseMachine {
       `[${this.id}] Completed processing. Output: ${JSON.stringify(this.outputInventory)}`
     );
 
+    // Purity Logic: Process items from queue if available
+    if (this.inputQueue.length > 0) {
+      // Dequeue the input item that was processed
+      const processedItem = this.inputQueue.shift();
+
+      // Process it to increment purity and chain
+      const nextItem = processResource(processedItem, this.id);
+
+      // Add to output queue for transfer
+      this.outputQueue.push(nextItem);
+
+      console.log(
+        `[${this.id}] Processed purity item: Purity ${processedItem.purity} -> ${nextItem.purity}, Chain ${processedItem.chainCount} -> ${nextItem.chainCount}`
+      );
+    }
+
     // Immediately try to push the new output
     this.pushOutput();
   }
@@ -1360,19 +1442,32 @@ export default class BaseMachine {
       return;
     }
 
-    // Determine which resource type to try transferring (usually the first/only output type)
-    // TODO: Handle machines with multiple output types more intelligently?
-    if (!this.outputTypes || this.outputTypes.length === 0) {
-      return; // No output types defined
-    }
-    const resourceTypeToTransfer = this.outputTypes[0];
+    // Determine which resource type to try transferring
+    // PRIORITY: Check outputQueue for purity/specific items first
+    let resourceTypeToTransfer;
+    let usingQueuedItem = false;
 
-    // Check if we actually have this resource in output
-    if (
-      !this.outputInventory[resourceTypeToTransfer] ||
-      this.outputInventory[resourceTypeToTransfer] <= 0
-    ) {
-      return; // No resources of this type to transfer
+    if (this.outputQueue && this.outputQueue.length > 0) {
+      resourceTypeToTransfer = this.outputQueue[0].type;
+      usingQueuedItem = true;
+    } else {
+      // Fallback to legacy outputTypes
+      if (!this.outputTypes || this.outputTypes.length === 0) {
+        return; // No output types defined
+      }
+      resourceTypeToTransfer = this.outputTypes[0];
+    }
+
+    // Check if we actually have resources to transfer
+    // For queued items, existence in queue is enough validation (unless we want to verify inventory sync)
+    // For legacy items, check inventory
+    if (!usingQueuedItem) {
+      if (
+        !this.outputInventory[resourceTypeToTransfer] ||
+        this.outputInventory[resourceTypeToTransfer] <= 0
+      ) {
+        return; // No resources of this type to transfer
+      }
     }
 
     let transferred = false;
@@ -1383,19 +1478,39 @@ export default class BaseMachine {
       // Check if deliveryNode exists and has the correct method
       if (deliveryNode && typeof deliveryNode.acceptItem === 'function') {
         // Create the item object
-        const itemToDeliver = {
-          type: resourceTypeToTransfer,
-          // Add texture if needed, assuming a mapping or default
-          texture:
-            this.scene.registry.get('resourceTextures')?.[resourceTypeToTransfer] ||
-            'default-resource',
-        };
+        let itemToDeliver;
+        if (usingQueuedItem) {
+          itemToDeliver = this.outputQueue[0];
+        } else {
+          itemToDeliver = {
+            type: resourceTypeToTransfer,
+            texture:
+              this.scene.registry.get('resourceTextures')?.[resourceTypeToTransfer] ||
+              'default-resource',
+          };
+        }
 
         if (deliveryNode.acceptItem(itemToDeliver)) {
           // Renamed and passing item object
           transferred = true;
           // Pass the resource type for the effect, but target is the node object
           this.createResourceTransferEffect(resourceTypeToTransfer, deliveryNode);
+
+          if (usingQueuedItem) {
+            this.outputQueue.shift(); // Remove from queue
+            // Also decrement inventory if it matches a known output type to keep sync
+            if (this.outputTypes.includes(resourceTypeToTransfer)) {
+              if (this.outputInventory[resourceTypeToTransfer] > 0)
+                this.outputInventory[resourceTypeToTransfer]--;
+            } else if (this.outputTypes.length > 0) {
+              // If we sent a purity item but the machine 'thinks' it made a legacy item
+              const legacyType = this.outputTypes[0];
+              if (this.outputInventory[legacyType] > 0) this.outputInventory[legacyType]--;
+            }
+          } else {
+            this.outputInventory[resourceTypeToTransfer]--;
+          }
+          return; // Done
         } else {
           // console.warn(`[${this.name}] Delivery node rejected ${resourceTypeToTransfer}`);
         }
@@ -1485,7 +1600,16 @@ export default class BaseMachine {
             }
 
             // --- MODIFIED: Call acceptItem with item object ---
-            const itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
+            let itemToTransfer;
+
+            // Check if we have purity items in queue to transfer
+            if (usingQueuedItem) {
+              itemToTransfer = this.outputQueue[0]; // Peek (shift only on success)
+            } else {
+              // Standard legacy transfer
+              itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
+            }
+
             console.log(
               `[${this.id}] transferResources: Attempting to call acceptItem on ${targetMachine.id} with`,
               itemToTransfer
@@ -1497,6 +1621,22 @@ export default class BaseMachine {
                 `[${this.id}] transferResources: Successfully transferred ${resourceTypeToTransfer} to ${targetMachine.id}`
               );
               this.createResourceTransferEffect(resourceTypeToTransfer, targetMachine);
+
+              // Decrement/Shift logic
+              if (usingQueuedItem) {
+                this.outputQueue.shift(); // Remove from queue
+                // Also decrement inventory to maintain sync with legacy counters
+                if (this.outputTypes.includes(resourceTypeToTransfer)) {
+                  if (this.outputInventory[resourceTypeToTransfer] > 0)
+                    this.outputInventory[resourceTypeToTransfer]--;
+                } else if (this.outputTypes.length > 0) {
+                  // If we sent a purity item but the machine 'thinks' it made a legacy item
+                  const legacyType = this.outputTypes[0];
+                  if (this.outputInventory[legacyType] > 0) this.outputInventory[legacyType]--;
+                }
+              } else {
+                this.outputInventory[resourceTypeToTransfer]--;
+              }
             } else {
               console.warn(
                 `[${this.name}] Target machine ${targetMachine.name} acceptItem returned false for ${resourceTypeToTransfer}`
@@ -2285,6 +2425,22 @@ export default class BaseMachine {
    * @returns {boolean} True if the resource can be accepted, false otherwise.
    */
   canAcceptInput(resourceTypeId) {
+    // Check if handling purity-resource
+    if (resourceTypeId === 'purity-resource') {
+      // For purity resources, we accept them if the machine has generic inputs
+      // OR if it explicitly lists purity-resource
+      // For now, let's assume all processors accept it
+      if (this.inputTypes.length === 0 || this.inputTypes.includes('purity-resource')) {
+        // Check capacity (using queue length for purity items)
+        return this.inputQueue ? this.inputQueue.length < 5 : true;
+      }
+      // If machine expects specific named resources (like 'iron'), it might not accept generic purity-resource
+      // UNLESS we are converting everything to purity-resource.
+      // For the transition, let's allow it if the machine has ANY input types defined,
+      // effectively treating purity-resource as a wildcard for legacy machines.
+      return this.inputTypes.length > 0;
+    }
+
     // Check if this machine type accepts the resource
     if (!this.inputTypes.includes(resourceTypeId)) {
       return false;
@@ -2317,6 +2473,14 @@ export default class BaseMachine {
     // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
 
     if (this.canAcceptInput(itemType)) {
+      // Handle purity resource queueing
+      if (itemType === 'purity-resource' && this.inputQueue) {
+        this.inputQueue.push(itemData); // Store full object
+        console.log(
+          `[${this.name}] Enqueued purity-resource. Queue size: ${this.inputQueue.length}`
+        );
+      }
+
       // Ensure inventory slot exists (though initInventories should handle this)
       if (this.inputInventory[itemType] === undefined) {
         this.inputInventory[itemType] = 0;

@@ -1,6 +1,6 @@
-import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
-import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js'; // Import upgrade package type
+import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js';
+import { calculateDeliveryScore, getPurityName } from '../utils/PurityUtils';
 
 export default class DeliveryNode {
   constructor(scene, config) {
@@ -101,7 +101,26 @@ export default class DeliveryNode {
       return true; // Upgrade package accepted
     }
 
-    // --- Handle regular resources ---
+    // --- Handle purity resources ---
+    if (itemType === 'purity-resource') {
+      const purity = itemData.purity || 1;
+      const chainCount = itemData.chainCount || 1;
+      const totalPoints = calculateDeliveryScore(purity, chainCount);
+
+      // Add score
+      this.scene.addScore(totalPoints);
+
+      // Visual feedback for purity resource
+      const purityName = getPurityName(purity);
+      this.createPurityAcceptEffect(purity, chainCount, totalPoints, purityName);
+
+      console.log(
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${totalPoints} points`
+      );
+      return true;
+    }
+
+    // --- Handle regular resources (legacy) ---
     const resourceType = itemType;
 
     // Find the score for this resource type from the config
@@ -138,7 +157,11 @@ export default class DeliveryNode {
     if (itemType === UPGRADE_PACKAGE_TYPE) {
       return true;
     }
-    // Allow any resource type defined in the game config
+    // Allow purity resources (new system)
+    if (itemType === 'purity-resource') {
+      return true;
+    }
+    // Allow any resource type defined in the game config (legacy)
     if (GAME_CONFIG.resourceTypes.some((r) => r.id === itemType)) {
       return true;
     }
@@ -198,6 +221,115 @@ export default class DeliveryNode {
     particles.explode(10);
 
     // Optional: Brief flash of the node
+    this.scene.tweens.add({
+      targets: this.background,
+      fillAlpha: 0.5,
+      duration: 100,
+      yoyo: true,
+    });
+  }
+
+  /**
+   * Creates an enhanced visual effect for purity resources with chain info.
+   * @param {number} purity - The purity level of the resource.
+   * @param {number} chainCount - The chain count multiplier.
+   * @param {number} points - The total points awarded.
+   * @param {string} purityName - Display name for the purity level.
+   */
+  createPurityAcceptEffect(purity, chainCount, points, purityName) {
+    // Get color based on purity
+    const colors = [0x8b4513, 0xcd853f, 0xffd700, 0xfffacd, 0xffffff];
+    const color = purity <= colors.length ? colors[purity - 1] : 0xffffff;
+
+    // Main score popup
+    const scoreText = this.scene.add
+      .text(this.container.x, this.container.y - 15, `+${points}`, {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#ffd700',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    scoreText.setDepth(this.container.depth + 3);
+
+    // Chain multiplier text (if chain > 1)
+    if (chainCount > 1) {
+      const chainText = this.scene.add
+        .text(this.container.x + 30, this.container.y - 15, `x${chainCount}`, {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          fontWeight: 'bold',
+          color: '#ff6600',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+      chainText.setDepth(this.container.depth + 3);
+
+      // Animate chain text
+      this.scene.tweens.add({
+        targets: chainText,
+        y: this.container.y - 50,
+        alpha: 0,
+        scaleX: 1.5,
+        scaleY: 1.5,
+        duration: 1000,
+        ease: 'Power2',
+        onComplete: () => chainText.destroy(),
+      });
+    }
+
+    // Purity name text
+    const purityText = this.scene.add
+      .text(this.container.x, this.container.y + 5, purityName, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        color: `#${color.toString(16).padStart(6, '0')}`,
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    purityText.setDepth(this.container.depth + 3);
+
+    // Animate score text
+    this.scene.tweens.add({
+      targets: scoreText,
+      y: this.container.y - 45,
+      alpha: 0,
+      scaleX: 1.3,
+      scaleY: 1.3,
+      duration: 900,
+      ease: 'Power1',
+      onComplete: () => scoreText.destroy(),
+    });
+
+    // Animate purity text
+    this.scene.tweens.add({
+      targets: purityText,
+      y: this.container.y - 20,
+      alpha: 0,
+      duration: 700,
+      ease: 'Power1',
+      onComplete: () => purityText.destroy(),
+    });
+
+    // Particle burst effect with purity color
+    const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
+      color: [color],
+      colorEase: 'quad.out',
+      lifespan: 500,
+      speed: { min: 60, max: 120 },
+      scale: { start: 0.8 + purity * 0.1, end: 0 },
+      gravityY: 100,
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    particles.setDepth(this.container.depth + 1);
+    particles.explode(8 + purity * 2); // More particles for higher purity
+
+    // Brief flash
     this.scene.tweens.add({
       targets: this.background,
       fillAlpha: 0.5,
