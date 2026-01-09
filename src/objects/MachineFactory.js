@@ -31,6 +31,11 @@ export default class MachineFactory {
     this.numLogisticsSlots = 1; // Number of logistics slots
     this.availableLogistics = []; // Array of currently available logistics machines
     this.logisticsTypes = []; // Pool of logistics machine types
+
+    // --- Conveyor Drag State ---
+    this.isDraggingConveyor = false;
+    this.dragPath = []; // Array of {x, y} grid positions
+    this.lastDragGridPos = null;
     // --- End Processor Selection State ---
 
     // Create visual representation
@@ -42,14 +47,12 @@ export default class MachineFactory {
     // Create machine selection panel (now specifically for the rotating processor)
     this.createProcessorSelectionPanel(); // Renamed for clarity
 
-    // Listen for pointer down to place machine
-    this.scene.input.on(
-      'pointerdown',
-      (pointer) => {
-        this.handlePlaceMachine(pointer);
-      },
-      this
-    );
+    // Listen for pointer events for machine placement
+    this.scene.input.on('pointerdown', this.handlePointerDown, this);
+    this.scene.input.on('pointermove', this.handlePointerMove, this);
+    this.scene.input.on('pointerup', this.handlePointerUp, this);
+    // Also handle pointer up outside the canvas to cancel/finish drag
+    this.scene.input.on('gameout', this.handlePointerUp, this);
   }
 
   createVisuals() {
@@ -143,7 +146,7 @@ export default class MachineFactory {
     // Only update placement preview if the pointer is over the game area
     if (!this.isPointerOverUI(pointer) && pointer.worldX && pointer.worldY) {
       // Call updatePlacementPreview with the selected machine type
-      if (this.scene.updatePlacementPreview) {
+      if (this.scene.updatePlacementPreview && !this.isDraggingConveyor) {
         // Create a dummy machine object for the preview
         const previewMachine = {
           id: this.selectedMachineType.id,
@@ -523,6 +526,190 @@ export default class MachineFactory {
   }
 
   /**
+   * Handle pointer down event
+   * @param {Phaser.Input.Pointer} pointer
+   */
+  handlePointerDown(pointer) {
+    // If not a conveyor, use standard click placement
+    // Also, if it IS a conveyor but we want to allow single clicks, we can start the drag here.
+
+    // Check basic validity first
+    if (!this.selectedMachineType) return;
+    if (this.isPointerOverUI(pointer)) return;
+
+    // Check if it's a conveyor
+    if (this.selectedMachineType.id === 'conveyor') {
+      this.isDraggingConveyor = true;
+      this.dragPath = [];
+      this.lastDragGridPos = null;
+
+      // Add the initial point
+      if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
+        const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+        if (gridPos) {
+          this.dragPath.push(gridPos);
+          this.lastDragGridPos = gridPos;
+          // Update preview immediately
+          this.updateDragPreview();
+        }
+      }
+    } else {
+      // Standard placement for other machines
+      this.handlePlaceMachine(pointer);
+    }
+  }
+
+  /**
+   * Handle pointer move event
+   * @param {Phaser.Input.Pointer} pointer
+   */
+  handlePointerMove(pointer) {
+    if (!this.isDraggingConveyor) return;
+
+    if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
+      const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+
+      if (gridPos) {
+        // If this is a new cell
+        if (
+          !this.lastDragGridPos ||
+          gridPos.x !== this.lastDragGridPos.x ||
+          gridPos.y !== this.lastDragGridPos.y
+        ) {
+          // Interpolate if we moved more than 1 cell to fill gaps
+          if (this.lastDragGridPos) {
+            const dx = gridPos.x - this.lastDragGridPos.x;
+            const dy = gridPos.y - this.lastDragGridPos.y;
+            const steps = Math.max(Math.abs(dx), Math.abs(dy));
+
+            // Add intermediate points
+            for (let i = 1; i <= steps; i++) {
+              const t = i / steps;
+              const ix = Math.round(this.lastDragGridPos.x + dx * t);
+              const iy = Math.round(this.lastDragGridPos.y + dy * t);
+
+              // Avoid adding duplicates (though the logic above mostly handles it, rounding might cause overlap with last point)
+              const lastP = this.dragPath[this.dragPath.length - 1];
+              if (!lastP || lastP.x !== ix || lastP.y !== iy) {
+                this.dragPath.push({ x: ix, y: iy });
+              }
+            }
+          } else {
+            this.dragPath.push(gridPos);
+          }
+
+          this.lastDragGridPos = gridPos;
+          this.updateDragPreview();
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle pointer up event
+   * @param {Phaser.Input.Pointer} _pointer
+   */
+  handlePointerUp(_pointer) {
+    if (!this.isDraggingConveyor) return;
+
+    this.isDraggingConveyor = false;
+
+    // Execute placement for the path
+    if (this.dragPath.length > 0) {
+      this.placeConveyorPath();
+    }
+
+    // Clear path
+    this.dragPath = [];
+    this.lastDragGridPos = null;
+
+    // Clear the custom preview
+    this.scene.clearPlacementPreview();
+
+    // If we still have the conveyor selected (which we should),
+    // the update loop might try to show a single preview again.
+    // That's fine.
+  }
+
+  updateDragPreview() {
+    // We need a special preview function in GameScene for paths
+    if (this.scene.updateConveyorPathPreview) {
+      this.scene.updateConveyorPathPreview(this.dragPath, this.selectedMachineType);
+    }
+  }
+
+  placeConveyorPath() {
+    // Iterate through the path and place conveyors
+    // We need to determine direction for each.
+    // A conveyor at index i should point to i+1.
+    // The last conveyor should point in the direction of the drag (or default).
+
+    for (let i = 0; i < this.dragPath.length; i++) {
+      const currentPos = this.dragPath[i];
+      let direction = 'right'; // Default
+
+      // Determine direction
+      if (i < this.dragPath.length - 1) {
+        const nextPos = this.dragPath[i + 1];
+        if (nextPos.x > currentPos.x) direction = 'right';
+        else if (nextPos.x < currentPos.x) direction = 'left';
+        else if (nextPos.y > currentPos.y) direction = 'down';
+        else if (nextPos.y < currentPos.y) direction = 'up';
+      } else {
+        // Last one.
+        // If there was a previous one, continue that direction?
+        // Or if we have a "current drag direction" from the last move?
+        if (i > 0) {
+          const prevPos = this.dragPath[i - 1];
+          if (currentPos.x > prevPos.x) direction = 'right';
+          else if (currentPos.x < prevPos.x) direction = 'left';
+          else if (currentPos.y > prevPos.y) direction = 'down';
+          else if (currentPos.y < prevPos.y) direction = 'up';
+        } else {
+          // Single point (click placement) - respect current rotation
+          if (this.selectedMachineType && this.selectedMachineType.direction) {
+            direction = this.selectedMachineType.direction;
+          }
+        }
+      }
+
+      // Check if valid
+      const canPlace = this.scene.factoryGrid.canPlaceMachine(
+        this.selectedMachineType,
+        currentPos.x,
+        currentPos.y,
+        direction
+      );
+
+      if (canPlace) {
+        this.scene.placeMachine(
+          this.selectedMachineType,
+          currentPos.x,
+          currentPos.y,
+          this.getRotationFromDirection(direction) // Helper needed? or placeMachine takes dir?
+          // placeMachine takes rotation in radians usually, let's check
+        );
+        this.scene.playSound('place');
+      }
+    }
+  }
+
+  getRotationFromDirection(direction) {
+    switch (direction) {
+      case 'right':
+        return 0;
+      case 'down':
+        return Math.PI / 2;
+      case 'left':
+        return Math.PI;
+      case 'up':
+        return (3 * Math.PI) / 2;
+      default:
+        return 0;
+    }
+  }
+
+  /**
    * Handle placing a machine at the pointer's current position
    * @param {Phaser.Input.Pointer} pointer - The pointer to use for placement
    */
@@ -530,6 +717,10 @@ export default class MachineFactory {
     console.log(
       `[Factory.handlePlaceMachine] Called. Selected: ${this.selectedMachineType ? this.selectedMachineType.id : 'None'}`
     ); // LOG H1
+
+    // Only proceed if NOT dragging conveyor (redundant check but safe)
+    if (this.isDraggingConveyor) return;
+
     // Check if we have a selected machine type
     if (!this.selectedMachineType) {
       return;

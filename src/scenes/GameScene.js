@@ -1296,6 +1296,110 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  // Alias for consistency
+  clearPlacementPreview() {
+    this.removePlacementPreview();
+  }
+
+  updateConveyorPathPreview(path, machineType) {
+    if (!this.placementPreview) {
+      this.placementPreview = this.add.graphics();
+    }
+
+    this.placementPreview.clear();
+
+    if (!path || path.length === 0) return;
+
+    // Determine direction for each segment
+    for (let i = 0; i < path.length; i++) {
+      const currentPos = path[i];
+      let direction = 'right'; // Default
+      let rotation = 0;
+
+      // logic to determine direction (same as in MachineFactory, but for visual)
+      if (i < path.length - 1) {
+        const nextPos = path[i + 1];
+        if (nextPos.x > currentPos.x) direction = 'right';
+        else if (nextPos.x < currentPos.x) direction = 'left';
+        else if (nextPos.y > currentPos.y) direction = 'down';
+        else if (nextPos.y < currentPos.y) direction = 'up';
+      } else {
+        // Last one
+        if (i > 0) {
+          const prevPos = path[i - 1];
+          if (currentPos.x > prevPos.x) direction = 'right';
+          else if (currentPos.x < prevPos.x) direction = 'left';
+          else if (currentPos.y > prevPos.y) direction = 'down';
+          else if (currentPos.y < prevPos.y) direction = 'up';
+        } else {
+          // Single point - use machine direction
+          if (machineType && machineType.direction) {
+            direction = machineType.direction;
+          }
+        }
+      }
+
+      // Get rotation from direction
+      switch (direction) {
+        case 'right':
+          rotation = 0;
+          break;
+        case 'down':
+          rotation = 90;
+          break;
+        case 'left':
+          rotation = 180;
+          break;
+        case 'up':
+          rotation = 270;
+          break;
+      }
+
+      // Get world pos
+      const worldPos = this.grid.gridToWorld(currentPos.x, currentPos.y);
+
+      // Draw the ghost
+      // Check if we can place here
+      const canPlace = this.grid.canPlaceMachine(
+        machineType,
+        currentPos.x,
+        currentPos.y,
+        direction
+      );
+
+      const color = canPlace ? 0x00ff00 : 0xff0000;
+      const alpha = 0.5;
+
+      this.placementPreview.fillStyle(color, alpha);
+      const cellSize = this.grid.cellSize;
+
+      // Draw rect
+      this.placementPreview.fillRect(
+        worldPos.x - cellSize / 2,
+        worldPos.y - cellSize / 2,
+        cellSize,
+        cellSize
+      );
+
+      // Draw direction indicator (simple triangle)
+      this.placementPreview.fillStyle(0xffffff, 0.8);
+
+      // const arrowSize = cellSize * 0.3; // Unused
+      let angleRad = Phaser.Math.DegToRad(rotation);
+
+      const tipX = worldPos.x + Math.cos(angleRad) * (cellSize / 3);
+      const tipY = worldPos.y + Math.sin(angleRad) * (cellSize / 3);
+
+      const leftX = worldPos.x + Math.cos(angleRad + 2.6) * (cellSize / 3);
+      const leftY = worldPos.y + Math.sin(angleRad + 2.6) * (cellSize / 3);
+
+      const rightX = worldPos.x + Math.cos(angleRad - 2.6) * (cellSize / 3);
+      const rightY = worldPos.y + Math.sin(angleRad - 2.6) * (cellSize / 3);
+
+      this.placementPreview.fillTriangle(tipX, tipY, leftX, leftY, rightX, rightY);
+    }
+  }
+
   createInitialResourceNodes() {
     // Ensure resourceNodes is initialized
     if (!this.resourceNodes) {
