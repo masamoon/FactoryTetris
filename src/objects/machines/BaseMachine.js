@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { processResource } from '../../utils/PurityUtils';
+import { getLevelColor, getLevelName } from '../../config/resourceLevels';
 
 // Unique colors for each machine type
 const MACHINE_COLORS = {
@@ -148,6 +149,14 @@ export default class BaseMachine {
     this.inputTypes = [];
     this.outputTypes = [];
     this.processingTime = 1000; // Default 1 second
+
+    // Dynamic resource level system
+    // inputLevels: array of required input levels (e.g., [1] or [1, 2])
+    // outputLevel: the level this machine outputs (e.g., 2)
+    // notation: display string like "1/2" or "1/2/3"
+    this.inputLevels = [];
+    this.outputLevel = null;
+    this.notation = null;
   }
 
   /**
@@ -508,9 +517,13 @@ export default class BaseMachine {
     const halfWidth = width / 2;
     const halfHeight = height / 2;
 
+    // Check if we have input levels (new system) or input types (legacy)
+    const hasInputs =
+      (this.inputLevels && this.inputLevels.length > 0) ||
+      (this.inputTypes && this.inputTypes.length > 0);
+
     // Add a more prominent input indicator
-    // Add a more prominent input indicator
-    if (this.inputTypes.length > 0) {
+    if (hasInputs) {
       // Determine input direction (opposite of output direction)
       // Use 'right' as base direction since we are in local unrotated space
       let inputDirection = 'none';
@@ -551,7 +564,12 @@ export default class BaseMachine {
             break;
         }
 
-        // Create a blue triangle pointing inward
+        // Determine indicator color based on input level (use first input level if available)
+        const inputLevel =
+          this.inputLevels && this.inputLevels.length > 0 ? this.inputLevels[0] : null;
+        const indicatorColor = inputLevel ? getLevelColor(inputLevel) : 0x3498db;
+
+        // Create a triangle pointing inward with level-based color
         // By default, the triangle points RIGHT (same as direction indicator)
         const inputTriangle = this.scene.add
           .triangle(
@@ -563,19 +581,12 @@ export default class BaseMachine {
             6, // left bottom
             8,
             0, // right point
-            0x3498db // Blue color
+            indicatorColor
           )
           .setOrigin(0.5, 0.5);
 
         // Add a small circle at the base for better visibility
-        const inputCircle = this.scene.add
-          .circle(
-            0,
-            0,
-            4,
-            0x3498db // Blue color
-          )
-          .setOrigin(0.5, 0.5);
+        const inputCircle = this.scene.add.circle(0, 0, 4, indicatorColor).setOrigin(0.5, 0.5);
 
         // Create a container for both shapes
         const inputContainer = this.scene.add.container(indicatorX, indicatorY, [
@@ -604,7 +615,36 @@ export default class BaseMachine {
       }
     }
 
-    // The output indicator is already handled by the direction indicator
+    // Add output level indicator if we have an output level
+    if (this.outputLevel) {
+      const outputColor = getLevelColor(this.outputLevel);
+
+      // Add a small colored circle near the output direction to indicate output level
+      // Position at the output edge (right in local space)
+      const outputIndicator = this.scene.add
+        .circle(halfWidth - 8, 0, 5, outputColor)
+        .setOrigin(0.5, 0.5)
+        .setStrokeStyle(1, 0xffffff, 0.8);
+
+      outputIndicator.isResourceIndicator = true;
+      this.container.add(outputIndicator);
+    }
+
+    // Add notation text label if available (shows input/output level notation like "1/2" or "1/2/3")
+    if (this.notation) {
+      const notationText = this.scene.add
+        .text(0, halfHeight + 8, this.notation, {
+          fontSize: '10px',
+          fontFamily: 'Arial, sans-serif',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5, 0);
+
+      notationText.isResourceIndicator = true;
+      this.container.add(notationText);
+    }
   }
 
   /**
@@ -808,8 +848,29 @@ export default class BaseMachine {
         tooltipContent += 'Empty';
       }
     } else {
-      // Existing inventory info for other machines
-      if (this.inputTypes && this.inputTypes.length > 0) {
+      // Show level-based input/output info (new system)
+      if (this.inputLevels && this.inputLevels.length > 0) {
+        const inputNames = this.inputLevels
+          .map((level) => `L${level} (${getLevelName(level)})`)
+          .join(', ');
+        tooltipContent += `\nInputs: ${inputNames}`;
+      }
+
+      if (this.outputLevel) {
+        tooltipContent += `\nOutput: L${this.outputLevel} (${getLevelName(this.outputLevel)})`;
+      }
+
+      // Show notation if available
+      if (this.notation) {
+        tooltipContent += `\nNotation: ${this.notation}`;
+      }
+
+      // Legacy: Existing inventory info for other machines using old type system
+      if (
+        this.inputTypes &&
+        this.inputTypes.length > 0 &&
+        (!this.inputLevels || this.inputLevels.length === 0)
+      ) {
         tooltipContent += '\nInputs: ';
         this.inputTypes.forEach((type) => {
           const count = this.inputInventory[type] || 0;
@@ -822,7 +883,7 @@ export default class BaseMachine {
         }
       }
 
-      if (this.outputTypes && this.outputTypes.length > 0) {
+      if (this.outputTypes && this.outputTypes.length > 0 && !this.outputLevel) {
         tooltipContent += '\nOutputs: ';
         this.outputTypes.forEach((type) => {
           const count = this.outputInventory[type] || 0;
@@ -1226,103 +1287,141 @@ export default class BaseMachine {
   }
 
   /**
+   * Helper to check if output inventory has space.
+   * @returns {boolean} True if there is space for output.
+   */
+  checkOutputCapacity() {
+    const outputCapacity = this.outputCapacity || 5;
+    if (this.outputTypes && this.outputTypes.length > 0) {
+      const outputType = this.outputTypes[0];
+      return (this.outputInventory[outputType] || 0) < outputCapacity;
+    }
+    return true; // If no output types, we can technically "process" (e.g. incinerator)
+  }
+
+  /**
    * Check if the machine has enough input resources and output capacity to start processing.
-   * Assumes requiredInputs and outputTypes are defined.
+   * Assumes requiredInputs, inputLevels, and outputTypes are defined.
    * @returns {boolean} True if the machine can process, false otherwise.
    */
   canProcess() {
     if (this.isProcessing) {
-      // console.log(`[${this.id}] canProcess: Already processing.`);
-      return false; // Already processing
+      return false;
     }
 
-    // Check if requiredInputs is defined
+    // 1. Check Output Capacity
+    if (!this.checkOutputCapacity()) {
+      return false;
+    }
+
+    // 2. Check Input Availability
+    // NEW SYSTEM: If inputLevels is defined, use it for validation
+    if (this.inputLevels && this.inputLevels.length > 0) {
+      if (!this.inputQueue || this.inputQueue.length === 0) {
+        return false;
+      }
+
+      // Count availability in inputQueue
+      const availableLevels = {};
+      this.inputQueue.forEach((item) => {
+        const level = item.purity || 1;
+        availableLevels[level] = (availableLevels[level] || 0) + 1;
+      });
+
+      // Count requirements
+      const requiredLevels = {};
+      this.inputLevels.forEach((level) => {
+        requiredLevels[level] = (requiredLevels[level] || 0) + 1;
+      });
+
+      // Verify all requirements are met
+      for (const [level, amount] of Object.entries(requiredLevels)) {
+        if ((availableLevels[level] || 0) < amount) {
+          if (this.scene.time.now % 1000 < 20) {
+            console.log(
+              `[${this.id}] canProcess: Not enough Level ${level}. Need ${amount}, Have ${availableLevels[level] || 0}`
+            );
+          }
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    // LEGACY SYSTEM: Check requiredInputs
     if (!this.requiredInputs || Object.keys(this.requiredInputs).length === 0) {
-      // console.log(`[${this.id}] canProcess: No required inputs defined.`);
-      return false; // Cannot process if nothing is required (or definition missing)
+      return false;
     }
 
-    // 1. Check if enough inputs are available
     for (const [resourceType, amount] of Object.entries(this.requiredInputs)) {
-      // Check for specific resource type
       const specificAmount = this.inputInventory[resourceType] || 0;
-
-      // Check for generic purity-resource as substitute
       const purityAmount = this.inputInventory['purity-resource'] || 0;
 
       if (specificAmount + purityAmount < amount) {
-        // Detailed logging to debug why processing isn't starting
         if (this.scene.time.now % 1000 < 20) {
-          // Throttle logs
           console.log(
-            `[${this.id}] canProcess: Not enough ${resourceType}. Need ${amount}, Have Specific:${specificAmount} + Purity:${purityAmount}. Total: ${specificAmount + purityAmount}`
+            `[${this.id}] canProcess: Not enough ${resourceType}. Need ${amount}, Have Specific:${specificAmount} + Purity:${purityAmount}`
           );
         }
-        return false; // Not enough of this input resource (even with substitutions)
+        return false;
       }
     }
 
-    // 2. Check if output inventory has space
-    // Use a defined capacity or a default. Assumes single output type for simplicity for now.
-    const outputCapacity = this.outputCapacity || 5; // Default capacity of 5 if not specified
-    if (this.outputTypes && this.outputTypes.length > 0) {
-      const outputType = this.outputTypes[0]; // Check capacity for the first output type
-      if ((this.outputInventory[outputType] || 0) >= outputCapacity) {
-        // console.log(`[${this.id}] canProcess: Output inventory full for ${outputType}. Capacity: ${outputCapacity}`);
-        return false; // Output inventory for this type is full
-      }
-    } else {
-      // console.log(`[${this.id}] canProcess: No output types defined.`);
-      // If no output types, we technically can process, but it won't produce anything.
-      // Let's allow it for now, maybe some machines just consume?
-    }
-
-    // console.log(`[${this.id}] canProcess: Checks passed. Ready to process.`);
-    return true; // All checks passed
+    return true;
   }
 
   /**
    * Start processing resources
-   * Consumes inputs based on requiredInputs and sets processing state.
+   * Consumes inputs based on requiredInputs or inputLevels and sets processing state.
    */
   startProcessing() {
-    // Double-check if we can actually process (safety check)
     if (!this.canProcess()) {
       console.warn(`[${this.id}] startProcessing called but canProcess() is false.`);
       return;
     }
 
-    // Consume required inputs
-    if (this.requiredInputs) {
+    // 1. Consume resources
+    if (this.inputLevels && this.inputLevels.length > 0) {
+      // NEW SYSTEM: Consume specific levels from inputQueue
+      this.inputLevels.forEach((reqLevel) => {
+        const index = this.inputQueue.findIndex((item) => (item.purity || 1) === reqLevel);
+        if (index !== -1) {
+          const item = this.inputQueue.splice(index, 1)[0];
+          // Also decrement inventory to keep in sync
+          const type = item.type || 'purity-resource';
+          if (this.inputInventory[type] > 0) {
+            this.inputInventory[type]--;
+          }
+        } else {
+          console.error(
+            `[${this.id}] startProcessing: Expected Level ${reqLevel} in queue but not found!`
+          );
+        }
+      });
+    } else if (this.requiredInputs) {
+      // LEGACY SYSTEM: Consume from requiredInputs
       for (const type in this.requiredInputs) {
         const requiredAmount = this.requiredInputs[type];
         let remainingNeeded = requiredAmount;
 
-        // 1. Try to consume specific type first
         if (this.inputInventory[type] && this.inputInventory[type] > 0) {
           const consumeAmount = Math.min(this.inputInventory[type], remainingNeeded);
           this.inputInventory[type] -= consumeAmount;
           remainingNeeded -= consumeAmount;
         }
 
-        // 2. Consume purity-resource for the rest
         if (remainingNeeded > 0) {
           if (
             this.inputInventory['purity-resource'] &&
             this.inputInventory['purity-resource'] >= remainingNeeded
           ) {
             this.inputInventory['purity-resource'] -= remainingNeeded;
-            remainingNeeded = 0;
-          } else {
-            // This shouldn't happen if canProcess passed, but as a fallback
-            console.error(
-              `[${this.id}] startProcessing: Inconsistency! Could not consume full amount for ${type}.`
-            );
-            // Force consume what we have of purity resource? Or just leave it broken?
-            // Let's consume what we have to be safe
-            if (this.inputInventory['purity-resource']) {
-              this.inputInventory['purity-resource'] = 0;
+            // Also remove generic items from queue if they exist
+            for (let i = 0; i < remainingNeeded; i++) {
+              if (this.inputQueue.length > 0) this.inputQueue.shift();
             }
+            remainingNeeded = 0;
           }
         }
       }
@@ -1332,20 +1431,20 @@ export default class BaseMachine {
     this.isProcessing = true;
     this.processingProgress = 0;
 
-    // Show progress bar if it exists
+    // Show progress bar
     if (this.progressBar && this.progressFill) {
       this.progressBar.setVisible(true);
       this.progressFill.setVisible(true);
-      this.progressFill.width = 0; // Reset fill width
+      this.progressFill.width = 0;
     }
 
-    // Play processing sound (if available)
+    // Play processing sound
     if (this.scene && this.scene.playSound) {
-      this.scene.playSound('processing'); // Assuming a generic sound
+      this.scene.playSound('processing');
     }
 
     console.log(
-      `[${this.id}] Started processing. Inputs remaining:`,
+      `[${this.id}] Started processing. Queue size: ${this.inputQueue.length}, Inventory:`,
       JSON.stringify(this.inputInventory)
     );
   }
@@ -1394,8 +1493,27 @@ export default class BaseMachine {
       // Dequeue the input item that was processed
       const processedItem = this.inputQueue.shift();
 
-      // Process it to increment purity and chain
-      const nextItem = processResource(processedItem, this.id);
+      // NEW: If this machine has an outputLevel configured, set purity to that level
+      let nextItem;
+      if (this.outputLevel) {
+        // Create output resource with the configured outputLevel as its purity
+        nextItem = {
+          ...processedItem,
+          purity: this.outputLevel,
+          visitedMachines: new Set(processedItem.visitedMachines),
+        };
+        // Only increment chain if this is a new machine
+        if (!nextItem.visitedMachines.has(this.id)) {
+          nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
+          nextItem.visitedMachines.add(this.id);
+        }
+        console.log(
+          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.purity})`
+        );
+      } else {
+        // Legacy: Process it to increment purity and chain
+        nextItem = processResource(processedItem, this.id);
+      }
 
       // Add to output queue for transfer
       this.outputQueue.push(nextItem);
@@ -2482,10 +2600,34 @@ export default class BaseMachine {
   /**
    * Check if the machine can accept a specific resource type into its input.
    * @param {string} resourceTypeId - The ID of the resource type.
+   * @param {object} [itemData=null] - Optional full item data for level checking.
    * @returns {boolean} True if the resource can be accepted, false otherwise.
    */
-  canAcceptInput(resourceTypeId) {
-    // Check if handling purity-resource
+  canAcceptInput(resourceTypeId, itemData = null) {
+    // NEW: Check level-based system first if this machine has inputLevels configured
+    if (this.inputLevels && this.inputLevels.length > 0) {
+      // We need the item's level to validate
+      if (itemData && itemData.purity !== undefined) {
+        const itemLevel = itemData.purity;
+        // Check if the item's level matches one of our required input levels
+        if (!this.inputLevels.includes(itemLevel)) {
+          console.log(
+            `[${this.id}] canAcceptInput: Rejected level ${itemLevel}. Required levels: [${this.inputLevels.join(', ')}]`
+          );
+          return false;
+        }
+      } else if (resourceTypeId === 'purity-resource') {
+        // If we have inputLevels but no itemData, we can't validate - be permissive for now
+        // This handles the case where only resourceTypeId is passed
+        console.log(
+          `[${this.id}] canAcceptInput: purity-resource without item data, checking capacity only`
+        );
+      }
+      // Check capacity (using queue length for purity items)
+      return this.inputQueue ? this.inputQueue.length < 5 : true;
+    }
+
+    // LEGACY: Check if handling purity-resource (for machines without inputLevels)
     if (resourceTypeId === 'purity-resource') {
       // For purity resources, we accept them if the machine has generic inputs
       // OR if it explicitly lists purity-resource
@@ -2532,7 +2674,7 @@ export default class BaseMachine {
     const itemType = itemData.type;
     // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
 
-    if (this.canAcceptInput(itemType)) {
+    if (this.canAcceptInput(itemType, itemData)) {
       // Handle purity resource queueing
       if (itemType === 'purity-resource' && this.inputQueue) {
         this.inputQueue.push(itemData); // Store full object

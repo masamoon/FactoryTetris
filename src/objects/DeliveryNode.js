@@ -1,6 +1,11 @@
 import { GAME_CONFIG } from '../config/gameConfig';
 import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js';
 import { calculateDeliveryScore, getPurityName } from '../utils/PurityUtils';
+import {
+  getLevelPoints,
+  getLevelName,
+  getLevelColor as _getLevelColor,
+} from '../config/resourceLevels';
 
 export default class DeliveryNode {
   constructor(scene, config) {
@@ -101,6 +106,24 @@ export default class DeliveryNode {
       return true; // Upgrade package accepted
     }
 
+    // --- Handle level-based resources (new dynamic level system) ---
+    if (itemType === 'level-resource') {
+      const level = itemData.level || 1;
+      const totalPoints = getLevelPoints(level);
+
+      // Add score
+      this.scene.addScore(totalPoints);
+
+      // Visual feedback for level resource
+      const levelName = getLevelName(level);
+      this.createLevelAcceptEffect(level, totalPoints, levelName);
+
+      console.log(
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${totalPoints} points`
+      );
+      return true;
+    }
+
     // --- Handle purity resources ---
     if (itemType === 'purity-resource') {
       const purity = itemData.purity || 1;
@@ -157,7 +180,11 @@ export default class DeliveryNode {
     if (itemType === UPGRADE_PACKAGE_TYPE) {
       return true;
     }
-    // Allow purity resources (new system)
+    // Allow level-based resources (new dynamic level system)
+    if (itemType === 'level-resource') {
+      return true;
+    }
+    // Allow purity resources (legacy system)
     if (itemType === 'purity-resource') {
       return true;
     }
@@ -328,6 +355,87 @@ export default class DeliveryNode {
     });
     particles.setDepth(this.container.depth + 1);
     particles.explode(8 + purity * 2); // More particles for higher purity
+
+    // Brief flash
+    this.scene.tweens.add({
+      targets: this.background,
+      fillAlpha: 0.5,
+      duration: 100,
+      yoyo: true,
+    });
+  }
+
+  /**
+   * Creates a visual effect for level-based resource delivery.
+   * @param {number} level - The resource level (1-4).
+   * @param {number} points - The points awarded.
+   * @param {string} levelName - Display name for the level.
+   */
+  createLevelAcceptEffect(level, points, levelName) {
+    // Level colors: Gray (1), Green (2), Blue (3), Gold (4)
+    const colors = [0x888888, 0x22cc22, 0x2288ff, 0xffcc00];
+    const color = level <= colors.length ? colors[level - 1] : 0xffffff;
+
+    // Main score popup
+    const scoreText = this.scene.add
+      .text(this.container.x, this.container.y - 15, `+${points}`, {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#ffd700',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    scoreText.setDepth(this.container.depth + 3);
+
+    // Level name text
+    const levelText = this.scene.add
+      .text(this.container.x, this.container.y + 5, `L${level} ${levelName}`, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        color: `#${color.toString(16).padStart(6, '0')}`,
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    levelText.setDepth(this.container.depth + 3);
+
+    // Animate score text
+    this.scene.tweens.add({
+      targets: scoreText,
+      y: this.container.y - 45,
+      alpha: 0,
+      scaleX: 1.3,
+      scaleY: 1.3,
+      duration: 900,
+      ease: 'Power1',
+      onComplete: () => scoreText.destroy(),
+    });
+
+    // Animate level text
+    this.scene.tweens.add({
+      targets: levelText,
+      y: this.container.y - 20,
+      alpha: 0,
+      duration: 700,
+      ease: 'Power1',
+      onComplete: () => levelText.destroy(),
+    });
+
+    // Particle burst effect with level color
+    const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
+      color: [color],
+      colorEase: 'quad.out',
+      lifespan: 500,
+      speed: { min: 60, max: 120 },
+      scale: { start: 0.8 + level * 0.15, end: 0 },
+      gravityY: 100,
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    particles.setDepth(this.container.depth + 1);
+    particles.explode(8 + level * 3); // More particles for higher levels
 
     // Brief flash
     this.scene.tweens.add({

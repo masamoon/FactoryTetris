@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import MachineRegistry from './machines/MachineRegistry';
 import { MACHINE_COLORS } from './machines/BaseMachine';
+import { assignLevelsToShape } from '../utils/PieceGenerator';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -199,6 +200,7 @@ export default class MachineFactory {
   }
 
   // Populate all processor slots with random processors from the pool
+  // Each processor gets assigned dynamic input/output levels
   refreshAvailableProcessors() {
     if (this.processorTypes.length === 0) {
       this.availableProcessors = [];
@@ -208,8 +210,27 @@ export default class MachineFactory {
     this.availableProcessors = [];
     for (let i = 0; i < this.numProcessorSlots; i++) {
       const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
-      this.availableProcessors.push(this.processorTypes[randomIndex]);
+      const baseProcessor = this.processorTypes[randomIndex];
+
+      // Assign dynamic levels based on factory state
+      const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene);
+
+      // Create a new processor object with level configuration
+      const processorWithLevels = {
+        ...baseProcessor,
+        inputLevels: levelConfig.inputLevels,
+        outputLevel: levelConfig.outputLevel,
+        notation: levelConfig.notation,
+        isUsable: levelConfig.isUsable,
+      };
+
+      this.availableProcessors.push(processorWithLevels);
     }
+
+    console.log(
+      'Refreshed processors with levels:',
+      this.availableProcessors.map((p) => `${p.id} (${p.notation})`)
+    );
   }
 
   // Populate logistics slots
@@ -225,6 +246,7 @@ export default class MachineFactory {
   }
 
   // Rotate the processor list: remove the selected one, shift others, add new one at end
+  // The new processor gets assigned dynamic levels
   rotateProcessors(removedSlotIndex) {
     if (
       this.processorTypes.length === 0 ||
@@ -238,13 +260,25 @@ export default class MachineFactory {
     // distinct from just replacing it, we want the others to shift filling the gap
     this.availableProcessors.splice(removedSlotIndex, 1);
 
-    // Add a new random processor to the end
+    // Add a new random processor with dynamic levels
     const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
-    const newProcessor = this.processorTypes[randomIndex];
+    const baseProcessor = this.processorTypes[randomIndex];
+
+    // Assign dynamic levels based on current factory state
+    const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene);
+
+    const newProcessor = {
+      ...baseProcessor,
+      inputLevels: levelConfig.inputLevels,
+      outputLevel: levelConfig.outputLevel,
+      notation: levelConfig.notation,
+      isUsable: levelConfig.isUsable,
+    };
+
     this.availableProcessors.push(newProcessor);
 
     console.log(
-      `Rotated processors: removed index ${removedSlotIndex}, added ${newProcessor.id} at end`
+      `Rotated processors: removed index ${removedSlotIndex}, added ${newProcessor.id} (${newProcessor.notation}) at end`
     );
   }
 
@@ -347,6 +381,27 @@ export default class MachineFactory {
       machinePreview.machineType = machineType;
       machinePreview.slotIndex = slotIndex;
       machinePreview.category = category;
+
+      // --- ADD NOTATION LABEL FOR PROCESSORS ---
+      if (category === 'processor' && machineType.notation) {
+        // Determine label color based on usability
+        const labelColor = machineType.isUsable !== false ? '#00ff00' : '#ff6666';
+        const notationLabel = this.scene.add
+          .text(itemX, itemY + 25, machineType.notation, {
+            fontFamily: 'Arial',
+            fontSize: 12,
+            fontWeight: 'bold',
+            color: labelColor,
+            stroke: '#000000',
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5);
+        this.processorPreviewContainer.add(notationLabel);
+
+        // Store reference for potential updates
+        machinePreview.notationLabel = notationLabel;
+      }
+      // --- END NOTATION LABEL ---
 
       // Interactivity
       const hitAreaSize = 50;

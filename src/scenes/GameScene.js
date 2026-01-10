@@ -27,10 +27,15 @@ export default class GameScene extends Phaser.Scene {
     // Momentum state
     this.currentMomentum = 0;
     this.maxMomentum = 100; // Example max value
-    this.baseMomentumDecayRate = 1; // Base decay rate per second
+    this.baseMomentumDecayRate = 0.5; // Base decay rate per second
     this.momentumGainFactor = 0.2; // Example: Gain 0.5 momentum per score point
     this.comboThreshold = 98; // Momentum threshold for combo bonus (90%)
     this.comboMultiplier = 2; // 2x score multiplier when in combo mode
+
+    // Skip mechanic state
+    this.skipCount = 3; // Maximum 3 skips per game
+    this.skipPointPenalty = 100; // Points deducted when skipping
+    this.skipMomentumPenalty = 10; // Percentage of momentum lost when skipping
 
     // Initialize collections
     this.resourceNodes = [];
@@ -361,6 +366,20 @@ export default class GameScene extends Phaser.Scene {
     });
     this.updateActiveUpgradesDisplay(); // Initial update
     this.updateLevelUpButton(); // Initial update for level up button
+
+    // --- SKIP BUTTON ---
+    this.skipButton = this.createButton(
+      width * 0.9,
+      height * 0.19,
+      `SKIP (${this.skipCount})`,
+      () => {
+        this.skipCurrentPiece();
+      }
+    );
+    // Style the skip button
+    this.skipButton.button.fillColor = 0x884400;
+    this.skipButton.button.setStrokeStyle(2, 0xcc6600);
+    this.updateSkipButton(); // Initial update
   }
 
   setupInput() {
@@ -1417,11 +1436,13 @@ export default class GameScene extends Phaser.Scene {
       this.spawnResourceNode(); // Will use this.currentLevel (should be 1)
     }
 
-    // Spawn one initial delivery node (no changes needed here for resource node scaling)
+    // Spawn one initial delivery node on the right edge
     try {
-      const emptySpot = this.grid.findEmptyCell();
+      const emptySpot = this.grid.findEmptyCellInColumn(this.grid.width - 1);
       if (!emptySpot) {
-        console.warn('[GAME] No empty cell found for initial delivery node placement.');
+        console.warn(
+          '[GAME] No empty cell found in right edge for initial delivery node placement.'
+        );
         return;
       }
 
@@ -1458,10 +1479,10 @@ export default class GameScene extends Phaser.Scene {
         this.resourceNodes = [];
       }
 
-      // Find an empty spot on the factory grid
-      const emptySpot = this.grid.findEmptyCell();
+      // Find an empty spot on the left edge of the grid (column 0)
+      const emptySpot = this.grid.findEmptyCellInColumn(0);
       if (!emptySpot) {
-        console.warn('[GAME] No empty cells found for resource node placement');
+        console.warn('[GAME] No empty cells found in left edge for resource node placement');
         return;
       }
 
@@ -1837,6 +1858,105 @@ export default class GameScene extends Phaser.Scene {
       timeSurvived: this.gameTime,
       finalLevel: this.currentLevel, // Add final level reached
     });
+  }
+
+  /**
+   * Skip the current piece selection and refresh with new pieces.
+   * Applies point and momentum penalties.
+   */
+  skipCurrentPiece() {
+    // Check if skips are available
+    if (this.skipCount <= 0) {
+      console.log('[SKIP] No skips remaining');
+      return;
+    }
+
+    // Decrement skip counter
+    this.skipCount--;
+    console.log(`[SKIP] Skipping piece. Remaining skips: ${this.skipCount}`);
+
+    // Apply point penalty
+    this.score = Math.max(0, this.score - this.skipPointPenalty);
+    this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
+
+    // Apply momentum penalty (as percentage)
+    const momentumLoss = this.maxMomentum * (this.skipMomentumPenalty / 100);
+    this.currentMomentum = Math.max(0, this.currentMomentum - momentumLoss);
+    this.updateMomentumUI();
+
+    // Show penalty feedback
+    this.showSkipPenaltyFeedback();
+
+    // Refresh the processor selection panel
+    if (this.machineFactory) {
+      this.machineFactory.refreshAvailableProcessors();
+      this.machineFactory.displayCurrentProcessorPreview();
+    }
+
+    // Update skip button UI
+    this.updateSkipButton();
+
+    // Check if this leads to game over
+    if (this.currentMomentum <= 0) {
+      this.endGame();
+    }
+  }
+
+  /**
+   * Shows visual feedback for skip penalty
+   */
+  showSkipPenaltyFeedback() {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+
+    // Create penalty text
+    const penaltyText = this.add
+      .text(
+        width * 0.5,
+        height * 0.3,
+        `-${this.skipPointPenalty} pts\n-${this.skipMomentumPenalty}% momentum`,
+        {
+          fontFamily: 'Arial',
+          fontSize: 24,
+          color: '#ff4444',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3,
+        }
+      )
+      .setOrigin(0.5);
+    penaltyText.setDepth(100);
+
+    // Animate and destroy
+    this.tweens.add({
+      targets: penaltyText,
+      y: height * 0.2,
+      alpha: 0,
+      duration: 1500,
+      ease: 'Power2',
+      onComplete: () => penaltyText.destroy(),
+    });
+  }
+
+  /**
+   * Updates the skip button UI state
+   */
+  updateSkipButton() {
+    if (!this.skipButton) return;
+
+    // Update text
+    this.skipButton.text.setText(`SKIP (${this.skipCount})`);
+
+    // Disable button if no skips remaining
+    if (this.skipCount <= 0) {
+      this.skipButton.button.fillColor = 0x444444;
+      this.skipButton.button.disableInteractive();
+      this.skipButton.text.setColor('#888888');
+    } else {
+      this.skipButton.button.fillColor = 0x884400;
+      this.skipButton.button.setInteractive();
+      this.skipButton.text.setColor('#ffffff');
+    }
   }
 
   createButton(x, y, text, callback) {
@@ -2357,6 +2477,17 @@ export default class GameScene extends Phaser.Scene {
 
       // --- If we get here, machineObj should be valid ---
       console.log(`[GameScene.placeMachine] Machine object created successfully:`, machineObj); // LOG P9
+
+      // Transfer level-based properties from machineType to machineObj
+      if (machineType.inputLevels && machineType.inputLevels.length > 0) {
+        machineObj.inputLevels = [...machineType.inputLevels];
+      }
+      if (machineType.outputLevel) {
+        machineObj.outputLevel = machineType.outputLevel;
+      }
+      if (machineType.notation) {
+        machineObj.notation = machineType.notation;
+      }
 
       // Ensure the machine is visible
       if (machineObj.container) {
@@ -3239,10 +3370,11 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
 
-      const emptySpot1 = this.grid.findEmptyCell();
-      console.log(`[SPAWN_DEBUG] findEmptyCell (1st attempt) result:`, emptySpot1);
+      // Find empty spot on left edge for resource node
+      const emptySpot1 = this.grid.findEmptyCellInColumn(0);
+      console.log(`[SPAWN_DEBUG] findEmptyCellInColumn(0) result:`, emptySpot1);
       if (!emptySpot1) {
-        console.warn('[SPAWN_DEBUG] No empty cells found for node pair spawning (1st attempt).');
+        console.warn('[SPAWN_DEBUG] No empty cells found on left edge for resource node.');
         return;
       }
 
@@ -3252,8 +3384,9 @@ export default class GameScene extends Phaser.Scene {
         `[SPAWN_DEBUG] Temporarily marked (${emptySpot1.x}, ${emptySpot1.y}) as reserved.`
       );
 
-      const emptySpot2 = this.grid.findEmptyCell();
-      console.log(`[SPAWN_DEBUG] findEmptyCell (2nd attempt) result:`, emptySpot2);
+      // Find empty spot on right edge for delivery node
+      const emptySpot2 = this.grid.findEmptyCellInColumn(this.grid.width - 1);
+      console.log(`[SPAWN_DEBUG] findEmptyCellInColumn(right edge) result:`, emptySpot2);
 
       this.grid.setCell(emptySpot1.x, emptySpot1.y, {
         type: originalCellType1 === 'temp-reserved-for-spawn' ? 'empty' : originalCellType1,
@@ -3646,10 +3779,10 @@ export default class GameScene extends Phaser.Scene {
         this.deliveryNodes = [];
       }
 
-      // Find an empty spot on the factory grid
-      const emptySpot = this.grid.findEmptyCell();
+      // Find an empty spot on the right edge of the grid (last column)
+      const emptySpot = this.grid.findEmptyCellInColumn(this.grid.width - 1);
       if (!emptySpot) {
-        console.warn('[GAME] No empty cells found for delivery node placement');
+        console.warn('[GAME] No empty cells found in right edge for delivery node placement');
         return null;
       }
 

@@ -55,6 +55,11 @@ export default class ProcessorCMachine extends BaseMachine {
     // Set the machine shape
     this.shape = originalShape;
 
+    // Dynamic resource level system - read from config or use defaults
+    this.inputLevels = this.config?.inputLevels ?? [1];
+    this.outputLevel = this.config?.outputLevel ?? 2;
+    this.notation = this.config?.notation ?? '1/2';
+
     // Log initialization for better debugging
     console.log(`[ProcessorC] Initialized with properties:
             Input types: ${this.inputTypes}

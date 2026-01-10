@@ -62,6 +62,11 @@ export default class ProcessorAMachine extends BaseMachine {
     // Set the original shape - rotation will be applied by BaseMachine before createVisuals
     this.shape = originalShape;
 
+    // Dynamic resource level system - read from config or use defaults
+    this.inputLevels = this.config?.inputLevels ?? [1];
+    this.outputLevel = this.config?.outputLevel ?? 2;
+    this.notation = this.config?.notation ?? '1/2';
+
     // Initialize inventories with default values
     this.inputInventory = {
       'basic-resource': 0,

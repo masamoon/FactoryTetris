@@ -373,6 +373,45 @@ export default class Grid {
   }
 
   /**
+   * Find an empty cell in a specific column of the grid
+   * @param {number} column - The column index to search in
+   * @returns {Object|null} The grid coordinates {x, y} or null if no empty cell found
+   */
+  findEmptyCellInColumn(column) {
+    try {
+      // Validate column is within grid bounds
+      if (column < 0 || column >= this.width) {
+        console.warn(`[Grid.findEmptyCellInColumn] Invalid column: ${column}`);
+        return null;
+      }
+
+      // Check if grid cells are initialized
+      if (!this.cells || !Array.isArray(this.cells) || this.cells.length === 0) {
+        return null;
+      }
+
+      // Collect all empty cells in the specified column
+      const emptyCells = [];
+      for (let y = 0; y < this.height; y++) {
+        if (this.cells[y] && this.cells[y][column] && this.cells[y][column].type === 'empty') {
+          emptyCells.push({ x: column, y });
+        }
+      }
+
+      // If no empty cells found in this column, return null
+      if (emptyCells.length === 0) {
+        return null;
+      }
+
+      // Return a random empty cell from the column
+      const randomIndex = Phaser.Math.Between(0, emptyCells.length - 1);
+      return emptyCells[randomIndex];
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  /**
    * Sets the machine factory reference
    * @param {MachineFactory} factory - The machine factory
    */

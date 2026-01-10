@@ -12,6 +12,7 @@ export default class ResourceNode {
     this.gridX = config.gridX;
     this.gridY = config.gridY;
     this.resourceType = GAME_CONFIG.resourceTypes[config.resourceType];
+    this.resourceLevel = 1; // Resource nodes always output Level 1 resources
     this.lifespan = config.lifespan;
     this.round = round || 1;
 
