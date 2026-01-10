@@ -10,8 +10,8 @@ export default class MachineFactory {
     this.x = config.x;
     this.y = config.y - 10; // Move up slightly to prevent being cut off
     // Adjust the width and height for a better UI
-    this.width = config.width * 2.0; // Double the width for more spacing
-    this.height = config.height * 1.0; // Use a more compact height
+    this.width = config.width; // Use exact config width
+    this.height = config.height; // Use exact config height
 
     // Initialize the machine registry
     this.machineRegistry = new MachineRegistry();
@@ -59,6 +59,7 @@ export default class MachineFactory {
   createVisuals() {
     // Create container for factory parts
     this.container = this.scene.add.container(this.x, this.y);
+    this.container.setScrollFactor(0);
 
     // Create factory background with a more modern look
     this.background = this.scene.add.rectangle(0, 0, this.width, this.height, 0x2c3e50);
@@ -590,7 +591,8 @@ export default class MachineFactory {
 
       // Add the initial point
       if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
-        const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+        const worldPoint = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+        const gridPos = this.scene.factoryGrid.worldToGrid(worldPoint.x, worldPoint.y);
         if (gridPos) {
           this.dragPath.push(gridPos);
           this.lastDragGridPos = gridPos;
@@ -612,7 +614,8 @@ export default class MachineFactory {
     if (!this.isDraggingConveyor) return;
 
     if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
-      const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+      const worldPoint = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const gridPos = this.scene.factoryGrid.worldToGrid(worldPoint.x, worldPoint.y);
 
       if (gridPos) {
         // If this is a new cell
@@ -782,7 +785,8 @@ export default class MachineFactory {
     if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
       console.log('[Factory.handlePlaceMachine] Pointer IS over grid.'); // LOG H4
       // Get the grid position from the pointer
-      const gridPos = this.scene.factoryGrid.worldToGrid(pointer.x, pointer.y);
+      const worldPoint = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const gridPos = this.scene.factoryGrid.worldToGrid(worldPoint.x, worldPoint.y);
       if (!gridPos) {
         console.log('[Factory.handlePlaceMachine] Could not get gridPos. Aborting.'); // LOG H5
         return;
@@ -850,21 +854,32 @@ export default class MachineFactory {
 
   // Check if pointer is over the UI panel
   isPointerOverUI(pointer) {
-    // Calculate UI bounds
-    const uiBounds = {
-      left: this.x - this.width / 2,
-      right: this.x + this.width / 2,
-      top: this.y - this.height / 2,
-      bottom: this.y + this.height / 2,
-    };
+    if (!this.scene) return false;
 
-    // Check if pointer is within UI bounds
-    return (
-      pointer.x >= uiBounds.left &&
-      pointer.x <= uiBounds.right &&
-      pointer.y >= uiBounds.top &&
-      pointer.y <= uiBounds.bottom
-    );
+    // Use screen dimensions directly for UI checks
+    const screenWidth = this.scene.scale.width;
+    const screenHeight = this.scene.scale.height;
+
+    // Get UI dimensions (must match GameScene)
+    const rightPanelWidth = this.scene.rightPanelWidth || 300;
+    const uiRatio = this.scene.uiHeightRatio !== undefined ? this.scene.uiHeightRatio : 0.25;
+    const gameWidth = screenWidth - rightPanelWidth;
+    const bottomPanelStart = screenHeight * (1 - uiRatio);
+
+    // 1. Right Panel Check - blocks if pointer is in the right panel area (any Y position)
+    if (pointer.x >= gameWidth) {
+      // console.log(`[UI] Blocked by Right Panel: ${pointer.x} >= ${gameWidth}`);
+      return true;
+    }
+
+    // 2. Bottom Panel Check - blocks if pointer is below bottom panel start AND within bottom panel width
+    // The bottom panel only exists from x=0 to x=gameWidth (left of right panel)
+    if (pointer.y >= bottomPanelStart && pointer.x < gameWidth) {
+      // console.log(`[UI] Blocked by Bottom Panel: ${pointer.y} >= ${bottomPanelStart} && ${pointer.x} < ${gameWidth}`);
+      return true;
+    }
+
+    return false;
   }
 
   // Helper function to get direction from rotation
@@ -1238,10 +1253,10 @@ export default class MachineFactory {
     // Remove any existing tooltip
     this.hideMachineTooltip();
 
-    // Create tooltip container - add directly to scene instead of container
+    // Create tooltip container - add directly to scene
     this.tooltip = this.scene.add.container(x, y);
-    // Set a high depth to ensure the tooltip is on top of everything
-    this.tooltip.setDepth(1000);
+    this.tooltip.setDepth(10000); // Very high depth
+    this.scene.addToUI(this.tooltip); // Ensure it's on the UI camera
 
     // Create tooltip background (make it slightly taller for better spacing)
     // const padding = 10;

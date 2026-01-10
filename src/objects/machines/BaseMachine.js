@@ -1382,12 +1382,16 @@ export default class BaseMachine {
     }
 
     // 1. Consume resources
+    this.currentProcessingItems = []; // Reset current processing items
+
     if (this.inputLevels && this.inputLevels.length > 0) {
       // NEW SYSTEM: Consume specific levels from inputQueue
       this.inputLevels.forEach((reqLevel) => {
         const index = this.inputQueue.findIndex((item) => (item.purity || 1) === reqLevel);
         if (index !== -1) {
           const item = this.inputQueue.splice(index, 1)[0];
+          this.currentProcessingItems.push(item); // Store for processing
+
           // Also decrement inventory to keep in sync
           const type = item.type || 'purity-resource';
           if (this.inputInventory[type] > 0) {
@@ -1419,7 +1423,10 @@ export default class BaseMachine {
             this.inputInventory['purity-resource'] -= remainingNeeded;
             // Also remove generic items from queue if they exist
             for (let i = 0; i < remainingNeeded; i++) {
-              if (this.inputQueue.length > 0) this.inputQueue.shift();
+              if (this.inputQueue.length > 0) {
+                const item = this.inputQueue.shift();
+                this.currentProcessingItems.push(item); // Store for processing
+              }
             }
             remainingNeeded = 0;
           }
@@ -1444,7 +1451,7 @@ export default class BaseMachine {
     }
 
     console.log(
-      `[${this.id}] Started processing. Queue size: ${this.inputQueue.length}, Inventory:`,
+      `[${this.id}] Started processing. Queue size: ${this.inputQueue.length}, Processing Items: ${this.currentProcessingItems.length}, Inventory:`,
       JSON.stringify(this.inputInventory)
     );
   }
@@ -1488,11 +1495,21 @@ export default class BaseMachine {
       `[${this.id}] Completed processing. Output: ${JSON.stringify(this.outputInventory)}`
     );
 
-    // Purity Logic: Process items from queue if available
-    if (this.inputQueue.length > 0) {
-      // Dequeue the input item that was processed
-      const processedItem = this.inputQueue.shift();
+    // Purity Logic: Process items from processing slot if available
+    // Fallback to checking inputQueue only for legacy compatibility,
+    // but prefer currentProcessingItems which contains the actual consumed items.
+    let processedItem = null;
 
+    if (this.currentProcessingItems && this.currentProcessingItems.length > 0) {
+      processedItem = this.currentProcessingItems[0]; // Use the first item as the primary source
+      // Clear them after use to prevent double usage
+      this.currentProcessingItems = [];
+    } else if (this.inputQueue.length > 0) {
+      // Old behavior: Peek/Shift from inputQueue (should generally not happen if startProcessing works correctly)
+      processedItem = this.inputQueue.shift();
+    }
+
+    if (processedItem) {
       // NEW: If this machine has an outputLevel configured, set purity to that level
       let nextItem;
       if (this.outputLevel) {

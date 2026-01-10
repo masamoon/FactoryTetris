@@ -141,11 +141,15 @@ export default class Grid {
     const startX = this.x - gridWidth / 2;
     const startY = this.y - gridHeight / 2;
 
+    // Use world coordinates since the grid is positioned in world space
+    const worldX = pointer.worldX !== undefined ? pointer.worldX : pointer.x;
+    const worldY = pointer.worldY !== undefined ? pointer.worldY : pointer.y;
+
     return (
-      pointer.x >= startX &&
-      pointer.x <= startX + gridWidth &&
-      pointer.y >= startY &&
-      pointer.y <= startY + gridHeight
+      worldX >= startX &&
+      worldX <= startX + gridWidth &&
+      worldY >= startY &&
+      worldY <= startY + gridHeight
     );
   }
 
@@ -978,6 +982,17 @@ export default class Grid {
     // Update dimensions
     this.width = newWidth;
     this.height = newHeight;
+
+    // Update grid center position (this.x, this.y) so that the Top-Left corner remains constant
+    // Original Top-Left: startX = oldX - (oldW * cell) / 2
+    // New Top-Left: startX = newX - (newW * cell) / 2
+    // We want new Top-Left == Original Top-Left
+    // newX - (newW * cell) / 2 = oldX - (oldW * cell) / 2
+    // newX = oldX + (newW - oldW) * cell / 2
+
+    this.x = this.x + ((newWidth - oldWidth) * this.cellSize) / 2;
+    this.y = this.y + ((newHeight - oldHeight) * this.cellSize) / 2;
+    // Note: We don't change this.x/y if width/height didn't change (diff is 0)
 
     // Create new cells for expanded area
     if (!this.cells) {

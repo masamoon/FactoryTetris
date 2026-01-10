@@ -160,6 +160,12 @@ export default class ResourceNode {
           0xffff00 // Use a distinct color for generation feedback maybe?
         )
         .setDepth(this.container.depth + 1); // Ensure particle is visible
+
+      // Ensure particle is on the world camera
+      if (this.scene.addToWorld) {
+        this.scene.addToWorld(resourceParticle);
+      }
+
       this.scene.tweens.add({
         targets: resourceParticle,
         alpha: 0,
@@ -342,6 +348,11 @@ export default class ResourceNode {
       this.resourceType.color || 0xaaaaaa
     );
     particle.setDepth(this.container.depth + 1);
+
+    // Ensure particle is on the world camera
+    if (this.scene.addToWorld) {
+      this.scene.addToWorld(particle);
+    }
 
     this.scene.tweens.add({
       targets: particle,

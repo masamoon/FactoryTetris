@@ -222,6 +222,11 @@ export default class DeliveryNode {
       .setOrigin(0.5);
     popupText.setDepth(this.container.depth + 2);
 
+    // Ensure text is on the world camera
+    if (this.scene.addToWorld) {
+      this.scene.addToWorld(popupText);
+    }
+
     this.scene.tweens.add({
       targets: popupText,
       y: this.container.y - 40,
@@ -245,6 +250,12 @@ export default class DeliveryNode {
       emitting: false,
     });
     particles.setDepth(this.container.depth + 1);
+
+    // Ensure particles are on the world camera
+    if (this.scene.addToWorld) {
+      this.scene.addToWorld(particles);
+    }
+
     particles.explode(10);
 
     // Optional: Brief flash of the node
@@ -280,6 +291,7 @@ export default class DeliveryNode {
       })
       .setOrigin(0.5);
     scoreText.setDepth(this.container.depth + 3);
+    if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
 
     // Chain multiplier text (if chain > 1)
     if (chainCount > 1) {
@@ -294,6 +306,7 @@ export default class DeliveryNode {
         })
         .setOrigin(0.5);
       chainText.setDepth(this.container.depth + 3);
+      if (this.scene.addToWorld) this.scene.addToWorld(chainText);
 
       // Animate chain text
       this.scene.tweens.add({
@@ -319,6 +332,7 @@ export default class DeliveryNode {
       })
       .setOrigin(0.5);
     purityText.setDepth(this.container.depth + 3);
+    if (this.scene.addToWorld) this.scene.addToWorld(purityText);
 
     // Animate score text
     this.scene.tweens.add({
@@ -354,6 +368,7 @@ export default class DeliveryNode {
       emitting: false,
     });
     particles.setDepth(this.container.depth + 1);
+    if (this.scene.addToWorld) this.scene.addToWorld(particles);
     particles.explode(8 + purity * 2); // More particles for higher purity
 
     // Brief flash
@@ -388,6 +403,7 @@ export default class DeliveryNode {
       })
       .setOrigin(0.5);
     scoreText.setDepth(this.container.depth + 3);
+    if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
 
     // Level name text
     const levelText = this.scene.add
@@ -400,6 +416,7 @@ export default class DeliveryNode {
       })
       .setOrigin(0.5);
     levelText.setDepth(this.container.depth + 3);
+    if (this.scene.addToWorld) this.scene.addToWorld(levelText);
 
     // Animate score text
     this.scene.tweens.add({
@@ -435,6 +452,7 @@ export default class DeliveryNode {
       emitting: false,
     });
     particles.setDepth(this.container.depth + 1);
+    if (this.scene.addToWorld) this.scene.addToWorld(particles);
     particles.explode(8 + level * 3); // More particles for higher levels
 
     // Brief flash

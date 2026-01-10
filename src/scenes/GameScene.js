@@ -61,6 +61,12 @@ export default class GameScene extends Phaser.Scene {
 
     // Player-controlled level up
     this.pendingLevelUps = 0; // Track queued level-ups that player can claim
+
+    // Camera references
+    this.uiCamera = null;
+    this.uiHeightRatio = 0.25; // Bottom 25% is for UI
+    this.rightPanelWidth = 300; // Fixed width for right panel
+    this.debugMode = false; // Toggle for debug features like "Clear Factory"
   }
 
   preload() {
@@ -70,25 +76,38 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
+    this.setupCameras();
+
     // Create game objects
     this.createBackground();
     this.grid = new Grid(this, GRID_CONFIG);
+    this.addToWorld(this.grid.graphics); // Ensure grid graphics are only in world view
+    this.addToWorld(this.grid.highlightEffect); // Ensure grid highlight is only in world view
+
     // Add a reference to the grid as factoryGrid for compatibility with existing code
     this.factoryGrid = this.grid; // Revert to using the existing Grid instance
 
-    // Initialize MachineFactory in the machine selection area, not at the grid position
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
-    // Position the MachineFactory in the machine selection area (center of it)
-    const machineFactoryX = width * 0.05 + (width * 0.4) / 2;
-    const machineFactoryY = height * 0.7 + (height * 0.25) / 2;
+    // Initialize MachineFactory in the machine selection area
+    // Use scale (screen size) instead of camera main (world view)
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const screenWidth = width;
+    const screenHeight = height;
+
+    // Position: Center X, Center of bottom 25% for Y
+    const uiY = screenHeight * (1 - this.uiHeightRatio / 2);
+
+    // Right Panel offset
+    const gameWidth = screenWidth - this.rightPanelWidth;
+
     this.machineFactory = new MachineFactory(this, {
-      x: machineFactoryX,
-      y: machineFactoryY,
-      width: 10,
-      height: 5,
+      x: gameWidth / 2, // Center in the game area, not full screen
+      y: uiY,
+      width: gameWidth, // Only span the game area
+      height: screenHeight * this.uiHeightRatio,
       cellSize: GRID_CONFIG.cellSize,
     });
+    this.addToUI(this.machineFactory.container);
 
     // Connect the Grid to the MachineFactory
     this.grid.setFactory(this.machineFactory);
@@ -148,59 +167,19 @@ export default class GameScene extends Phaser.Scene {
     // Play background music
     this.playBackgroundMusic();
 
-    // Momentum UI
+    // Momentum UI - MOVED TO updateMomentumUI optimization
     this.momentumBarBg = this.add.graphics();
     this.momentumBar = this.add.graphics();
-    const momentumBarWidth = 150;
-    const momentumBarHeight = 20;
-    const momentumBarX = width * 0.55;
-    const momentumBarY = height * 0.87; // Position below time/round
+    // Labels created in createUI or here?
+    // Let's create them here but position them relative to right panel in updateMomentumUI
+    // actually better to init them here.
 
     // Background for the bar
-    this.momentumBarBg.fillStyle(0x555555, 1); // Dark grey background
-    this.momentumBarBg.fillRect(momentumBarX, momentumBarY, momentumBarWidth, momentumBarHeight);
+    this.momentumBarBg.setScrollFactor(0);
+    this.momentumBar.setScrollFactor(0);
 
-    // The actual momentum bar (will be updated)
-    this.momentumLabel = this.add.text(
-      momentumBarX + momentumBarWidth + 10,
-      momentumBarY,
-      'Momentum',
-      {
-        fontFamily: 'Arial',
-        fontSize: 18, // Slightly smaller
-        color: '#ffffff',
-      }
-    );
-
-    // Add momentum value text on top of the bar
-    this.momentumValueText = this.add
-      .text(
-        momentumBarX + momentumBarWidth / 2,
-        momentumBarY + momentumBarHeight / 2,
-        `${Math.round(this.currentMomentum)} / ${this.maxMomentum}`,
-        {
-          fontFamily: 'Arial',
-          fontSize: 16,
-          color: '#ffffff',
-          align: 'center',
-        }
-      )
-      .setOrigin(0.5);
-    this.momentumValueText.setDepth(10);
-
-    // Call the initial update for the bar
+    // Initial Momentus UI Update will handle positioning
     this.updateMomentumUI();
-
-    // --- ADD CLEAR FACTORY UI HERE ---
-    // Clear Factory Button
-    this.clearButton = this.createButton(width * 0.77, height * 0.9, 'CLEAR FACTORY', () => {
-      this.clearPlacedItems();
-    });
-    // Adjust button size for text
-    this.clearButton.button.width = 180;
-    this.clearButton.text.x = this.clearButton.button.x;
-
-    // --- END CLEAR FACTORY UI ---
 
     // ADD EVENT LISTENER FOR UPGRADE TRIGGER
     this.events.on('triggerUpgradeSelection', this.showUpgradeScreen, this);
@@ -220,7 +199,9 @@ export default class GameScene extends Phaser.Scene {
       }
     });
     // Optionally, add a UI button for mobile users
-    // ... existing code ...
+
+    // Set initial camera bounds
+    this.updateCameraBounds();
   }
 
   update(time, delta) {
@@ -269,108 +250,169 @@ export default class GameScene extends Phaser.Scene {
     // this.updateResourceDisplay(); // Remove this call, likely handled elsewhere or undefined
   }
 
+  updateCameraBounds() {
+    const padding = 500;
+    const gridWidth = this.grid.width * this.grid.cellSize;
+    const gridHeight = this.grid.height * this.grid.cellSize;
+
+    // Grid x,y is the top-left corner
+    const gridX = this.grid.x;
+    const gridY = this.grid.y;
+
+    // Calculate bounds with padding
+    const minX = gridX - padding;
+    const minY = gridY - padding;
+    const width = gridWidth + padding * 2;
+    const height = gridHeight + padding * 2;
+
+    this.cameras.main.setBounds(minX, minY, width, height);
+    console.log(`[Camera] Updated bounds: x=${minX}, y=${minY}, w=${width}, h=${height}`);
+  }
+
   createBackground() {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Main background
-    this.add.rectangle(0, 0, width, height, 0x1a2e3b).setOrigin(0, 0);
-
-    // Factory area
-    this.add
-      .rectangle(width * 0.05, height * 0.1, width * 0.4, height * 0.6, 0x0a1a2a)
+    // Main background - Add to World
+    const mainBg = this.add
+      .rectangle(0, 0, width, height, 0x1a2e3b)
       .setOrigin(0, 0)
-      .setStrokeStyle(2, 0x3a5a7a);
+      .setScrollFactor(0);
+    this.addToWorld(mainBg);
 
-    // Machine selection area
-    this.add
+    // Factory area background REMOVED - grid has its own background
+
+    // Machine selection area - REMOVED (Handled by MachineFactory)
+    /*
+    const uiBg = this.add
       .rectangle(width * 0.05, height * 0.7, width * 0.4, height * 0.25, 0x0a1a2a)
       .setOrigin(0, 0)
+      .setScrollFactor(0)
       .setStrokeStyle(2, 0x3a5a7a);
+    this.addToUI(uiBg);
+    */
 
     // Add some decorative elements
     this.addDecorations();
   }
 
   createUI() {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
+    const width = this.scale.width;
+    const height = this.scale.height;
 
-    // Score display (Adjust position slightly)
-    this.scoreText = this.add.text(
-      width * 0.55,
-      height * 0.72,
-      `SCORE: 0 / ${this.currentLevelScoreThreshold}`,
-      {
+    // Right Panel Constants
+    const panelX = width - this.rightPanelWidth;
+    const centerX = panelX + this.rightPanelWidth / 2;
+    const startY = 20;
+    const spacing = 40;
+
+    // --- Right Panel Header ---
+    /*this.add.text(centerX, startY, 'FACTORY STATUS', {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#88ccff'
+    }).setOrigin(0.5).setScrollFactor(0);*/
+
+    let currentY = startY;
+
+    // Score display
+    this.scoreText = this.add
+      .text(centerX, currentY, `SCORE: 0 / ${this.currentLevelScoreThreshold}`, {
         fontFamily: 'Arial',
-        fontSize: 20, // Slightly smaller
+        fontSize: 18,
         color: '#ffffff',
-      }
-    );
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
-    // Level Display (Changed from Round Display)
-    this.levelText = this.add.text(width * 0.55, height * 0.77, `LEVEL: ${this.currentLevel}`, {
-      fontFamily: 'Arial',
-      fontSize: 20, // Slightly smaller
-      color: '#ffffff',
-    });
+    currentY += spacing;
 
-    // Time display (Keep for now, maybe useful later?)
-    this.timeText = this.add.text(width * 0.55, height * 0.82, 'TIME: 0:00', {
-      fontFamily: 'Arial',
-      fontSize: 20, // Slightly smaller
-      color: '#ffffff',
-    });
+    // Level Display
+    this.levelText = this.add
+      .text(centerX, currentY, `LEVEL: ${this.currentLevel}`, {
+        fontFamily: 'Arial',
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
-    // Factory label
-    /* this.add.text(width * 0.25, height * 0.05, 'FACTORY', {
-            fontFamily: 'Arial Black',
-            fontSize: 20,
-            color: '#ffffff'
-        }).setOrigin(0.5, 0); */
+    currentY += spacing;
+
+    // Momentum Title
+    this.momentumLabel = this.add
+      .text(centerX, currentY, 'MOMENTUM', {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        color: '#aaaaaa',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += 25; // Space for bar
+
+    // Momentum Bar placeholder (graphics updated in updateMomentumUI)
+    // Create text for momentum value here
+    this.momentumValueText = this.add
+      .text(centerX, currentY, '', {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        color: '#ffffff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    this.momentumValueText.setDepth(10);
+
+    currentY += spacing;
+
+    // Active Upgrades Display Header
+    this.add
+      .text(centerX, currentY, 'ACTIVE UPGRADES', {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        color: '#aaaaaa',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += 20;
+
+    // Active Upgrades List
+    this.activeUpgradesText = this.add
+      .text(panelX + 20, currentY, 'None', {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        color: '#ffffff',
+        align: 'left',
+        wordWrap: { width: this.rightPanelWidth - 40 },
+      })
+      .setScrollFactor(0);
+    this.updateActiveUpgradesDisplay(); // Initial update
+
+    // --- Buttons Section (Bottom of Panel) ---
+    const buttonStartY = height - 250; // Start from bottom up?
 
     // Pause button
-    this.createButton(width * 0.9, height * 0.05, 'PAUSE', () => {
+    const pauseButton = this.createButton(centerX, buttonStartY, 'PAUSE', () => {
       this.togglePause();
     });
+    pauseButton.button.setScrollFactor(0);
+    pauseButton.text.setScrollFactor(0);
+    this.addToUI(pauseButton.button);
+    this.addToUI(pauseButton.text);
 
-    // Level Up button (initially hidden, shown when pendingLevelUps > 0)
-    this.levelUpButton = this.createButton(width * 0.9, height * 0.12, 'LEVEL UP!', () => {
-      this.claimLevelUp();
-    });
-    // Make it more prominent with different styling
-    this.levelUpButton.button.fillColor = 0x00aa44;
-    this.levelUpButton.button.setStrokeStyle(2, 0x00ff66);
-    // Initially hidden
-    this.levelUpButton.button.setVisible(false);
-    this.levelUpButton.text.setVisible(false);
-
-    // --- ADD CLEAR FACTORY UI HERE ---
-    // Clear Factory Button
-    this.clearButton = this.createButton(width * 0.77, height * 0.9, 'CLEAR FACTORY', () => {
-      this.clearPlacedItems();
-    });
-    // Adjust button size for text
-    this.clearButton.button.width = 180;
-    this.clearButton.text.x = this.clearButton.button.x;
-
-    // --- END CLEAR FACTORY UI ---
-
-    // Active Upgrades Display
-    this.activeUpgradesText = this.add.text(width * 0.55, height * 0.05, 'Active Upgrades:', {
-      fontFamily: 'Arial',
-      fontSize: 16,
-      color: '#ffffff',
-      align: 'left',
-      wordWrap: { width: width * 0.25 }, // Adjust width as needed
-    });
-    this.updateActiveUpgradesDisplay(); // Initial update
-    this.updateLevelUpButton(); // Initial update for level up button
-
-    // --- SKIP BUTTON ---
+    // Skip Button
     this.skipButton = this.createButton(
-      width * 0.9,
-      height * 0.19,
+      centerX,
+      buttonStartY + 60,
       `SKIP (${this.skipCount})`,
       () => {
         this.skipCurrentPiece();
@@ -379,10 +421,76 @@ export default class GameScene extends Phaser.Scene {
     // Style the skip button
     this.skipButton.button.fillColor = 0x884400;
     this.skipButton.button.setStrokeStyle(2, 0xcc6600);
-    this.updateSkipButton(); // Initial update
+    this.skipButton.button.setScrollFactor(0);
+    this.skipButton.text.setScrollFactor(0);
+    this.updateSkipButton();
+    this.addToUI(this.skipButton.button);
+    this.addToUI(this.skipButton.text);
+
+    // Level Up button
+    this.levelUpButton = this.createButton(centerX, buttonStartY + 120, 'LEVEL UP!', () => {
+      this.claimLevelUp();
+    });
+    this.levelUpButton.button.fillColor = 0x00aa44;
+    this.levelUpButton.button.setStrokeStyle(2, 0x00ff66);
+    this.levelUpButton.button.setVisible(false);
+    this.levelUpButton.text.setVisible(false);
+    this.levelUpButton.button.setScrollFactor(0);
+    this.levelUpButton.text.setScrollFactor(0);
+    this.addToUI(this.levelUpButton.button);
+    this.addToUI(this.levelUpButton.text);
+    this.updateLevelUpButton();
+
+    // Clear Factory Button (DEBUG ONLY)
+    if (this.debugMode) {
+      this.clearButton = this.createButton(centerX, buttonStartY + 180, 'CLEAR (DEBUG)', () => {
+        this.clearPlacedItems();
+      });
+      this.clearButton.button.setScrollFactor(0);
+      this.clearButton.text.setScrollFactor(0);
+      this.clearButton.button.fillColor = 0xaa0000;
+      this.addToUI(this.clearButton.button);
+      this.addToUI(this.clearButton.text);
+    }
   }
 
   setupInput() {
+    // Camera Drag Controls
+    this.input.mouse.disableContextMenu();
+
+    this.input.on('pointerdown', (pointer) => {
+      // Drag camera with Right Mouse Button or Middle Mouse Button or Left if holding Shift
+      if (
+        pointer.rightButtonDown() ||
+        pointer.middleButtonDown() ||
+        (pointer.leftButtonDown() &&
+          this.input.keyboard.checkDown(this.input.keyboard.addKey('SHIFT')))
+      ) {
+        this.isDraggingCamera = true;
+        this.dragStartX = pointer.x;
+        this.dragStartY = pointer.y;
+        this.cameraStartX = this.cameras.main.scrollX;
+        this.cameraStartY = this.cameras.main.scrollY;
+        this.input.setDefaultCursor('grabbing');
+      }
+    });
+
+    this.input.on('pointermove', (pointer) => {
+      if (this.isDraggingCamera) {
+        const deltaX = (pointer.x - this.dragStartX) * 1.0;
+        const deltaY = (pointer.y - this.dragStartY) * 1.0;
+        this.cameras.main.scrollX = this.cameraStartX - deltaX;
+        this.cameras.main.scrollY = this.cameraStartY - deltaY;
+      }
+    });
+
+    this.input.on('pointerup', (_pointer) => {
+      if (this.isDraggingCamera) {
+        this.isDraggingCamera = false;
+        this.input.setDefaultCursor('default');
+      }
+    });
+
     // Set up drag and drop for machine placement
     /*this.input.on('dragstart', (pointer, gameObject) => {
             // Store original position for returning if placement fails
@@ -825,6 +933,20 @@ export default class GameScene extends Phaser.Scene {
       } else {
         // Desktop mode: normal placement
         console.log('[POINTERDOWN] Click detected.');
+
+        // CHECK UI BOUNDS - Block clicks on UI panels
+        const uiTopY = this.scale.height * (1 - this.uiHeightRatio);
+        const gameWidth = this.scale.width - this.rightPanelWidth;
+
+        // Block if in right panel OR in bottom panel (left of right panel only)
+        const isInRightPanel = pointer.x >= gameWidth;
+        const isInBottomPanel = pointer.y > uiTopY && pointer.x < gameWidth;
+
+        if (isInRightPanel || isInBottomPanel) {
+          console.log('[POINTERDOWN] Click is in UI area. Ignoring grid interaction.');
+          return;
+        }
+
         if (pointer.leftButtonDown()) {
           console.log('[POINTERDOWN] Left button down.');
           const worldX = pointer.worldX;
@@ -918,6 +1040,7 @@ export default class GameScene extends Phaser.Scene {
   createPlacementPreview(machine) {
     // Create a graphics object for the preview
     this.placementPreview = this.add.graphics();
+    this.addToWorld(this.placementPreview);
 
     // Add a debug marker at the preview position to help track it
     /*this.placementPreviewMarker = this.add.graphics();
@@ -1008,7 +1131,12 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Get the grid position from the pointer position
-    const gridPos = this.grid.worldToGrid(this.input.activePointer.x, this.input.activePointer.y);
+    // Get the grid position from the pointer position
+    const worldPoint = this.cameras.main.getWorldPoint(
+      this.input.activePointer.x,
+      this.input.activePointer.y
+    );
+    const gridPos = this.grid.worldToGrid(worldPoint.x, worldPoint.y);
     if (!gridPos) {
       return; // Pointer is outside the grid
     }
@@ -1325,6 +1453,7 @@ export default class GameScene extends Phaser.Scene {
   updateConveyorPathPreview(path, machineType) {
     if (!this.placementPreview) {
       this.placementPreview = this.add.graphics();
+      this.addToWorld(this.placementPreview);
     }
 
     this.placementPreview.clear();
@@ -1462,7 +1591,17 @@ export default class GameScene extends Phaser.Scene {
       });
 
       this.deliveryNodes.push(deliveryNode);
+      this.deliveryNodes.push(deliveryNode);
       this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
+
+      // Ensure it's added to world view strictly
+      if (this.uiCamera) {
+        this.addToWorld(deliveryNode);
+      } else {
+        // If called before setupCameras (shouldn't happen with fix, but safe)
+        console.warn('[GAME] createInitialResourceNodes called before setupCameras?');
+      }
+
       console.log(`[GAME] Created initial delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
     } catch (error) {
       console.error('[GAME] Error creating initial delivery node:', error);
@@ -1512,6 +1651,7 @@ export default class GameScene extends Phaser.Scene {
       ); // Pass this.upgradeManager here
 
       this.resourceNodes.push(node);
+      this.addToWorld(node);
       this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
 
       //console.log(`[GAME] Created resource node for round ${this.currentRound} at grid (${emptySpot.x}, ${emptySpot.y})`);
@@ -1540,7 +1680,9 @@ export default class GameScene extends Phaser.Scene {
     // Update time display
     const minutes = Math.floor(this.gameTime / 60);
     const seconds = this.gameTime % 60;
-    this.timeText.setText(`TIME: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+    if (this.timeText) {
+      this.timeText.setText(`TIME: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
+    }
 
     // REMOVED: Game end condition based on time limit
     // if (this.gameTime >= GAME_CONFIG.gameTimeLimit) {
@@ -1694,50 +1836,48 @@ export default class GameScene extends Phaser.Scene {
     this.currentLevel++;
 
     // 3. GROW THE GRID if configured to do so
-    /* GRID EXPANSION DISABLED
-        if (GRID_CONFIG.growthPerRound > 0 && this.grid) {
-            // Calculate new dimensions based on growth parameters
-            const newWidth = Math.min(
-                this.grid.width + GRID_CONFIG.growthPerRound,
-                GRID_CONFIG.maxWidth
-            );
-            const newHeight = Math.min(
-                this.grid.height + GRID_CONFIG.growthPerRound,
-                GRID_CONFIG.maxHeight
-            );
-            
-            // Only resize if dimensions will actually change
-            if (newWidth > this.grid.width || newHeight > this.grid.height) {
-                console.log(`[GameScene.advanceLevel] Growing grid for level ${this.currentLevel}`);
-                this.grid.resize(newWidth, newHeight);
-                
-                // Add a visual effect to highlight the grid expansion
-                this.cameras.main.flash(500, 0, 255, 0, 0.3); // Green flash
-                
-                // Create a visual indicator for the new grid cells
-                const gridHighlight = this.add.graphics();
-                gridHighlight.fillStyle(0x00ff00, 0.3); // Semi-transparent green
-                
-                // Calculate grid position
-                const gridWidth = this.grid.width * this.grid.cellSize;
-                const gridHeight = this.grid.height * this.grid.cellSize;
-                const startX = this.grid.x - gridWidth / 2;
-                const startY = this.grid.y - gridHeight / 2;
-                
-                gridHighlight.fillRect(startX, startY, gridWidth, gridHeight);
-                
-                // Fade out the highlight
-                this.tweens.add({
-                    targets: gridHighlight,
-                    alpha: 0,
-                    duration: 2000,
-                    onComplete: () => {
-                        gridHighlight.destroy();
-                    }
-                });
-            }
-        }
-        */
+    if (GRID_CONFIG.growthPerRound > 0 && this.grid) {
+      // Calculate new dimensions based on growth parameters
+      const newWidth = Math.min(this.grid.width + GRID_CONFIG.growthPerRound, GRID_CONFIG.maxWidth);
+      const newHeight = Math.min(
+        this.grid.height + GRID_CONFIG.growthPerRound,
+        GRID_CONFIG.maxHeight
+      );
+
+      // Only resize if dimensions will actually change
+      if (newWidth > this.grid.width || newHeight > this.grid.height) {
+        console.log(`[GameScene.advanceLevel] Growing grid for level ${this.currentLevel}`);
+        this.grid.resize(newWidth, newHeight);
+
+        // Add a visual effect to highlight the grid expansion
+        this.cameras.main.flash(500, 0, 255, 0, 0.3); // Green flash
+
+        // Create a visual indicator for the new grid cells
+        const gridHighlight = this.add.graphics();
+        gridHighlight.fillStyle(0x00ff00, 0.3); // Semi-transparent green
+
+        // Calculate grid position
+        const gridWidth = this.grid.width * this.grid.cellSize;
+        const gridHeight = this.grid.height * this.grid.cellSize;
+        const startX = this.grid.x - gridWidth / 2;
+        const startY = this.grid.y - gridHeight / 2;
+
+        gridHighlight.fillRect(startX, startY, gridWidth, gridHeight);
+
+        // Ensure highlight is on world camera only
+        this.addToWorld(gridHighlight);
+
+        // Fade out the highlight
+        this.tweens.add({
+          targets: gridHighlight,
+          alpha: 0,
+          duration: 2000,
+          onComplete: () => {
+            gridHighlight.destroy();
+          },
+        });
+      }
+    }
 
     // 3. Spawn initial nodes for the new level - MODIFIED: Immediately spawn nodes
     console.log(
@@ -1769,6 +1909,9 @@ export default class GameScene extends Phaser.Scene {
     console.log(
       `Advanced to level ${this.currentLevel}. New score threshold: ${this.currentLevelScoreThreshold}. Grid size: ${this.grid.width}x${this.grid.height}`
     );
+
+    // Update camera bounds for the new level
+    this.updateCameraBounds();
   }
 
   togglePause() {
@@ -2519,6 +2662,7 @@ export default class GameScene extends Phaser.Scene {
 
       // Add the machine to the scene's tracking array
       this.machines.push(machineObj);
+      this.addToWorld(machineObj);
       console.log(
         `[GameScene.placeMachine] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`
       ); // LOG P11
@@ -3298,12 +3442,30 @@ export default class GameScene extends Phaser.Scene {
 
   updateMomentumUI() {
     this.momentumBar.clear();
+    this.momentumBarBg.clear();
 
     const percentage = Phaser.Math.Clamp(this.currentMomentum / this.maxMomentum, 0, 1);
-    const barWidth = 150; // Must match the width used in createUI
-    const barHeight = 20; // Must match the height used in createUI
-    const barX = this.cameras.main.width * 0.55; // Must match the X used in createUI
-    const barY = this.cameras.main.height * 0.87; // Must match the Y used in createUI
+
+    // Position in Right Panel
+    const panelX = this.scale.width - this.rightPanelWidth;
+    const centerX = panelX + this.rightPanelWidth / 2;
+    // Align relative to the "Momentum" label we placed in createUI
+    // We didn't save the label Y, so let's deduce or hardcode safely.
+    // In createUI:
+    // startY = 20
+    // score = 20
+    // level = 60
+    // momentumLabel = 100
+    // So bar should be around 125
+
+    const barWidth = this.rightPanelWidth * 0.8;
+    const barHeight = 20;
+    const barX = centerX - barWidth / 2;
+    const barY = 125;
+
+    // Draw Background
+    this.momentumBarBg.fillStyle(0x555555, 1);
+    this.momentumBarBg.fillRect(barX, barY, barWidth, barHeight);
 
     // Determine color based on percentage (Green -> Yellow -> Red)
     let color;
@@ -3335,6 +3497,9 @@ export default class GameScene extends Phaser.Scene {
 
     // Update the momentum value text
     if (this.momentumValueText) {
+      // Reposition text to be centered on bar
+      this.momentumValueText.setPosition(centerX, barY + barHeight / 2);
+
       let text = `${Math.round(this.currentMomentum)} / ${this.maxMomentum}`;
       if (percentage >= this.comboThreshold / 100) {
         text = `${text} COMBO!`;
@@ -3424,6 +3589,7 @@ export default class GameScene extends Phaser.Scene {
         this.upgradeManager
       ); // Pass this.upgradeManager here
       this.resourceNodes.push(resourceNode);
+      this.addToWorld(resourceNode); // Ensure it's not on the UI camera
       this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
       console.log(
         `[SPAWN_DEBUG] Successfully created resource node at grid (${emptySpot1.x}, ${emptySpot1.y})`
@@ -3452,6 +3618,7 @@ export default class GameScene extends Phaser.Scene {
         pointsPerResource: 10,
       });
       this.deliveryNodes.push(deliveryNode);
+      this.addToWorld(deliveryNode); // Ensure it's not on the UI camera
       this.grid.setCell(emptySpot2.x, emptySpot2.y, {
         type: 'delivery-node',
         object: deliveryNode,
@@ -3735,6 +3902,7 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true })
       .setDepth(2000);
+    this.addToWorld(this.placeBtn);
     this.placeBtn.on('pointerdown', () => {
       if (this.isTouchPlacing && this.touchPreviewGridPos) {
         this.tryPlaceMachineAt(this.touchPreviewGridPos);
@@ -3804,6 +3972,7 @@ export default class GameScene extends Phaser.Scene {
       });
 
       this.deliveryNodes.push(deliveryNode);
+      this.addToWorld(deliveryNode);
       this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
 
       console.log(`[GAME] Created delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
@@ -3904,6 +4073,78 @@ export default class GameScene extends Phaser.Scene {
         // Reset scale
         this.levelUpButton.button.setScale(1);
       }
+    }
+  }
+
+  setupCameras() {
+    const width = this.scale.width;
+    const height = this.scale.height;
+
+    // 1. Configure Main Camera (World View)
+    const gameWidth = width - this.rightPanelWidth;
+    const worldHeight = height * (1 - this.uiHeightRatio);
+
+    this.cameras.main.setViewport(0, 0, gameWidth, worldHeight);
+    this.cameras.main.setName('WorldCamera');
+
+    // 2. Configure UI Camera
+    // Occupies the full screen (overlay)
+    this.uiCamera = this.cameras.add(0, 0, width, height);
+    this.uiCamera.setName('UICamera');
+
+    // 3. Create a background for the Bottom UI panel area (Machine Selection)
+    const bottomUiBg = this.add.graphics();
+    bottomUiBg.fillStyle(0x222222, 1);
+    bottomUiBg.fillRect(0, worldHeight, width, height * this.uiHeightRatio); // Span full width for now, overlapped by right panel
+    bottomUiBg.setScrollFactor(0);
+    this.addToUI(bottomUiBg);
+
+    // 4. Create background for Right Side Panel
+    const rightPanelBg = this.add.graphics();
+    rightPanelBg.fillStyle(0x1a1a1a, 1); // Slightly lighter/darker than game bg
+    rightPanelBg.fillRect(gameWidth, 0, this.rightPanelWidth, height);
+    rightPanelBg.lineStyle(2, 0x333333, 1);
+    rightPanelBg.beginPath();
+    rightPanelBg.moveTo(gameWidth, 0);
+    rightPanelBg.lineTo(gameWidth, height);
+    rightPanelBg.strokePath();
+    rightPanelBg.setScrollFactor(0);
+    this.addToUI(rightPanelBg);
+
+    console.log(
+      `[GameScene] Cameras setup. World: ${gameWidth}x${worldHeight}, Right Panel: ${this.rightPanelWidth}px`
+    );
+  }
+
+  // Helper handling visibility
+  addToWorld(gameObject) {
+    if (!gameObject) return;
+    if (!this.uiCamera) return; // Safeguard if uiCamera not yet created
+
+    if (Array.isArray(gameObject)) {
+      gameObject.forEach((obj) => this.addToWorld(obj));
+    } else if (gameObject.container) {
+      // Handle wrapper classes with a container property (Machine, ResourceNode)
+      this.uiCamera.ignore(gameObject.container);
+      // console.log('[GameScene] Ignoring container for UI camera');
+    } else {
+      // Handle direct GameObjects
+      this.uiCamera.ignore(gameObject);
+      // console.log('[GameScene] Ignoring object for UI camera');
+    }
+  }
+
+  addToUI(gameObject) {
+    if (!gameObject) return;
+
+    if (Array.isArray(gameObject)) {
+      gameObject.forEach((obj) => this.addToUI(obj));
+    } else if (gameObject.container) {
+      // Handle wrapper classes with a container property
+      this.cameras.main.ignore(gameObject.container);
+    } else {
+      // Handle direct GameObjects
+      this.cameras.main.ignore(gameObject);
     }
   }
 }
