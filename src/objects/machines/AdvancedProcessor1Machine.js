@@ -12,6 +12,8 @@ export default class AdvancedProcessor1Machine extends BaseMachine {
    */
   constructor(scene, config) {
     super(scene, config);
+    // Store the config for later use in initMachineProperties
+    this.config = config;
   }
 
   /**

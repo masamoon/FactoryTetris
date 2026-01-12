@@ -88,8 +88,9 @@ export function countBlocks(shape) {
 }
 
 // Get valid configs based on block count
+// 4-block pieces get both single and dual input configs for more variety
 export function getConfigsForBlockCount(count) {
-  if (count === 4) return FOUR_BLOCK_CONFIGS;
+  if (count === 4) return [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
   if (count >= 5) return FIVE_BLOCK_CONFIGS;
-  return FOUR_BLOCK_CONFIGS; // Default fallback
+  return FOUR_BLOCK_CONFIGS; // Default fallback for smaller pieces
 }

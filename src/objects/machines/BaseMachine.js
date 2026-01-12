@@ -1292,6 +1292,13 @@ export default class BaseMachine {
    */
   checkOutputCapacity() {
     const outputCapacity = this.outputCapacity || 5;
+
+    // For machines using the new level system, check outputQueue
+    if (this.outputLevel) {
+      return (this.outputQueue?.length || 0) < outputCapacity;
+    }
+
+    // Legacy: check outputInventory
     if (this.outputTypes && this.outputTypes.length > 0) {
       const outputType = this.outputTypes[0];
       return (this.outputInventory[outputType] || 0) < outputCapacity;
@@ -1461,8 +1468,9 @@ export default class BaseMachine {
    * Adds outputs based on outputTypes, resets state, and calls pushOutput.
    */
   completeProcessing() {
-    // Add output resources
-    if (this.outputTypes) {
+    // Add output resources - only use legacy inventory if NOT using the new level system
+    // The new level system uses outputQueue exclusively
+    if (this.outputTypes && !this.outputLevel) {
       this.outputTypes.forEach((type) => {
         if (this.outputInventory[type] !== undefined) {
           this.outputInventory[type]++;
@@ -1545,10 +1553,16 @@ export default class BaseMachine {
   }
 
   /**
-   * Checks if the machine has any resources in its output inventory.
+   * Checks if the machine has any resources in its output inventory or queue.
    * @returns {boolean} True if there are output resources, false otherwise.
    */
   hasOutput() {
+    // For machines using the new level system, check outputQueue
+    if (this.outputLevel) {
+      return this.outputQueue && this.outputQueue.length > 0;
+    }
+
+    // Legacy: check outputInventory
     if (!this.outputTypes || this.outputTypes.length === 0) {
       return false; // No defined output types means no output possible
     }
@@ -2633,8 +2647,8 @@ export default class BaseMachine {
           return false;
         }
 
-        // NEW FIX: For multi-input machines, check if we still need more of this specific level
-        // Count how many of each level we need
+        // For multi-input machines, allow buffering multiple batches worth of items
+        // Count how many of each level we need per batch
         const requiredCounts = {};
         this.inputLevels.forEach((level) => {
           requiredCounts[level] = (requiredCounts[level] || 0) + 1;
@@ -2649,12 +2663,13 @@ export default class BaseMachine {
           });
         }
 
-        // Check if we still need more of this level
-        const requiredForLevel = requiredCounts[itemLevel] || 0;
+        // Allow up to 2 batches worth of each level (buffer for continuous operation)
+        const maxBatches = 2;
+        const requiredForLevel = (requiredCounts[itemLevel] || 0) * maxBatches;
         const haveForLevel = queueCounts[itemLevel] || 0;
         if (haveForLevel >= requiredForLevel) {
           console.log(
-            `[${this.id}] canAcceptInput: Rejected level ${itemLevel}. Already have ${haveForLevel}/${requiredForLevel} needed.`
+            `[${this.id}] canAcceptInput: Rejected level ${itemLevel}. Already have ${haveForLevel}/${requiredForLevel} buffered.`
           );
           return false;
         }
