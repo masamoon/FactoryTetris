@@ -145,6 +145,11 @@ export default class AdvancedProcessorMachine extends BaseMachine {
       'basic-resource': 2,
     };
 
+    // Dynamic resource level system - Advanced Processor takes 2xL1 and 1xL2, outputs L3
+    this.inputLevels = [1, 1, 2];
+    this.outputLevel = 3;
+    this.notation = '1/1/2/3';
+
     // Log initialization for better debugging
     console.log(`[AdvancedProcessor] Initialized with properties:
             Input types: ${this.inputTypes}

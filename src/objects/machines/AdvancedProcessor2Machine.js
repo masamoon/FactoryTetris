@@ -12,6 +12,8 @@ export default class AdvancedProcessor2Machine extends BaseMachine {
    */
   constructor(scene, config) {
     super(scene, config);
+    // Store the config for later use in initMachineProperties
+    this.config = config;
   }
 
   /**
@@ -52,6 +54,12 @@ export default class AdvancedProcessor2Machine extends BaseMachine {
 
     // Set the machine shape
     this.shape = originalShape;
+
+    // Dynamic resource level system - read from config or use defaults
+    // Advanced Processor 2 takes L1 and L2, outputs L3
+    this.inputLevels = this.config?.inputLevels ?? [1, 2];
+    this.outputLevel = this.config?.outputLevel ?? 3;
+    this.notation = this.config?.notation ?? '1/2/3';
 
     // Log initialization
     console.log(`[AdvancedProcessor2] Initialized with properties:

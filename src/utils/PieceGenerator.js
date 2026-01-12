@@ -82,9 +82,10 @@ function selectWeightedConfig(configs, producibleLevels) {
       weight += 2;
     }
 
-    // 5-block pieces are slightly rarer
-    if (config.inputs.length === 2) {
-      weight *= 0.8;
+    // Boost L3-outputting pieces (like 1/2/3) to ensure they appear more often
+    // This helps progression since L3 is a key milestone
+    if (config.output === 3) {
+      weight *= 1.5;
     }
 
     return weight;

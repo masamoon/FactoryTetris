@@ -53,6 +53,11 @@ export default class AdvancedProcessor1Machine extends BaseMachine {
     // Set the machine shape
     this.shape = originalShape;
 
+    // Dynamic resource level system - Advanced Processor 1 takes L1 and L2, outputs L3
+    this.inputLevels = [1, 2];
+    this.outputLevel = 3;
+    this.notation = '1/2/3';
+
     // Log initialization
     console.log(`[AdvancedProcessor1] Initialized with properties:
             Input types: ${this.inputTypes}

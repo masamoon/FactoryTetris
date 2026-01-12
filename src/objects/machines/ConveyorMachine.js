@@ -868,7 +868,7 @@ export default class ConveyorMachine extends BaseMachine {
       // --- END DEBUG LOG ---
 
       // Now check if the target can accept this specific item type
-      if (targetEntity.canAcceptInput(itemToTransfer.itemData.type)) {
+      if (targetEntity.canAcceptInput(itemToTransfer.itemData.type, itemToTransfer.itemData)) {
         // Attempt to transfer the item object ({type, amount})
         if (targetEntity.acceptItem(itemToTransfer.itemData)) {
           console.log(

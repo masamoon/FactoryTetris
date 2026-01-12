@@ -1223,6 +1223,19 @@ export default class MachineFactory {
       if (presetPosition) {
         config.presetPosition = presetPosition;
       }
+
+      // If typeOrId is an object, extract level configuration properties
+      if (isTypeObject) {
+        if (typeOrId.inputLevels && typeOrId.inputLevels.length > 0) {
+          config.inputLevels = [...typeOrId.inputLevels];
+        }
+        if (typeOrId.outputLevel) {
+          config.outputLevel = typeOrId.outputLevel;
+        }
+        if (typeOrId.notation) {
+          config.notation = typeOrId.notation;
+        }
+      }
       console.log(`[MachineFactory] Config prepared:`, config);
 
       // Call the registry

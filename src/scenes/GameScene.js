@@ -3,7 +3,14 @@ import Grid from '../objects/Grid';
 import MachineFactory from '../objects/MachineFactory';
 import ResourceNode from '../objects/ResourceNode';
 import DeliveryNode from '../objects/DeliveryNode'; // Add import
+import ChipNode from '../objects/ChipNode'; // Transcendence chip entity
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
+import {
+  getGridSizeForEra,
+  getTiersForEra,
+  TRANSCEND_THRESHOLDS,
+  CHIP_CONFIG,
+} from '../config/eraConfig';
 // Note: TestUtils and MachineRegistry are used for development/debugging but may appear unused
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
@@ -67,6 +74,13 @@ export default class GameScene extends Phaser.Scene {
     this.uiHeightRatio = 0.25; // Bottom 25% is for UI
     this.rightPanelWidth = 300; // Fixed width for right panel
     this.debugMode = false; // Toggle for debug features like "Clear Factory"
+
+    // === ERA / TRANSCENDENCE SYSTEM ===
+    this.currentEra = 1; // Current era (starts at 1)
+    this.chips = []; // Array of ChipNode entities from previous eras
+    this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
+    this.canTranscend = false; // Flag when transcendence conditions are met
+    this.transcendButtonPulse = null; // Tween reference for pulsing button
   }
 
   preload() {
@@ -240,6 +254,10 @@ export default class GameScene extends Phaser.Scene {
     this.resourceNodes.forEach((node) => node.update(time, delta)); // Pass time/delta just in case
     // Update delivery nodes
     this.deliveryNodes.forEach((node) => node.update(time, delta)); // Pass time/delta just in case
+    // Update chips (transcendence system)
+    if (this.chips) {
+      this.chips.forEach((chip) => chip.update());
+    }
 
     // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
     // this.updateClearCooldownUI();
@@ -339,6 +357,33 @@ export default class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
+
+    currentY += spacing * 0.7;
+
+    // Era Display (Transcendence System)
+    this.eraText = this.add
+      .text(centerX, currentY, `ERA: ${this.currentEra}`, {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        color: '#aaaaff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += spacing * 0.6;
+
+    // Transcend Progress Display
+    this.transcendProgressText = this.add
+      .text(centerX, currentY, '', {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: '#8888aa',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    this.updateTranscendProgress();
 
     currentY += spacing;
 
@@ -440,6 +485,19 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.levelUpButton.button);
     this.addToUI(this.levelUpButton.text);
     this.updateLevelUpButton();
+
+    // Transcend Button (hidden until conditions are met)
+    this.transcendButton = this.createButton(centerX, buttonStartY + 180, 'TRANSCEND!', () => {
+      this.triggerTranscendence();
+    });
+    this.transcendButton.button.fillColor = 0x4444aa;
+    this.transcendButton.button.setStrokeStyle(3, 0x8888ff);
+    this.transcendButton.button.setVisible(false);
+    this.transcendButton.text.setVisible(false);
+    this.transcendButton.button.setScrollFactor(0);
+    this.transcendButton.text.setScrollFactor(0);
+    this.addToUI(this.transcendButton.button);
+    this.addToUI(this.transcendButton.text);
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
@@ -1912,6 +1970,209 @@ export default class GameScene extends Phaser.Scene {
 
     // Update camera bounds for the new level
     this.updateCameraBounds();
+
+    // Check if transcendence conditions might be met
+    this.checkTranscendCondition();
+  }
+
+  // === TRANSCENDENCE SYSTEM METHODS ===
+
+  /**
+   * Check if the player can transcend to the next era
+   */
+  checkTranscendCondition() {
+    const levelThreshold = TRANSCEND_THRESHOLDS.getLevelThreshold(this.currentEra);
+    const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
+
+    const levelMet = this.currentLevel >= levelThreshold;
+    const deliveryMet = this.deliveredHighTierResources >= deliveryThreshold;
+
+    const wasCanTranscend = this.canTranscend;
+    this.canTranscend = levelMet && deliveryMet;
+
+    // Update transcend button visibility and animation
+    if (this.canTranscend && !wasCanTranscend) {
+      console.log(
+        `[TRANSCEND] Conditions met! Level ${this.currentLevel}/${levelThreshold}, Deliveries ${this.deliveredHighTierResources}/${deliveryThreshold}`
+      );
+      this.showTranscendButton();
+    } else if (!this.canTranscend && wasCanTranscend) {
+      this.hideTranscendButton();
+    }
+
+    // Update transcend progress display
+    this.updateTranscendProgress();
+  }
+
+  /**
+   * Show the transcend button with pulsing animation
+   */
+  showTranscendButton() {
+    if (this.transcendButton) {
+      this.transcendButton.button.setVisible(true);
+      this.transcendButton.text.setVisible(true);
+
+      // Pulsing animation
+      this.transcendButtonPulse = this.tweens.add({
+        targets: [this.transcendButton.button, this.transcendButton.text],
+        scaleX: 1.1,
+        scaleY: 1.1,
+        duration: 500,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
+  }
+
+  /**
+   * Hide the transcend button
+   */
+  hideTranscendButton() {
+    if (this.transcendButton) {
+      this.transcendButton.button.setVisible(false);
+      this.transcendButton.text.setVisible(false);
+
+      if (this.transcendButtonPulse) {
+        this.transcendButtonPulse.stop();
+        this.transcendButtonPulse = null;
+      }
+    }
+  }
+
+  /**
+   * Update the transcendence progress display in UI
+   */
+  updateTranscendProgress() {
+    if (!this.transcendProgressText) return;
+
+    const levelThreshold = TRANSCEND_THRESHOLDS.getLevelThreshold(this.currentEra);
+    const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
+    const highestTier = getTiersForEra(this.currentEra).output;
+
+    this.transcendProgressText.setText(
+      `Transcend: L${this.currentLevel}/${levelThreshold} | L${highestTier}: ${this.deliveredHighTierResources}/${deliveryThreshold}`
+    );
+  }
+
+  /**
+   * Called when a high-tier resource is delivered - tracks progress toward transcendence
+   */
+  onHighTierDelivery(tier) {
+    const currentEraTiers = getTiersForEra(this.currentEra);
+    if (tier === currentEraTiers.output) {
+      this.deliveredHighTierResources++;
+      this.checkTranscendCondition();
+    }
+  }
+
+  /**
+   * Trigger transcendence - compress factory into chip and advance to next era
+   */
+  triggerTranscendence() {
+    if (!this.canTranscend) {
+      console.warn('[TRANSCEND] Cannot transcend - conditions not met');
+      return;
+    }
+
+    console.log(`[TRANSCEND] Beginning transcendence from Era ${this.currentEra}!`);
+
+    // Flash effect
+    this.cameras.main.flash(500, 100, 100, 255, true);
+    this.playSound('round-complete');
+
+    // 1. Snapshot current factory state (for chip emission rate - simplified for now)
+    const _factorySnapshot = {
+      era: this.currentEra,
+      level: this.currentLevel,
+      score: this.score,
+    };
+
+    // 2. Create chip from current era
+    const newChip = {
+      era: this.currentEra,
+      emissionRate: 3000, // Could be calculated from factory throughput
+    };
+
+    // 3. Clear the current factory
+    this.clearPlacedItems();
+
+    // 4. Advance era
+    this.currentEra++;
+    console.log(`[TRANSCEND] Advanced to Era ${this.currentEra}`);
+
+    // 5. Resize grid for new era
+    const newGridSize = getGridSizeForEra(this.currentEra);
+    console.log(`[TRANSCEND] Resizing grid to ${newGridSize}x${newGridSize}`);
+    this.grid.resize(newGridSize, newGridSize);
+
+    // 6. Place the new chip on the grid (left side)
+    this.placeChipOnGrid(newChip);
+
+    // 7. Re-place existing chips from previous eras
+    // (Chips are preserved across transcendence, already on grid conceptually)
+
+    // 8. Spawn new resource and delivery nodes
+    this.createInitialResourceNodes();
+
+    // 9. Reset transcendence-related counters
+    this.deliveredHighTierResources = 0;
+    this.canTranscend = false;
+    this.hideTranscendButton();
+
+    // 10. Update level display (level continues, doesn't reset)
+    this.updateEraUI();
+    this.updateTranscendProgress();
+
+    // 11. Update camera bounds for larger grid
+    this.updateCameraBounds();
+
+    console.log(`[TRANSCEND] Transcendence complete! Now in Era ${this.currentEra}`);
+  }
+
+  /**
+   * Place a chip on the grid at an appropriate position
+   */
+  placeChipOnGrid(chipData) {
+    // Find a suitable position on the left side
+    // Chips should be placed in column 0-2 (3x3 chip)
+    let gridY = 1 + this.chips.length * 4; // Stack chips vertically with spacing
+
+    // Ensure we don't go off grid
+    const maxY = this.grid.height - CHIP_CONFIG.size - 1;
+    if (gridY > maxY) {
+      gridY = maxY;
+    }
+
+    const chip = new ChipNode(this, {
+      gridX: 0,
+      gridY: gridY,
+      chipEra: chipData.era,
+      emissionRate: chipData.emissionRate,
+    });
+
+    this.chips.push(chip);
+
+    // Mark grid cells as occupied by chip
+    const occupiedCells = chip.getOccupiedCells();
+    for (const cell of occupiedCells) {
+      this.grid.setCell(cell.x, cell.y, { type: 'chip', chip: chip });
+    }
+
+    console.log(`[TRANSCEND] Placed chip from Era ${chipData.era} at (0, ${gridY})`);
+    return chip;
+  }
+
+  /**
+   * Update era display in UI
+   */
+  updateEraUI() {
+    if (this.eraText) {
+      this.eraText.setText(`ERA: ${this.currentEra}`);
+    }
+    if (this.levelText) {
+      this.levelText.setText(`LEVEL: ${this.currentLevel}`);
+    }
   }
 
   togglePause() {
@@ -2591,8 +2852,9 @@ export default class GameScene extends Phaser.Scene {
         console.log(
           `[GameScene.placeMachine] Calling machineFactory.createMachine for ${machineType.id} at (${gridX},${gridY})`
         ); // LOG P7
+        // Pass the full machineType object so level configuration (inputLevels, outputLevel) is available
         machineObj = this.machineFactory.createMachine(
-          machineType.id,
+          machineType,
           gridX,
           gridY,
           direction,

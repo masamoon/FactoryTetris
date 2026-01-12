@@ -1744,7 +1744,17 @@ export default class BaseMachine {
 
         // Check if target machine can accept the resource type and has space
         // Special handling for advanced processor to ensure it can accept advanced resources
-        let canAccept = targetMachine.canAcceptInput(resourceTypeToTransfer);
+
+        // Prepare the item to transfer BEFORE checking acceptance (needed for level validation)
+        let itemToTransfer;
+        if (usingQueuedItem) {
+          itemToTransfer = this.outputQueue[0]; // Peek (shift only on success)
+        } else {
+          // Standard legacy transfer
+          itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
+        }
+
+        let canAccept = targetMachine.canAcceptInput(resourceTypeToTransfer, itemToTransfer);
 
         if (canAccept) {
           console.log(
@@ -1792,17 +1802,6 @@ export default class BaseMachine {
                 // Award bonus points when feeding advanced resources to advanced processor
                 this.scene.addScore(10);
               }
-            }
-
-            // --- MODIFIED: Call acceptItem with item object ---
-            let itemToTransfer;
-
-            // Check if we have purity items in queue to transfer
-            if (usingQueuedItem) {
-              itemToTransfer = this.outputQueue[0]; // Peek (shift only on success)
-            } else {
-              // Standard legacy transfer
-              itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
             }
 
             console.log(
@@ -2630,6 +2629,32 @@ export default class BaseMachine {
         if (!this.inputLevels.includes(itemLevel)) {
           console.log(
             `[${this.id}] canAcceptInput: Rejected level ${itemLevel}. Required levels: [${this.inputLevels.join(', ')}]`
+          );
+          return false;
+        }
+
+        // NEW FIX: For multi-input machines, check if we still need more of this specific level
+        // Count how many of each level we need
+        const requiredCounts = {};
+        this.inputLevels.forEach((level) => {
+          requiredCounts[level] = (requiredCounts[level] || 0) + 1;
+        });
+
+        // Count how many of each level we already have in the queue
+        const queueCounts = {};
+        if (this.inputQueue) {
+          this.inputQueue.forEach((item) => {
+            const level = item.purity || 1;
+            queueCounts[level] = (queueCounts[level] || 0) + 1;
+          });
+        }
+
+        // Check if we still need more of this level
+        const requiredForLevel = requiredCounts[itemLevel] || 0;
+        const haveForLevel = queueCounts[itemLevel] || 0;
+        if (haveForLevel >= requiredForLevel) {
+          console.log(
+            `[${this.id}] canAcceptInput: Rejected level ${itemLevel}. Already have ${haveForLevel}/${requiredForLevel} needed.`
           );
           return false;
         }

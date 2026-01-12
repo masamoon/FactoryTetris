@@ -114,6 +114,11 @@ export default class DeliveryNode {
       // Add score
       this.scene.addScore(totalPoints);
 
+      // Track delivery for transcendence system
+      if (this.scene.onHighTierDelivery) {
+        this.scene.onHighTierDelivery(level);
+      }
+
       // Visual feedback for level resource
       const levelName = getLevelName(level);
       this.createLevelAcceptEffect(level, totalPoints, levelName);
@@ -132,6 +137,12 @@ export default class DeliveryNode {
 
       // Add score
       this.scene.addScore(totalPoints);
+
+      // Track delivery for transcendence system
+      // Purity 3+ counts as high-tier (L3 equivalent) for Era 1
+      if (this.scene.onHighTierDelivery && purity >= 3) {
+        this.scene.onHighTierDelivery(purity);
+      }
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
