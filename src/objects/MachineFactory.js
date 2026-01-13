@@ -202,6 +202,7 @@ export default class MachineFactory {
 
   // Populate all processor slots with random processors from the pool
   // Each processor gets assigned dynamic input/output levels
+  // Guarantees at least one slot gets a higher tier piece (L3+ output)
   refreshAvailableProcessors() {
     if (this.processorTypes.length === 0) {
       this.availableProcessors = [];
@@ -209,12 +210,24 @@ export default class MachineFactory {
     }
 
     this.availableProcessors = [];
+    let hasHigherTier = false;
+
     for (let i = 0; i < this.numProcessorSlots; i++) {
       const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
       const baseProcessor = this.processorTypes[randomIndex];
 
+      // Force higher tier on second slot if first slot didn't get one,
+      // or on last slot as final guarantee
+      const forceHigherTier =
+        (!hasHigherTier && i === 1) || (!hasHigherTier && i === this.numProcessorSlots - 1);
+
       // Assign dynamic levels based on factory state
-      const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene);
+      const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, { forceHigherTier });
+
+      // Track if we got a higher tier piece
+      if (levelConfig.outputLevel > 2) {
+        hasHigherTier = true;
+      }
 
       // Create a new processor object with level configuration
       const processorWithLevels = {
@@ -248,6 +261,7 @@ export default class MachineFactory {
 
   // Rotate the processor list: remove the selected one, shift others, add new one at end
   // The new processor gets assigned dynamic levels
+  // Ensures at least one higher tier piece (L3+) remains in the rotation
   rotateProcessors(removedSlotIndex) {
     if (
       this.processorTypes.length === 0 ||
@@ -261,12 +275,18 @@ export default class MachineFactory {
     // distinct from just replacing it, we want the others to shift filling the gap
     this.availableProcessors.splice(removedSlotIndex, 1);
 
+    // Check if remaining processors have a higher tier piece
+    const hasHigherTier = this.availableProcessors.some((p) => p.outputLevel > 2);
+
     // Add a new random processor with dynamic levels
     const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
     const baseProcessor = this.processorTypes[randomIndex];
 
+    // Force higher tier if none remain after removing the used one
+    const forceHigherTier = !hasHigherTier;
+
     // Assign dynamic levels based on current factory state
-    const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene);
+    const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, { forceHigherTier });
 
     const newProcessor = {
       ...baseProcessor,

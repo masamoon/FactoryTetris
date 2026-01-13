@@ -173,8 +173,8 @@ export default class AdvancedProcessorMachine extends BaseMachine {
   /**
    * Override the canAcceptInput method to ensure we properly handle advanced resources
    */
-  canAcceptInput(resourceTypeId) {
-    return super.canAcceptInput(resourceTypeId);
+  canAcceptInput(resourceTypeId, itemData) {
+    return super.canAcceptInput(resourceTypeId, itemData);
   }
 
   /**

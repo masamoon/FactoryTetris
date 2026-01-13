@@ -149,6 +149,7 @@ export default class BaseMachine {
     this.inputTypes = [];
     this.outputTypes = [];
     this.processingTime = 1000; // Default 1 second
+    this.inputCapacity = 10; // Increased buffer size to handling mixed belts better
 
     // Dynamic resource level system
     // inputLevels: array of required input levels (e.g., [1] or [1, 2])
@@ -1135,7 +1136,10 @@ export default class BaseMachine {
           }
           const resourceTypeFromNode = resourceNode.resourceType.id;
 
-          if (this.canAcceptInput(resourceTypeFromNode)) {
+          // Create a mock item data for level-based acceptance check
+          // Resource nodes always produce level 1 purity resources
+          const mockItemData = { type: 'purity-resource', purity: 1, amount: 1 };
+          if (this.canAcceptInput('purity-resource', mockItemData)) {
             const extractedItem = resourceNode.extractResource();
 
             if (
@@ -2647,41 +2651,71 @@ export default class BaseMachine {
           return false;
         }
 
-        // For multi-input machines, allow buffering multiple batches worth of items
-        // Count how many of each level we need per batch
-        const requiredCounts = {};
-        this.inputLevels.forEach((level) => {
-          requiredCounts[level] = (requiredCounts[level] || 0) + 1;
-        });
+        // SMART RESERVATION LOGIC
+        // Ensure we always reserve enough space for the *other* items needed to complete a set.
+        // This prevents one resource type from flooding the buffer and causing a deadlock.
 
-        // Count how many of each level we already have in the queue
-        const queueCounts = {};
+        const capacity = this.inputCapacity || 10;
+        const currentCount = this.inputQueue ? this.inputQueue.length : 0;
+
+        // If generic capacity is full, definitely reject
+        if (currentCount >= capacity) {
+          return false;
+        }
+
+        // Calculate what we currently have
+        const currentInventory = {};
         if (this.inputQueue) {
           this.inputQueue.forEach((item) => {
-            const level = item.purity || 1;
-            queueCounts[level] = (queueCounts[level] || 0) + 1;
+            const lvl = item.purity || 1;
+            currentInventory[lvl] = (currentInventory[lvl] || 0) + 1;
           });
         }
 
-        // Allow up to 2 batches worth of each level (buffer for continuous operation)
-        const maxBatches = 2;
-        const requiredForLevel = (requiredCounts[itemLevel] || 0) * maxBatches;
-        const haveForLevel = queueCounts[itemLevel] || 0;
-        if (haveForLevel >= requiredForLevel) {
-          console.log(
-            `[${this.id}] canAcceptInput: Rejected level ${itemLevel}. Already have ${haveForLevel}/${requiredForLevel} buffered.`
-          );
+        // Calculate minimum needed to complete at least ONE processing batch (from what is missing)
+        // We only care about ensuring that after taking THIS item, we still have room for the missing pieces.
+        let missingForSet = 0;
+        this.inputLevels.forEach((reqLvl) => {
+          // How many do we need? (Assuming 1 per batch for now based on standard logic,
+          // but could check specific recipes if needed. Standard processors take 1 of each inputLevel).
+          const neededPerBatch = 1;
+
+          // How many do we have?
+          // If this is the incoming level, virtually add 1 to what we have for this calculation
+          // (or conversely, don't count it as missing).
+          let have = currentInventory[reqLvl] || 0;
+          if (reqLvl === itemLevel) {
+            have += 1;
+          }
+
+          const missing = Math.max(0, neededPerBatch - have);
+          missingForSet += missing;
+        });
+
+        // Space remaining AFTER accepting this item
+        // currentCount + 1 is the new count
+        const spaceAfterAccept = capacity - (currentCount + 1);
+
+        // Do we have enough space left to fit the missing pieces?
+        if (spaceAfterAccept < missingForSet) {
+          // Only log occasionally to avoid spam
+          if (Math.random() < 0.05) {
+            console.log(
+              `[${this.id}] canAcceptInput: Rejected level ${itemLevel} to reserve space. Cap:${capacity}, Cur:${currentCount}, MissingForSet:${missingForSet}, SpaceAfter:${spaceAfterAccept}`
+            );
+          }
           return false;
         }
+
+        return true;
       } else if (resourceTypeId === 'purity-resource') {
-        // If we have inputLevels but no itemData, we can't validate - be permissive for now
-        // This handles the case where only resourceTypeId is passed
-        console.log(
-          `[${this.id}] canAcceptInput: purity-resource without item data, checking capacity only`
-        );
+        // If we have inputLevels but no itemData, we can't validate fully but checking capacity is safe.
+        // We can't do smart reservation without knowing the incoming level, so we just check generic capacity.
+        // This acts as a fallback.
+        const capacity = this.inputCapacity || 10;
+        return this.inputQueue ? this.inputQueue.length < capacity : true;
       }
-      // Check capacity (using queue length for purity items)
-      return this.inputQueue ? this.inputQueue.length < 5 : true;
+      return true;
     }
 
     // LEGACY: Check if handling purity-resource (for machines without inputLevels)
@@ -2691,7 +2725,8 @@ export default class BaseMachine {
       // For now, let's assume all processors accept it
       if (this.inputTypes.length === 0 || this.inputTypes.includes('purity-resource')) {
         // Check capacity (using queue length for purity items)
-        return this.inputQueue ? this.inputQueue.length < 5 : true;
+        const capacity = this.inputCapacity || 10;
+        return this.inputQueue ? this.inputQueue.length < capacity : true;
       }
       // If machine expects specific named resources (like 'iron'), it might not accept generic purity-resource
       // UNLESS we are converting everything to purity-resource.
@@ -2710,8 +2745,8 @@ export default class BaseMachine {
       this.inputInventory[resourceTypeId] = 0;
     }
 
-    // Check if input inventory has space (e.g., less than a capacity of 5)
-    const inputCapacity = 5;
+    // Check if input inventory has space (e.g., less than a capacity of 10)
+    const inputCapacity = this.inputCapacity || 10;
     return this.inputInventory[resourceTypeId] < inputCapacity;
   }
 
@@ -2732,11 +2767,16 @@ export default class BaseMachine {
     // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
 
     if (this.canAcceptInput(itemType, itemData)) {
-      // Handle purity resource queueing
-      if (itemType === 'purity-resource' && this.inputQueue) {
+      // Handle purity resource queueing - queue items for machines with inputLevels OR purity-resource type
+      // This ensures machines using the inputLevels system can process items correctly
+      if (
+        this.inputQueue &&
+        (itemType === 'purity-resource' ||
+          (this.inputLevels && this.inputLevels.length > 0 && itemData.purity !== undefined))
+      ) {
         this.inputQueue.push(itemData); // Store full object
         console.log(
-          `[${this.name}] Enqueued purity-resource. Queue size: ${this.inputQueue.length}`
+          `[${this.name}] Enqueued item (type: ${itemType}, purity: ${itemData.purity}). Queue size: ${this.inputQueue.length}`
         );
       }
 

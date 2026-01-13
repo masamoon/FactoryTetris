@@ -72,10 +72,15 @@ export default class ChipNode {
   getOutputPins() {
     const pins = [];
     // Output pins are on the right edge of the chip (gridX + 2)
+    // For a 3x3 chip, the center row is gridY + 1
+    const centerRow = this.gridY + 1;
+    const tierCount = this.emittableTiers.length;
+    const startRow = centerRow - Math.floor((tierCount - 1) / 2);
+
     for (let i = 0; i < this.emittableTiers.length; i++) {
       pins.push({
         gridX: this.gridX + 2, // Right edge
-        gridY: this.gridY + i, // Stack vertically
+        gridY: startRow + i, // Centered vertically
         tier: this.emittableTiers[i],
       });
     }
@@ -169,9 +174,13 @@ export default class ChipNode {
    * Generate resources at each emission tick
    */
   emitResources() {
+    console.log(`[ChipNode] emitResources called, tiers: ${this.emittableTiers.join(', ')}`);
     for (const tier of this.emittableTiers) {
       if (this.resources[tier] < this.maxResources) {
         this.resources[tier]++;
+        console.log(
+          `[ChipNode] Generated L${tier} resource, buffer now: ${this.resources[tier]}/${this.maxResources}`
+        );
         this.createEmissionEffect(tier);
       }
     }
@@ -221,34 +230,76 @@ export default class ChipNode {
     const pins = this.getOutputPins();
 
     for (const pin of pins) {
-      if (this.resources[pin.tier] <= 0) continue;
+      if (this.resources[pin.tier] <= 0) {
+        // Log periodically to show resources are empty
+        if (now % 5000 < 20) {
+          console.log(
+            `[ChipNode] No resources for tier L${pin.tier}, buffer: ${this.resources[pin.tier]}`
+          );
+        }
+        continue;
+      }
 
       // Check cell to the right of the pin
       const targetX = pin.gridX + 1;
       const targetY = pin.gridY;
 
+      console.log(`[ChipNode] Trying to push L${pin.tier} to cell (${targetX}, ${targetY})`);
+
       // Bounds check
-      if (targetX >= this.scene.factoryGrid.width) continue;
+      if (targetX >= this.scene.factoryGrid.width) {
+        console.log(
+          `[ChipNode] Target cell (${targetX}, ${targetY}) out of bounds (grid width: ${this.scene.factoryGrid.width})`
+        );
+        continue;
+      }
 
       const cell = this.scene.factoryGrid.getCell(targetX, targetY);
-      if (!cell || cell.type !== 'machine' || !cell.machine) continue;
+      if (!cell) {
+        console.log(`[ChipNode] No cell at (${targetX}, ${targetY})`);
+        continue;
+      }
+      if (cell.type !== 'machine') {
+        console.log(
+          `[ChipNode] Cell at (${targetX}, ${targetY}) is type '${cell.type}', not 'machine'`
+        );
+        continue;
+      }
+      if (!cell.object) {
+        console.log(
+          `[ChipNode] Cell at (${targetX}, ${targetY}) has type 'machine' but no machine object`
+        );
+        continue;
+      }
 
-      const targetMachine = cell.machine;
+      const targetMachine = cell.object;
+      console.log(
+        `[ChipNode] Found machine ${targetMachine.id || targetMachine.constructor.name} at (${targetX}, ${targetY})`
+      );
 
-      // Try to push level-resource
-      if (targetMachine.canAcceptInput && targetMachine.canAcceptInput('level-resource')) {
-        const itemToPush = {
-          type: 'level-resource',
-          level: pin.tier,
-          amount: 1,
-        };
-
+      // Try to push purity-resource (matching rest of codebase)
+      const itemToPush = {
+        type: 'purity-resource',
+        purity: pin.tier,
+        amount: 1,
+      };
+      // Pass itemData to canAcceptInput for level-based validation
+      if (
+        targetMachine.canAcceptInput &&
+        targetMachine.canAcceptInput('purity-resource', itemToPush)
+      ) {
+        console.log(`[ChipNode] Machine can accept purity-resource, attempting push...`);
         if (targetMachine.acceptItem(itemToPush)) {
           this.resources[pin.tier]--;
           this.lastPushTime = now;
           this.createTransferEffect(targetMachine, pin.tier);
+          console.log(`[ChipNode] Successfully pushed L${pin.tier} to ${targetMachine.id}`);
           return; // One push per update cycle
+        } else {
+          console.log(`[ChipNode] Machine rejected item via acceptItem()`);
         }
+      } else {
+        console.log(`[ChipNode] Machine cannot accept purity-resource`);
       }
     }
   }

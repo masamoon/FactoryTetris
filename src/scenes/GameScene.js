@@ -81,6 +81,14 @@ export default class GameScene extends Phaser.Scene {
     this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
     this.canTranscend = false; // Flag when transcendence conditions are met
     this.transcendButtonPulse = null; // Tween reference for pulsing button
+    this.deliveryHistory = []; // Track recent delivery timestamps for throughput calculation
+    this.deliveryHistoryWindow = 30000; // Track deliveries over last 30 seconds
+
+    // === CHIP PLACEMENT MODE ===
+    this.isPlacingChip = false; // Flag for when player is choosing chip placement
+    this.pendingChipData = null; // Chip data waiting to be placed
+    this.chipGhost = null; // Visual ghost preview of chip during placement
+    this.chipPlacementText = null; // Instruction text during placement
   }
 
   preload() {
@@ -517,6 +525,17 @@ export default class GameScene extends Phaser.Scene {
     this.input.mouse.disableContextMenu();
 
     this.input.on('pointerdown', (pointer) => {
+      // Handle chip placement mode first (highest priority)
+      if (this.isPlacingChip && pointer.leftButtonDown()) {
+        const worldX = pointer.x + this.cameras.main.scrollX;
+        const worldY = pointer.y + this.cameras.main.scrollY;
+        const gridPos = this.factoryGrid.worldToGrid(worldX, worldY);
+        if (this.canPlaceChipAt(gridPos.x, gridPos.y)) {
+          this.confirmChipPlacement(gridPos.x, gridPos.y);
+        }
+        return; // Don't process other click actions during chip placement
+      }
+
       // Drag camera with Right Mouse Button or Middle Mouse Button or Left if holding Shift
       if (
         pointer.rightButtonDown() ||
@@ -534,6 +553,13 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer) => {
+      // Update chip ghost position during placement mode
+      if (this.isPlacingChip) {
+        const worldX = pointer.x + this.cameras.main.scrollX;
+        const worldY = pointer.y + this.cameras.main.scrollY;
+        this.updateChipGhostPosition(worldX, worldY);
+      }
+
       if (this.isDraggingCamera) {
         const deltaX = (pointer.x - this.dragStartX) * 1.0;
         const deltaY = (pointer.y - this.dragStartY) * 1.0;
@@ -2056,6 +2082,40 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Called when ANY resource is delivered - tracks throughput for chip emission rate
+   */
+  trackDelivery() {
+    const now = this.time.now;
+    this.deliveryHistory.push(now);
+
+    // Clean up old entries outside the window
+    const cutoff = now - this.deliveryHistoryWindow;
+    this.deliveryHistory = this.deliveryHistory.filter((t) => t > cutoff);
+  }
+
+  /**
+   * Calculate factory throughput (deliveries per second) over recent history
+   * @returns {number} Deliveries per second
+   */
+  calculateThroughput() {
+    if (this.deliveryHistory.length < 2) {
+      return 0;
+    }
+
+    const now = this.time.now;
+    const cutoff = now - this.deliveryHistoryWindow;
+    const recentDeliveries = this.deliveryHistory.filter((t) => t > cutoff);
+
+    if (recentDeliveries.length === 0) {
+      return 0;
+    }
+
+    // Calculate deliveries per second over the window
+    const windowSeconds = this.deliveryHistoryWindow / 1000;
+    return recentDeliveries.length / windowSeconds;
+  }
+
+  /**
    * Called when a high-tier resource is delivered - tracks progress toward transcendence
    */
   onHighTierDelivery(tier) {
@@ -2081,17 +2141,34 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.flash(500, 100, 100, 255, true);
     this.playSound('round-complete');
 
-    // 1. Snapshot current factory state (for chip emission rate - simplified for now)
-    const _factorySnapshot = {
-      era: this.currentEra,
-      level: this.currentLevel,
-      score: this.score,
-    };
+    // 1. Calculate chip emission rate from factory throughput
+    // Higher throughput = faster chip (rewards efficient factories)
+    const throughput = this.calculateThroughput();
 
-    // 2. Create chip from current era
+    // Convert throughput to emission rate:
+    // - 2+ deliveries/sec → 500ms (fastest)
+    // - 1 delivery/sec → 1000ms
+    // - 0.2 deliveries/sec → 5000ms (slowest)
+    // - 0 throughput → 3000ms (default fallback)
+    const minEmissionRate = 500;
+    const maxEmissionRate = 5000;
+    const defaultEmissionRate = 3000;
+
+    let emissionRate = defaultEmissionRate;
+    if (throughput > 0) {
+      // emissionRate = 1000 / throughput, clamped to bounds
+      emissionRate = Math.round(1000 / throughput);
+      emissionRate = Math.max(minEmissionRate, Math.min(maxEmissionRate, emissionRate));
+    }
+
+    console.log(
+      `[TRANSCEND] Factory throughput: ${throughput.toFixed(2)} deliveries/sec → Chip emission rate: ${emissionRate}ms`
+    );
+
+    // 2. Create chip data from current era with throughput-based emission rate
     const newChip = {
       era: this.currentEra,
-      emissionRate: 3000, // Could be calculated from factory throughput
+      emissionRate: emissionRate,
     };
 
     // 3. Clear the current factory
@@ -2106,17 +2183,208 @@ export default class GameScene extends Phaser.Scene {
     console.log(`[TRANSCEND] Resizing grid to ${newGridSize}x${newGridSize}`);
     this.grid.resize(newGridSize, newGridSize);
 
-    // 6. Place the new chip on the grid (left side)
-    this.placeChipOnGrid(newChip);
+    // 6. Enter chip placement mode instead of auto-placing
+    this.enterChipPlacementMode(newChip);
 
     // 7. Re-place existing chips from previous eras
     // (Chips are preserved across transcendence, already on grid conceptually)
 
+    // Note: Steps 8-12 (spawning nodes, resetting counters, updating UI) are now
+    // deferred to confirmChipPlacement() after the player places the chip
+
+    console.log(`[TRANSCEND] Waiting for player to place chip...`);
+  }
+
+  /**
+   * Enter chip placement mode - show ghost and wait for player click
+   */
+  enterChipPlacementMode(chipData) {
+    this.isPlacingChip = true;
+    this.pendingChipData = chipData;
+
+    // Create ghost chip visual
+    this.createChipGhost();
+
+    // Show instruction text
+    this.showChipPlacementInstructions();
+
+    console.log('[TRANSCEND] Entered chip placement mode');
+  }
+
+  /**
+   * Create the ghost chip visual that follows the cursor
+   */
+  createChipGhost() {
+    const cellSize = this.factoryGrid.cellSize;
+    const chipSize = CHIP_CONFIG.size * cellSize;
+
+    // Container for ghost visuals
+    this.chipGhost = this.add.container(0, 0);
+
+    // Ghost body
+    const ghostBody = this.add.rectangle(0, 0, chipSize - 4, chipSize - 4, 0x4444aa, 0.5);
+    ghostBody.setStrokeStyle(3, 0x8888ff);
+    this.chipGhost.add(ghostBody);
+
+    // Label
+    const ghostLabel = this.add
+      .text(0, -20, `ERA ${this.pendingChipData.era}`, {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#aaaaff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.chipGhost.add(ghostLabel);
+
+    // Store reference to body for color changes
+    this.chipGhost.ghostBody = ghostBody;
+
+    // Ensure ghost is visible on world camera
+    if (this.addToWorld) {
+      this.addToWorld(this.chipGhost);
+    }
+
+    // Set initial position to center of grid
+    const centerGridX = Math.floor(this.grid.width / 2);
+    const centerGridY = Math.floor(this.grid.height / 2);
+    const worldPos = this.factoryGrid.gridToWorld(centerGridX + 1, centerGridY + 1);
+    this.chipGhost.setPosition(worldPos.x, worldPos.y);
+  }
+
+  /**
+   * Show placement instructions to the player
+   */
+  showChipPlacementInstructions() {
+    const width = this.cameras.main.width;
+
+    this.chipPlacementText = this.add
+      .text(width / 2, 60, 'Click to place your chip on the grid', {
+        fontFamily: 'Arial Black',
+        fontSize: 24,
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 4,
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    // Add to UI layer
+    this.addToUI(this.chipPlacementText);
+
+    // Pulsing animation for visibility
+    this.tweens.add({
+      targets: this.chipPlacementText,
+      alpha: 0.6,
+      duration: 500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  /**
+   * Update chip ghost position based on world coordinates
+   */
+  updateChipGhostPosition(worldX, worldY) {
+    if (!this.chipGhost) return;
+
+    // Convert to grid position
+    const gridPos = this.factoryGrid.worldToGrid(worldX, worldY);
+
+    // Clamp to valid grid range (accounting for 3x3 chip size)
+    const maxX = this.grid.width - CHIP_CONFIG.size;
+    const maxY = this.grid.height - CHIP_CONFIG.size;
+    const clampedX = Math.max(0, Math.min(maxX, gridPos.x));
+    const clampedY = Math.max(0, Math.min(maxY, gridPos.y));
+
+    // Convert back to world position (center of 3x3)
+    const displayWorldPos = this.factoryGrid.gridToWorld(clampedX + 1, clampedY + 1);
+    this.chipGhost.setPosition(displayWorldPos.x, displayWorldPos.y);
+
+    // Update color based on validity
+    const canPlace = this.canPlaceChipAt(clampedX, clampedY);
+    if (this.chipGhost.ghostBody) {
+      this.chipGhost.ghostBody.fillColor = canPlace ? 0x44aa44 : 0xaa4444;
+      this.chipGhost.ghostBody.setStrokeStyle(3, canPlace ? 0x88ff88 : 0xff8888);
+    }
+  }
+
+  /**
+   * Check if a chip can be placed at the given grid position
+   */
+  canPlaceChipAt(gridX, gridY) {
+    // Check bounds
+    if (gridX < 0 || gridY < 0) return false;
+    if (gridX + CHIP_CONFIG.size > this.grid.width) return false;
+    if (gridY + CHIP_CONFIG.size > this.grid.height) return false;
+
+    // Check all cells the chip would occupy
+    for (let dx = 0; dx < CHIP_CONFIG.size; dx++) {
+      for (let dy = 0; dy < CHIP_CONFIG.size; dy++) {
+        const cell = this.factoryGrid.getCell(gridX + dx, gridY + dy);
+        if (cell && cell.type !== 'empty') {
+          // Cell is occupied by something
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Confirm chip placement at the specified position
+   */
+  confirmChipPlacement(gridX, gridY) {
+    if (!this.isPlacingChip || !this.pendingChipData) {
+      console.warn('[TRANSCEND] Not in chip placement mode');
+      return;
+    }
+
+    console.log(`[TRANSCEND] Confirming chip placement at (${gridX}, ${gridY})`);
+
+    // Place the chip at the player's chosen position
+    this.placeChipOnGrid(this.pendingChipData, gridX, gridY);
+
+    // Clean up placement mode
+    this.cleanupChipPlacementMode();
+
+    // Continue with remaining transcendence steps
+    this.finalizeTranscendence();
+  }
+
+  /**
+   * Clean up chip placement mode visuals
+   */
+  cleanupChipPlacementMode() {
+    if (this.chipGhost) {
+      this.chipGhost.destroy();
+      this.chipGhost = null;
+    }
+
+    if (this.chipPlacementText) {
+      this.chipPlacementText.destroy();
+      this.chipPlacementText = null;
+    }
+
+    this.isPlacingChip = false;
+    this.pendingChipData = null;
+  }
+
+  /**
+   * Complete remaining transcendence steps after chip is placed
+   */
+  finalizeTranscendence() {
     // 8. Spawn new resource and delivery nodes
     this.createInitialResourceNodes();
 
     // 9. Reset transcendence-related counters
     this.deliveredHighTierResources = 0;
+    this.deliveryHistory = [];
     this.canTranscend = false;
     this.hideTranscendButton();
 
@@ -2127,25 +2395,36 @@ export default class GameScene extends Phaser.Scene {
     // 11. Update camera bounds for larger grid
     this.updateCameraBounds();
 
+    // 12. Refresh processor selection with new era configs
+    if (this.machineFactory) {
+      this.machineFactory.refreshAvailableProcessors();
+      this.machineFactory.displayCurrentProcessorPreview();
+    }
+
     console.log(`[TRANSCEND] Transcendence complete! Now in Era ${this.currentEra}`);
   }
 
   /**
-   * Place a chip on the grid at an appropriate position
+   * Place a chip on the grid at the specified or auto-calculated position
+   * @param {object} chipData - Chip configuration (era, emissionRate)
+   * @param {number} [gridX] - Optional grid X position (if not provided, auto-calculated)
+   * @param {number} [gridY] - Optional grid Y position (if not provided, auto-calculated)
    */
-  placeChipOnGrid(chipData) {
-    // Find a suitable position on the left side
-    // Chips should be placed in column 0-2 (3x3 chip)
-    let gridY = 1 + this.chips.length * 4; // Stack chips vertically with spacing
+  placeChipOnGrid(chipData, gridX, gridY) {
+    // If position not provided, auto-calculate (left side, stacked vertically)
+    if (gridX === undefined || gridY === undefined) {
+      gridX = 0;
+      gridY = 1 + this.chips.length * 4; // Stack chips vertically with spacing
 
-    // Ensure we don't go off grid
-    const maxY = this.grid.height - CHIP_CONFIG.size - 1;
-    if (gridY > maxY) {
-      gridY = maxY;
+      // Ensure we don't go off grid
+      const maxY = this.grid.height - CHIP_CONFIG.size - 1;
+      if (gridY > maxY) {
+        gridY = maxY;
+      }
     }
 
     const chip = new ChipNode(this, {
-      gridX: 0,
+      gridX: gridX,
       gridY: gridY,
       chipEra: chipData.era,
       emissionRate: chipData.emissionRate,
@@ -2159,7 +2438,7 @@ export default class GameScene extends Phaser.Scene {
       this.grid.setCell(cell.x, cell.y, { type: 'chip', chip: chip });
     }
 
-    console.log(`[TRANSCEND] Placed chip from Era ${chipData.era} at (0, ${gridY})`);
+    console.log(`[TRANSCEND] Placed chip from Era ${chipData.era} at (${gridX}, ${gridY})`);
     return chip;
   }
 
@@ -2268,16 +2547,15 @@ export default class GameScene extends Phaser.Scene {
    * Skip the current piece selection and refresh with new pieces.
    * Applies point and momentum penalties.
    */
+  /**
+   * Skip the current piece selection and refresh with new pieces.
+   * Applies point and momentum penalties.
+   */
   skipCurrentPiece() {
-    // Check if skips are available
-    if (this.skipCount <= 0) {
-      console.log('[SKIP] No skips remaining');
-      return;
-    }
+    // Unlimited skips, just check if game is over
+    if (this.gameOver) return;
 
-    // Decrement skip counter
-    this.skipCount--;
-    console.log(`[SKIP] Skipping piece. Remaining skips: ${this.skipCount}`);
+    console.log(`[SKIP] Skipping piece.`);
 
     // Apply point penalty
     this.score = Math.max(0, this.score - this.skipPointPenalty);
@@ -2297,7 +2575,7 @@ export default class GameScene extends Phaser.Scene {
       this.machineFactory.displayCurrentProcessorPreview();
     }
 
-    // Update skip button UI
+    // Update skip button UI (mainly for visual feedback if needed)
     this.updateSkipButton();
 
     // Check if this leads to game over
@@ -2348,19 +2626,13 @@ export default class GameScene extends Phaser.Scene {
   updateSkipButton() {
     if (!this.skipButton) return;
 
-    // Update text
-    this.skipButton.text.setText(`SKIP (${this.skipCount})`);
+    // Update text to show cost instead of count
+    this.skipButton.text.setText(`SKIP (-${this.skipMomentumPenalty}%)`);
 
-    // Disable button if no skips remaining
-    if (this.skipCount <= 0) {
-      this.skipButton.button.fillColor = 0x444444;
-      this.skipButton.button.disableInteractive();
-      this.skipButton.text.setColor('#888888');
-    } else {
-      this.skipButton.button.fillColor = 0x884400;
-      this.skipButton.button.setInteractive();
-      this.skipButton.text.setColor('#ffffff');
-    }
+    // Button is always enabled unless game over
+    this.skipButton.button.fillColor = 0x884400;
+    this.skipButton.button.setInteractive();
+    this.skipButton.text.setColor('#ffffff');
   }
 
   createButton(x, y, text, callback) {

@@ -17,11 +17,27 @@ import { RESOURCE_LEVELS } from '../config/resourceLevels';
 export function getProducibleLevels(scene) {
   const producibleLevels = new Set();
 
-  // Level 1 is always producible (from resource nodes)
+  // L1 is ALWAYS producible from resource nodes (regardless of era)
+  // This ensures players must maintain Era 1 production chains in later eras
   producibleLevels.add(1);
 
   if (!scene || !scene.factoryGrid) {
     return producibleLevels;
+  }
+
+  // Add chip output tiers - chips from previous eras provide resources
+  if (scene.chips && Array.isArray(scene.chips)) {
+    for (const chip of scene.chips) {
+      if (chip.outputTier && typeof chip.outputTier === 'number') {
+        producibleLevels.add(chip.outputTier);
+      }
+      // Also add all emittable tiers if the chip has multiple
+      if (chip.emittableTiers && Array.isArray(chip.emittableTiers)) {
+        for (const tier of chip.emittableTiers) {
+          producibleLevels.add(tier);
+        }
+      }
+    }
   }
 
   // Scan all machines to find their output levels

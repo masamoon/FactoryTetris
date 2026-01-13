@@ -114,6 +114,11 @@ export default class DeliveryNode {
       // Add score
       this.scene.addScore(totalPoints);
 
+      // Track delivery for throughput calculation (chip emission rate)
+      if (this.scene.trackDelivery) {
+        this.scene.trackDelivery();
+      }
+
       // Track delivery for transcendence system
       if (this.scene.onHighTierDelivery) {
         this.scene.onHighTierDelivery(level);
@@ -137,6 +142,11 @@ export default class DeliveryNode {
 
       // Add score
       this.scene.addScore(totalPoints);
+
+      // Track delivery for throughput calculation (chip emission rate)
+      if (this.scene.trackDelivery) {
+        this.scene.trackDelivery();
+      }
 
       // Track delivery for transcendence system
       // Purity 3+ counts as high-tier (L3 equivalent) for Era 1

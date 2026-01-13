@@ -285,9 +285,13 @@ export default class ResourceNode {
       // --- Priority 1: Push directly to adjacent Machine (non-conveyor) ---
       if (cell && cell.type === 'machine' && cell.machine && cell.machine.id !== 'conveyor') {
         const targetMachine = cell.machine;
-        if (targetMachine.canAcceptInput && targetMachine.canAcceptInput('purity-resource')) {
-          // Create purity resource with initial purity 1
-          const itemToPush = createPurityResource(1);
+        // Create purity resource with initial purity 1
+        const itemToPush = createPurityResource(1);
+        // Pass itemData to canAcceptInput for level-based validation
+        if (
+          targetMachine.canAcceptInput &&
+          targetMachine.canAcceptInput('purity-resource', itemToPush)
+        ) {
           if (targetMachine.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
@@ -311,13 +315,13 @@ export default class ResourceNode {
         if (offset.dy === 1 && conveyor.direction !== 'up') isPointingAway = true; // Target is down, conveyor not pointing up
         if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true; // Target is up, conveyor not pointing down
 
+        // Create purity resource with initial purity 1 for validation check
+        const itemToPush = createPurityResource(1);
         if (
           isPointingAway &&
           conveyor.canAcceptInput &&
-          conveyor.canAcceptInput('purity-resource')
+          conveyor.canAcceptInput('purity-resource', itemToPush)
         ) {
-          // Create purity resource with initial purity 1
-          const itemToPush = createPurityResource(1);
           if (conveyor.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown

@@ -9,6 +9,7 @@ import {
   FOUR_BLOCK_CONFIGS,
   FIVE_BLOCK_CONFIGS,
   getConfigsForBlockCount,
+  getPieceConfigsForEra,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
 
@@ -22,14 +23,34 @@ export function generatePieceOptions(scene, count = 3) {
   const producibleLevels = getProducibleLevels(scene);
   const options = [];
 
-  // Get all available configurations
-  const allConfigs = [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
+  // Get the current era from scene (default to Era 1)
+  const currentEra = scene?.currentEra || 1;
+
+  // Get all available configurations - include era-specific configs
+  let allConfigs = [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
+
+  // Add era-specific configs if we're beyond Era 1
+  if (currentEra > 1) {
+    const eraConfigs = getPieceConfigsForEra(currentEra);
+    const eraFourBlock = eraConfigs.fourBlock || [];
+    const eraFiveBlock = eraConfigs.fiveBlock || [];
+    allConfigs = [...allConfigs, ...eraFourBlock, ...eraFiveBlock];
+  }
 
   // Filter to usable configurations
   const usableConfigs = allConfigs.filter((config) => isPieceUsable(config, producibleLevels));
 
-  // Ensure at least one usable piece
+  // Filter higher tier configs for balance
+  // For Era 1: output > 2, Era 2: output > 5, etc.
+  const higherTierThreshold = currentEra > 1 ? currentEra * 3 - 1 : 2;
+  const higherTierConfigs = allConfigs.filter((config) => config.output > higherTierThreshold);
+  const usableHigherTierConfigs = higherTierConfigs.filter((config) =>
+    isPieceUsable(config, producibleLevels)
+  );
+
+  // Track guarantees
   let guaranteedUsable = false;
+  let guaranteedHigherTier = false;
 
   for (let i = 0; i < count; i++) {
     let selectedConfig;
@@ -38,6 +59,18 @@ export function generatePieceOptions(scene, count = 3) {
     if (i === 0 && usableConfigs.length > 0) {
       selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels);
       guaranteedUsable = true;
+      if (selectedConfig.output > higherTierThreshold) {
+        guaranteedHigherTier = true;
+      }
+    } else if (!guaranteedHigherTier && higherTierConfigs.length > 0) {
+      // Guarantee at least one higher tier piece for balance
+      // Prefer usable higher tier, but include any higher tier for progression visibility
+      const pool = usableHigherTierConfigs.length > 0 ? usableHigherTierConfigs : higherTierConfigs;
+      selectedConfig = selectWeightedConfig(pool, producibleLevels);
+      guaranteedHigherTier = true;
+      if (isPieceUsable(selectedConfig, producibleLevels)) {
+        guaranteedUsable = true;
+      }
     } else if (!guaranteedUsable && i === count - 1 && usableConfigs.length > 0) {
       // Last chance to ensure at least one usable piece
       selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels);
@@ -109,14 +142,37 @@ function selectWeightedConfig(configs, producibleLevels) {
  * Assigns a level configuration to a piece shape
  * @param {Array<Array<number>>} shape - The piece shape (2D array)
  * @param {object} scene - The game scene for context
+ * @param {object} options - Optional parameters
+ * @param {boolean} options.forceHigherTier - If true, only select configs with output > 2
  * @returns {object} Configuration with inputLevels, outputLevel, notation
  */
-export function assignLevelsToShape(shape, scene) {
+export function assignLevelsToShape(shape, scene, options = {}) {
+  const { forceHigherTier = false } = options;
+
   // Count blocks in shape
   const blockCount = countBlocks(shape);
 
-  // Get appropriate configs
-  const configs = getConfigsForBlockCount(blockCount);
+  // Get the current era from scene (default to Era 1)
+  const currentEra = scene?.currentEra || 1;
+
+  // Build configs array: include base Era 1 configs plus current era configs
+  let configs = getConfigsForBlockCount(blockCount);
+
+  // Add era-specific configs if we're beyond Era 1
+  if (currentEra > 1) {
+    const eraConfigs = getPieceConfigsForEra(currentEra);
+    const eraFourBlock = eraConfigs.fourBlock || [];
+    const eraFiveBlock = eraConfigs.fiveBlock || [];
+
+    // Add era-specific configs based on block count
+    if (blockCount === 4) {
+      configs = [...configs, ...eraFourBlock, ...eraFiveBlock];
+    } else if (blockCount >= 5) {
+      configs = [...configs, ...eraFiveBlock];
+    } else {
+      configs = [...configs, ...eraFourBlock];
+    }
+  }
 
   if (configs.length === 0) {
     // Fallback for unknown shapes
@@ -125,6 +181,16 @@ export function assignLevelsToShape(shape, scene) {
       outputLevel: 2,
       notation: '1/2',
     };
+  }
+
+  // If forcing higher tier, filter to configs with output > 2
+  // For higher eras, adjust the threshold based on the era's output tier
+  const higherTierThreshold = currentEra > 1 ? currentEra * 3 - 1 : 2; // Era 1: >2, Era 2: >5, etc.
+  if (forceHigherTier) {
+    const higherTierConfigs = configs.filter((config) => config.output > higherTierThreshold);
+    if (higherTierConfigs.length > 0) {
+      configs = higherTierConfigs;
+    }
   }
 
   // Get producible levels for smart selection
@@ -177,7 +243,14 @@ function countBlocks(shape) {
  */
 export function hasUsablePieces(scene) {
   const producibleLevels = getProducibleLevels(scene);
-  const allConfigs = [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
+  const currentEra = scene?.currentEra || 1;
+
+  // Get all configs including era-specific ones
+  let allConfigs = [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
+  if (currentEra > 1) {
+    const eraConfigs = getPieceConfigsForEra(currentEra);
+    allConfigs = [...allConfigs, ...(eraConfigs.fourBlock || []), ...(eraConfigs.fiveBlock || [])];
+  }
 
   return allConfigs.some((config) => isPieceUsable(config, producibleLevels));
 }
@@ -189,15 +262,25 @@ export function hasUsablePieces(scene) {
  */
 export function getPieceUsabilityStats(scene) {
   const producibleLevels = getProducibleLevels(scene);
+  const currentEra = scene?.currentEra || 1;
 
-  const fourBlockUsable = FOUR_BLOCK_CONFIGS.filter((c) => isPieceUsable(c, producibleLevels));
-  const fiveBlockUsable = FIVE_BLOCK_CONFIGS.filter((c) => isPieceUsable(c, producibleLevels));
+  // Get all configs including era-specific ones
+  let allFourBlock = [...FOUR_BLOCK_CONFIGS];
+  let allFiveBlock = [...FIVE_BLOCK_CONFIGS];
+  if (currentEra > 1) {
+    const eraConfigs = getPieceConfigsForEra(currentEra);
+    allFourBlock = [...allFourBlock, ...(eraConfigs.fourBlock || [])];
+    allFiveBlock = [...allFiveBlock, ...(eraConfigs.fiveBlock || [])];
+  }
+
+  const fourBlockUsable = allFourBlock.filter((c) => isPieceUsable(c, producibleLevels));
+  const fiveBlockUsable = allFiveBlock.filter((c) => isPieceUsable(c, producibleLevels));
 
   return {
     producibleLevels: Array.from(producibleLevels),
-    fourBlockTotal: FOUR_BLOCK_CONFIGS.length,
+    fourBlockTotal: allFourBlock.length,
     fourBlockUsable: fourBlockUsable.length,
-    fiveBlockTotal: FIVE_BLOCK_CONFIGS.length,
+    fiveBlockTotal: allFiveBlock.length,
     fiveBlockUsable: fiveBlockUsable.length,
     totalUsable: fourBlockUsable.length + fiveBlockUsable.length,
     hasUsablePieces: fourBlockUsable.length + fiveBlockUsable.length > 0,
