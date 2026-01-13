@@ -41,8 +41,9 @@ export function generatePieceOptions(scene, count = 3) {
   const usableConfigs = allConfigs.filter((config) => isPieceUsable(config, producibleLevels));
 
   // Filter higher tier configs for balance
-  // For Era 1: output > 2, Era 2: output > 5, etc.
-  const higherTierThreshold = currentEra > 1 ? currentEra * 3 - 1 : 2;
+  // Era 1: output > 2. Era 2+: Also output > 2 to include L3/L4/L5 in the "higher tier" pool
+  // This prevents L6 dominance in Era 2 by diluting the pool with L3-L5
+  const higherTierThreshold = 2;
   const higherTierConfigs = allConfigs.filter((config) => config.output > higherTierThreshold);
   const usableHigherTierConfigs = higherTierConfigs.filter((config) =>
     isPieceUsable(config, producibleLevels)
@@ -57,7 +58,7 @@ export function generatePieceOptions(scene, count = 3) {
 
     // For the first piece, guarantee it's usable if possible
     if (i === 0 && usableConfigs.length > 0) {
-      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels);
+      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra);
       guaranteedUsable = true;
       if (selectedConfig.output > higherTierThreshold) {
         guaranteedHigherTier = true;
@@ -66,19 +67,19 @@ export function generatePieceOptions(scene, count = 3) {
       // Guarantee at least one higher tier piece for balance
       // Prefer usable higher tier, but include any higher tier for progression visibility
       const pool = usableHigherTierConfigs.length > 0 ? usableHigherTierConfigs : higherTierConfigs;
-      selectedConfig = selectWeightedConfig(pool, producibleLevels);
+      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra);
       guaranteedHigherTier = true;
       if (isPieceUsable(selectedConfig, producibleLevels)) {
         guaranteedUsable = true;
       }
     } else if (!guaranteedUsable && i === count - 1 && usableConfigs.length > 0) {
       // Last chance to ensure at least one usable piece
-      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels);
+      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra);
       guaranteedUsable = true;
     } else {
       // Random selection from all configs (biased toward usable)
       const pool = Math.random() < 0.7 && usableConfigs.length > 0 ? usableConfigs : allConfigs;
-      selectedConfig = selectWeightedConfig(pool, producibleLevels);
+      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra);
     }
 
     options.push({
@@ -95,30 +96,40 @@ export function generatePieceOptions(scene, count = 3) {
  * Prefers configurations that advance the player toward higher levels
  * @param {Array<object>} configs - Available configurations
  * @param {Set<number>} producibleLevels - Currently producible levels
+ * @param {number} currentEra - The current game era (default 1)
  * @returns {object} Selected configuration
  */
-function selectWeightedConfig(configs, producibleLevels) {
+function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
   if (configs.length === 0) {
     // Fallback to basic 1/2 config
     return FOUR_BLOCK_CONFIGS[0];
   }
 
-  // Calculate weights based on strategic value
+  // FORMULAIC BALANCE (Pyramid Distribution)
+  // We want a distribution where lower tiers are common and highest tiers are rare.
+  // Formula: Weight = Base * RarityFactor ^ (EvaMax - Level)
+  // We cap the distance at 1.3 to flatten the base (L1-L4) so they share similar commonality.
+  // Factor 3.0 ensures L5 (dist 1) is more common than L6 (dist 0) despite L6 having more recipes.
+
+  const eraMax = currentEra * 3;
+  const rarityFactor = 3.0;
+
+  // Calculate weights
   const weights = configs.map((config) => {
-    let weight = 1;
+    // Calculate distance from the top tier
+    const rawDist = eraMax - config.output;
 
-    // Higher output levels are slightly more valuable
-    weight += config.output * 0.5;
+    // Cap the distance at 1.3.
+    // This effective "squashes" the weights of L4 and below so they don't dominate too hard.
+    // They will be roughly 3^1.3 (~4.17) times more common than L6, rather than 3^2 (9x).
+    const effectiveDist = Math.max(0, Math.min(rawDist, 1.3));
 
-    // Configs that produce new levels are more valuable
+    // Weight formula: Base * Factor ^ Distance
+    let weight = Math.pow(rarityFactor, effectiveDist);
+
+    // Minor boosting for new levels to ensure they appear
     if (!producibleLevels.has(config.output)) {
-      weight += 2;
-    }
-
-    // Boost L3-outputting pieces (like 1/2/3) to ensure they appear more often
-    // This helps progression since L3 is a key milestone
-    if (config.output === 3) {
-      weight *= 1.5;
+      weight *= 1.2;
     }
 
     return weight;
@@ -184,8 +195,9 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   }
 
   // If forcing higher tier, filter to configs with output > 2
-  // For higher eras, adjust the threshold based on the era's output tier
-  const higherTierThreshold = currentEra > 1 ? currentEra * 3 - 1 : 2; // Era 1: >2, Era 2: >5, etc.
+  // For higher eras, we now keep the threshold at > 2 to allow mid-tier pieces (L3/L4/L5)
+  // to count as "higher tier" relative to basic L2 production.
+  const higherTierThreshold = 2;
   if (forceHigherTier) {
     const higherTierConfigs = configs.filter((config) => config.output > higherTierThreshold);
     if (higherTierConfigs.length > 0) {
@@ -203,7 +215,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   const pool = usableConfigs.length > 0 ? usableConfigs : configs;
 
   // Select a config
-  const config = selectWeightedConfig(pool, producibleLevels);
+  const config = selectWeightedConfig(pool, producibleLevels, currentEra);
 
   return {
     inputLevels: [...config.inputs],

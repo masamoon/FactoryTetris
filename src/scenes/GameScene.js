@@ -7,7 +7,7 @@ import ChipNode from '../objects/ChipNode'; // Transcendence chip entity
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
 import {
   getGridSizeForEra,
-  getTiersForEra,
+  getTranscendTier,
   TRANSCEND_THRESHOLDS,
   CHIP_CONFIG,
 } from '../config/eraConfig';
@@ -2074,17 +2074,27 @@ export default class GameScene extends Phaser.Scene {
 
     const levelThreshold = TRANSCEND_THRESHOLDS.getLevelThreshold(this.currentEra);
     const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
-    const highestTier = getTiersForEra(this.currentEra).output;
+    const transcendTier = getTranscendTier(this.currentEra);
 
     this.transcendProgressText.setText(
-      `Transcend: L${this.currentLevel}/${levelThreshold} | L${highestTier}: ${this.deliveredHighTierResources}/${deliveryThreshold}`
+      `Transcend: Lv${this.currentLevel}/${levelThreshold} | L${transcendTier}: ${this.deliveredHighTierResources}/${deliveryThreshold}`
     );
   }
 
   /**
-   * Called when ANY resource is delivered - tracks throughput for chip emission rate
+   * Called when a resource is delivered - tracks throughput for chip emission rate
+   * Only counts deliveries of the transcend tier (L4 for Era 1, L7 for Era 2, etc.)
+   * This creates continuity: your L4 delivery rate becomes your chip's L4 emission rate
+   * @param {number} tier - The tier of the delivered resource
    */
-  trackDelivery() {
+  trackDelivery(tier) {
+    const transcendTier = getTranscendTier(this.currentEra);
+
+    // Only track deliveries of the transcend tier for throughput calculation
+    if (tier !== transcendTier) {
+      return;
+    }
+
     const now = this.time.now;
     this.deliveryHistory.push(now);
 
@@ -2117,10 +2127,11 @@ export default class GameScene extends Phaser.Scene {
 
   /**
    * Called when a high-tier resource is delivered - tracks progress toward transcendence
+   * Transcendence requires delivering the chip output tier (L4 for Era 1, L7 for Era 2, etc.)
    */
   onHighTierDelivery(tier) {
-    const currentEraTiers = getTiersForEra(this.currentEra);
-    if (tier === currentEraTiers.output) {
+    const transcendTier = getTranscendTier(this.currentEra);
+    if (tier === transcendTier) {
       this.deliveredHighTierResources++;
       this.checkTranscendCondition();
     }

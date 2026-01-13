@@ -114,12 +114,12 @@ export default class DeliveryNode {
       // Add score
       this.scene.addScore(totalPoints);
 
-      // Track delivery for throughput calculation (chip emission rate)
+      // Track delivery for throughput calculation (only transcend tier counts)
       if (this.scene.trackDelivery) {
-        this.scene.trackDelivery();
+        this.scene.trackDelivery(level);
       }
 
-      // Track delivery for transcendence system
+      // Track delivery for transcendence system (only transcend tier counts)
       if (this.scene.onHighTierDelivery) {
         this.scene.onHighTierDelivery(level);
       }
@@ -143,14 +143,13 @@ export default class DeliveryNode {
       // Add score
       this.scene.addScore(totalPoints);
 
-      // Track delivery for throughput calculation (chip emission rate)
+      // Track delivery for throughput calculation (only transcend tier counts)
       if (this.scene.trackDelivery) {
-        this.scene.trackDelivery();
+        this.scene.trackDelivery(purity);
       }
 
-      // Track delivery for transcendence system
-      // Purity 3+ counts as high-tier (L3 equivalent) for Era 1
-      if (this.scene.onHighTierDelivery && purity >= 3) {
+      // Track delivery for transcendence system (only transcend tier counts)
+      if (this.scene.onHighTierDelivery) {
         this.scene.onHighTierDelivery(purity);
       }
 

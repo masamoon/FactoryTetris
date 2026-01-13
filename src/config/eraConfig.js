@@ -30,6 +30,13 @@ export function getChipOutputTier(chipEra) {
   return getTiersForEra(chipEra).input;
 }
 
+// Get the tier required to transcend from a given era
+// This is the same tier the chip will output - creating continuity
+// Era 1 requires L4, Era 2 requires L7, etc.
+export function getTranscendTier(era) {
+  return getChipOutputTier(era + 1);
+}
+
 // Get all chip output tiers for current era
 // Returns array of tiers from all previous era chips
 export function getAllChipTiersForEra(currentEra) {

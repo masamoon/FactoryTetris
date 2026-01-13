@@ -8,8 +8,8 @@ export const GRID_CONFIG = {
   width: 10, // Initial width in cells
   height: 10, // Initial height in cells
   growthPerRound: 1, // How many cells to add in each dimension per round
-  maxWidth: 16, // Maximum width the grid can grow to
-  maxHeight: 16, // Maximum height the grid can grow to
+  maxWidth: Infinity, // No artificial cap - let the game engine be the limit
+  maxHeight: Infinity, // No artificial cap - let the game engine be the limit
 };
 
 // Game configuration
@@ -18,8 +18,8 @@ export const GAME_CONFIG = {
   width: 800,
   height: 600,
 
-  // Game time limit in seconds (30 minutes)
-  gameTimeLimit: 1800,
+  // No time limit - infinite arcade mode
+  gameTimeLimit: Infinity,
 
   // Resource generation
   resourceGenerationRate: 2000, // ms

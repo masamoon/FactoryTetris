@@ -26,7 +26,7 @@ export default class DummyAudioPlugin {
   }
 
   // No-op implementations of audio methods
-  add(key, config) {
+  add(_key, _config) {
     return {
       play: () => {},
       stop: () => {},
@@ -48,15 +48,15 @@ export default class DummyAudioPlugin {
     return this.add(key, config);
   }
 
-  get(key) {
+  get(_key) {
     return null;
   }
 
-  remove(sound) {
+  remove(_sound) {
     return true;
   }
 
-  removeByKey(key) {
+  removeByKey(_key) {
     return true;
   }
 
@@ -72,15 +72,15 @@ export default class DummyAudioPlugin {
     return this;
   }
 
-  setVolume(volume) {
+  setVolume(_volume) {
     return this;
   }
 
-  setMute(mute) {
+  setMute(_mute) {
     return this;
   }
 
-  setRate(rate) {
+  setRate(_rate) {
     return this;
   }
 

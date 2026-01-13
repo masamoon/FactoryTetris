@@ -41,7 +41,7 @@ export default class MainMenuScene extends Phaser.Scene {
       .image(centerX, centerY + 100, 'button-idle')
       .setInteractive({ useHandCursor: true }); // Add hand cursor on hover
 
-    const buttonText = this.add
+    this.add
       .text(centerX, centerY + 100, 'START GAME', {
         fontFamily: '"Courier New", Courier, monospace',
         fontSize: '20px',
