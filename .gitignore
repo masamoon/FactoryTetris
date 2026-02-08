@@ -60,3 +60,6 @@ tmp/
 
 # Project specific
 # Add any other project specific files or directories here 
+
+#claude stuff
+*cwd

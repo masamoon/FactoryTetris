@@ -1323,13 +1323,22 @@ export default class MachineFactory {
     // Format input/output information
     let tooltipText = '';
 
-    // Special case for conveyor belt - simplified description
+    // Simplified descriptions for logistics items
     if (machineType.id === 'conveyor') {
       tooltipText = 'Transports items between machines and nodes.\n\n';
       tooltipText += 'Place on resource nodes to extract resources.\n';
       tooltipText += 'Connect to machines to transfer items.';
+    } else if (machineType.id === 'splitter') {
+      tooltipText = 'Splits incoming items between two outputs.\n\n';
+      tooltipText += 'Alternates items left and right.';
+    } else if (machineType.id === 'merger') {
+      tooltipText = 'Combines items from multiple inputs.\n\n';
+      tooltipText += 'Merges two input paths into one output.';
+    } else if (machineType.id === 'underground-belt') {
+      tooltipText = 'Transports items underground.\n\n';
+      tooltipText += 'Use to pass under machines or other belts.';
     } else {
-      // Regular machine tooltip for all other machine types
+      // Regular machine tooltip for processors
 
       // Add inputs with quantities if available
       if (machineType.requiredInputs && Object.keys(machineType.requiredInputs).length > 0) {

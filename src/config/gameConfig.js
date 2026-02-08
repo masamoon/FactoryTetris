@@ -235,9 +235,8 @@ export const GAME_CONFIG = {
     'mega-resource': 300, // Corresponds to points in resourceTypes
   },
 
-  // Level system (renamed from round system)
-  levelScoreThresholds: [100, 250, 400, 600, 850, 1100, 1400, 1750, 2150, 2600], // Score needed for each level
-  scoreIncreaseFactorPerLevel: 1.3, // Multiply previous threshold by this for levels beyond defined thresholds
+  // Milestone upgrade system (replaces level-based upgrades)
+  upgradeMilestoneInterval: 500, // Offer upgrade every X points
 
   // --- REMOVED CLEAR FACTORY COOLDOWN CONFIG ---
   initialClearCooldown: 60000, // 1 minute

@@ -29,9 +29,16 @@ export default class AdvancedProcessorMachine extends BaseMachine {
    * Log the input status to help diagnose issues
    */
   logInputStatus() {
+    // Show queue contents with purity levels for debugging
+    const queueSummary = this.inputQueue
+      ? this.inputQueue.map((item) => `L${item.purity || '?'}`).join(', ')
+      : 'no queue';
+
     console.log(
       `[AdvancedProcessor] at (${this.gridX},${this.gridY}) Input status:`,
-      JSON.stringify(this.inputInventory),
+      `Inventory: ${JSON.stringify(this.inputInventory)}`,
+      `Queue: [${queueSummary}] (${this.inputQueue?.length || 0} items)`,
+      `Needs: ${this.inputLevels?.join(', ') || 'N/A'}`,
       `Can process: ${this.canProcess()}`
     );
 

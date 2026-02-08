@@ -23,13 +23,8 @@ export default class DeliveryNode {
     // Create visual representation
     this.createVisuals();
 
-    // Set up lifespan timer
-    this.lifespanTimer = scene.time.addEvent({
-      delay: 1000,
-      callback: this.updateLifespan,
-      callbackScope: this,
-      loop: true,
-    });
+    // Output nodes are permanent and don't expire
+    // (lifespan timer removed)
   }
 
   createVisuals() {
@@ -52,9 +47,7 @@ export default class DeliveryNode {
     // Maybe an icon instead of text? For now, just the shape.
     // Remove resource indicator text
 
-    // Create lifespan indicator
-    this.lifespanBar = this.scene.add.rectangle(0, 16, 24, 4, 0x00ff00); // Position below the square
-    this.container.add(this.lifespanBar);
+    // Lifespan bar removed - output nodes are permanent
 
     // Optional: Add a different animation? Or keep pulsing?
     this.scene.tweens.add({
@@ -488,30 +481,10 @@ export default class DeliveryNode {
    * Update the node's visual representation
    */
   update() {
-    // Update lifespan bar
-    if (this.lifespanBar) {
-      // Ensure GAME_CONFIG.nodeLifespan is accessible or store initial lifespan
-      const initialLifespan = GAME_CONFIG.nodeLifespan; // Assuming it's constant
-      this.lifespanBar.scaleX = Math.max(0, this.lifespan / initialLifespan);
-
-      // Update color based on lifespan
-      if (this.lifespan < initialLifespan * 0.25) {
-        this.lifespanBar.fillColor = 0xff0000; // Red
-      } else if (this.lifespan < initialLifespan * 0.5) {
-        this.lifespanBar.fillColor = 0xffaa00; // Orange
-      } else {
-        this.lifespanBar.fillColor = 0x00ff00; // Green
-      }
-    }
+    // Output nodes are permanent - no lifespan update needed
   }
 
-  updateLifespan() {
-    this.lifespan--;
-
-    if (this.lifespan <= 0) {
-      this.destroy();
-    }
-  }
+  // updateLifespan removed - output nodes are permanent
 
   destroy() {
     console.log(`Destroying delivery node at (${this.gridX}, ${this.gridY})`);
@@ -528,10 +501,7 @@ export default class DeliveryNode {
       }
     }
 
-    // Stop timer
-    if (this.lifespanTimer) {
-      this.lifespanTimer.remove();
-    }
+    // No lifespan timer to stop - output nodes are permanent
 
     // Destroy visuals
     if (this.container) {

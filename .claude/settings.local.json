@@ -1,5 +1,11 @@
 {
   "permissions": {
-    "allow": ["Bash(npm run build:*)"]
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(git -C \"D:/GitHub/FactoryTetris\" status --porcelain src/objects/machines/BaseMachine.js)",
+      "Bash(node -e:*)",
+      "Bash(node fix_reservation.js:*)",
+      "Bash(npx eslint:*)"
+    ]
   }
 }

@@ -49,16 +49,11 @@ export function getAllChipTiersForEra(currentEra) {
 
 // Transcendence thresholds
 export const TRANSCEND_THRESHOLDS = {
-  // Level required to transcend (every 5 levels)
-  // TESTING: Lowered from era*5 to era*2 for faster testing
-  getLevelThreshold: (era) => era * 2,
-
-  // Number of highest-tier resources that must be delivered
-  // TESTING: Lowered thresholds for faster testing
+  // Number of highest-tier resources that must be delivered (only requirement now)
   getDeliveryThreshold: (era) => {
-    if (era === 1) return 5; // Was 50 L3 resources
-    if (era === 2) return 10; // Was 100 L6 resources
-    if (era === 3) return 15; // Was 200 L9 resources
+    if (era === 1) return 5;
+    if (era === 2) return 10;
+    if (era === 3) return 15;
     // Scale for higher eras
     return Math.floor(5 * Math.pow(1.5, era - 1));
   },

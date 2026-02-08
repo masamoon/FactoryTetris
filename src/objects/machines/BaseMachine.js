@@ -866,6 +866,43 @@ export default class BaseMachine {
         tooltipContent += `\nNotation: ${this.notation}`;
       }
 
+      // Show current internal inventory for level-based machines
+      if (this.inputQueue && this.inputQueue.length > 0) {
+        // Group items by purity level
+        const levelCounts = {};
+        this.inputQueue.forEach((item) => {
+          const level = item.purity || 1;
+          levelCounts[level] = (levelCounts[level] || 0) + 1;
+        });
+
+        // Format as "L1(2), L2(1)" etc.
+        const inventoryStr = Object.entries(levelCounts)
+          .sort(([a], [b]) => parseInt(a) - parseInt(b))
+          .map(([level, count]) => `L${level}(${count})`)
+          .join(', ');
+        tooltipContent += `\nInventory: ${inventoryStr}`;
+      } else if (this.inputLevels && this.inputLevels.length > 0) {
+        // Show empty inventory for level-based machines
+        tooltipContent += '\nInventory: Empty';
+      }
+
+      // Show pending output for level-based machines
+      if (this.outputQueue && this.outputQueue.length > 0) {
+        // Group output items by purity level
+        const outputLevelCounts = {};
+        this.outputQueue.forEach((item) => {
+          const level = item.purity || 1;
+          outputLevelCounts[level] = (outputLevelCounts[level] || 0) + 1;
+        });
+
+        // Format as "L2(1), L3(2)" etc.
+        const outputStr = Object.entries(outputLevelCounts)
+          .sort(([a], [b]) => parseInt(a) - parseInt(b))
+          .map(([level, count]) => `L${level}(${count})`)
+          .join(', ');
+        tooltipContent += `\nPending Output: ${outputStr}`;
+      }
+
       // Legacy: Existing inventory info for other machines using old type system
       if (
         this.inputTypes &&
@@ -1526,10 +1563,12 @@ export default class BaseMachine {
       let nextItem;
       if (this.outputLevel) {
         // Create output resource with the configured outputLevel as its purity
+        // Always ensure type is 'purity-resource' for the new level system
         nextItem = {
           ...processedItem,
+          type: 'purity-resource', // Explicitly set type to prevent undefined issues
           purity: this.outputLevel,
-          visitedMachines: new Set(processedItem.visitedMachines),
+          visitedMachines: new Set(processedItem.visitedMachines || []),
         };
         // Only increment chain if this is a new machine
         if (!nextItem.visitedMachines.has(this.id)) {
@@ -1695,8 +1734,10 @@ export default class BaseMachine {
         if (usingQueuedItem) {
           itemToDeliver = this.outputQueue[0];
         } else {
+          const defaultPurity = this.outputLevel || 1;
           itemToDeliver = {
             type: resourceTypeToTransfer,
+            purity: defaultPurity,
             texture:
               this.scene.registry.get('resourceTextures')?.[resourceTypeToTransfer] ||
               'default-resource',
@@ -1768,8 +1809,10 @@ export default class BaseMachine {
         if (usingQueuedItem) {
           itemToTransfer = this.outputQueue[0]; // Peek (shift only on success)
         } else {
-          // Standard legacy transfer
-          itemToTransfer = { type: resourceTypeToTransfer, amount: 1 };
+          // Standard legacy transfer - include purity for compatibility with inputLevels machines
+          // Default to purity 1 for basic resources, or use outputLevel if available
+          const defaultPurity = this.outputLevel || 1;
+          itemToTransfer = { type: resourceTypeToTransfer, amount: 1, purity: defaultPurity };
         }
 
         let canAccept = targetMachine.canAcceptInput(resourceTypeToTransfer, itemToTransfer);
@@ -2674,22 +2717,31 @@ export default class BaseMachine {
 
         // Calculate minimum needed to complete at least ONE processing batch (from what is missing)
         // We only care about ensuring that after taking THIS item, we still have room for the missing pieces.
+        // Track allocated items to handle duplicate levels in inputLevels correctly.
+        // e.g., [2, 2, 3] needs 2x level 2, but we must not count the same inventory item twice.
         let missingForSet = 0;
-        this.inputLevels.forEach((reqLvl) => {
-          // How many do we need? (Assuming 1 per batch for now based on standard logic,
-          // but could check specific recipes if needed. Standard processors take 1 of each inputLevel).
-          const neededPerBatch = 1;
+        const allocatedFromInventory = {}; // Track what we've virtually allocated from each level
 
-          // How many do we have?
-          // If this is the incoming level, virtually add 1 to what we have for this calculation
-          // (or conversely, don't count it as missing).
-          let have = currentInventory[reqLvl] || 0;
+        this.inputLevels.forEach((reqLvl) => {
+          // How many do we need per entry? (1 per inputLevel entry)
+          const neededPerEntry = 1;
+
+          // How many do we have available (minus what we've already allocated to previous entries)
+          const totalAvailable = currentInventory[reqLvl] || 0;
+          const alreadyAllocated = allocatedFromInventory[reqLvl] || 0;
+          let available = totalAvailable - alreadyAllocated;
+
+          // If this is the incoming level, virtually add 1 to what's available
           if (reqLvl === itemLevel) {
-            have += 1;
+            available += 1;
           }
 
-          const missing = Math.max(0, neededPerBatch - have);
+          const missing = Math.max(0, neededPerEntry - available);
           missingForSet += missing;
+
+          // Track what we're allocating for this entry (even if we're missing some)
+          const allocating = Math.min(available, neededPerEntry);
+          allocatedFromInventory[reqLvl] = alreadyAllocated + allocating;
         });
 
         // Space remaining AFTER accepting this item
@@ -2767,16 +2819,24 @@ export default class BaseMachine {
     // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
 
     if (this.canAcceptInput(itemType, itemData)) {
-      // Handle purity resource queueing - queue items for machines with inputLevels OR purity-resource type
+      // Handle purity resource queueing - queue items for machines with inputLevels
       // This ensures machines using the inputLevels system can process items correctly
-      if (
-        this.inputQueue &&
-        (itemType === 'purity-resource' ||
-          (this.inputLevels && this.inputLevels.length > 0 && itemData.purity !== undefined))
-      ) {
-        this.inputQueue.push(itemData); // Store full object
+      // CRITICAL: For machines with inputLevels, ALWAYS add to queue with purity (default to 1)
+      if (this.inputQueue && this.inputLevels && this.inputLevels.length > 0) {
+        // Ensure the item has a purity level - default to 1 if not specified
+        const queuedItem = {
+          ...itemData,
+          purity: itemData.purity !== undefined ? itemData.purity : 1,
+        };
+        this.inputQueue.push(queuedItem);
         console.log(
-          `[${this.name}] Enqueued item (type: ${itemType}, purity: ${itemData.purity}). Queue size: ${this.inputQueue.length}`
+          `[${this.name}] Enqueued item (type: ${itemType}, purity: ${queuedItem.purity}). Queue size: ${this.inputQueue.length}`
+        );
+      } else if (this.inputQueue && itemType === 'purity-resource') {
+        // Legacy handling for purity resources on machines without inputLevels
+        this.inputQueue.push(itemData);
+        console.log(
+          `[${this.name}] Enqueued purity-resource (purity: ${itemData.purity}). Queue size: ${this.inputQueue.length}`
         );
       }
 

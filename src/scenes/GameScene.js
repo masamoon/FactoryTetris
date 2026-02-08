@@ -28,8 +28,7 @@ export default class GameScene extends Phaser.Scene {
     this.gameTime = 0; // in seconds
     this.gameOver = false;
     this.paused = false;
-    this.currentLevel = 1; // Changed from currentRound
-    this.currentLevelScoreThreshold = 0; // Changed from currentRoundScoreThreshold
+    this.lastUpgradeMilestone = 0; // Track last milestone for upgrade triggers
 
     // Momentum state
     this.currentMomentum = 0;
@@ -65,9 +64,6 @@ export default class GameScene extends Phaser.Scene {
     this.inputMode = 'desktop'; // 'desktop' or 'touch'
     this.isTouchPlacing = false;
     this.touchPreviewGridPos = null;
-
-    // Player-controlled level up
-    this.pendingLevelUps = 0; // Track queued level-ups that player can claim
 
     // Camera references
     this.uiCamera = null;
@@ -176,13 +172,7 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0;
     this.gameTime = 0;
     this.gameOver = false;
-    this.currentLevel = 1; // Start at level 1
-    this.currentLevelScoreThreshold = this.getScoreThresholdForLevel(this.currentLevel); // Get initial threshold
-
-    // Log the initial threshold for debugging
-    console.log(
-      `[LEVEL_DEBUG] Initial level ${this.currentLevel}, threshold: ${this.currentLevelScoreThreshold}`
-    );
+    this.lastUpgradeMilestone = 0; // Reset milestone tracking
 
     this.currentMomentum = this.maxMomentum / 2; // Start with half momentum
 
@@ -214,14 +204,6 @@ export default class GameScene extends Phaser.Scene {
       this.showInputModeMessage();
     });
 
-    // Spacebar to claim a pending level up
-    this.input.keyboard.on('keydown-SPACE', () => {
-      if (this.pendingLevelUps > 0 && !this.isPausedForUpgrade && !this.paused) {
-        this.claimLevelUp();
-      }
-    });
-    // Optionally, add a UI button for mobile users
-
     // Set initial camera bounds
     this.updateCameraBounds();
   }
@@ -239,9 +221,9 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Momentum Decay ---
     const deltaTimeSeconds = delta / 1000;
-    // Calculate level-based decay rate (increases with level)
-    const levelFactor = 1 + (this.currentLevel - 1) * 0.1; // Increase by 10% per level
-    const effectiveDecayRate = this.baseMomentumDecayRate * levelFactor;
+    // Score-based decay rate (replaces level-based)
+    const scoreFactor = 1 + (this.score / 1000) * 0.1; // +10% decay per 1000 points
+    const effectiveDecayRate = this.baseMomentumDecayRate * scoreFactor;
     this.currentMomentum -= effectiveDecayRate * deltaTimeSeconds;
     this.currentMomentum = Math.max(0, this.currentMomentum); // Clamp at 0
 
@@ -343,7 +325,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Score display
     this.scoreText = this.add
-      .text(centerX, currentY, `SCORE: 0 / ${this.currentLevelScoreThreshold}`, {
+      .text(centerX, currentY, `SCORE: 0`, {
         fontFamily: 'Arial',
         fontSize: 18,
         color: '#ffffff',
@@ -353,20 +335,6 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
 
     currentY += spacing;
-
-    // Level Display
-    this.levelText = this.add
-      .text(centerX, currentY, `LEVEL: ${this.currentLevel}`, {
-        fontFamily: 'Arial',
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#ffffff',
-        align: 'center',
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0);
-
-    currentY += spacing * 0.7;
 
     // Era Display (Transcendence System)
     this.eraText = this.add
@@ -480,22 +448,8 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.skipButton.button);
     this.addToUI(this.skipButton.text);
 
-    // Level Up button
-    this.levelUpButton = this.createButton(centerX, buttonStartY + 120, 'LEVEL UP!', () => {
-      this.claimLevelUp();
-    });
-    this.levelUpButton.button.fillColor = 0x00aa44;
-    this.levelUpButton.button.setStrokeStyle(2, 0x00ff66);
-    this.levelUpButton.button.setVisible(false);
-    this.levelUpButton.text.setVisible(false);
-    this.levelUpButton.button.setScrollFactor(0);
-    this.levelUpButton.text.setScrollFactor(0);
-    this.addToUI(this.levelUpButton.button);
-    this.addToUI(this.levelUpButton.text);
-    this.updateLevelUpButton();
-
     // Transcend Button (hidden until conditions are met)
-    this.transcendButton = this.createButton(centerX, buttonStartY + 180, 'TRANSCEND!', () => {
+    this.transcendButton = this.createButton(centerX, buttonStartY + 120, 'TRANSCEND!', () => {
       this.triggerTranscendence();
     });
     this.transcendButton.button.fillColor = 0x4444aa;
@@ -1644,9 +1598,9 @@ export default class GameScene extends Phaser.Scene {
       this.deliveryNodes = [];
     }
 
-    // Create initial resource nodes using the spawn method, which now handles levels
+    // Create initial resource nodes
     for (let i = 0; i < GAME_CONFIG.initialNodeCount; i++) {
-      this.spawnResourceNode(); // Will use this.currentLevel (should be 1)
+      this.spawnResourceNode();
     }
 
     // Spawn one initial delivery node on the right edge
@@ -1719,7 +1673,7 @@ export default class GameScene extends Phaser.Scene {
       // Select a random resource type (currently hardcoded to basic)
       const resourceTypeIndex = 0;
 
-      // Create a new resource node, passing the current round AND upgradeManager
+      // Create a new resource node, passing the current era for scaling AND upgradeManager
       const node = new ResourceNode(
         this,
         {
@@ -1730,9 +1684,9 @@ export default class GameScene extends Phaser.Scene {
           resourceType: resourceTypeIndex,
           lifespan: GAME_CONFIG.nodeLifespan,
         },
-        this.currentLevel,
+        this.currentEra,
         this.upgradeManager
-      ); // Pass this.upgradeManager here
+      );
 
       this.resourceNodes.push(node);
       this.addToWorld(node);
@@ -1777,47 +1731,24 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateDifficulty() {
-    // Option 1: Keep difficulty based on time (as it is now)
-    // Option 2: Base difficulty on this.currentRound
-    // Let's switch to round-based difficulty scaling
+    // Score-based difficulty scaling (replaces level-based)
+    const scoreThousands = Math.floor(this.score / 1000);
 
-    const round = this.currentRound;
-
-    // Example scaling based on round:
     let newNodeSpawnDelay = GAME_CONFIG.nodeSpawnRate; // Default
 
-    if (round >= 5 && round < 10) {
-      newNodeSpawnDelay *= 0.8; // Faster spawns in rounds 5-9
-    } else if (round >= 10) {
-      newNodeSpawnDelay *= 0.6; // Even faster spawns in round 10+
+    if (scoreThousands >= 2 && scoreThousands < 5) {
+      newNodeSpawnDelay *= 0.8; // Faster spawns after 2000 points
+    } else if (scoreThousands >= 5) {
+      newNodeSpawnDelay *= 0.6; // Even faster spawns after 5000 points
     }
-    // More complex scaling can be added here based on round milestones
-
-    // ---> ADD LOGS HERE <---
-    console.log(
-      `[DIFFICULTY_DEBUG] Calculated newNodeSpawnDelay: ${newNodeSpawnDelay} (Round: ${round})`
-    );
 
     // Apply changes (only if different to avoid resetting timer unnecessarily)
     if (this.nodeSpawnTimer && this.nodeSpawnTimer.delay !== newNodeSpawnDelay) {
       // Add validity check before applying
       if (!isNaN(newNodeSpawnDelay) && newNodeSpawnDelay > 0 && isFinite(newNodeSpawnDelay)) {
-        console.log(
-          `[DIFFICULTY_DEBUG] Applying new delay ${newNodeSpawnDelay}ms to nodeSpawnTimer.`
-        );
         this.nodeSpawnTimer.delay = newNodeSpawnDelay;
-      } else {
-        console.error(
-          `[DIFFICULTY_DEBUG] Invalid delay calculated: ${newNodeSpawnDelay}. Not applying.`
-        );
       }
     }
-
-    // Could also adjust:
-    // - Resource generation rate
-    // - Node lifespan
-    // - Cargo bay speed/penalty
-    // - Introduce new hazards/challenges
   }
 
   addScore(points) {
@@ -1833,18 +1764,19 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.score += effectivePoints;
-    this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
+    this.scoreText.setText(`SCORE: ${this.score}`);
 
     // Increase Momentum
     this.currentMomentum += points * this.momentumGainFactor;
     this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum, 0, this.maxMomentum);
 
-    // Check if level threshold is met
-    if (this.score >= this.currentLevelScoreThreshold) {
-      console.log(
-        `[LEVEL_DEBUG] Score ${this.score} reached threshold ${this.currentLevelScoreThreshold} - queuing level up`
-      );
-      this.queueLevelUp();
+    // Check for milestone upgrade (replaces level threshold check)
+    const milestoneInterval = GAME_CONFIG.upgradeMilestoneInterval || 500;
+    const newMilestone = Math.floor(this.score / milestoneInterval) * milestoneInterval;
+    if (newMilestone > this.lastUpgradeMilestone && newMilestone > 0) {
+      this.lastUpgradeMilestone = newMilestone;
+      console.log(`[UPGRADE] Milestone ${newMilestone} reached - showing upgrade screen`);
+      this.showUpgradeScreen();
     }
 
     // Show visual feedback for combo
@@ -1878,148 +1810,24 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  getScoreThresholdForLevel(level) {
-    // Access the thresholds from the game config
-    const thresholds = GAME_CONFIG.levelScoreThresholds || GAME_CONFIG.roundScoreThresholds; // Support both names
-
-    // Log the thresholds loaded from config
-    console.log(`[LEVEL_DEBUG] Loaded score thresholds:`, thresholds);
-
-    // Level is 1-based, array is 0-based
-    if (level - 1 < thresholds.length) {
-      const threshold = thresholds[level - 1];
-      console.log(`[LEVEL_DEBUG] Using defined threshold ${threshold} for level ${level}`);
-      return threshold;
-    } else {
-      // Calculate threshold for levels beyond the defined array
-      // Use the last defined threshold and multiply by the factor for each subsequent level
-      let threshold = thresholds[thresholds.length - 1];
-      const factor =
-        GAME_CONFIG.scoreIncreaseFactorPerLevel || GAME_CONFIG.scoreIncreaseFactorPerRound;
-      for (let i = thresholds.length; i < level; i++) {
-        threshold = Math.floor(threshold * factor); // Use Math.floor to keep it integer
-      }
-      console.log(`[LEVEL_DEBUG] Calculated threshold ${threshold} for level ${level}`);
-      return threshold;
-    }
-  }
-
-  advanceLevel() {
-    console.log(`Level ${this.currentLevel} completed! Advancing to next level.`);
-
-    // Optional: Play a sound effect for level completion
-    this.playSound('round-complete');
-
-    // --- REMOVED camera flash ***
-    this.cameras.main.flash(300, 255, 255, 255, true);
-
-    // 1. Clear the factory grid (will now have animations)
-    this.clearPlacedItems();
-
-    // 2. Increment level number
-    this.currentLevel++;
-
-    // 3. GROW THE GRID if configured to do so
-    if (GRID_CONFIG.growthPerRound > 0 && this.grid) {
-      // Calculate new dimensions based on growth parameters
-      const newWidth = Math.min(this.grid.width + GRID_CONFIG.growthPerRound, GRID_CONFIG.maxWidth);
-      const newHeight = Math.min(
-        this.grid.height + GRID_CONFIG.growthPerRound,
-        GRID_CONFIG.maxHeight
-      );
-
-      // Only resize if dimensions will actually change
-      if (newWidth > this.grid.width || newHeight > this.grid.height) {
-        console.log(`[GameScene.advanceLevel] Growing grid for level ${this.currentLevel}`);
-        this.grid.resize(newWidth, newHeight);
-
-        // Add a visual effect to highlight the grid expansion
-        this.cameras.main.flash(500, 0, 255, 0, 0.3); // Green flash
-
-        // Create a visual indicator for the new grid cells
-        const gridHighlight = this.add.graphics();
-        gridHighlight.fillStyle(0x00ff00, 0.3); // Semi-transparent green
-
-        // Calculate grid position
-        const gridWidth = this.grid.width * this.grid.cellSize;
-        const gridHeight = this.grid.height * this.grid.cellSize;
-        const startX = this.grid.x - gridWidth / 2;
-        const startY = this.grid.y - gridHeight / 2;
-
-        gridHighlight.fillRect(startX, startY, gridWidth, gridHeight);
-
-        // Ensure highlight is on world camera only
-        this.addToWorld(gridHighlight);
-
-        // Fade out the highlight
-        this.tweens.add({
-          targets: gridHighlight,
-          alpha: 0,
-          duration: 2000,
-          onComplete: () => {
-            gridHighlight.destroy();
-          },
-        });
-      }
-    }
-
-    // 3. Spawn initial nodes for the new level - MODIFIED: Immediately spawn nodes
-    console.log(
-      `[LevelStart] Immediately spawning initial nodes for level ${this.currentLevel}...`
-    );
-    // Spawn 2 resource nodes
-    for (let i = 0; i < 2; i++) {
-      this.spawnResourceNode();
-    }
-    // Spawn 1 delivery node
-    this.spawnDeliveryNode();
-
-    // 4. NOTE: Upgrade screen is now player-controlled (via button or spacebar)
-    // Do NOT call showUpgradeScreen() here
-
-    // 5. Reset score
-    this.score = 0;
-
-    // 6. Reset score threshold for the new level
-    this.currentLevelScoreThreshold = this.getScoreThresholdForLevel(this.currentLevel);
-
-    // 7. Update UI displays
-    this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
-    this.levelText.setText(`LEVEL: ${this.currentLevel}`);
-
-    // 8. Update difficulty explicitly upon advancing level (affects node SPAWN rate)
-    this.updateDifficulty();
-
-    console.log(
-      `Advanced to level ${this.currentLevel}. New score threshold: ${this.currentLevelScoreThreshold}. Grid size: ${this.grid.width}x${this.grid.height}`
-    );
-
-    // Update camera bounds for the new level
-    this.updateCameraBounds();
-
-    // Check if transcendence conditions might be met
-    this.checkTranscendCondition();
-  }
-
   // === TRANSCENDENCE SYSTEM METHODS ===
 
   /**
    * Check if the player can transcend to the next era
    */
   checkTranscendCondition() {
-    const levelThreshold = TRANSCEND_THRESHOLDS.getLevelThreshold(this.currentEra);
     const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
 
-    const levelMet = this.currentLevel >= levelThreshold;
+    // Only delivery threshold matters now (no level requirement)
     const deliveryMet = this.deliveredHighTierResources >= deliveryThreshold;
 
     const wasCanTranscend = this.canTranscend;
-    this.canTranscend = levelMet && deliveryMet;
+    this.canTranscend = deliveryMet;
 
     // Update transcend button visibility and animation
     if (this.canTranscend && !wasCanTranscend) {
       console.log(
-        `[TRANSCEND] Conditions met! Level ${this.currentLevel}/${levelThreshold}, Deliveries ${this.deliveredHighTierResources}/${deliveryThreshold}`
+        `[TRANSCEND] Conditions met! Deliveries ${this.deliveredHighTierResources}/${deliveryThreshold}`
       );
       this.showTranscendButton();
     } else if (!this.canTranscend && wasCanTranscend) {
@@ -2072,12 +1880,11 @@ export default class GameScene extends Phaser.Scene {
   updateTranscendProgress() {
     if (!this.transcendProgressText) return;
 
-    const levelThreshold = TRANSCEND_THRESHOLDS.getLevelThreshold(this.currentEra);
     const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
     const transcendTier = getTranscendTier(this.currentEra);
 
     this.transcendProgressText.setText(
-      `Transcend: Lv${this.currentLevel}/${levelThreshold} | L${transcendTier}: ${this.deliveredHighTierResources}/${deliveryThreshold}`
+      `Transcend: L${transcendTier} ${this.deliveredHighTierResources}/${deliveryThreshold}`
     );
   }
 
@@ -2460,9 +2267,6 @@ export default class GameScene extends Phaser.Scene {
     if (this.eraText) {
       this.eraText.setText(`ERA: ${this.currentEra}`);
     }
-    if (this.levelText) {
-      this.levelText.setText(`LEVEL: ${this.currentLevel}`);
-    }
   }
 
   togglePause() {
@@ -2550,7 +2354,7 @@ export default class GameScene extends Phaser.Scene {
     this.scene.start('GameOverScene', {
       score: this.score,
       timeSurvived: this.gameTime,
-      finalLevel: this.currentLevel, // Add final level reached
+      finalEra: this.currentEra,
     });
   }
 
@@ -2570,7 +2374,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Apply point penalty
     this.score = Math.max(0, this.score - this.skipPointPenalty);
-    this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
+    this.scoreText.setText(`SCORE: ${this.score}`);
 
     // Apply momentum penalty (as percentage)
     const momentumLoss = this.maxMomentum * (this.skipMomentumPenalty / 100);
@@ -3850,11 +3654,8 @@ export default class GameScene extends Phaser.Scene {
 
     if (salvagedScore > 0) {
       console.log(`Adding ${salvagedScore} from salvaged resources.`);
-      // --- MODIFIED: Add score directly, bypassing advanceRound check ---
       this.score += salvagedScore;
-      this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
-      // We explicitly DO NOT call this.addScore() here to prevent recursion.
-      // --- END MODIFICATION ---
+      this.scoreText.setText(`SCORE: ${this.score}`);
     }
 
     // --- 2. Clear Entities with Animation ---
@@ -4130,9 +3931,9 @@ export default class GameScene extends Phaser.Scene {
           resourceType: resourceTypeIndex,
           lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier(),
         },
-        this.currentLevel,
+        this.currentEra,
         this.upgradeManager
-      ); // Pass this.upgradeManager here
+      );
       this.resourceNodes.push(resourceNode);
       this.addToWorld(resourceNode); // Ensure it's not on the UI camera
       this.grid.setCell(emptySpot1.x, emptySpot1.y, { type: 'node', object: resourceNode });
@@ -4336,7 +4137,6 @@ export default class GameScene extends Phaser.Scene {
     this.input.enabled = true;
 
     this.updateActiveUpgradesDisplay(); // Update the display after an upgrade might have been selected
-    this.updateLevelUpButton(); // Update level up button in case there are more pending
   }
 
   updateActiveUpgradesDisplay() {
@@ -4525,99 +4325,6 @@ export default class GameScene extends Phaser.Scene {
     } catch (error) {
       console.error('[GAME] Error creating delivery node:', error);
       return null;
-    }
-  }
-
-  // ============================================
-  // Player-Controlled Level Up Functions
-  // ============================================
-
-  /**
-   * Queue a level up instead of immediately showing the upgrade screen.
-   * Called when score threshold is reached.
-   * Does NOT clear the grid - that happens when player claims the level up.
-   */
-  queueLevelUp() {
-    this.pendingLevelUps++;
-    console.log(`[LEVEL_UP] Queued level up. Pending: ${this.pendingLevelUps}`);
-
-    // Reset score and update threshold for continued play
-    this.score = 0;
-    this.currentLevelScoreThreshold = this.getScoreThresholdForLevel(
-      this.currentLevel + this.pendingLevelUps
-    );
-    this.scoreText.setText(`SCORE: ${this.score} / ${this.currentLevelScoreThreshold}`);
-
-    // Update the button visibility
-    this.updateLevelUpButton();
-
-    // Play a sound to notify the player
-    this.playSound('round-complete');
-  }
-
-  /**
-   * Called when the player clicks the Level Up button or presses spacebar.
-   * Clears the grid, advances level, shows upgrade screen.
-   */
-  claimLevelUp() {
-    if (this.pendingLevelUps <= 0) {
-      console.log('[LEVEL_UP] No pending level ups to claim');
-      return;
-    }
-
-    this.pendingLevelUps--;
-    console.log(`[LEVEL_UP] Claiming level up. Remaining pending: ${this.pendingLevelUps}`);
-
-    // NOW advance the level (clears grid, spawns nodes)
-    this.advanceLevel();
-
-    // Show the upgrade screen
-    this.showUpgradeScreen();
-
-    // Update button visibility (will be called again after upgrade screen closes, but call here for safety)
-    this.updateLevelUpButton();
-  }
-
-  /**
-   * Updates the Level Up button visibility and text based on pendingLevelUps.
-   */
-  updateLevelUpButton() {
-    if (!this.levelUpButton) return;
-
-    if (this.pendingLevelUps > 0) {
-      this.levelUpButton.button.setVisible(true);
-      this.levelUpButton.text.setVisible(true);
-
-      // Update text to show count if more than 1
-      if (this.pendingLevelUps > 1) {
-        this.levelUpButton.text.setText(`LEVEL UP! (${this.pendingLevelUps})`);
-      } else {
-        this.levelUpButton.text.setText('LEVEL UP!');
-      }
-
-      // Add a pulsing animation if not already animating
-      if (!this.levelUpButtonTween) {
-        this.levelUpButtonTween = this.tweens.add({
-          targets: this.levelUpButton.button,
-          scaleX: 1.05,
-          scaleY: 1.05,
-          yoyo: true,
-          repeat: -1,
-          duration: 500,
-          ease: 'Sine.easeInOut',
-        });
-      }
-    } else {
-      this.levelUpButton.button.setVisible(false);
-      this.levelUpButton.text.setVisible(false);
-
-      // Stop the pulsing animation
-      if (this.levelUpButtonTween) {
-        this.levelUpButtonTween.stop();
-        this.levelUpButtonTween = null;
-        // Reset scale
-        this.levelUpButton.button.setScale(1);
-      }
     }
   }
 
