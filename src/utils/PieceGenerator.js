@@ -12,6 +12,7 @@ import {
   getPieceConfigsForEra,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
+import { rollTrait } from '../config/traits';
 
 /**
  * Generates a set of piece configurations for the player to choose from
@@ -85,6 +86,7 @@ export function generatePieceOptions(scene, count = 3) {
     options.push({
       ...selectedConfig,
       isUsable: isPieceUsable(selectedConfig, producibleLevels),
+      trait: selectedConfig.output >= 3 ? rollTrait() : null,
     });
   }
 
@@ -222,6 +224,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
     outputLevel: config.output,
     notation: config.notation,
     isUsable: isPieceUsable(config, producibleLevels),
+    trait: config.output >= 3 ? rollTrait() : null,
   };
 }
 
