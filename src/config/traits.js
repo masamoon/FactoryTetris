@@ -1,0 +1,127 @@
+/**
+ * Piece Traits — definitions and roll utilities.
+ *
+ * Traits attach to pieces whose recipe outputs L3 or higher. Each trait has
+ * a category for visual band coloring and a hooks object whose handlers are
+ * fired by BaseMachine / DeliveryNode at the appropriate lifecycle point.
+ *
+ * See docs/superpowers/specs/2026-05-14-piece-traits-design.md for the
+ * design context.
+ */
+
+export const TRAIT_CATEGORIES = {
+  STAT: 'stat',
+  RULE: 'rule',
+  ADJACENCY: 'adjacency',
+  RUN_WIDE: 'run-wide',
+};
+
+export const TRAIT_BAND_COLORS = {
+  [TRAIT_CATEGORIES.STAT]: 0x4488ff,
+  [TRAIT_CATEGORIES.RULE]: 0xff8800,
+  [TRAIT_CATEGORIES.ADJACENCY]: 0xaa44ff,
+  [TRAIT_CATEGORIES.RUN_WIDE]: 0xffcc00,
+};
+
+// Defined as an array so tests can iterate; lookup by id via getTraitById.
+export const TRAITS = [
+  {
+    id: 'catalyst',
+    name: 'Catalyst',
+    category: TRAIT_CATEGORIES.STAT,
+    description: 'Resources gain +2 purity through this machine instead of +1.',
+    hooks: {},
+  },
+  {
+    id: 'overclocked',
+    name: 'Overclocked',
+    category: TRAIT_CATEGORIES.STAT,
+    description: 'Processing time is halved.',
+    hooks: {},
+  },
+  {
+    id: 'tycoon',
+    name: 'Tycoon',
+    category: TRAIT_CATEGORIES.STAT,
+    description: 'Resources processed by this machine deliver for +50% score.',
+    hooks: {},
+  },
+  {
+    id: 'polarized',
+    name: 'Polarized',
+    category: TRAIT_CATEGORIES.RULE,
+    description: 'Refuses resources with purity below 3. Accepted resources output 2x value.',
+    hooks: {},
+  },
+  {
+    id: 'twin',
+    name: 'Twin',
+    category: TRAIT_CATEGORIES.RULE,
+    description: 'Emits a duplicate output resource on each successful process.',
+    hooks: {},
+  },
+  {
+    id: 'bypass',
+    name: 'Bypass',
+    category: TRAIT_CATEGORIES.RULE,
+    description: 'Accepts wrong-tier inputs at 75% delivered value.',
+    hooks: {},
+  },
+  {
+    id: 'resonant',
+    name: 'Resonant',
+    category: TRAIT_CATEGORIES.ADJACENCY,
+    description: '+50% output if an orthogonally adjacent machine shares its output tier.',
+    hooks: {},
+  },
+  {
+    id: 'conductor',
+    name: 'Conductor',
+    category: TRAIT_CATEGORIES.ADJACENCY,
+    description: 'Adjacent orthogonal machines process 30% faster while this is placed.',
+    hooks: {},
+  },
+  {
+    id: 'hoarder',
+    name: 'Hoarder',
+    category: TRAIT_CATEGORIES.RUN_WIDE,
+    description: 'Every 5th delivery touching this machine doubles in delivered score.',
+    hooks: {},
+  },
+  {
+    id: 'beacon',
+    name: 'Beacon',
+    category: TRAIT_CATEGORIES.RUN_WIDE,
+    description: 'Adds +0.1 to the global chain multiplier while placed. Stacks per Beacon.',
+    hooks: {},
+  },
+];
+
+const TRAITS_BY_ID = new Map(TRAITS.map((t) => [t.id, t]));
+
+export function getTraitById(id) {
+  return TRAITS_BY_ID.get(id) || null;
+}
+
+export function getAllTraits() {
+  return TRAITS;
+}
+
+/**
+ * Roll a random trait from the full pool and return its id.
+ * Returns null if the pool is empty.
+ */
+export function rollTrait() {
+  if (TRAITS.length === 0) return null;
+  const index = Math.floor(Math.random() * TRAITS.length);
+  return TRAITS[index].id;
+}
+
+/**
+ * Color helper used by visual code.
+ */
+export function getTraitBandColor(traitId) {
+  const trait = getTraitById(traitId);
+  if (!trait) return 0xffffff;
+  return TRAIT_BAND_COLORS[trait.category] || 0xffffff;
+}
