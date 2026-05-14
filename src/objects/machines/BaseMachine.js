@@ -75,6 +75,13 @@ export default class BaseMachine {
     // Let child classes define their specific properties
     this.initMachineProperties();
 
+    // Allow config to provide trait id (set by MachineFactory for higher-tier pieces).
+    // Read AFTER initMachineProperties so child classes can override defaults but
+    // the runtime trait (from draft) always wins.
+    if (config && config.trait) {
+      this.trait = config.trait;
+    }
+
     // Initialize inventories
     this.initInventories();
 
@@ -158,6 +165,7 @@ export default class BaseMachine {
     this.inputLevels = [];
     this.outputLevel = null;
     this.notation = null;
+    this.trait = null;
   }
 
   /**

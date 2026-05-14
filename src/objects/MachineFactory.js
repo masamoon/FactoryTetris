@@ -235,6 +235,7 @@ export default class MachineFactory {
         inputLevels: levelConfig.inputLevels,
         outputLevel: levelConfig.outputLevel,
         notation: levelConfig.notation,
+        trait: levelConfig.trait || null,
         isUsable: levelConfig.isUsable,
       };
 
@@ -293,6 +294,7 @@ export default class MachineFactory {
       inputLevels: levelConfig.inputLevels,
       outputLevel: levelConfig.outputLevel,
       notation: levelConfig.notation,
+      trait: levelConfig.trait || null,
       isUsable: levelConfig.isUsable,
     };
 
@@ -1254,6 +1256,9 @@ export default class MachineFactory {
         }
         if (typeOrId.notation) {
           config.notation = typeOrId.notation;
+        }
+        if (typeOrId.trait) {
+          config.trait = typeOrId.trait;
         }
       }
       console.log(`[MachineFactory] Config prepared:`, config);
