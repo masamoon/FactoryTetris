@@ -18,6 +18,7 @@ import { UPGRADE_PACKAGE_TYPE, upgradesConfig } from '../config/upgrades.js'; //
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
 import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
+import TraitRegistry from '../objects/traits/TraitRegistry';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -95,6 +96,9 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     this.setupCameras();
+
+    this.traitRegistry = new TraitRegistry();
+    console.log('[GameScene] TraitRegistry initialized');
 
     // Create game objects
     this.createBackground();
