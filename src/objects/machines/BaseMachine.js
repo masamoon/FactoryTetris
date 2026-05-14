@@ -1569,18 +1569,22 @@ export default class BaseMachine {
           type: 'purity-resource', // Explicitly set type to prevent undefined issues
           purity: this.outputLevel,
           visitedMachines: new Set(processedItem.visitedMachines || []),
+          traitTags: Array.isArray(processedItem.traitTags) ? [...processedItem.traitTags] : [],
         };
         // Only increment chain if this is a new machine
         if (!nextItem.visitedMachines.has(this.id)) {
           nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
           nextItem.visitedMachines.add(this.id);
         }
+        if (this.trait) {
+          nextItem.traitTags.push(this.trait);
+        }
         console.log(
-          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.purity})`
+          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.purity}), tags: [${nextItem.traitTags.join(',')}]`
         );
       } else {
         // Legacy: Process it to increment purity and chain
-        nextItem = processResource(processedItem, this.id);
+        nextItem = processResource(processedItem, this.id, this.trait || null);
       }
 
       // Add to output queue for transfer
