@@ -228,9 +228,12 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Momentum Decay ---
     const deltaTimeSeconds = delta / 1000;
-    // Score-based decay rate (replaces level-based)
-    const scoreFactor = 1 + (this.score / 1000) * 0.1; // +10% decay per 1000 points
-    const effectiveDecayRate = this.baseMomentumDecayRate * scoreFactor;
+    // Decay scales with era progression (the real difficulty axis in infinite
+    // arcade mode), capped so skilled long runs stay viable. The old factor
+    // scaled unbounded with cumulative score, which turned every successful run
+    // into a death spiral regardless of throughput.
+    const eraFactor = 1 + (this.currentEra - 1) * 0.15;
+    const effectiveDecayRate = this.baseMomentumDecayRate * Math.min(eraFactor, 2.5);
     this.currentMomentum -= effectiveDecayRate * deltaTimeSeconds;
     this.currentMomentum = Math.max(0, this.currentMomentum); // Clamp at 0
 
@@ -1947,16 +1950,18 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateDifficulty() {
-    // Score-based difficulty scaling (replaces level-based)
+    // Node spawn tempo accelerates continuously with era progression so the
+    // game keeps escalating across an infinite run instead of plateauing at a
+    // fixed score. A gentle intra-era score ramp preserves moment-to-moment
+    // escalation, and a hard floor keeps late eras playable.
+    const eraSpeedup = Math.pow(0.9, this.currentEra - 1); // 10% faster per era
     const scoreThousands = Math.floor(this.score / 1000);
-
-    let newNodeSpawnDelay = GAME_CONFIG.nodeSpawnRate; // Default
-
-    if (scoreThousands >= 2 && scoreThousands < 5) {
-      newNodeSpawnDelay *= 0.8; // Faster spawns after 2000 points
-    } else if (scoreThousands >= 5) {
-      newNodeSpawnDelay *= 0.6; // Even faster spawns after 5000 points
-    }
+    const scoreSpeedup = scoreThousands >= 5 ? 0.85 : scoreThousands >= 2 ? 0.92 : 1.0;
+    const minDelay = GAME_CONFIG.nodeSpawnRate * 0.4;
+    const newNodeSpawnDelay = Math.max(
+      GAME_CONFIG.nodeSpawnRate * eraSpeedup * scoreSpeedup,
+      minDelay
+    );
 
     // Apply changes (only if different to avoid resetting timer unnecessarily)
     if (this.nodeSpawnTimer && this.nodeSpawnTimer.delay !== newNodeSpawnDelay) {
