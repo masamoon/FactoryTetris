@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { processResource } from '../../utils/PurityUtils';
 import { getLevelColor, getLevelName } from '../../config/resourceLevels';
+import { getTraitById } from '../../config/traits';
 
 // Unique colors for each machine type
 const MACHINE_COLORS = {
@@ -122,6 +123,19 @@ export default class BaseMachine {
 
       // Initialize keyboard controls
       this.initKeyboardControls();
+
+      // Fire trait onAttach hook now that the machine is fully constructed and
+      // on the grid. Preview-mode machines never fire trait hooks.
+      if (!this.isPreview && this.trait) {
+        const def = getTraitById(this.trait);
+        if (def && def.hooks && def.hooks.onAttach) {
+          try {
+            def.hooks.onAttach(this, this.scene);
+          } catch (err) {
+            console.error(`[${this.id}] trait onAttach failed for ${this.trait}:`, err);
+          }
+        }
+      }
     }
   }
 
@@ -2544,6 +2558,17 @@ export default class BaseMachine {
    * Destroy the machine and cleanup
    */
   destroy() {
+    if (!this.isPreview && this.trait) {
+      const def = getTraitById(this.trait);
+      if (def && def.hooks && def.hooks.onRemove) {
+        try {
+          def.hooks.onRemove(this, this.scene);
+        } catch (err) {
+          console.error(`[${this.id}] trait onRemove failed for ${this.trait}:`, err);
+        }
+      }
+    }
+
     // Destroy tooltip if it exists
     if (this.tooltip) {
       this.hideTooltip();
