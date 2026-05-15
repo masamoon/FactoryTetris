@@ -3,6 +3,7 @@ import { GAME_CONFIG } from '../config/gameConfig';
 import MachineRegistry from './machines/MachineRegistry';
 import { MACHINE_COLORS } from './machines/BaseMachine';
 import { assignLevelsToShape } from '../utils/PieceGenerator';
+import { getTraitById, getTraitBandColor } from '../config/traits';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -156,6 +157,8 @@ export default class MachineFactory {
           shape: this.selectedMachineType.shape,
           direction: this.selectedMachineType.direction || 'right',
           rotation: this.selectedMachineType.rotation || 0,
+          trait: this.selectedMachineType.trait || null,
+          outputLevel: this.selectedMachineType.outputLevel || null,
           machineType: this.selectedMachineType,
         };
 
@@ -235,6 +238,7 @@ export default class MachineFactory {
         inputLevels: levelConfig.inputLevels,
         outputLevel: levelConfig.outputLevel,
         notation: levelConfig.notation,
+        trait: levelConfig.trait || null,
         isUsable: levelConfig.isUsable,
       };
 
@@ -293,6 +297,7 @@ export default class MachineFactory {
       inputLevels: levelConfig.inputLevels,
       outputLevel: levelConfig.outputLevel,
       notation: levelConfig.notation,
+      trait: levelConfig.trait || null,
       isUsable: levelConfig.isUsable,
     };
 
@@ -421,6 +426,39 @@ export default class MachineFactory {
 
         // Store reference for potential updates
         machinePreview.notationLabel = notationLabel;
+
+        // --- ADD TRAIT INFO BENEATH NOTATION ---
+        if (machineType.trait) {
+          const traitDef = getTraitById(machineType.trait);
+          const traitBandColor = getTraitBandColor(machineType.trait);
+          if (traitDef) {
+            const traitNameLabel = this.scene.add
+              .text(itemX, itemY + 40, traitDef.name, {
+                fontFamily: 'Arial',
+                fontSize: 11,
+                color: '#ffffff',
+                fontStyle: 'bold',
+              })
+              .setOrigin(0.5);
+            const traitDescLabel = this.scene.add
+              .text(itemX, itemY + 54, traitDef.description, {
+                fontFamily: 'Arial',
+                fontSize: 9,
+                color: '#cccccc',
+                wordWrap: { width: 120 },
+                align: 'center',
+              })
+              .setOrigin(0.5);
+            const traitBand = this.scene.add.rectangle(itemX, itemY + 70, 80, 3, traitBandColor);
+            this.processorPreviewContainer.add(traitNameLabel);
+            this.processorPreviewContainer.add(traitDescLabel);
+            this.processorPreviewContainer.add(traitBand);
+            machinePreview.traitNameLabel = traitNameLabel;
+            machinePreview.traitDescLabel = traitDescLabel;
+            machinePreview.traitBand = traitBand;
+          }
+        }
+        // --- END TRAIT INFO ---
       }
       // --- END NOTATION LABEL ---
 
@@ -562,6 +600,8 @@ export default class MachineFactory {
         shape: machineType.shape, // Use the potentially updated shape
         direction: machineType.defaultDirection || 'right',
         rotation: 0,
+        trait: machineType.trait || null,
+        outputLevel: machineType.outputLevel || null,
         machineType: machineType, // Pass the full object
       };
       console.log('[MachineFactory] Preview data:', JSON.stringify(previewData));
@@ -1255,6 +1295,9 @@ export default class MachineFactory {
         if (typeOrId.notation) {
           config.notation = typeOrId.notation;
         }
+        if (typeOrId.trait) {
+          config.trait = typeOrId.trait;
+        }
       }
       console.log(`[MachineFactory] Config prepared:`, config);
 
@@ -1268,6 +1311,16 @@ export default class MachineFactory {
         `[MachineFactory] Result from machineRegistry.createMachine:`,
         machine ? 'Success' : 'Failed/Null'
       );
+
+      if (
+        this.scene &&
+        this.scene.firstL2Placed === false &&
+        machine &&
+        machine.outputLevel === 2
+      ) {
+        this.scene.firstL2Placed = true;
+        console.log('[traits] firstL2Placed armed; next draft will guarantee a trait');
+      }
 
       return machine;
     } catch (error) {
@@ -1667,6 +1720,8 @@ export default class MachineFactory {
         direction: this.selectedMachineType.direction,
         rotation: newRotationDegrees, // Pass rotation in degrees
         rotationDegrees: newRotationDegrees, // Explicit degrees property
+        trait: this.selectedMachineType.trait || null,
+        outputLevel: this.selectedMachineType.outputLevel || null,
         machineType: this.selectedMachineType,
       };
 

@@ -18,6 +18,8 @@ import { UPGRADE_PACKAGE_TYPE, upgradesConfig } from '../config/upgrades.js'; //
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
 import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
+import TraitRegistry from '../objects/traits/TraitRegistry';
+import { TRAIT_CATEGORIES, getTraitBandColor, getTraitById } from '../config/traits';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -95,6 +97,11 @@ export default class GameScene extends Phaser.Scene {
 
   create() {
     this.setupCameras();
+
+    this.traitRegistry = new TraitRegistry();
+    this.hasIntroducedTrait = false;
+    this.firstL2Placed = false;
+    console.log('[GameScene] TraitRegistry initialized');
 
     // Create game objects
     this.createBackground();
@@ -247,6 +254,13 @@ export default class GameScene extends Phaser.Scene {
     // Update chips (transcendence system)
     if (this.chips) {
       this.chips.forEach((chip) => chip.update());
+    }
+
+    // Trait HUD refresh
+    this._traitHudAccum = (this._traitHudAccum || 0) + delta;
+    if (this._traitHudAccum >= 500) {
+      this.refreshRunWideHud();
+      this._traitHudAccum = 0;
     }
 
     // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
@@ -417,6 +431,23 @@ export default class GameScene extends Phaser.Scene {
       })
       .setScrollFactor(0);
     this.updateActiveUpgradesDisplay(); // Initial update
+
+    // Active run-wide traits HUD
+    this.runWideHud = this.add.container(width - 12, 8);
+    this.runWideHud.setScrollFactor(0);
+    this.runWideHud.setDepth(1000);
+    this.runWideHudLabel = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        color: '#ffffff',
+        align: 'right',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        padding: { x: 6, y: 4 },
+      })
+      .setOrigin(1, 0);
+    this.runWideHud.add(this.runWideHudLabel);
+    this.refreshRunWideHud();
 
     // --- Buttons Section (Bottom of Panel) ---
     const buttonStartY = height - 250; // Start from bottom up?
@@ -1119,6 +1150,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Clear existing preview graphics
     this.placementPreview.clear();
+    this.hidePlacementTraitPreview();
 
     // If no machine provided, try to use the selectedMachine property
     if (!machine) {
@@ -1381,6 +1413,8 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    this.drawPlacementTraitPreview(machine, gridPos, rotatedShape, canPlace);
+
     // Draw a marker at the center position
     this.placementPreview.lineStyle(1, 0xffffff, 0.8);
     this.placementPreview.strokeCircle(centerWorldPos.x, centerWorldPos.y, 3);
@@ -1461,6 +1495,185 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  getPreviewTraitId(machine) {
+    if (!machine) return null;
+    return machine.trait || (machine.machineType && machine.machineType.trait) || null;
+  }
+
+  getPreviewOutputLevel(machine) {
+    if (!machine) return null;
+    return machine.outputLevel || (machine.machineType && machine.machineType.outputLevel) || null;
+  }
+
+  drawPlacementTraitPreview(machine, gridPos, rotatedShape, canPlace) {
+    const traitId = this.getPreviewTraitId(machine);
+    if (!traitId || !this.grid || !gridPos || !rotatedShape || rotatedShape.length === 0) return;
+
+    const traitDef = getTraitById(traitId);
+    if (!traitDef || !rotatedShape[0]) return;
+
+    const cellSize = this.grid.cellSize;
+    const bandColor = getTraitBandColor(traitId);
+    const shapeWidth = rotatedShape[0].length;
+    const shapeHeight = rotatedShape.length;
+    const topLeft = this.grid.gridToWorldTopLeft(gridPos.x, gridPos.y);
+    if (!topLeft) return;
+
+    const width = shapeWidth * cellSize;
+    const height = shapeHeight * cellSize;
+    const alpha = canPlace ? 0.95 : 0.55;
+
+    this.placementPreview.lineStyle(3, bandColor, alpha);
+    this.placementPreview.strokeRect(topLeft.x + 1, topLeft.y + 1, width - 2, height - 2);
+
+    const iconX = topLeft.x + width - cellSize * 0.25;
+    const iconY = topLeft.y + cellSize * 0.25;
+    this.placementPreview.fillStyle(bandColor, canPlace ? 0.95 : 0.6);
+    this.placementPreview.lineStyle(1, 0xffffff, 0.9);
+    this.placementPreview.fillCircle(iconX, iconY, 8);
+    this.placementPreview.strokeCircle(iconX, iconY, 8);
+
+    this.showPlacementTraitLabel(traitDef, iconX, iconY, topLeft.x + width / 2, topLeft.y + height);
+
+    if (traitDef.category === TRAIT_CATEGORIES.ADJACENCY) {
+      this.drawPlacementAdjacencyHints(machine, gridPos, rotatedShape, traitId, bandColor);
+    }
+  }
+
+  showPlacementTraitLabel(traitDef, iconX, iconY, labelX, labelY) {
+    if (!this.placementTraitInitial) {
+      this.placementTraitInitial = this.add
+        .text(iconX, iconY, '', {
+          fontFamily: 'Arial',
+          fontSize: 11,
+          color: '#ffffff',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(1000);
+      this.addToWorld(this.placementTraitInitial);
+    }
+
+    if (!this.placementTraitLabel) {
+      this.placementTraitLabel = this.add
+        .text(labelX, labelY + 4, '', {
+          fontFamily: 'Arial',
+          fontSize: 11,
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.65)',
+          padding: { x: 5, y: 2 },
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(1000);
+      this.addToWorld(this.placementTraitLabel);
+    }
+
+    this.placementTraitInitial
+      .setText(traitDef.name.charAt(0).toUpperCase())
+      .setPosition(iconX, iconY)
+      .setVisible(true);
+    this.placementTraitLabel
+      .setText(traitDef.name)
+      .setPosition(labelX, labelY + 4)
+      .setVisible(true);
+  }
+
+  hidePlacementTraitPreview() {
+    if (this.placementTraitInitial) {
+      this.placementTraitInitial.setVisible(false);
+    }
+    if (this.placementTraitLabel) {
+      this.placementTraitLabel.setVisible(false);
+    }
+  }
+
+  destroyPlacementTraitPreview() {
+    if (this.placementTraitInitial) {
+      this.placementTraitInitial.destroy();
+      this.placementTraitInitial = null;
+    }
+    if (this.placementTraitLabel) {
+      this.placementTraitLabel.destroy();
+      this.placementTraitLabel = null;
+    }
+  }
+
+  drawPlacementAdjacencyHints(machine, gridPos, rotatedShape, traitId, bandColor) {
+    const candidateCells = this.getPreviewAdjacentCells(gridPos, rotatedShape);
+    const outputLevel = this.getPreviewOutputLevel(machine);
+
+    for (const cell of candidateCells) {
+      const topLeft = this.grid.gridToWorldTopLeft(cell.x, cell.y);
+      if (!topLeft) continue;
+
+      const occupant = this.grid.getCell(cell.x, cell.y);
+      const neighborMachine = occupant && occupant.type === 'machine' ? occupant.object : null;
+      let isActiveTarget = false;
+
+      if (traitId === 'conductor') {
+        isActiveTarget = Boolean(neighborMachine && neighborMachine.setProcessingTimeModifier);
+      } else if (traitId === 'resonant') {
+        isActiveTarget = Boolean(
+          neighborMachine &&
+          outputLevel != null &&
+          neighborMachine.outputLevel != null &&
+          neighborMachine.outputLevel === outputLevel
+        );
+      }
+
+      const alpha = isActiveTarget ? 0.95 : 0.25;
+      const radius = isActiveTarget ? this.grid.cellSize * 0.42 : this.grid.cellSize * 0.34;
+      const center = this.grid.gridToWorld(cell.x, cell.y);
+
+      this.placementPreview.lineStyle(isActiveTarget ? 3 : 1, bandColor, alpha);
+      this.placementPreview.strokeCircle(center.x, center.y, radius);
+
+      if (isActiveTarget) {
+        this.placementPreview.fillStyle(bandColor, 0.12);
+        this.placementPreview.fillRect(
+          topLeft.x + 3,
+          topLeft.y + 3,
+          this.grid.cellSize - 6,
+          this.grid.cellSize - 6
+        );
+      }
+    }
+  }
+
+  getPreviewAdjacentCells(gridPos, rotatedShape) {
+    const occupied = new Set();
+    const result = new Map();
+    const directions = [
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+    ];
+
+    for (let y = 0; y < rotatedShape.length; y++) {
+      for (let x = 0; x < rotatedShape[y].length; x++) {
+        if (rotatedShape[y][x] !== 1) continue;
+        const gx = gridPos.x + x;
+        const gy = gridPos.y + y;
+        occupied.add(`${gx},${gy}`);
+      }
+    }
+
+    for (const key of occupied) {
+      const [gx, gy] = key.split(',').map(Number);
+      for (const dir of directions) {
+        const nx = gx + dir.x;
+        const ny = gy + dir.y;
+        const nKey = `${nx},${ny}`;
+        if (occupied.has(nKey)) continue;
+        if (nx < 0 || nx >= this.grid.width || ny < 0 || ny >= this.grid.height) continue;
+        result.set(nKey, { x: nx, y: ny });
+      }
+    }
+
+    return Array.from(result.values());
+  }
+
   // Remove the placement preview
   removePlacementPreview() {
     try {
@@ -1475,11 +1688,14 @@ export default class GameScene extends Phaser.Scene {
         this.placementPreviewMarker.destroy();
         this.placementPreviewMarker = null;
       }
+
+      this.destroyPlacementTraitPreview();
     } catch (error) {
       console.error('Error removing placement preview:', error);
       // Make sure we still set these to null to avoid further issues
       this.placementPreview = null;
       this.placementPreviewMarker = null;
+      this.destroyPlacementTraitPreview();
     }
   }
 
@@ -1808,6 +2024,8 @@ export default class GameScene extends Phaser.Scene {
         onComplete: () => comboText.destroy(),
       });
     }
+
+    this.refreshRunWideHud();
   }
 
   // === TRANSCENDENCE SYSTEM METHODS ===
@@ -3854,6 +4072,26 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  refreshRunWideHud() {
+    if (!this.traitRegistry || !this.runWideHudLabel) return;
+
+    const lines = [];
+    const beaconCount = this.traitRegistry.getBeaconCount();
+    if (beaconCount > 0) {
+      lines.push(`Beacon x${beaconCount} (+${(beaconCount * 0.1).toFixed(1)} chain)`);
+    }
+
+    for (const [id, count] of this.traitRegistry.hoarderCounters.entries()) {
+      if (count <= 0) continue;
+      const remainder = count % 5;
+      const next = remainder === 0 ? 5 : 5 - remainder;
+      lines.push(`Hoarder@${id}: next x2 in ${next}`);
+    }
+
+    this.runWideHudLabel.setText(lines.join('\n'));
+    this.runWideHudLabel.setVisible(lines.length > 0);
+  }
+
   /** Spawns a Resource Node and a Delivery Node pair */
   spawnNode() {
     // Log `this` context FIRST and use double quotes for the string
@@ -4227,6 +4465,8 @@ export default class GameScene extends Phaser.Scene {
       shape: this.selectedMachineType.shape,
       direction: this.selectedMachineType.direction || 'right',
       rotation: this.selectedMachineType.rotation || 0,
+      trait: this.selectedMachineType.trait || null,
+      outputLevel: this.selectedMachineType.outputLevel || null,
       machineType: this.selectedMachineType,
       gridX: gridPos.x,
       gridY: gridPos.y,

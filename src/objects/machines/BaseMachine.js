@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { processResource } from '../../utils/PurityUtils';
 import { getLevelColor, getLevelName } from '../../config/resourceLevels';
+import { getTraitById, getTraitBandColor } from '../../config/traits';
 
 // Unique colors for each machine type
 const MACHINE_COLORS = {
@@ -20,6 +21,12 @@ const MACHINE_COLORS = {
 };
 export { MACHINE_COLORS };
 
+// Monotonic per-instance machine uid. `this.id` is a machine TYPE string
+// (e.g. 'processor-a') shared by every instance of that type, so traits that
+// need per-instance attribution (Hoarder counters, Conductor modifier keys)
+// must key off `this.uid`, not `this.id`.
+let _machineUidCounter = 0;
+
 /**
  * Base class for all machine types
  * This class provides common functionality that all machines share
@@ -33,6 +40,9 @@ export default class BaseMachine {
    */
   constructor(scene, config) {
     this.scene = scene;
+
+    // Unique per-instance id (distinct from this.id which is the type string).
+    this.uid = ++_machineUidCounter;
 
     // Check if this is a preview instance (no grid needed)
     this.isPreview = config.preview === true;
@@ -75,6 +85,13 @@ export default class BaseMachine {
     // Let child classes define their specific properties
     this.initMachineProperties();
 
+    // Allow config to provide trait id (set by MachineFactory for higher-tier pieces).
+    // Read AFTER initMachineProperties so child classes can override defaults but
+    // the runtime trait (from draft) always wins.
+    if (config && config.trait) {
+      this.trait = config.trait;
+    }
+
     // Initialize inventories
     this.initInventories();
 
@@ -115,6 +132,19 @@ export default class BaseMachine {
 
       // Initialize keyboard controls
       this.initKeyboardControls();
+
+      // Fire trait onAttach hook now that the machine is fully constructed and
+      // on the grid. Preview-mode machines never fire trait hooks.
+      if (!this.isPreview && this.trait) {
+        const def = getTraitById(this.trait);
+        if (def && def.hooks && def.hooks.onAttach) {
+          try {
+            def.hooks.onAttach(this, this.scene);
+          } catch (err) {
+            console.error(`[${this.id}] trait onAttach failed for ${this.trait}:`, err);
+          }
+        }
+      }
     }
   }
 
@@ -158,6 +188,7 @@ export default class BaseMachine {
     this.inputLevels = [];
     this.outputLevel = null;
     this.notation = null;
+    this.trait = null;
   }
 
   /**
@@ -250,6 +281,54 @@ export default class BaseMachine {
    */
   getProcessingTime() {
     return this.processingTime;
+  }
+
+  /**
+   * Set a named multiplicative modifier on this machine's processing time.
+   * Multiple modifiers (e.g. Overclocked self + a neighbor's Conductor)
+   * compose multiplicatively and restore cleanly regardless of order.
+   * @param {string} key - unique modifier source key
+   * @param {number} multiplier - factor (e.g. 0.5 = twice as fast)
+   */
+  setProcessingTimeModifier(key, multiplier) {
+    // Guard against data-driven trait configs supplying a bad multiplier
+    // (NaN/negative/non-finite would corrupt processingTime via _recompute).
+    if (typeof multiplier !== 'number' || !isFinite(multiplier) || multiplier <= 0) {
+      console.warn(`[${this.id}] ignoring invalid processingTime modifier '${key}': ${multiplier}`);
+      return;
+    }
+    if (this._ptBaseTime == null) {
+      // NOTE: any external code that mutates this.processingTime AFTER the
+      // first modifier is applied will be lost on _recomputeProcessingTime.
+      // Route runtime processing-time changes through this method instead.
+      this._ptBaseTime = this.processingTime;
+    }
+    if (!this._ptModifiers) {
+      this._ptModifiers = new Map();
+    }
+    this._ptModifiers.set(key, multiplier);
+    this._recomputeProcessingTime();
+  }
+
+  /**
+   * Remove a named processing-time modifier and recompute.
+   * @param {string} key - the modifier source key to clear
+   */
+  clearProcessingTimeModifier(key) {
+    if (!this._ptModifiers) return;
+    this._ptModifiers.delete(key);
+    this._recomputeProcessingTime();
+  }
+
+  _recomputeProcessingTime() {
+    if (this._ptBaseTime == null) return;
+    let factor = 1;
+    if (this._ptModifiers) {
+      for (const m of this._ptModifiers.values()) {
+        factor *= m;
+      }
+    }
+    this.processingTime = Math.max(50, Math.floor(this._ptBaseTime * factor));
   }
 
   /**
@@ -763,6 +842,82 @@ export default class BaseMachine {
       this.setSelected(true);
       this.showDetailedInfo();
     });
+
+    this.renderTraitOverlay();
+  }
+
+  /**
+   * Render a small trait icon and colored category band over the machine if
+   * it has a trait. Placeholder visuals (colored circle + first letter)
+   * until real icon sprites exist.
+   */
+  renderTraitOverlay() {
+    if (!this.trait || !this.container || this.isPreview) return;
+    const def = getTraitById(this.trait);
+    if (!def) return;
+
+    const bandColor = getTraitBandColor(this.trait);
+    const cellSize = this.grid ? this.grid.cellSize : 32;
+
+    // Mirror createVisuals' geometry: children are positioned in
+    // container-local coords where (0,0) is the footprint CENTER, using the
+    // ROTATED shape. Compute the same way so the overlay aligns on
+    // multi-cell pieces and every rotation.
+    const currentDirection = this.direction || 'right';
+    let rotatedShape =
+      this.grid && typeof this.grid.getRotatedShape === 'function'
+        ? this.grid.getRotatedShape(this.shape, currentDirection)
+        : this.shape;
+    if (
+      !rotatedShape ||
+      !Array.isArray(rotatedShape) ||
+      rotatedShape.length === 0 ||
+      !Array.isArray(rotatedShape[0])
+    ) {
+      rotatedShape = this.shape && this.shape.length ? this.shape : [[1]];
+    }
+    const shapeWidth = rotatedShape[0].length;
+    const shapeHeight = rotatedShape.length;
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+    const w = shapeWidth * cellSize;
+    const h = shapeHeight * cellSize;
+
+    // Colored band: stroked rectangle covering the footprint, centered on
+    // the container origin (which is the footprint center).
+    const band = this.scene.add.rectangle(0, 0, w, h);
+    band.setStrokeStyle(2, bandColor, 0.9);
+    band.setFillStyle();
+    this.container.add(band);
+
+    this.scene.tweens.add({
+      targets: band,
+      alpha: { from: 0.4, to: 1.0 },
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    // Placeholder icon: small circle with the trait's initial, anchored to
+    // the top-right corner of the footprint in container-local coords.
+    const iconX = (shapeWidth - 1) * cellSize + cellSize / 2 - visualCenterX + cellSize / 4;
+    const iconY = cellSize / 2 - visualCenterY - cellSize / 4;
+    const iconBg = this.scene.add.circle(iconX, iconY, 8, bandColor);
+    iconBg.setStrokeStyle(1, 0xffffff, 0.9);
+    this.container.add(iconBg);
+
+    const iconText = this.scene.add
+      .text(iconX, iconY, def.name.charAt(0).toUpperCase(), {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    this.container.add(iconText);
+
+    this._traitOverlay = { band, iconBg, iconText };
   }
 
   /**
@@ -1569,26 +1724,57 @@ export default class BaseMachine {
           type: 'purity-resource', // Explicitly set type to prevent undefined issues
           purity: this.outputLevel,
           visitedMachines: new Set(processedItem.visitedMachines || []),
+          traitTags: Array.isArray(processedItem.traitTags) ? [...processedItem.traitTags] : [],
         };
         // Only increment chain if this is a new machine
         if (!nextItem.visitedMachines.has(this.id)) {
           nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
           nextItem.visitedMachines.add(this.id);
         }
+        if (this.trait) {
+          nextItem.traitTags.push(this.trait);
+        }
         console.log(
-          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.purity})`
+          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.purity}), tags: [${nextItem.traitTags.join(',')}]`
         );
       } else {
         // Legacy: Process it to increment purity and chain
-        nextItem = processResource(processedItem, this.id);
+        nextItem = processResource(processedItem, this.id, this.trait || null);
+      }
+
+      // Fire trait onProcess hook. Hook may MUTATE nextItem or return a
+      // replacement value. Returning explicit null aborts the output (used
+      // by Polarized when it rejects a resource).
+      if (this.trait) {
+        const def = getTraitById(this.trait);
+        if (def && def.hooks && def.hooks.onProcess) {
+          try {
+            // 4th arg: processing context. inputPurity is the TRUE purity of
+            // the consumed input (nextItem.purity has already been overwritten
+            // to outputLevel by this point, so traits that gate on input
+            // purity — e.g. Polarized — must read it from here).
+            const ctx = { inputPurity: processedItem.purity };
+            const result = def.hooks.onProcess(nextItem, this, this.scene, ctx);
+            if (result === null) {
+              console.log(`[${this.id}] trait ${this.trait} aborted output`);
+              nextItem = null;
+            } else if (result && typeof result === 'object') {
+              nextItem = result;
+            }
+          } catch (err) {
+            console.error(`[${this.id}] trait onProcess failed for ${this.trait}:`, err);
+          }
+        }
       }
 
       // Add to output queue for transfer
-      this.outputQueue.push(nextItem);
+      if (nextItem) {
+        this.outputQueue.push(nextItem);
 
-      console.log(
-        `[${this.id}] Processed purity item: Purity ${processedItem.purity} -> ${nextItem.purity}, Chain ${processedItem.chainCount} -> ${nextItem.chainCount}`
-      );
+        console.log(
+          `[${this.id}] Processed purity item: Purity ${processedItem.purity} -> ${nextItem.purity}, Chain ${processedItem.chainCount} -> ${nextItem.chainCount}`
+        );
+      }
     }
 
     // Immediately try to push the new output
@@ -2532,6 +2718,24 @@ export default class BaseMachine {
    * Destroy the machine and cleanup
    */
   destroy() {
+    if (!this.isPreview && this.trait) {
+      const def = getTraitById(this.trait);
+      if (def && def.hooks && def.hooks.onRemove) {
+        try {
+          def.hooks.onRemove(this, this.scene);
+        } catch (err) {
+          console.error(`[${this.id}] trait onRemove failed for ${this.trait}:`, err);
+        }
+      }
+    }
+
+    if (this._traitOverlay) {
+      if (this._traitOverlay.band) this._traitOverlay.band.destroy();
+      if (this._traitOverlay.iconBg) this._traitOverlay.iconBg.destroy();
+      if (this._traitOverlay.iconText) this._traitOverlay.iconText.destroy();
+      this._traitOverlay = null;
+    }
+
     // Destroy tooltip if it exists
     if (this.tooltip) {
       this.hideTooltip();

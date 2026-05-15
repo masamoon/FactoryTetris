@@ -121,6 +121,7 @@ export function createPurityResource(purity = 1) {
     purity: purity,
     chainCount: 0,
     visitedMachines: new Set(),
+    traitTags: [], // ordered list of trait ids picked up along the chain
     amount: 1,
   };
 }
@@ -129,22 +130,26 @@ export function createPurityResource(purity = 1) {
  * Process a resource through a machine, incrementing purity and chain
  * @param {object} resource - The resource item
  * @param {string} machineId - The ID of the processing machine
+ * @param {string|null} machineTrait - Optional trait id contributed by this machine
  * @returns {object} Updated resource (new object)
  */
-export function processResource(resource, machineId) {
+export function processResource(resource, machineId, machineTrait = null) {
   const maxChain = GAME_CONFIG.purityConfig.maxChain;
 
-  // Clone the resource
   const newResource = {
     ...resource,
     purity: resource.purity + 1,
     visitedMachines: new Set(resource.visitedMachines),
+    traitTags: Array.isArray(resource.traitTags) ? [...resource.traitTags] : [],
   };
 
-  // Only increment chain if this is a new machine
   if (!newResource.visitedMachines.has(machineId)) {
     newResource.chainCount = Math.min(maxChain, newResource.chainCount + 1);
     newResource.visitedMachines.add(machineId);
+  }
+
+  if (machineTrait) {
+    newResource.traitTags.push(machineTrait);
   }
 
   return newResource;
