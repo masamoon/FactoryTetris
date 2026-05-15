@@ -21,6 +21,12 @@ const MACHINE_COLORS = {
 };
 export { MACHINE_COLORS };
 
+// Monotonic per-instance machine uid. `this.id` is a machine TYPE string
+// (e.g. 'processor-a') shared by every instance of that type, so traits that
+// need per-instance attribution (Hoarder counters, Conductor modifier keys)
+// must key off `this.uid`, not `this.id`.
+let _machineUidCounter = 0;
+
 /**
  * Base class for all machine types
  * This class provides common functionality that all machines share
@@ -34,6 +40,9 @@ export default class BaseMachine {
    */
   constructor(scene, config) {
     this.scene = scene;
+
+    // Unique per-instance id (distinct from this.id which is the type string).
+    this.uid = ++_machineUidCounter;
 
     // Check if this is a preview instance (no grid needed)
     this.isPreview = config.preview === true;

@@ -171,7 +171,9 @@ export const TRAITS = [
       // future task can re-evaluate on grid changes.
       onAttach: (machine, scene) => {
         machine._traitConductedKeys = [];
-        const key = `conductor:${machine.id}`;
+        // Per-instance uid (not the shared type string machine.id) so two
+        // Conductors of the same machine type don't collide on this key.
+        const key = `conductor:${machine.uid}`;
         const neighbors = getOrthogonalNeighborMachines(machine, scene);
         for (const n of neighbors) {
           if (typeof n.setProcessingTimeModifier === 'function') {
@@ -201,8 +203,10 @@ export const TRAITS = [
     description: 'Every 5th delivery touching this machine doubles in delivered score.',
     hooks: {
       // completeProcessing already appended the plain 'hoarder' tag (informational).
-      // We additionally tag with a machine-specific 'hoarder@<id>' tag so
-      // DeliveryNode can attribute the delivery to the right machine's counter.
+      // We additionally tag with a per-instance 'hoarder@<uid>' tag so
+      // DeliveryNode attributes the delivery to THIS machine's counter.
+      // machine.uid (not machine.id, which is the shared type string) ensures
+      // each placed Hoarder machine has its own independent 5-delivery cadence.
       // Only the LAST hoarder machine in a chain owns the delivery.
       onProcess: (resource, machine) => {
         if (!resource) return resource;
@@ -210,7 +214,7 @@ export const TRAITS = [
         resource.traitTags = resource.traitTags.filter(
           (t) => typeof t !== 'string' || !t.startsWith('hoarder@')
         );
-        resource.traitTags.push(`hoarder@${machine.id}`);
+        resource.traitTags.push(`hoarder@${machine.uid}`);
         return resource;
       },
     },
