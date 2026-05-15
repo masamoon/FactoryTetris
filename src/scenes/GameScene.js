@@ -255,6 +255,13 @@ export default class GameScene extends Phaser.Scene {
       this.chips.forEach((chip) => chip.update());
     }
 
+    // Trait HUD refresh
+    this._traitHudAccum = (this._traitHudAccum || 0) + delta;
+    if (this._traitHudAccum >= 500) {
+      this.refreshRunWideHud();
+      this._traitHudAccum = 0;
+    }
+
     // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
     // this.updateClearCooldownUI();
 
@@ -423,6 +430,23 @@ export default class GameScene extends Phaser.Scene {
       })
       .setScrollFactor(0);
     this.updateActiveUpgradesDisplay(); // Initial update
+
+    // Active run-wide traits HUD
+    this.runWideHud = this.add.container(width - 12, 8);
+    this.runWideHud.setScrollFactor(0);
+    this.runWideHud.setDepth(1000);
+    this.runWideHudLabel = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        color: '#ffffff',
+        align: 'right',
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        padding: { x: 6, y: 4 },
+      })
+      .setOrigin(1, 0);
+    this.runWideHud.add(this.runWideHudLabel);
+    this.refreshRunWideHud();
 
     // --- Buttons Section (Bottom of Panel) ---
     const buttonStartY = height - 250; // Start from bottom up?
@@ -1814,6 +1838,8 @@ export default class GameScene extends Phaser.Scene {
         onComplete: () => comboText.destroy(),
       });
     }
+
+    this.refreshRunWideHud();
   }
 
   // === TRANSCENDENCE SYSTEM METHODS ===
@@ -3858,6 +3884,26 @@ export default class GameScene extends Phaser.Scene {
       }
       this.momentumValueText.setText(text);
     }
+  }
+
+  refreshRunWideHud() {
+    if (!this.traitRegistry || !this.runWideHudLabel) return;
+
+    const lines = [];
+    const beaconCount = this.traitRegistry.getBeaconCount();
+    if (beaconCount > 0) {
+      lines.push(`Beacon x${beaconCount} (+${(beaconCount * 0.1).toFixed(1)} chain)`);
+    }
+
+    for (const [id, count] of this.traitRegistry.hoarderCounters.entries()) {
+      if (count <= 0) continue;
+      const remainder = count % 5;
+      const next = remainder === 0 ? 5 : 5 - remainder;
+      lines.push(`Hoarder@${id}: next x2 in ${next}`);
+    }
+
+    this.runWideHudLabel.setText(lines.join('\n'));
+    this.runWideHudLabel.setVisible(lines.length > 0);
   }
 
   /** Spawns a Resource Node and a Delivery Node pair */
