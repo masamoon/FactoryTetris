@@ -67,6 +67,38 @@ export default class DeliveryNode {
    * @param {object} itemData - The item object being delivered { type: string, amount: number }.
    * @returns {boolean} - True if the item was accepted, false otherwise.
    */
+  /**
+   * Apply trait-tag-based delivery score modifiers.
+   *
+   * Single extension point for ALL delivery-time trait effects. Called from
+   * both the level-resource and purity-resource scoring branches so traits
+   * work regardless of which resource type the game actually delivers
+   * (machine output is purity-resource; level-resource is a legacy path).
+   *
+   * Downstream tasks add their tag checks here:
+   *   - Task 9: 'polarized' (x2), 'bypass' (x0.75)
+   *   - Task 10: 'resonant' (x1.5)
+   *   - Task 11: 'hoarder@<id>' (x2 every 5th via scene.traitRegistry),
+   *              Beacon additive via scene.traitRegistry.getBeaconChainBonus()
+   *
+   * @param {number} basePoints - Pre-modifier score for this delivery.
+   * @param {object} itemData - The delivered item (carries traitTags).
+   * @returns {number} Adjusted (floored) score.
+   */
+  applyTraitDeliveryModifiers(basePoints, itemData) {
+    const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
+    // Accumulate ALL modifiers multiplicatively, then floor ONCE below.
+    let modifier = 1.0;
+    if (tags.includes('tycoon')) modifier *= 1.5;
+    const adjusted = Math.floor(basePoints * modifier);
+    if (modifier !== 1.0) {
+      console.log(
+        `[DeliveryNode] trait-adjusted score: ${basePoints} -> ${adjusted} (tags: ${tags.join(',')})`
+      );
+    }
+    return adjusted;
+  }
+
   acceptItem(itemData) {
     // Parameter changed to itemData
     if (!itemData || !itemData.type) {
@@ -103,17 +135,7 @@ export default class DeliveryNode {
     if (itemType === 'level-resource') {
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
-
-      // Apply trait-tag delivery modifiers.
-      const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
-      let modifier = 1.0;
-      if (tags.includes('tycoon')) modifier *= 1.5;
-      const adjustedPoints = Math.floor(totalPoints * modifier);
-      if (modifier !== 1.0) {
-        console.log(
-          `[DeliveryNode] trait-adjusted score: ${totalPoints} -> ${adjustedPoints} (tags: ${tags.join(',')})`
-        );
-      }
+      const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
 
       // Add score
       this.scene.addScore(adjustedPoints);
@@ -143,9 +165,10 @@ export default class DeliveryNode {
       const purity = itemData.purity || 1;
       const chainCount = itemData.chainCount || 1;
       const totalPoints = calculateDeliveryScore(purity, chainCount);
+      const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
 
       // Add score
-      this.scene.addScore(totalPoints);
+      this.scene.addScore(adjustedPoints);
 
       // Track delivery for throughput calculation (only transcend tier counts)
       if (this.scene.trackDelivery) {
@@ -159,10 +182,10 @@ export default class DeliveryNode {
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
-      this.createPurityAcceptEffect(purity, chainCount, totalPoints, purityName);
+      this.createPurityAcceptEffect(purity, chainCount, adjustedPoints, purityName);
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${totalPoints} points`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${adjustedPoints} points`
       );
       return true;
     }
