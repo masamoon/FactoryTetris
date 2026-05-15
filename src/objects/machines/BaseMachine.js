@@ -282,7 +282,16 @@ export default class BaseMachine {
    * @param {number} multiplier - factor (e.g. 0.5 = twice as fast)
    */
   setProcessingTimeModifier(key, multiplier) {
+    // Guard against data-driven trait configs supplying a bad multiplier
+    // (NaN/negative/non-finite would corrupt processingTime via _recompute).
+    if (typeof multiplier !== 'number' || !isFinite(multiplier) || multiplier <= 0) {
+      console.warn(`[${this.id}] ignoring invalid processingTime modifier '${key}': ${multiplier}`);
+      return;
+    }
     if (this._ptBaseTime == null) {
+      // NOTE: any external code that mutates this.processingTime AFTER the
+      // first modifier is applied will be lost on _recomputeProcessingTime.
+      // Route runtime processing-time changes through this method instead.
       this._ptBaseTime = this.processingTime;
     }
     if (!this._ptModifiers) {

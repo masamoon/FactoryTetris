@@ -164,6 +164,11 @@ export const TRAITS = [
     category: TRAIT_CATEGORIES.ADJACENCY,
     description: 'Adjacent orthogonal machines process 30% faster while this is placed.',
     hooks: {
+      // KNOWN V1 LIMITATION: Conductor only speeds neighbors that exist at
+      // its own placement time. A machine placed adjacent to an already-
+      // placed Conductor later is NOT sped up (no leak — Conductor never
+      // recorded it). Accepted tradeoff per the implementation plan; a
+      // future task can re-evaluate on grid changes.
       onAttach: (machine, scene) => {
         machine._traitConductedKeys = [];
         const key = `conductor:${machine.id}`;
