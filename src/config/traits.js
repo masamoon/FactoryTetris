@@ -30,21 +30,48 @@ export const TRAITS = [
     name: 'Catalyst',
     category: TRAIT_CATEGORIES.STAT,
     description: 'Resources gain +2 purity through this machine instead of +1.',
-    hooks: {},
+    hooks: {
+      // BaseMachine.completeProcessing has already set purity to outputLevel.
+      // Catalyst adds +1 more on top, modeling the "+2 purity instead of +1" effect.
+      onProcess: (resource) => {
+        resource.purity = (resource.purity || 1) + 1;
+        return resource;
+      },
+    },
   },
   {
     id: 'overclocked',
     name: 'Overclocked',
     category: TRAIT_CATEGORIES.STAT,
     description: 'Processing time is halved.',
-    hooks: {},
+    hooks: {
+      onAttach: (machine) => {
+        if (typeof machine.processingTime === 'number') {
+          machine._traitOriginalProcessingTime = machine.processingTime;
+          machine.processingTime = Math.max(50, Math.floor(machine.processingTime * 0.5));
+          console.log(
+            `[trait:overclocked] ${machine.id} processingTime: ${machine._traitOriginalProcessingTime} -> ${machine.processingTime}`
+          );
+        }
+      },
+      onRemove: (machine) => {
+        if (typeof machine._traitOriginalProcessingTime === 'number') {
+          machine.processingTime = machine._traitOriginalProcessingTime;
+          delete machine._traitOriginalProcessingTime;
+        }
+      },
+    },
   },
   {
     id: 'tycoon',
     name: 'Tycoon',
     category: TRAIT_CATEGORIES.STAT,
     description: 'Resources processed by this machine deliver for +50% score.',
-    hooks: {},
+    hooks: {
+      // The trait id is already appended to traitTags by processResource /
+      // completeProcessing. Tycoon needs no onProcess body — DeliveryNode
+      // reads the 'tycoon' tag and applies the +50% bonus.
+    },
   },
   {
     id: 'polarized',

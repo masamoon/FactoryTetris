@@ -104,8 +104,19 @@ export default class DeliveryNode {
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
 
+      // Apply trait-tag delivery modifiers.
+      const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
+      let modifier = 1.0;
+      if (tags.includes('tycoon')) modifier *= 1.5;
+      const adjustedPoints = Math.floor(totalPoints * modifier);
+      if (modifier !== 1.0) {
+        console.log(
+          `[DeliveryNode] trait-adjusted score: ${totalPoints} -> ${adjustedPoints} (tags: ${tags.join(',')})`
+        );
+      }
+
       // Add score
-      this.scene.addScore(totalPoints);
+      this.scene.addScore(adjustedPoints);
 
       // Track delivery for throughput calculation (only transcend tier counts)
       if (this.scene.trackDelivery) {
@@ -119,10 +130,10 @@ export default class DeliveryNode {
 
       // Visual feedback for level resource
       const levelName = getLevelName(level);
-      this.createLevelAcceptEffect(level, totalPoints, levelName);
+      this.createLevelAcceptEffect(level, adjustedPoints, levelName);
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${totalPoints} points`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${adjustedPoints} points`
       );
       return true;
     }
