@@ -157,6 +157,8 @@ export default class MachineFactory {
           shape: this.selectedMachineType.shape,
           direction: this.selectedMachineType.direction || 'right',
           rotation: this.selectedMachineType.rotation || 0,
+          trait: this.selectedMachineType.trait || null,
+          outputLevel: this.selectedMachineType.outputLevel || null,
           machineType: this.selectedMachineType,
         };
 
@@ -598,6 +600,8 @@ export default class MachineFactory {
         shape: machineType.shape, // Use the potentially updated shape
         direction: machineType.defaultDirection || 'right',
         rotation: 0,
+        trait: machineType.trait || null,
+        outputLevel: machineType.outputLevel || null,
         machineType: machineType, // Pass the full object
       };
       console.log('[MachineFactory] Preview data:', JSON.stringify(previewData));
@@ -1716,6 +1720,8 @@ export default class MachineFactory {
         direction: this.selectedMachineType.direction,
         rotation: newRotationDegrees, // Pass rotation in degrees
         rotationDegrees: newRotationDegrees, // Explicit degrees property
+        trait: this.selectedMachineType.trait || null,
+        outputLevel: this.selectedMachineType.outputLevel || null,
         machineType: this.selectedMachineType,
       };
 
