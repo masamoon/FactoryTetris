@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { processResource } from '../../utils/PurityUtils';
 import { getLevelColor, getLevelName } from '../../config/resourceLevels';
-import { getTraitById } from '../../config/traits';
+import { getTraitById, getTraitBandColor } from '../../config/traits';
 
 // Unique colors for each machine type
 const MACHINE_COLORS = {
@@ -842,6 +842,63 @@ export default class BaseMachine {
       this.setSelected(true);
       this.showDetailedInfo();
     });
+
+    this.renderTraitOverlay();
+  }
+
+  /**
+   * Render a small trait icon and colored category band over the machine if
+   * it has a trait. Placeholder visuals (colored circle + first letter)
+   * until real icon sprites exist.
+   */
+  renderTraitOverlay() {
+    if (!this.trait || !this.container || this.isPreview) return;
+    const def = getTraitById(this.trait);
+    if (!def) return;
+
+    const bandColor = getTraitBandColor(this.trait);
+    const cellSize = this.grid ? this.grid.cellSize : 32;
+
+    let w = cellSize;
+    let h = cellSize;
+    if (Array.isArray(this.shape) && this.shape.length > 0) {
+      h = this.shape.length * cellSize;
+      w = (this.shape[0] || [1]).length * cellSize;
+    }
+
+    // Colored band: stroked rectangle roughly covering the footprint.
+    const band = this.scene.add.rectangle(w / 2 - cellSize / 2, h / 2 - cellSize / 2, w, h);
+    band.setStrokeStyle(2, bandColor, 0.9);
+    band.setFillStyle();
+    this.container.add(band);
+
+    this.scene.tweens.add({
+      targets: band,
+      alpha: { from: 0.4, to: 1.0 },
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    // Placeholder icon: small circle with the trait's initial.
+    const iconX = w - cellSize / 2;
+    const iconY = -cellSize / 4;
+    const iconBg = this.scene.add.circle(iconX, iconY, 8, bandColor);
+    iconBg.setStrokeStyle(1, 0xffffff, 0.9);
+    this.container.add(iconBg);
+
+    const iconText = this.scene.add
+      .text(iconX, iconY, def.name.charAt(0).toUpperCase(), {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    this.container.add(iconText);
+
+    this._traitOverlay = { band, iconBg, iconText };
   }
 
   /**
@@ -2651,6 +2708,13 @@ export default class BaseMachine {
           console.error(`[${this.id}] trait onRemove failed for ${this.trait}:`, err);
         }
       }
+    }
+
+    if (this._traitOverlay) {
+      if (this._traitOverlay.band) this._traitOverlay.band.destroy();
+      if (this._traitOverlay.iconBg) this._traitOverlay.iconBg.destroy();
+      if (this._traitOverlay.iconText) this._traitOverlay.iconText.destroy();
+      this._traitOverlay = null;
     }
 
     // Destroy tooltip if it exists
