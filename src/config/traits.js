@@ -79,10 +79,13 @@ export const TRAITS = [
     category: TRAIT_CATEGORIES.RULE,
     description: 'Refuses resources with purity below 3. Accepted resources output 2x value.',
     hooks: {
-      onProcess: (resource) => {
-        // onProcess fires AFTER the machine set output purity = outputLevel,
-        // so the INPUT purity is one less than the current value.
-        const inputPurity = (resource.purity || 1) - 1;
+      onProcess: (resource, machine, scene, ctx) => {
+        // onProcess fires AFTER the machine overwrites purity to outputLevel
+        // (absolute, NOT input+1), so resource.purity cannot tell us the
+        // input purity. BaseMachine passes the true consumed-input purity in
+        // ctx.inputPurity. Fall back defensively if ctx is absent.
+        const inputPurity =
+          ctx && typeof ctx.inputPurity === 'number' ? ctx.inputPurity : (resource.purity || 1) - 1;
         if (inputPurity < 3) {
           return null; // reject: abort this machine's output
         }

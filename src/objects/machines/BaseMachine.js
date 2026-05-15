@@ -1616,7 +1616,12 @@ export default class BaseMachine {
         const def = getTraitById(this.trait);
         if (def && def.hooks && def.hooks.onProcess) {
           try {
-            const result = def.hooks.onProcess(nextItem, this, this.scene);
+            // 4th arg: processing context. inputPurity is the TRUE purity of
+            // the consumed input (nextItem.purity has already been overwritten
+            // to outputLevel by this point, so traits that gate on input
+            // purity — e.g. Polarized — must read it from here).
+            const ctx = { inputPurity: processedItem.purity };
+            const result = def.hooks.onProcess(nextItem, this, this.scene, ctx);
             if (result === null) {
               console.log(`[${this.id}] trait ${this.trait} aborted output`);
               nextItem = null;
