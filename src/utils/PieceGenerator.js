@@ -12,7 +12,15 @@ import {
   getPieceConfigsForEra,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
+import { getTranscendTier } from '../config/eraConfig';
 import { rollBuildAroundTrait, rollTrait } from '../config/traits';
+
+// How much more likely a draft piece that outputs the era's transcend tier
+// (the tier you must deliver to advance) is, relative to the pyramid baseline.
+// The transcend tier is the run goal, so it must NOT be the rarest draw.
+// Tunable: 1 = no boost (rarest), ~4 = on par with low/feeder tiers,
+// 6 = clearly the most common era-relevant piece.
+const TRANSCEND_TIER_WEIGHT_BOOST = 4.0;
 
 /**
  * Generates a set of piece configurations for the player to choose from
@@ -137,26 +145,34 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
   }
 
   // FORMULAIC BALANCE (Pyramid Distribution)
-  // We want a distribution where lower tiers are common and highest tiers are rare.
-  // Formula: Weight = Base * RarityFactor ^ (EvaMax - Level)
-  // We cap the distance at 1.3 to flatten the base (L1-L4) so they share similar commonality.
-  // Factor 3.0 ensures L5 (dist 1) is more common than L6 (dist 0) despite L6 having more recipes.
-
-  const eraMax = currentEra * 3;
+  // We want a distribution where lower tiers are common and the apex is rarer.
+  // Formula: Weight = RarityFactor ^ (eraMax - Level), distance capped at 1.3.
+  //
+  // The apex is the era's TRANSCEND tier (the tier you must deliver to advance),
+  // not the era's output tier. Era N transcends on tier 3N+1, but its own
+  // recipes top out at 3N — anchoring the pyramid at 3N (the old `currentEra*3`)
+  // pushed the goal tier one step ABOVE the apex, flooring it to the rarest
+  // weight and starving every era's transcend supply (the Era-2 "L7 cliff").
+  const eraMax = getTranscendTier(currentEra);
   const rarityFactor = 3.0;
 
   // Calculate weights
   const weights = configs.map((config) => {
-    // Calculate distance from the top tier
+    // Calculate distance from the apex (transcend) tier
     const rawDist = eraMax - config.output;
 
-    // Cap the distance at 1.3.
-    // This effective "squashes" the weights of L4 and below so they don't dominate too hard.
-    // They will be roughly 3^1.3 (~4.17) times more common than L6, rather than 3^2 (9x).
+    // Cap the distance at 1.3 so the broad base of low tiers shares similar
+    // commonality (~3^1.3 ≈ 4.17x the apex baseline) instead of exploding.
     const effectiveDist = Math.max(0, Math.min(rawDist, 1.3));
 
-    // Weight formula: Base * Factor ^ Distance
+    // Weight formula: Factor ^ Distance
     let weight = Math.pow(rarityFactor, effectiveDist);
+
+    // The transcend tier is the run goal — it must not be the rarest draw.
+    // Boost it so it appears often enough to actually farm the threshold.
+    if (config.output === eraMax) {
+      weight *= TRANSCEND_TIER_WEIGHT_BOOST;
+    }
 
     // Minor boosting for new levels to ensure they appear
     if (!producibleLevels.has(config.output)) {
