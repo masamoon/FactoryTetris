@@ -199,14 +199,41 @@ export const TRAITS = [
     name: 'Hoarder',
     category: TRAIT_CATEGORIES.RUN_WIDE,
     description: 'Every 5th delivery touching this machine doubles in delivered score.',
-    hooks: {},
+    hooks: {
+      // completeProcessing already appended the plain 'hoarder' tag (informational).
+      // We additionally tag with a machine-specific 'hoarder@<id>' tag so
+      // DeliveryNode can attribute the delivery to the right machine's counter.
+      // Only the LAST hoarder machine in a chain owns the delivery.
+      onProcess: (resource, machine) => {
+        if (!resource) return resource;
+        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
+        resource.traitTags = resource.traitTags.filter(
+          (t) => typeof t !== 'string' || !t.startsWith('hoarder@')
+        );
+        resource.traitTags.push(`hoarder@${machine.id}`);
+        return resource;
+      },
+    },
   },
   {
     id: 'beacon',
     name: 'Beacon',
     category: TRAIT_CATEGORIES.RUN_WIDE,
     description: 'Adds +0.1 to the global chain multiplier while placed. Stacks per Beacon.',
-    hooks: {},
+    hooks: {
+      onAttach: (machine, scene) => {
+        if (scene && scene.traitRegistry) {
+          scene.traitRegistry.incrementBeacon();
+          console.log(`[trait:beacon] count -> ${scene.traitRegistry.getBeaconCount()}`);
+        }
+      },
+      onRemove: (machine, scene) => {
+        if (scene && scene.traitRegistry) {
+          scene.traitRegistry.decrementBeacon();
+          console.log(`[trait:beacon] count -> ${scene.traitRegistry.getBeaconCount()}`);
+        }
+      },
+    },
   },
 ];
 

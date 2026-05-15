@@ -81,12 +81,28 @@ export default class DeliveryNode {
    */
   applyTraitDeliveryModifiers(basePoints, itemData) {
     const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
+    const reg = this.scene && this.scene.traitRegistry;
+    // Beacon: each placed Beacon adds +0.1 to the base delivery modifier.
+    const beaconBonus =
+      reg && typeof reg.getBeaconChainBonus === 'function' ? reg.getBeaconChainBonus() : 0;
     // Accumulate ALL modifiers multiplicatively, then floor ONCE below.
-    let modifier = 1.0;
+    let modifier = 1.0 + beaconBonus;
     if (tags.includes('tycoon')) modifier *= 1.5;
     if (tags.includes('polarized')) modifier *= 2.0;
     if (tags.includes('bypass')) modifier *= 0.75;
     if (tags.includes('resonant')) modifier *= 1.5;
+    // Hoarder: per-machine running counter; every 5th delivery doubles.
+    const hoarderTag = tags.find((t) => typeof t === 'string' && t.startsWith('hoarder@'));
+    if (hoarderTag && reg && typeof reg.incrementHoarder === 'function') {
+      const machineId = hoarderTag.substring('hoarder@'.length);
+      const count = reg.incrementHoarder(machineId);
+      if (count % 5 === 0) {
+        modifier *= 2.0;
+        console.log(
+          `[trait:hoarder] ${machineId} hit ${count}-th delivery, doubling this delivery's score`
+        );
+      }
+    }
     const adjusted = Math.floor(basePoints * modifier);
     if (modifier !== 1.0) {
       console.log(
