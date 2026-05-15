@@ -90,6 +90,35 @@ export function generatePieceOptions(scene, count = 3) {
     });
   }
 
+  // Draft-2 trait guarantee:
+  // Once the player has placed their first L2 piece, ensure the very next
+  // draft contains at least one usable trait piece (fires once per run).
+  if (
+    scene &&
+    scene.hasIntroducedTrait === false &&
+    scene.firstL2Placed === true &&
+    !options.some((o) => o.isUsable && o.trait)
+  ) {
+    const usableL3Plus = allConfigs.filter(
+      (c) => c.output >= 3 && isPieceUsable(c, producibleLevels)
+    );
+    if (usableL3Plus.length > 0) {
+      const forced = selectWeightedConfig(usableL3Plus, producibleLevels, currentEra);
+      options[0] = {
+        ...forced,
+        isUsable: true,
+        trait: rollTrait(),
+      };
+      console.log('[traits] Forced trait piece into draft slot 0:', options[0]);
+    }
+  }
+
+  // Once a usable trait option is in the hand (naturally or forced), mark
+  // introduction done so the guarantee never re-fires this run.
+  if (scene && options.some((o) => o.isUsable && o.trait)) {
+    scene.hasIntroducedTrait = true;
+  }
+
   return options;
 }
 

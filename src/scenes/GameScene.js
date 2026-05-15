@@ -98,6 +98,8 @@ export default class GameScene extends Phaser.Scene {
     this.setupCameras();
 
     this.traitRegistry = new TraitRegistry();
+    this.hasIntroducedTrait = false;
+    this.firstL2Placed = false;
     console.log('[GameScene] TraitRegistry initialized');
 
     // Create game objects

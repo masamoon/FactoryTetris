@@ -1274,6 +1274,16 @@ export default class MachineFactory {
         machine ? 'Success' : 'Failed/Null'
       );
 
+      if (
+        this.scene &&
+        this.scene.firstL2Placed === false &&
+        machine &&
+        machine.outputLevel === 2
+      ) {
+        this.scene.firstL2Placed = true;
+        console.log('[traits] firstL2Placed armed; next draft will guarantee a trait');
+      }
+
       return machine;
     } catch (error) {
       console.error('[MachineFactory] Error in createMachine:', error); // Log caught error
