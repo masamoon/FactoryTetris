@@ -859,15 +859,33 @@ export default class BaseMachine {
     const bandColor = getTraitBandColor(this.trait);
     const cellSize = this.grid ? this.grid.cellSize : 32;
 
-    let w = cellSize;
-    let h = cellSize;
-    if (Array.isArray(this.shape) && this.shape.length > 0) {
-      h = this.shape.length * cellSize;
-      w = (this.shape[0] || [1]).length * cellSize;
+    // Mirror createVisuals' geometry: children are positioned in
+    // container-local coords where (0,0) is the footprint CENTER, using the
+    // ROTATED shape. Compute the same way so the overlay aligns on
+    // multi-cell pieces and every rotation.
+    const currentDirection = this.direction || 'right';
+    let rotatedShape =
+      this.grid && typeof this.grid.getRotatedShape === 'function'
+        ? this.grid.getRotatedShape(this.shape, currentDirection)
+        : this.shape;
+    if (
+      !rotatedShape ||
+      !Array.isArray(rotatedShape) ||
+      rotatedShape.length === 0 ||
+      !Array.isArray(rotatedShape[0])
+    ) {
+      rotatedShape = this.shape && this.shape.length ? this.shape : [[1]];
     }
+    const shapeWidth = rotatedShape[0].length;
+    const shapeHeight = rotatedShape.length;
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+    const w = shapeWidth * cellSize;
+    const h = shapeHeight * cellSize;
 
-    // Colored band: stroked rectangle roughly covering the footprint.
-    const band = this.scene.add.rectangle(w / 2 - cellSize / 2, h / 2 - cellSize / 2, w, h);
+    // Colored band: stroked rectangle covering the footprint, centered on
+    // the container origin (which is the footprint center).
+    const band = this.scene.add.rectangle(0, 0, w, h);
     band.setStrokeStyle(2, bandColor, 0.9);
     band.setFillStyle();
     this.container.add(band);
@@ -881,9 +899,10 @@ export default class BaseMachine {
       ease: 'Sine.easeInOut',
     });
 
-    // Placeholder icon: small circle with the trait's initial.
-    const iconX = w - cellSize / 2;
-    const iconY = -cellSize / 4;
+    // Placeholder icon: small circle with the trait's initial, anchored to
+    // the top-right corner of the footprint in container-local coords.
+    const iconX = (shapeWidth - 1) * cellSize + cellSize / 2 - visualCenterX + cellSize / 4;
+    const iconY = cellSize / 2 - visualCenterY - cellSize / 4;
     const iconBg = this.scene.add.circle(iconX, iconY, 8, bandColor);
     iconBg.setStrokeStyle(1, 0xffffff, 0.9);
     this.container.add(iconBg);
