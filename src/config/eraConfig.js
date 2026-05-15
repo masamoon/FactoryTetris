@@ -11,7 +11,7 @@ export function getGridSizeForEra(era) {
 // Chip configuration
 export const CHIP_CONFIG = {
   size: 3, // 3x3 chip
-  emissionInterval: 3000, // ms between emissions
+  emissionInterval: 2500, // ms between emissions
 };
 
 // Resource tier formulas
@@ -52,10 +52,10 @@ export const TRANSCEND_THRESHOLDS = {
   // Number of highest-tier resources that must be delivered (only requirement now)
   getDeliveryThreshold: (era) => {
     if (era === 1) return 5;
-    if (era === 2) return 10;
-    if (era === 3) return 15;
+    if (era === 2) return 6;
+    if (era === 3) return 9;
     // Scale for higher eras
-    return Math.floor(5 * Math.pow(1.5, era - 1));
+    return Math.floor(6 * Math.pow(1.35, era - 2));
   },
 };
 

@@ -249,7 +249,11 @@ export default class ResourceNode {
   pushResourcesToConveyors() {
     // Check cooldown
     const now = this.scene.time.now;
-    if (now - this.lastPushTime < this.pushCooldown) {
+    const flowMod =
+      this.scene && typeof this.scene.getFlowSpeedMultiplier === 'function'
+        ? this.scene.getFlowSpeedMultiplier()
+        : 1;
+    if (now - this.lastPushTime < this.pushCooldown / flowMod) {
       return; // Still on cooldown
     }
 
@@ -411,7 +415,11 @@ export default class ResourceNode {
   extractResource() {
     // Apply the same cooldown as in pushResourcesToConveyors
     const now = this.scene.time.now;
-    if (now - this.lastPushTime < this.pushCooldown) {
+    const flowMod =
+      this.scene && typeof this.scene.getFlowSpeedMultiplier === 'function'
+        ? this.scene.getFlowSpeedMultiplier()
+        : 1;
+    if (now - this.lastPushTime < this.pushCooldown / flowMod) {
       //console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) extraction attempt on cooldown`);
       return null; // Still on cooldown
     }

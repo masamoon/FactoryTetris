@@ -216,34 +216,22 @@ export default class MachineFactory {
     let hasHigherTier = false;
 
     for (let i = 0; i < this.numProcessorSlots; i++) {
-      const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
-      const baseProcessor = this.processorTypes[randomIndex];
-
       // Force higher tier on second slot if first slot didn't get one,
       // or on last slot as final guarantee
       const forceHigherTier =
         (!hasHigherTier && i === 1) || (!hasHigherTier && i === this.numProcessorSlots - 1);
 
-      // Assign dynamic levels based on factory state
-      const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, { forceHigherTier });
-
-      // Track if we got a higher tier piece
-      if (levelConfig.outputLevel > 2) {
+      const processorWithLevels = this.createDraftProcessor({ forceHigherTier });
+      if (processorWithLevels.outputLevel > 2) {
         hasHigherTier = true;
       }
 
-      // Create a new processor object with level configuration
-      const processorWithLevels = {
-        ...baseProcessor,
-        inputLevels: levelConfig.inputLevels,
-        outputLevel: levelConfig.outputLevel,
-        notation: levelConfig.notation,
-        trait: levelConfig.trait || null,
-        isUsable: levelConfig.isUsable,
-      };
-
       this.availableProcessors.push(processorWithLevels);
     }
+
+    this.ensureUsableDraft();
+    this.ensureEarlyTraitDraft();
+    this.markTraitIntroducedIfVisible();
 
     console.log(
       'Refreshed processors with levels:',
@@ -282,30 +270,86 @@ export default class MachineFactory {
     // Check if remaining processors have a higher tier piece
     const hasHigherTier = this.availableProcessors.some((p) => p.outputLevel > 2);
 
-    // Add a new random processor with dynamic levels
-    const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
-    const baseProcessor = this.processorTypes[randomIndex];
-
     // Force higher tier if none remain after removing the used one
     const forceHigherTier = !hasHigherTier;
 
-    // Assign dynamic levels based on current factory state
-    const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, { forceHigherTier });
-
-    const newProcessor = {
-      ...baseProcessor,
-      inputLevels: levelConfig.inputLevels,
-      outputLevel: levelConfig.outputLevel,
-      notation: levelConfig.notation,
-      trait: levelConfig.trait || null,
-      isUsable: levelConfig.isUsable,
-    };
+    const newProcessor = this.createDraftProcessor({
+      forceHigherTier,
+      forceTrait: this.shouldForceEarlyTrait(),
+    });
 
     this.availableProcessors.push(newProcessor);
+    this.ensureUsableDraft();
+    this.ensureEarlyTraitDraft();
+    this.markTraitIntroducedIfVisible();
 
     console.log(
       `Rotated processors: removed index ${removedSlotIndex}, added ${newProcessor.id} (${newProcessor.notation}) at end`
     );
+  }
+
+  createDraftProcessor(options = {}) {
+    const { requireUsable = false, ...levelOptions } = options;
+    let fallback = null;
+
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
+      const baseProcessor = this.processorTypes[randomIndex];
+      const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, levelOptions);
+      const candidate = {
+        ...baseProcessor,
+        inputLevels: levelConfig.inputLevels,
+        outputLevel: levelConfig.outputLevel,
+        notation: levelConfig.notation,
+        trait: levelConfig.trait || null,
+        isUsable: levelConfig.isUsable,
+      };
+
+      fallback = fallback || candidate;
+      if (!requireUsable || candidate.isUsable) {
+        return candidate;
+      }
+    }
+
+    return fallback;
+  }
+
+  ensureUsableDraft() {
+    if (this.availableProcessors.some((p) => p && p.isUsable)) return;
+
+    const usableProcessor = this.createDraftProcessor({ requireUsable: true });
+    if (usableProcessor && usableProcessor.isUsable) {
+      this.availableProcessors[0] = usableProcessor;
+      console.log('[draft] Forced usable processor into slot 0');
+    }
+  }
+
+  shouldForceEarlyTrait() {
+    return (
+      this.scene && this.scene.firstL2Placed === true && this.scene.hasIntroducedTrait === false
+    );
+  }
+
+  ensureEarlyTraitDraft() {
+    if (!this.shouldForceEarlyTrait()) return;
+    if (this.availableProcessors.some((p) => p && p.isUsable && p.trait)) return;
+
+    const forcedProcessor = this.createDraftProcessor({
+      forceHigherTier: true,
+      forceTrait: true,
+    });
+
+    if (forcedProcessor.outputLevel >= 3 && forcedProcessor.isUsable && forcedProcessor.trait) {
+      this.availableProcessors[0] = forcedProcessor;
+      console.log('[traits] Forced usable build-around trait into processor draft');
+    }
+  }
+
+  markTraitIntroducedIfVisible() {
+    if (!this.scene || this.scene.hasIntroducedTrait) return;
+    if (this.availableProcessors.some((p) => p && p.isUsable && p.trait)) {
+      this.scene.hasIntroducedTrait = true;
+    }
   }
 
   // Rotate logistics roster
@@ -440,21 +484,10 @@ export default class MachineFactory {
                 fontStyle: 'bold',
               })
               .setOrigin(0.5);
-            const traitDescLabel = this.scene.add
-              .text(itemX, itemY + 54, traitDef.description, {
-                fontFamily: 'Arial',
-                fontSize: 9,
-                color: '#cccccc',
-                wordWrap: { width: 120 },
-                align: 'center',
-              })
-              .setOrigin(0.5);
-            const traitBand = this.scene.add.rectangle(itemX, itemY + 70, 80, 3, traitBandColor);
+            const traitBand = this.scene.add.rectangle(itemX, itemY + 54, 44, 3, traitBandColor);
             this.processorPreviewContainer.add(traitNameLabel);
-            this.processorPreviewContainer.add(traitDescLabel);
             this.processorPreviewContainer.add(traitBand);
             machinePreview.traitNameLabel = traitNameLabel;
-            machinePreview.traitDescLabel = traitDescLabel;
             machinePreview.traitBand = traitBand;
           }
         }

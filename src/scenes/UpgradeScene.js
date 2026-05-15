@@ -32,7 +32,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
 
     // Add title
-    let titleText = this.isLevelUp ? 'LEVEL UP! Choose an Upgrade' : 'Choose an Upgrade';
+    let titleText = this.isLevelUp ? 'Upgrade Ready' : 'Choose an Upgrade';
 
     this.title = this.add
       .text(width / 2, height * 0.15, titleText, {

@@ -131,11 +131,11 @@ function isOutputConnected(scene, machine) {
   }
 
   // Check for conveyor, machine, or delivery node
-  if (cell.type === 'machine' && cell.machine) {
+  if (cell.type === 'machine' && (cell.object || cell.machine)) {
     return true;
   }
 
-  if (cell.type === 'delivery') {
+  if (cell.type === 'delivery-node' || cell.type === 'delivery') {
     return true;
   }
 
@@ -170,6 +170,24 @@ function getOutputOffset(direction) {
 function getAllMachines(scene) {
   const machines = [];
 
+  const addMachine = (machine) => {
+    if (machine && !machines.includes(machine)) {
+      machines.push(machine);
+    }
+  };
+
+  if (Array.isArray(scene?.machines)) {
+    for (const machine of scene.machines) {
+      addMachine(machine);
+    }
+  }
+
+  if (Array.isArray(scene?.factoryGrid?.machines)) {
+    for (const entry of scene.factoryGrid.machines) {
+      addMachine(entry?.machine || entry);
+    }
+  }
+
   if (!scene || !scene.factoryGrid) {
     return machines;
   }
@@ -180,11 +198,9 @@ function getAllMachines(scene) {
   for (let y = 0; y < grid.height; y++) {
     for (let x = 0; x < grid.width; x++) {
       const cell = grid.getCell(x, y);
-      if (cell && cell.type === 'machine' && cell.machine) {
+      if (cell && cell.type === 'machine' && (cell.object || cell.machine)) {
         // Avoid duplicates for multi-tile machines
-        if (!machines.includes(cell.machine)) {
-          machines.push(cell.machine);
-        }
+        addMachine(cell.object || cell.machine);
       }
     }
   }

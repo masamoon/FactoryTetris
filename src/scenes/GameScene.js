@@ -31,14 +31,24 @@ export default class GameScene extends Phaser.Scene {
     this.gameOver = false;
     this.paused = false;
     this.lastUpgradeMilestone = 0; // Track last milestone for upgrade triggers
+    this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
+    this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
+    this.pendingUpgradeChoices = 0;
+    this.currentObjective = null;
+    this.objectiveIndex = 0;
 
     // Momentum state
     this.currentMomentum = 0;
     this.maxMomentum = 100; // Example max value
-    this.baseMomentumDecayRate = 0.5; // Base decay rate per second
-    this.momentumGainFactor = 0.2; // Example: Gain 0.5 momentum per score point
-    this.comboThreshold = 98; // Momentum threshold for combo bonus (90%)
+    this.baseMomentumDecayRate = 0.85; // Base decay rate per second
+    this.momentumGainFactor = 0.12;
+    this.comboThreshold = 90;
     this.comboMultiplier = 2; // 2x score multiplier when in combo mode
+    this.lastDeliveryScoreTime = 0;
+    this.deliveryStreak = 0;
+    this.flowSurgeActive = false;
+    this.flowSurgeRemaining = 0;
+    this.objectiveCompletionsSinceUpgrade = 0;
 
     // Skip mechanic state
     this.skipCount = 3; // Maximum 3 skips per game
@@ -63,6 +73,7 @@ export default class GameScene extends Phaser.Scene {
     console.log('Initial Processor Speed Mod:', this.upgradeManager.getProcessorSpeedModifier());
 
     this.isPausedForUpgrade = false; // Flag for upgrade pause state
+    this.consumingBankedUpgrade = false;
     this.inputMode = 'desktop'; // 'desktop' or 'touch'
     this.isTouchPlacing = false;
     this.touchPreviewGridPos = null;
@@ -180,8 +191,18 @@ export default class GameScene extends Phaser.Scene {
     this.gameTime = 0;
     this.gameOver = false;
     this.lastUpgradeMilestone = 0; // Reset milestone tracking
+    this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
+    this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
+    this.pendingUpgradeChoices = 0;
+    this.deliveryStreak = 0;
+    this.lastDeliveryScoreTime = 0;
+    this.flowSurgeActive = false;
+    this.flowSurgeRemaining = 0;
+    this.objectiveCompletionsSinceUpgrade = 0;
+    this.objectiveIndex = 0;
 
-    this.currentMomentum = this.maxMomentum / 2; // Start with half momentum
+    this.currentMomentum = GAME_CONFIG.startingMomentum || 40;
+    this.startNextObjective();
 
     // Play background music
     this.playBackgroundMusic();
@@ -228,13 +249,15 @@ export default class GameScene extends Phaser.Scene {
 
     // --- Momentum Decay ---
     const deltaTimeSeconds = delta / 1000;
-    // Score-based decay rate (replaces level-based)
-    const scoreFactor = 1 + (this.score / 1000) * 0.1; // +10% decay per 1000 points
+    // Score/time-based decay keeps the tempo rising as the run gets richer.
+    const scoreFactor = 1 + (this.score / 1000) * 0.08;
+    const timePressureFactor = 1 + Math.max(0, this.gameTime - 45) / 240;
     const effectiveDecayRate = this.baseMomentumDecayRate * scoreFactor;
-    this.currentMomentum -= effectiveDecayRate * deltaTimeSeconds;
+    this.currentMomentum -= effectiveDecayRate * timePressureFactor * deltaTimeSeconds;
     this.currentMomentum = Math.max(0, this.currentMomentum); // Clamp at 0
 
     // --- Update Momentum UI ---
+    this.updateFlowSurge(delta);
     this.updateMomentumUI();
 
     // --- Check Game Over Condition ---
@@ -407,6 +430,33 @@ export default class GameScene extends Phaser.Scene {
 
     currentY += spacing;
 
+    this.flowSurgeText = this.add
+      .text(centerX, currentY, '', {
+        fontFamily: 'Arial Black',
+        fontSize: 14,
+        color: '#ffd966',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += spacing * 0.75;
+
+    this.objectiveText = this.add
+      .text(centerX, currentY, '', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        color: '#88ffcc',
+        align: 'center',
+        wordWrap: { width: this.rightPanelWidth - 34 },
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += spacing * 0.9;
+
     // Active Upgrades Display Header
     this.add
       .text(centerX, currentY, 'ACTIVE UPGRADES', {
@@ -479,8 +529,25 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.skipButton.button);
     this.addToUI(this.skipButton.text);
 
+    // Banked Upgrade Button (hidden until a milestone is ready)
+    this.upgradeReadyButton = this.createButton(
+      centerX,
+      buttonStartY + 120,
+      'UPGRADE READY',
+      () => {
+        this.showUpgradeScreen();
+      }
+    );
+    this.upgradeReadyButton.button.fillColor = 0x7a5a00;
+    this.upgradeReadyButton.button.setStrokeStyle(3, 0xffd966);
+    this.upgradeReadyButton.button.setScrollFactor(0);
+    this.upgradeReadyButton.text.setScrollFactor(0);
+    this.addToUI(this.upgradeReadyButton.button);
+    this.addToUI(this.upgradeReadyButton.text);
+    this.updateUpgradeReadyButton();
+
     // Transcend Button (hidden until conditions are met)
-    this.transcendButton = this.createButton(centerX, buttonStartY + 120, 'TRANSCEND!', () => {
+    this.transcendButton = this.createButton(centerX, buttonStartY + 180, 'TRANSCEND!', () => {
       this.triggerTranscendence();
     });
     this.transcendButton.button.fillColor = 0x4444aa;
@@ -494,7 +561,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
-      this.clearButton = this.createButton(centerX, buttonStartY + 180, 'CLEAR (DEBUG)', () => {
+      this.clearButton = this.createButton(centerX, buttonStartY + 240, 'CLEAR (DEBUG)', () => {
         this.clearPlacedItems();
       });
       this.clearButton.button.setScrollFactor(0);
@@ -1572,10 +1639,20 @@ export default class GameScene extends Phaser.Scene {
       .setText(traitDef.name.charAt(0).toUpperCase())
       .setPosition(iconX, iconY)
       .setVisible(true);
-    this.placementTraitLabel
-      .setText(traitDef.name)
-      .setPosition(labelX, labelY + 4)
-      .setVisible(true);
+
+    this.placementTraitLabel.setText(traitDef.name);
+
+    const visibleWorld = this.cameras.main.worldView;
+    const padding = 6;
+    const targetY = labelY + 4;
+    const minX = visibleWorld.x + this.placementTraitLabel.width / 2 + padding;
+    const maxX = visibleWorld.x + visibleWorld.width - this.placementTraitLabel.width / 2 - padding;
+    const minY = visibleWorld.y + padding;
+    const maxY = visibleWorld.y + visibleWorld.height - this.placementTraitLabel.height - padding;
+    const clampedLabelX = Phaser.Math.Clamp(labelX, minX, Math.max(minX, maxX));
+    const clampedLabelY = Phaser.Math.Clamp(targetY, minY, Math.max(minY, maxY));
+
+    this.placementTraitLabel.setPosition(clampedLabelX, clampedLabelY).setVisible(true);
   }
 
   hidePlacementTraitPreview() {
@@ -1814,14 +1891,23 @@ export default class GameScene extends Phaser.Scene {
       this.deliveryNodes = [];
     }
 
-    // Create initial resource nodes
-    for (let i = 0; i < GAME_CONFIG.initialNodeCount; i++) {
+    const starterLaneY = Math.floor(this.grid.height / 2);
+
+    // Create one readable starter lane so the first payoff is easy to see.
+    this.spawnResourceNode(starterLaneY);
+
+    // Create remaining initial resource nodes
+    for (let i = 1; i < GAME_CONFIG.initialNodeCount; i++) {
       this.spawnResourceNode();
     }
 
     // Spawn one initial delivery node on the right edge
     try {
-      const emptySpot = this.grid.findEmptyCellInColumn(this.grid.width - 1);
+      const preferredDeliveryCell = this.grid.getCell(this.grid.width - 1, starterLaneY);
+      const emptySpot =
+        preferredDeliveryCell && preferredDeliveryCell.type === 'empty'
+          ? { x: this.grid.width - 1, y: starterLaneY }
+          : this.grid.findEmptyCellInColumn(this.grid.width - 1);
       if (!emptySpot) {
         console.warn(
           '[GAME] No empty cell found in right edge for initial delivery node placement.'
@@ -1845,7 +1931,6 @@ export default class GameScene extends Phaser.Scene {
       });
 
       this.deliveryNodes.push(deliveryNode);
-      this.deliveryNodes.push(deliveryNode);
       this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
 
       // Ensure it's added to world view strictly
@@ -1863,7 +1948,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // Modify spawnResourceNode to pass the current round
-  spawnResourceNode() {
+  spawnResourceNode(preferredY = null) {
     try {
       if (this.gameOver || this.paused) return;
 
@@ -1873,7 +1958,12 @@ export default class GameScene extends Phaser.Scene {
       }
 
       // Find an empty spot on the left edge of the grid (column 0)
-      const emptySpot = this.grid.findEmptyCellInColumn(0);
+      const preferredCell =
+        preferredY !== null && preferredY !== undefined ? this.grid.getCell(0, preferredY) : null;
+      const emptySpot =
+        preferredCell && preferredCell.type === 'empty'
+          ? { x: 0, y: preferredY }
+          : this.grid.findEmptyCellInColumn(0);
       if (!emptySpot) {
         console.warn('[GAME] No empty cells found in left edge for resource node placement');
         return;
@@ -1967,8 +2057,307 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  awardMomentum(amount, reason = '') {
+    if (!amount || amount <= 0 || this.gameOver) return;
+
+    const wasBelowSurge = this.currentMomentum < this.comboThreshold;
+    this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum + amount, 0, this.maxMomentum);
+
+    if (reason && amount >= 3) {
+      this.showMomentumFeedback(amount, reason);
+    }
+
+    if (wasBelowSurge && this.currentMomentum >= this.comboThreshold) {
+      this.startFlowSurge();
+    }
+
+    if (this.currentMomentum >= this.comboThreshold) {
+      this.recordObjectiveProgress('combo', 1);
+    }
+  }
+
+  startFlowSurge() {
+    const duration = GAME_CONFIG.flowSurgeDuration || 12000;
+    const wasActive = this.flowSurgeActive;
+    this.flowSurgeActive = true;
+    this.flowSurgeRemaining = duration;
+    this.updateFlowSurgeText();
+
+    if (!wasActive) {
+      this.showFlowSurgeFeedback();
+      this.cameras.main.flash(160, 255, 220, 80, true);
+    }
+  }
+
+  updateFlowSurge(delta) {
+    if (!this.flowSurgeActive) {
+      this.updateFlowSurgeText();
+      return;
+    }
+
+    this.flowSurgeRemaining -= delta;
+    if (this.flowSurgeRemaining <= 0 || this.currentMomentum < this.comboThreshold * 0.65) {
+      this.flowSurgeActive = false;
+      this.flowSurgeRemaining = 0;
+    }
+    this.updateFlowSurgeText();
+  }
+
+  updateFlowSurgeText() {
+    if (!this.flowSurgeText) return;
+    if (!this.flowSurgeActive) {
+      this.flowSurgeText.setText('');
+      return;
+    }
+
+    const seconds = Math.ceil(this.flowSurgeRemaining / 1000);
+    this.flowSurgeText.setText(`FLOW SURGE ${seconds}s`);
+  }
+
+  getFlowSpeedMultiplier() {
+    return this.flowSurgeActive ? GAME_CONFIG.flowSurgeSpeedMultiplier || 1.35 : 1;
+  }
+
+  showFlowSurgeFeedback() {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 96, 'FLOW SURGE', {
+        fontFamily: 'Arial Black',
+        fontSize: 34,
+        color: '#ffd966',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      scaleX: 1.25,
+      scaleY: 1.25,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  showMomentumFeedback(amount, reason) {
+    const text = this.add
+      .text(this.scale.width - this.rightPanelWidth - 20, 44, `+${amount.toFixed(1)} ${reason}`, {
+        fontFamily: 'Arial',
+        fontSize: 13,
+        color: '#88ffcc',
+        align: 'right',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 20,
+      alpha: 0,
+      duration: 700,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  updateDeliveryStreak() {
+    const now = this.time.now;
+    const streakWindow = GAME_CONFIG.deliveryStreakWindow || 4000;
+
+    if (this.lastDeliveryScoreTime && now - this.lastDeliveryScoreTime <= streakWindow) {
+      this.deliveryStreak++;
+    } else {
+      this.deliveryStreak = 1;
+    }
+
+    this.lastDeliveryScoreTime = now;
+
+    const streakGain = Math.min(
+      GAME_CONFIG.maxDeliveryStreakMomentumGain || 8,
+      this.deliveryStreak * (GAME_CONFIG.deliveryStreakMomentumGain || 0.75)
+    );
+    this.awardMomentum(
+      streakGain,
+      this.deliveryStreak >= 3 ? `streak x${this.deliveryStreak}` : ''
+    );
+    this.recordObjectiveProgress('deliveryStreak', this.deliveryStreak);
+  }
+
+  getObjectiveTemplates() {
+    return [
+      {
+        id: 'linkedPlacement',
+        label: 'Link 3 new placements',
+        target: 3,
+      },
+      {
+        id: 'deliveryStreak',
+        label: 'Hit delivery streak x4',
+        target: 4,
+        usesMaxValue: true,
+      },
+      {
+        id: 'combo',
+        label: 'Reach combo momentum',
+        target: 1,
+      },
+    ];
+  }
+
+  startNextObjective() {
+    const templates = this.getObjectiveTemplates();
+    if (templates.length === 0) return;
+
+    const template = templates[this.objectiveIndex % templates.length];
+    this.objectiveIndex++;
+    this.currentObjective = {
+      ...template,
+      progress: 0,
+    };
+    this.updateObjectiveText();
+  }
+
+  updateObjectiveText() {
+    if (!this.objectiveText || !this.currentObjective) return;
+
+    const objective = this.currentObjective;
+    const progress = Math.min(objective.progress, objective.target);
+    this.objectiveText.setText(`GOAL: ${objective.label}\n${progress}/${objective.target}`);
+  }
+
+  recordObjectiveProgress(type, amount = 1) {
+    const objective = this.currentObjective;
+    if (!objective || objective.id !== type) return;
+
+    if (objective.usesMaxValue) {
+      objective.progress = Math.max(objective.progress, amount);
+    } else {
+      objective.progress += amount;
+    }
+
+    if (objective.progress >= objective.target) {
+      this.completeObjective();
+    } else {
+      this.updateObjectiveText();
+    }
+  }
+
+  completeObjective() {
+    if (!this.currentObjective) return;
+
+    const completedLabel = this.currentObjective.label;
+    this.currentObjective = null;
+    this.awardMomentum(GAME_CONFIG.objectiveMomentumReward || 14, 'goal');
+    this.objectiveCompletionsSinceUpgrade++;
+    if (this.objectiveCompletionsSinceUpgrade >= (GAME_CONFIG.objectivesPerBonusUpgrade || 3)) {
+      this.objectiveCompletionsSinceUpgrade = 0;
+      this.queueUpgradeChoice();
+    }
+    this.showObjectiveCompleteFeedback(completedLabel);
+    this.startNextObjective();
+  }
+
+  showObjectiveCompleteFeedback(label) {
+    const text = this.add
+      .text(this.scale.width - this.rightPanelWidth - 20, 110, `Goal complete\n${label}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 16,
+        color: '#88ffcc',
+        align: 'right',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 82,
+      alpha: 0,
+      duration: 1100,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  queueUpgradeChoice() {
+    this.pendingUpgradeChoices++;
+    this.updateUpgradeReadyButton();
+    this.showUpgradeReadyFeedback();
+  }
+
+  advanceNextUpgradeMilestone() {
+    this.lastUpgradeMilestone = this.nextUpgradeScore;
+    this.nextUpgradeScore += this.upgradeMilestoneStep;
+    this.upgradeMilestoneStep += GAME_CONFIG.upgradeMilestoneGrowth || 225;
+  }
+
+  updateUpgradeReadyButton() {
+    if (!this.upgradeReadyButton) return;
+
+    const hasPending = this.pendingUpgradeChoices > 0;
+    this.upgradeReadyButton.button.setVisible(hasPending);
+    this.upgradeReadyButton.text.setVisible(hasPending);
+    this.upgradeReadyButton.text.setText(`UPGRADE READY (${this.pendingUpgradeChoices})`);
+
+    if (hasPending && !this.upgradeReadyPulse) {
+      this.upgradeReadyPulse = this.tweens.add({
+        targets: [this.upgradeReadyButton.button, this.upgradeReadyButton.text],
+        scaleX: 1.06,
+        scaleY: 1.06,
+        duration: 450,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    } else if (!hasPending && this.upgradeReadyPulse) {
+      this.upgradeReadyPulse.stop();
+      this.upgradeReadyPulse = null;
+      this.upgradeReadyButton.button.setScale(1);
+      this.upgradeReadyButton.text.setScale(1);
+    }
+  }
+
+  showUpgradeReadyFeedback() {
+    const text = this.add
+      .text(this.scale.width - this.rightPanelWidth - 20, 76, 'Upgrade ready', {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#ffd966',
+        align: 'right',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 48,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
   addScore(points) {
     if (this.gameOver) return; // Don't add score if game is over
+
+    this.updateDeliveryStreak();
 
     // Check for combo bonus (momentum > 90%)
     let comboActive = this.currentMomentum >= this.comboThreshold;
@@ -1983,16 +2372,13 @@ export default class GameScene extends Phaser.Scene {
     this.scoreText.setText(`SCORE: ${this.score}`);
 
     // Increase Momentum
-    this.currentMomentum += points * this.momentumGainFactor;
-    this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum, 0, this.maxMomentum);
+    this.awardMomentum(points * this.momentumGainFactor);
 
-    // Check for milestone upgrade (replaces level threshold check)
-    const milestoneInterval = GAME_CONFIG.upgradeMilestoneInterval || 500;
-    const newMilestone = Math.floor(this.score / milestoneInterval) * milestoneInterval;
-    if (newMilestone > this.lastUpgradeMilestone && newMilestone > 0) {
-      this.lastUpgradeMilestone = newMilestone;
-      console.log(`[UPGRADE] Milestone ${newMilestone} reached - showing upgrade screen`);
-      this.showUpgradeScreen();
+    // Bank milestone upgrades so the player chooses when to break flow.
+    while (this.score >= this.nextUpgradeScore) {
+      console.log(`[UPGRADE] Milestone ${this.nextUpgradeScore} reached - banking upgrade choice`);
+      this.queueUpgradeChoice();
+      this.advanceNextUpgradeMilestone();
     }
 
     // Show visual feedback for combo
@@ -2182,13 +2568,13 @@ export default class GameScene extends Phaser.Scene {
     const throughput = this.calculateThroughput();
 
     // Convert throughput to emission rate:
-    // - 2+ deliveries/sec → 500ms (fastest)
-    // - 1 delivery/sec → 1000ms
-    // - 0.2 deliveries/sec → 5000ms (slowest)
-    // - 0 throughput → 3000ms (default fallback)
+    // - 2+ deliveries/sec -> 500ms (fastest)
+    // - 1 delivery/sec -> 1000ms
+    // - 0.33 deliveries/sec -> 3000ms (slowest)
+    // - 0 throughput -> 2500ms (default fallback)
     const minEmissionRate = 500;
-    const maxEmissionRate = 5000;
-    const defaultEmissionRate = 3000;
+    const maxEmissionRate = 3000;
+    const defaultEmissionRate = 2500;
 
     let emissionRate = defaultEmissionRate;
     if (throughput > 0) {
@@ -2196,6 +2582,8 @@ export default class GameScene extends Phaser.Scene {
       emissionRate = Math.round(1000 / throughput);
       emissionRate = Math.max(minEmissionRate, Math.min(maxEmissionRate, emissionRate));
     }
+
+    const chipGrade = this.getChipGrade(emissionRate);
 
     console.log(
       `[TRANSCEND] Factory throughput: ${throughput.toFixed(2)} deliveries/sec → Chip emission rate: ${emissionRate}ms`
@@ -2205,6 +2593,9 @@ export default class GameScene extends Phaser.Scene {
     const newChip = {
       era: this.currentEra,
       emissionRate: emissionRate,
+      throughput: throughput,
+      grade: chipGrade,
+      outputTier: getTranscendTier(this.currentEra),
     };
 
     // 3. Clear the current factory
@@ -2229,6 +2620,14 @@ export default class GameScene extends Phaser.Scene {
     // deferred to confirmChipPlacement() after the player places the chip
 
     console.log(`[TRANSCEND] Waiting for player to place chip...`);
+  }
+
+  getChipGrade(emissionRate) {
+    if (emissionRate <= 750) return 'S';
+    if (emissionRate <= 1100) return 'A';
+    if (emissionRate <= 1700) return 'B';
+    if (emissionRate <= 2400) return 'C';
+    return 'D';
   }
 
   /**
@@ -2264,7 +2663,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Label
     const ghostLabel = this.add
-      .text(0, -20, `ERA ${this.pendingChipData.era}`, {
+      .text(0, -20, `ERA ${this.pendingChipData.era} CHIP`, {
         fontFamily: 'Arial',
         fontSize: 12,
         fontWeight: 'bold',
@@ -2274,6 +2673,17 @@ export default class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     this.chipGhost.add(ghostLabel);
+
+    const rateLabel = this.add
+      .text(0, 14, `L${this.pendingChipData.outputTier} / ${this.pendingChipData.emissionRate}ms`, {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.chipGhost.add(rateLabel);
 
     // Store reference to body for color changes
     this.chipGhost.ghostBody = ghostBody;
@@ -2295,15 +2705,18 @@ export default class GameScene extends Phaser.Scene {
    */
   showChipPlacementInstructions() {
     const width = this.cameras.main.width;
+    const chipData = this.pendingChipData || {};
+    const instruction = `Place Era ${chipData.era} chip: Grade ${chipData.grade} | L${chipData.outputTier} every ${chipData.emissionRate}ms`;
 
     this.chipPlacementText = this.add
-      .text(width / 2, 60, 'Click to place your chip on the grid', {
+      .text(width / 2, 60, instruction, {
         fontFamily: 'Arial Black',
         fontSize: 24,
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 4,
         align: 'center',
+        wordWrap: { width: width - this.rightPanelWidth - 40 },
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
@@ -2437,6 +2850,12 @@ export default class GameScene extends Phaser.Scene {
       this.machineFactory.displayCurrentProcessorPreview();
     }
 
+    const momentumRefill = Math.max(0, 65 - this.currentMomentum);
+    this.currentMomentum = Math.max(this.currentMomentum, 65);
+    if (momentumRefill > 0) {
+      this.showMomentumFeedback(momentumRefill, `Era ${this.currentEra} online`);
+    }
+
     console.log(`[TRANSCEND] Transcendence complete! Now in Era ${this.currentEra}`);
   }
 
@@ -2464,6 +2883,9 @@ export default class GameScene extends Phaser.Scene {
       gridY: gridY,
       chipEra: chipData.era,
       emissionRate: chipData.emissionRate,
+      throughput: chipData.throughput,
+      grade: chipData.grade,
+      outputTier: chipData.outputTier,
     });
 
     this.chips.push(chip);
@@ -3058,6 +3480,53 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  countNewMachineConnections(machine, gridX, gridY, direction) {
+    if (!machine || !this.grid) return 0;
+
+    const shape = this.grid.getRotatedShape(machine.shape, direction);
+    if (!shape || !Array.isArray(shape)) return 0;
+
+    const ownCells = new Set();
+    const occupiedCells = [];
+
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x] !== 1) continue;
+        const cellX = gridX + x;
+        const cellY = gridY + y;
+        const key = `${cellX},${cellY}`;
+        ownCells.add(key);
+        occupiedCells.push({ x: cellX, y: cellY });
+      }
+    }
+
+    const neighborObjects = new Set();
+    const offsets = [
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+    ];
+
+    for (const cell of occupiedCells) {
+      for (const offset of offsets) {
+        const nx = cell.x + offset.x;
+        const ny = cell.y + offset.y;
+        if (ownCells.has(`${nx},${ny}`)) continue;
+
+        const neighbor = this.grid.getCell(nx, ny);
+        if (!neighbor || neighbor.type === 'empty') continue;
+
+        const object = neighbor.object || neighbor.machine || neighbor.id || neighbor.type;
+        if (object && object !== machine) {
+          neighborObjects.add(object);
+        }
+      }
+    }
+
+    return neighborObjects.size;
+  }
+
   /**
    * Places a machine on the grid at the specified position
    * @param {Object} machineType - The type of machine to place
@@ -3239,6 +3708,17 @@ export default class GameScene extends Phaser.Scene {
         this.playSound('place');
       } catch (_soundError) {
         // Continue even if sound playback fails
+      }
+
+      const connectionCount = this.countNewMachineConnections(machineObj, gridX, gridY, direction);
+      const placementGain = GAME_CONFIG.placementMomentumGain || 2;
+      const connectionGain = (GAME_CONFIG.connectionMomentumGain || 3) * connectionCount;
+      this.awardMomentum(
+        placementGain + connectionGain,
+        connectionCount > 0 ? `link x${connectionCount}` : ''
+      );
+      if (connectionCount > 0) {
+        this.recordObjectiveProgress('linkedPlacement', 1);
       }
 
       // Always exit machine placement mode after successful placement
@@ -4332,6 +4812,7 @@ export default class GameScene extends Phaser.Scene {
 
     console.log('Showing Upgrade Screen for level up...');
     this.isPausedForUpgrade = true;
+    this.consumingBankedUpgrade = this.pendingUpgradeChoices > 0;
 
     // Pause timers
     this.gameTimer.paused = true;
@@ -4354,6 +4835,12 @@ export default class GameScene extends Phaser.Scene {
     // Increment the upgrade counter in UpgradeManager
     if (this.upgradeManager) {
       this.upgradeManager.incrementUpgradesDelivered();
+    }
+
+    if (this.consumingBankedUpgrade) {
+      this.pendingUpgradeChoices = Math.max(0, this.pendingUpgradeChoices - 1);
+      this.consumingBankedUpgrade = false;
+      this.updateUpgradeReadyButton();
     }
 
     // Potentially re-enable game systems if they were specifically paused beyond the scene's pause

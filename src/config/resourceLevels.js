@@ -4,7 +4,13 @@
  * Extended for Era/Transcendence system with dynamic tier generation
  */
 
-import { getPointsForTier, getColorForTier, getNameForTier, getTiersForEra } from './eraConfig.js';
+import {
+  getPointsForTier,
+  getColorForTier,
+  getNameForTier,
+  getTiersForEra,
+  getTranscendTier,
+} from './eraConfig.js';
 
 // Static resource level definitions (Era 1 base tiers)
 export const RESOURCE_LEVELS = {
@@ -64,6 +70,7 @@ export function getPieceConfigsForEra(era) {
   const prevEraTiers = getTiersForEra(era - 1);
   const prevOutput = prevEraTiers.output; // L3 for Era 2, L6 for Era 3, etc.
   const chipTier = tiers.input; // L4 for Era 2, L7 for Era 3 (what the chip provides)
+  const transcendTier = getTranscendTier(era); // L7 for Era 2, L10 for Era 3, etc.
 
   // Era 2+: Cross-era configs requiring previous era output + chip input
   const configs = {
@@ -74,6 +81,20 @@ export function getPieceConfigsForEra(era) {
         inputs: [prevOutput, chipTier],
         output: tiers.mid,
         notation: `${prevOutput}+${chipTier}/${tiers.mid}`,
+      },
+      // Continue the ladder with a single-step refinement.
+      // E.g., Era 2: L5 -> L6
+      {
+        inputs: [tiers.mid],
+        output: tiers.output,
+        notation: `${tiers.mid}/${tiers.output}`,
+      },
+      // Reach the next era's input tier, which is the current transcend target.
+      // E.g., Era 2: L6 -> L7
+      {
+        inputs: [tiers.output],
+        output: transcendTier,
+        notation: `${tiers.output}/${transcendTier}`,
       },
       // Mid tier + chip tier → output tier
       // E.g., Era 2: L4 + L5 → L6
@@ -90,6 +111,13 @@ export function getPieceConfigsForEra(era) {
         inputs: [prevOutput, chipTier, tiers.mid],
         output: tiers.output,
         notation: `${prevOutput}+${chipTier}+${tiers.mid}/${tiers.output}`,
+      },
+      // Reward a fuller chain with direct transcend-tier output.
+      // E.g., Era 2: L3 + L4 + L6 -> L7
+      {
+        inputs: [prevOutput, chipTier, tiers.output],
+        output: transcendTier,
+        notation: `${prevOutput}+${chipTier}+${tiers.output}/${transcendTier}`,
       },
     ],
   };

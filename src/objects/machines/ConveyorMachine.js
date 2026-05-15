@@ -66,19 +66,24 @@ export default class ConveyorMachine extends BaseMachine {
 
     // Normal upgrade handling when scene is available
     if (this.scene.upgradeManager) {
+      const flowMod =
+        typeof this.scene.getFlowSpeedMultiplier === 'function'
+          ? this.scene.getFlowSpeedMultiplier()
+          : 1;
+
       // Apply inventory capacity upgrade
       const capacityMod = this.scene.upgradeManager.getInventoryCapacityModifier();
       this.maxCapacity = Math.floor(this.baseMaxCapacity * capacityMod);
 
       // Apply extraction speed upgrade (lower cooldown = faster extraction)
       const extractionMod = this.scene.upgradeManager.getExtractionSpeedModifier();
-      this.extractCooldown = Math.floor(this.baseExtractionCooldown * extractionMod);
+      this.extractCooldown = Math.floor((this.baseExtractionCooldown * extractionMod) / flowMod);
 
       // Apply Transport speed upgrade
       const speedMod = this.scene.upgradeManager.getConveyorSpeedModifier();
       // Ensure baseTransportSpeed exists (fallback to current transportSpeed if not yet set)
       if (!this.baseTransportSpeed) this.baseTransportSpeed = 40;
-      this.transportSpeed = this.baseTransportSpeed * speedMod;
+      this.transportSpeed = this.baseTransportSpeed * speedMod * flowMod;
     }
   }
 
@@ -1164,13 +1169,13 @@ export default class ConveyorMachine extends BaseMachine {
     // Remove existing tooltip if any
     this.hideTooltip();
 
-    const fixedX = this.scene.cameras.main.width - 260;
-    const fixedY = 50;
+    const preferredX = this.scene.cameras.main.width - 260;
+    const preferredY = 50;
     const tooltipWidth = 250;
     const tooltipHeight = 80;
 
     const tooltipBg = this.scene.add
-      .rectangle(fixedX, fixedY, tooltipWidth, tooltipHeight, 0x000000, 0.8)
+      .rectangle(preferredX, preferredY, tooltipWidth, tooltipHeight, 0x000000, 0.8)
       .setOrigin(0, 0);
     tooltipBg.setStrokeStyle(1, 0xffffff);
 
@@ -1180,7 +1185,7 @@ export default class ConveyorMachine extends BaseMachine {
     tooltipContent += `Capacity: ${this.itemsOnBelt.length}/${this.maxCapacity} items`;
 
     const tooltipText = this.scene.add
-      .text(fixedX + 10, fixedY + 10, tooltipContent, {
+      .text(preferredX + 10, preferredY + 10, tooltipContent, {
         fontFamily: 'Arial',
         fontSize: 12,
         color: '#ffffff',
@@ -1190,6 +1195,20 @@ export default class ConveyorMachine extends BaseMachine {
       .setOrigin(0, 0);
 
     tooltipBg.height = Math.max(tooltipHeight, tooltipText.height + 20);
+    const tooltipPosition = this.getTooltipScreenPosition(
+      tooltipWidth,
+      tooltipBg.height,
+      preferredX,
+      preferredY
+    );
+    tooltipBg.setPosition(tooltipPosition.x, tooltipPosition.y);
+    tooltipText.setPosition(tooltipPosition.x + 10, tooltipPosition.y + 10);
+    tooltipBg.setScrollFactor(0);
+    tooltipText.setScrollFactor(0);
+
+    if (this.scene.addToUI) {
+      this.scene.addToUI([tooltipBg, tooltipText]);
+    }
 
     this.tooltip = {
       background: tooltipBg,

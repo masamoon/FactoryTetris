@@ -243,6 +243,16 @@ export const TRAITS = [
 
 const TRAITS_BY_ID = new Map(TRAITS.map((t) => [t.id, t]));
 
+const BUILD_AROUND_TRAIT_IDS = [
+  'catalyst',
+  'overclocked',
+  'twin',
+  'resonant',
+  'conductor',
+  'hoarder',
+  'beacon',
+];
+
 export function getTraitById(id) {
   return TRAITS_BY_ID.get(id) || null;
 }
@@ -259,6 +269,13 @@ export function rollTrait() {
   if (TRAITS.length === 0) return null;
   const index = Math.floor(Math.random() * TRAITS.length);
   return TRAITS[index].id;
+}
+
+export function rollBuildAroundTrait() {
+  const pool = BUILD_AROUND_TRAIT_IDS.map((id) => getTraitById(id)).filter(Boolean);
+  if (pool.length === 0) return rollTrait();
+  const index = Math.floor(Math.random() * pool.length);
+  return pool[index].id;
 }
 
 /**

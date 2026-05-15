@@ -953,16 +953,13 @@ export default class BaseMachine {
     // Remove existing tooltip if any
     this.hideTooltip();
 
-    // --- MODIFIED: Calculate fixed position on the right side ---
-    const fixedX = this.scene.cameras.main.width - 260; // 10px padding from right edge (250 width + 10)
-    const fixedY = 50; // 50px from the top
+    const preferredX = this.scene.cameras.main.width - 260; // 10px padding from right edge (250 width + 10)
+    const preferredY = 50; // 50px from the top
     const tooltipWidth = 250;
     const tooltipHeight = 80; // Initial height, might adjust later
-    // --- END MODIFICATION ---
 
-    // --- MODIFIED: Use fixed position for background, align top-left ---
     const tooltipBg = this.scene.add
-      .rectangle(fixedX, fixedY, tooltipWidth, tooltipHeight, 0x000000, 0.8)
+      .rectangle(preferredX, preferredY, tooltipWidth, tooltipHeight, 0x000000, 0.8)
       .setOrigin(0, 0); // Align top-left
     tooltipBg.setStrokeStyle(1, 0xffffff);
 
@@ -1085,11 +1082,18 @@ export default class BaseMachine {
       }
     }
 
-    // --- MODIFIED: Use fixed position and top-left origin for text ---
+    if (this.trait) {
+      const traitDef = getTraitById(this.trait);
+      if (traitDef) {
+        tooltipContent += `\n\nTrait: ${traitDef.name}`;
+        tooltipContent += `\n${traitDef.description}`;
+      }
+    }
+
     const tooltipText = this.scene.add
       .text(
-        fixedX + 10, // Add padding from background edge
-        fixedY + 10, // Add padding from background edge
+        preferredX + 10, // Add padding from background edge
+        preferredY + 10, // Add padding from background edge
         tooltipContent,
         {
           fontFamily: 'Arial',
@@ -1101,8 +1105,21 @@ export default class BaseMachine {
       )
       .setOrigin(0, 0); // Align top-left
 
-    // --- Optional: Adjust background height based on text height ---
     tooltipBg.height = Math.max(tooltipHeight, tooltipText.height + 20); // Add padding
+    const tooltipPosition = this.getTooltipScreenPosition(
+      tooltipWidth,
+      tooltipBg.height,
+      preferredX,
+      preferredY
+    );
+    tooltipBg.setPosition(tooltipPosition.x, tooltipPosition.y);
+    tooltipText.setPosition(tooltipPosition.x + 10, tooltipPosition.y + 10);
+    tooltipBg.setScrollFactor(0);
+    tooltipText.setScrollFactor(0);
+
+    if (this.scene.addToUI) {
+      this.scene.addToUI([tooltipBg, tooltipText]);
+    }
 
     // Store tooltip objects for later removal
     this.tooltip = {
@@ -1113,6 +1130,20 @@ export default class BaseMachine {
     // Set tooltip depth to ensure it appears above other objects
     tooltipBg.setDepth(1000);
     tooltipText.setDepth(1001);
+  }
+
+  getTooltipScreenPosition(width, height, preferredX, preferredY) {
+    const padding = 10;
+    const camera = this.scene && this.scene.cameras && this.scene.cameras.main;
+    const maxWidth = camera ? camera.width : this.scene.scale.width;
+    const maxHeight = camera ? camera.height : this.scene.scale.height;
+    const maxX = Math.max(padding, maxWidth - width - padding);
+    const maxY = Math.max(padding, maxHeight - height - padding);
+
+    return {
+      x: Phaser.Math.Clamp(preferredX, padding, maxX),
+      y: Phaser.Math.Clamp(preferredY, padding, maxY),
+    };
   }
 
   /**
@@ -1165,6 +1196,9 @@ export default class BaseMachine {
         typeof this.scene.upgradeManager.getProcessorSpeedModifier === 'function'
       ) {
         effectiveDelta = delta * this.scene.upgradeManager.getProcessorSpeedModifier();
+      }
+      if (this.scene && typeof this.scene.getFlowSpeedMultiplier === 'function') {
+        effectiveDelta *= this.scene.getFlowSpeedMultiplier();
       }
 
       // Apply Harmonic Interference Efficiency
@@ -2898,10 +2932,6 @@ export default class BaseMachine {
           return false;
         }
 
-        // SMART RESERVATION LOGIC
-        // Ensure we always reserve enough space for the *other* items needed to complete a set.
-        // This prevents one resource type from flooding the buffer and causing a deadlock.
-
         const capacity = this.inputCapacity || 10;
         const currentCount = this.inputQueue ? this.inputQueue.length : 0;
 
@@ -2919,33 +2949,33 @@ export default class BaseMachine {
           });
         }
 
-        // Calculate minimum needed to complete at least ONE processing batch (from what is missing)
-        // We only care about ensuring that after taking THIS item, we still have room for the missing pieces.
-        // Track allocated items to handle duplicate levels in inputLevels correctly.
-        // e.g., [2, 2, 3] needs 2x level 2, but we must not count the same inventory item twice.
-        let missingForSet = 0;
-        const allocatedFromInventory = {}; // Track what we've virtually allocated from each level
+        // Keep mixed-input recipes balanced. The previous reservation logic could still allow
+        // a 3+4/5 processor to hold nine L3 items, leaving almost no practical room for L4.
+        const requiredLevels = {};
+        this.inputLevels.forEach((level) => {
+          requiredLevels[level] = (requiredLevels[level] || 0) + 1;
+        });
 
-        this.inputLevels.forEach((reqLvl) => {
-          // How many do we need per entry? (1 per inputLevel entry)
-          const neededPerEntry = 1;
+        const recipeSize = this.inputLevels.length;
+        const storableRecipeSets = Math.max(1, Math.floor(capacity / recipeSize));
+        const incomingLevelCount = (currentInventory[itemLevel] || 0) + 1;
+        const maxForIncomingLevel = requiredLevels[itemLevel] * storableRecipeSets;
 
-          // How many do we have available (minus what we've already allocated to previous entries)
-          const totalAvailable = currentInventory[reqLvl] || 0;
-          const alreadyAllocated = allocatedFromInventory[reqLvl] || 0;
-          let available = totalAvailable - alreadyAllocated;
-
-          // If this is the incoming level, virtually add 1 to what's available
-          if (reqLvl === itemLevel) {
-            available += 1;
+        if (incomingLevelCount > maxForIncomingLevel) {
+          if (Math.random() < 0.05) {
+            console.log(
+              `[${this.id}] canAcceptInput: Rejected level ${itemLevel} to keep recipe buffer balanced. ` +
+                `LevelCount:${incomingLevelCount}/${maxForIncomingLevel}, Cap:${capacity}, Cur:${currentCount}`
+            );
           }
+          return false;
+        }
 
-          const missing = Math.max(0, neededPerEntry - available);
-          missingForSet += missing;
-
-          // Track what we're allocating for this entry (even if we're missing some)
-          const allocating = Math.min(available, neededPerEntry);
-          allocatedFromInventory[reqLvl] = alreadyAllocated + allocating;
+        // Ensure we always reserve enough slots for at least one complete set from current contents.
+        let missingForSet = 0;
+        Object.entries(requiredLevels).forEach(([level, amount]) => {
+          const available = (currentInventory[level] || 0) + (Number(level) === itemLevel ? 1 : 0);
+          missingForSet += Math.max(0, amount - available);
         });
 
         // Space remaining AFTER accepting this item

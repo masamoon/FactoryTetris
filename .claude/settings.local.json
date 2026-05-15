@@ -5,7 +5,10 @@
       "Bash(git -C \"D:/GitHub/FactoryTetris\" status --porcelain src/objects/machines/BaseMachine.js)",
       "Bash(node -e:*)",
       "Bash(node fix_reservation.js:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(ls \"D:\\\\GitHub\\\\FactoryTetris-piece-traits\\\\src\\\\config\")"
     ]
   }
 }

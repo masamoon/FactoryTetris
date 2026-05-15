@@ -15,6 +15,8 @@ export default class ChipNode {
     this.gridY = config.gridY;
     this.chipEra = config.chipEra; // The era this chip was created from
     this.emissionRate = config.emissionRate || CHIP_CONFIG.emissionInterval;
+    this.throughput = config.throughput || 0;
+    this.grade = config.grade || 'D';
 
     // Calculate world position from grid position
     const worldPos = scene.factoryGrid.gridToWorld(this.gridX + 1, this.gridY + 1); // Center of 3x3
@@ -23,7 +25,7 @@ export default class ChipNode {
 
     // Determine output tier(s) based on chip era
     // Chip from era N emits tiers for era N+1's input
-    this.outputTier = getChipOutputTier(this.chipEra + 1);
+    this.outputTier = config.outputTier || getChipOutputTier(this.chipEra + 1);
 
     // All tiers this chip can emit (for multi-pin support)
     // A chip can emit accumulated tiers from previous eras
@@ -103,9 +105,9 @@ export default class ChipNode {
     this.innerGlow = this.scene.add.rectangle(0, 0, chipSize - 10, chipSize - 10, 0x2a2a4e, 0.6);
     this.container.add(this.innerGlow);
 
-    // Label showing era
+    // Label showing era and earned grade
     this.label = this.scene.add
-      .text(0, -20, `ERA ${this.chipEra}`, {
+      .text(0, -24, `ERA ${this.chipEra} | ${this.grade}`, {
         fontFamily: 'Arial',
         fontSize: 12,
         fontWeight: 'bold',
@@ -115,6 +117,17 @@ export default class ChipNode {
       })
       .setOrigin(0.5);
     this.container.add(this.label);
+
+    this.rateLabel = this.scene.add
+      .text(0, -6, `${this.emissionRate}ms`, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.container.add(this.rateLabel);
 
     // Create output pin indicators on right edge
     this.outputPinVisuals = [];

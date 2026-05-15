@@ -12,7 +12,7 @@ import {
   getPieceConfigsForEra,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
-import { rollTrait } from '../config/traits';
+import { rollBuildAroundTrait, rollTrait } from '../config/traits';
 
 /**
  * Generates a set of piece configurations for the player to choose from
@@ -189,7 +189,7 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
  * @returns {object} Configuration with inputLevels, outputLevel, notation
  */
 export function assignLevelsToShape(shape, scene, options = {}) {
-  const { forceHigherTier = false } = options;
+  const { forceHigherTier = false, forceTrait = false } = options;
 
   // Count blocks in shape
   const blockCount = countBlocks(shape);
@@ -253,7 +253,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
     outputLevel: config.output,
     notation: config.notation,
     isUsable: isPieceUsable(config, producibleLevels),
-    trait: config.output >= 3 ? rollTrait() : null,
+    trait: config.output >= 3 ? (forceTrait ? rollBuildAroundTrait() : rollTrait()) : null,
   };
 }
 

@@ -235,8 +235,22 @@ export const GAME_CONFIG = {
     'mega-resource': 300, // Corresponds to points in resourceTypes
   },
 
-  // Milestone upgrade system (replaces level-based upgrades)
-  upgradeMilestoneInterval: 500, // Offer upgrade every X points
+  // Pacing / flow-state tuning
+  startingMomentum: 40,
+  placementMomentumGain: 2,
+  connectionMomentumGain: 3,
+  deliveryStreakWindow: 4000,
+  deliveryStreakMomentumGain: 0.75,
+  maxDeliveryStreakMomentumGain: 8,
+  objectiveMomentumReward: 14,
+  objectivesPerBonusUpgrade: 3,
+  flowSurgeDuration: 12000,
+  flowSurgeSpeedMultiplier: 1.35,
+
+  // Milestone upgrade system (banked choices that the player can open when ready)
+  firstUpgradeScore: 300,
+  upgradeMilestoneInterval: 650,
+  upgradeMilestoneGrowth: 225,
 
   // --- REMOVED CLEAR FACTORY COOLDOWN CONFIG ---
   initialClearCooldown: 60000, // 1 minute
