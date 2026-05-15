@@ -84,6 +84,8 @@ export default class DeliveryNode {
     // Accumulate ALL modifiers multiplicatively, then floor ONCE below.
     let modifier = 1.0;
     if (tags.includes('tycoon')) modifier *= 1.5;
+    if (tags.includes('polarized')) modifier *= 2.0;
+    if (tags.includes('bypass')) modifier *= 0.75;
     const adjusted = Math.floor(basePoints * modifier);
     if (modifier !== 1.0) {
       console.log(

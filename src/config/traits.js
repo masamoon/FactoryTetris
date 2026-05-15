@@ -78,21 +78,56 @@ export const TRAITS = [
     name: 'Polarized',
     category: TRAIT_CATEGORIES.RULE,
     description: 'Refuses resources with purity below 3. Accepted resources output 2x value.',
-    hooks: {},
+    hooks: {
+      onProcess: (resource) => {
+        // onProcess fires AFTER the machine set output purity = outputLevel,
+        // so the INPUT purity is one less than the current value.
+        const inputPurity = (resource.purity || 1) - 1;
+        if (inputPurity < 3) {
+          return null; // reject: abort this machine's output
+        }
+        return resource; // accepted — 2x bonus applied at delivery via 'polarized' tag
+      },
+    },
   },
   {
     id: 'twin',
     name: 'Twin',
     category: TRAIT_CATEGORIES.RULE,
     description: 'Emits a duplicate output resource on each successful process.',
-    hooks: {},
+    hooks: {
+      onProcess: (resource, machine) => {
+        // Prevent exponential compounding: a resource already marked twinned
+        // does not produce another duplicate.
+        if (resource && resource.twinned) return resource;
+        const dup = {
+          ...resource,
+          visitedMachines: new Set(resource.visitedMachines),
+          traitTags: Array.isArray(resource.traitTags) ? [...resource.traitTags] : [],
+          twinned: true,
+        };
+        if (Array.isArray(machine.outputQueue)) {
+          machine.outputQueue.push(dup);
+          console.log(
+            `[trait:twin] ${machine.id} duplicated output, queue size now ${machine.outputQueue.length}`
+          );
+        }
+        return resource;
+      },
+    },
   },
   {
     id: 'bypass',
     name: 'Bypass',
     category: TRAIT_CATEGORIES.RULE,
     description: 'Accepts wrong-tier inputs at 75% delivered value.',
-    hooks: {},
+    hooks: {
+      // V1: tag-only. Delivery applies 0.75x via the 'bypass' tag (auto-added
+      // to traitTags by completeProcessing since this machine's trait is
+      // 'bypass'). A future plan can extend BaseMachine input acceptance to
+      // actually accept off-tier inputs; for now this models "takes anything
+      // but pays less" purely as a delivery-side penalty.
+    },
   },
   {
     id: 'resonant',
