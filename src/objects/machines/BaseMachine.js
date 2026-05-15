@@ -275,6 +275,45 @@ export default class BaseMachine {
   }
 
   /**
+   * Set a named multiplicative modifier on this machine's processing time.
+   * Multiple modifiers (e.g. Overclocked self + a neighbor's Conductor)
+   * compose multiplicatively and restore cleanly regardless of order.
+   * @param {string} key - unique modifier source key
+   * @param {number} multiplier - factor (e.g. 0.5 = twice as fast)
+   */
+  setProcessingTimeModifier(key, multiplier) {
+    if (this._ptBaseTime == null) {
+      this._ptBaseTime = this.processingTime;
+    }
+    if (!this._ptModifiers) {
+      this._ptModifiers = new Map();
+    }
+    this._ptModifiers.set(key, multiplier);
+    this._recomputeProcessingTime();
+  }
+
+  /**
+   * Remove a named processing-time modifier and recompute.
+   * @param {string} key - the modifier source key to clear
+   */
+  clearProcessingTimeModifier(key) {
+    if (!this._ptModifiers) return;
+    this._ptModifiers.delete(key);
+    this._recomputeProcessingTime();
+  }
+
+  _recomputeProcessingTime() {
+    if (this._ptBaseTime == null) return;
+    let factor = 1;
+    if (this._ptModifiers) {
+      for (const m of this._ptModifiers.values()) {
+        factor *= m;
+      }
+    }
+    this.processingTime = Math.max(50, Math.floor(this._ptBaseTime * factor));
+  }
+
+  /**
    * Get the machine's default direction
    * @returns {string} Default direction ('right', 'down', 'left', 'up', or 'none')
    */

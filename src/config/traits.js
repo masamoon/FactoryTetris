@@ -46,18 +46,19 @@ export const TRAITS = [
     description: 'Processing time is halved.',
     hooks: {
       onAttach: (machine) => {
-        if (typeof machine.processingTime === 'number') {
-          machine._traitOriginalProcessingTime = machine.processingTime;
-          machine.processingTime = Math.max(50, Math.floor(machine.processingTime * 0.5));
+        if (
+          typeof machine.processingTime === 'number' &&
+          typeof machine.setProcessingTimeModifier === 'function'
+        ) {
+          machine.setProcessingTimeModifier('overclocked', 0.5);
           console.log(
-            `[trait:overclocked] ${machine.id} processingTime: ${machine._traitOriginalProcessingTime} -> ${machine.processingTime}`
+            `[trait:overclocked] ${machine.id} processingTime -> ${machine.processingTime}`
           );
         }
       },
       onRemove: (machine) => {
-        if (typeof machine._traitOriginalProcessingTime === 'number') {
-          machine.processingTime = machine._traitOriginalProcessingTime;
-          delete machine._traitOriginalProcessingTime;
+        if (typeof machine.clearProcessingTimeModifier === 'function') {
+          machine.clearProcessingTimeModifier('overclocked');
         }
       },
     },
@@ -137,14 +138,56 @@ export const TRAITS = [
     name: 'Resonant',
     category: TRAIT_CATEGORIES.ADJACENCY,
     description: '+50% output if an orthogonally adjacent machine shares its output tier.',
-    hooks: {},
+    hooks: {
+      onProcess: (resource, machine, scene) => {
+        if (!resource) return resource;
+        const neighbors = getOrthogonalNeighborMachines(machine, scene);
+        const sameTier = neighbors.some(
+          (n) => n.outputLevel != null && n.outputLevel === machine.outputLevel
+        );
+        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
+        // completeProcessing already auto-appended 'resonant'. Keep it ONLY if
+        // adjacency is satisfied; strip it otherwise so DeliveryNode's +50%
+        // applies exclusively when the adjacency condition holds.
+        resource.traitTags = resource.traitTags.filter((t) => t !== 'resonant');
+        if (sameTier) {
+          resource.traitTags.push('resonant');
+          console.log(`[trait:resonant] ${machine.id} adjacency satisfied; +50% queued`);
+        }
+        return resource;
+      },
+    },
   },
   {
     id: 'conductor',
     name: 'Conductor',
     category: TRAIT_CATEGORIES.ADJACENCY,
     description: 'Adjacent orthogonal machines process 30% faster while this is placed.',
-    hooks: {},
+    hooks: {
+      onAttach: (machine, scene) => {
+        machine._traitConductedKeys = [];
+        const key = `conductor:${machine.id}`;
+        const neighbors = getOrthogonalNeighborMachines(machine, scene);
+        for (const n of neighbors) {
+          if (typeof n.setProcessingTimeModifier === 'function') {
+            n.setProcessingTimeModifier(key, 0.7);
+            machine._traitConductedKeys.push({ machine: n, key });
+            console.log(
+              `[trait:conductor] ${machine.id} sped up neighbor ${n.id} -> ${n.processingTime}ms`
+            );
+          }
+        }
+      },
+      onRemove: (machine) => {
+        if (!Array.isArray(machine._traitConductedKeys)) return;
+        for (const entry of machine._traitConductedKeys) {
+          if (entry.machine && typeof entry.machine.clearProcessingTimeModifier === 'function') {
+            entry.machine.clearProcessingTimeModifier(entry.key);
+          }
+        }
+        delete machine._traitConductedKeys;
+      },
+    },
   },
   {
     id: 'hoarder',
@@ -189,4 +232,45 @@ export function getTraitBandColor(traitId) {
   const trait = getTraitById(traitId);
   if (!trait) return 0xffffff;
   return TRAIT_BAND_COLORS[trait.category] || 0xffffff;
+}
+
+/**
+ * Footprint cells (grid coords) occupied by a machine's shape.
+ */
+function footprintCells(machine) {
+  if (!machine || !machine.shape || machine.gridX == null) return [];
+  const cells = [];
+  for (let r = 0; r < machine.shape.length; r++) {
+    for (let c = 0; c < machine.shape[r].length; c++) {
+      if (machine.shape[r][c]) {
+        cells.push({ x: machine.gridX + c, y: machine.gridY + r });
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * Orthogonal-neighbor machines for a given machine, via scene.machines.
+ */
+function getOrthogonalNeighborMachines(machine, scene) {
+  if (!scene || !Array.isArray(scene.machines)) return [];
+  const cells = footprintCells(machine);
+  if (cells.length === 0) return [];
+  const result = new Set();
+  for (const other of scene.machines) {
+    if (other === machine || other.isPreview) continue;
+    const otherCells = footprintCells(other);
+    for (const a of cells) {
+      for (const b of otherCells) {
+        if (
+          (Math.abs(a.x - b.x) === 1 && a.y === b.y) ||
+          (a.x === b.x && Math.abs(a.y - b.y) === 1)
+        ) {
+          result.add(other);
+        }
+      }
+    }
+  }
+  return Array.from(result);
 }
