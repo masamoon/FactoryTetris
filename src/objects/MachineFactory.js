@@ -3,6 +3,7 @@ import { GAME_CONFIG } from '../config/gameConfig';
 import MachineRegistry from './machines/MachineRegistry';
 import { MACHINE_COLORS } from './machines/BaseMachine';
 import { assignLevelsToShape } from '../utils/PieceGenerator';
+import { getTraitById, getTraitBandColor } from '../config/traits';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -423,6 +424,39 @@ export default class MachineFactory {
 
         // Store reference for potential updates
         machinePreview.notationLabel = notationLabel;
+
+        // --- ADD TRAIT INFO BENEATH NOTATION ---
+        if (machineType.trait) {
+          const traitDef = getTraitById(machineType.trait);
+          const traitBandColor = getTraitBandColor(machineType.trait);
+          if (traitDef) {
+            const traitNameLabel = this.scene.add
+              .text(itemX, itemY + 40, traitDef.name, {
+                fontFamily: 'Arial',
+                fontSize: 11,
+                color: '#ffffff',
+                fontStyle: 'bold',
+              })
+              .setOrigin(0.5);
+            const traitDescLabel = this.scene.add
+              .text(itemX, itemY + 54, traitDef.description, {
+                fontFamily: 'Arial',
+                fontSize: 9,
+                color: '#cccccc',
+                wordWrap: { width: 120 },
+                align: 'center',
+              })
+              .setOrigin(0.5);
+            const traitBand = this.scene.add.rectangle(itemX, itemY + 70, 80, 3, traitBandColor);
+            this.processorPreviewContainer.add(traitNameLabel);
+            this.processorPreviewContainer.add(traitDescLabel);
+            this.processorPreviewContainer.add(traitBand);
+            machinePreview.traitNameLabel = traitNameLabel;
+            machinePreview.traitDescLabel = traitDescLabel;
+            machinePreview.traitBand = traitBand;
+          }
+        }
+        // --- END TRAIT INFO ---
       }
       // --- END NOTATION LABEL ---
 
