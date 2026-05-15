@@ -62,12 +62,6 @@ export default class DeliveryNode {
   }
 
   /**
-   * Accept an item delivered to this node.
-   * Handles both regular resources and upgrade packages.
-   * @param {object} itemData - The item object being delivered { type: string, amount: number }.
-   * @returns {boolean} - True if the item was accepted, false otherwise.
-   */
-  /**
    * Apply trait-tag-based delivery score modifiers.
    *
    * Single extension point for ALL delivery-time trait effects. Called from
@@ -99,6 +93,12 @@ export default class DeliveryNode {
     return adjusted;
   }
 
+  /**
+   * Accept an item delivered to this node.
+   * Handles both regular resources and upgrade packages.
+   * @param {object} itemData - The item object being delivered { type: string, amount: number }.
+   * @returns {boolean} - True if the item was accepted, false otherwise.
+   */
   acceptItem(itemData) {
     // Parameter changed to itemData
     if (!itemData || !itemData.type) {
