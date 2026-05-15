@@ -1609,12 +1609,34 @@ export default class BaseMachine {
         nextItem = processResource(processedItem, this.id, this.trait || null);
       }
 
-      // Add to output queue for transfer
-      this.outputQueue.push(nextItem);
+      // Fire trait onProcess hook. Hook may MUTATE nextItem or return a
+      // replacement value. Returning explicit null aborts the output (used
+      // by Polarized when it rejects a resource).
+      if (this.trait) {
+        const def = getTraitById(this.trait);
+        if (def && def.hooks && def.hooks.onProcess) {
+          try {
+            const result = def.hooks.onProcess(nextItem, this, this.scene);
+            if (result === null) {
+              console.log(`[${this.id}] trait ${this.trait} aborted output`);
+              nextItem = null;
+            } else if (result && typeof result === 'object') {
+              nextItem = result;
+            }
+          } catch (err) {
+            console.error(`[${this.id}] trait onProcess failed for ${this.trait}:`, err);
+          }
+        }
+      }
 
-      console.log(
-        `[${this.id}] Processed purity item: Purity ${processedItem.purity} -> ${nextItem.purity}, Chain ${processedItem.chainCount} -> ${nextItem.chainCount}`
-      );
+      // Add to output queue for transfer
+      if (nextItem) {
+        this.outputQueue.push(nextItem);
+
+        console.log(
+          `[${this.id}] Processed purity item: Purity ${processedItem.purity} -> ${nextItem.purity}, Chain ${processedItem.chainCount} -> ${nextItem.chainCount}`
+        );
+      }
     }
 
     // Immediately try to push the new output
