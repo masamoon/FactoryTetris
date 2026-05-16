@@ -2674,8 +2674,10 @@ export default class GameScene extends Phaser.Scene {
     console.log(`[TRANSCEND] Resizing grid to ${newGridSize}x${newGridSize}`);
     this.grid.resize(newGridSize, newGridSize);
 
-    // 6. Enter chip placement mode instead of auto-placing
-    this.enterChipPlacementMode(newChip);
+    // 6. Boon pick first, chip placement after the player closes the boon modal.
+    this.pendingChipAfterBoon = newChip;
+    this.runState = 'GRACE';
+    this.showBoonScreen();
 
     // 7. Re-place existing chips from previous eras
     // (Chips are preserved across transcendence, already on grid conceptually)
@@ -2868,6 +2870,68 @@ export default class GameScene extends Phaser.Scene {
 
     // Continue with remaining transcendence steps
     this.finalizeTranscendence();
+    this.showShipWhenReady();
+  }
+
+  showShipWhenReady() {
+    this.runState = 'GRACE';
+    this.buildContract();
+    this.updateContractHud();
+
+    const cx = this.cameras.main.width / 2;
+    const cy = this.cameras.main.height / 2;
+    const panel = this.add
+      .rectangle(cx, cy, 420, 130, 0x102030, 0.92)
+      .setStrokeStyle(3, 0xffd966)
+      .setScrollFactor(0)
+      .setDepth(5000);
+    const msg = this.add
+      .text(cx, cy - 28, `Contract ${this.contract.number} ready`, {
+        fontFamily: 'Arial',
+        fontSize: 20,
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(5001);
+    const btn = this.add
+      .text(cx, cy + 14, 'SHIP IT (10)', {
+        fontFamily: 'Arial',
+        fontSize: 18,
+        color: '#ffd966',
+        backgroundColor: '#2a4060',
+        padding: { x: 14, y: 6 },
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(5001)
+      .setInteractive({ useHandCursor: true });
+
+    let secs = 10;
+    const cleanup = () => {
+      countdown.remove();
+      panel.destroy();
+      msg.destroy();
+      btn.destroy();
+    };
+    const accept = () => {
+      cleanup();
+      this.startContractTimer();
+    };
+    btn.on('pointerdown', accept);
+    const countdown = this.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        secs--;
+        if (secs <= 0) {
+          accept();
+        } else {
+          btn.setText(`SHIP IT (${secs})`);
+        }
+      },
+    });
   }
 
   /**
@@ -4891,40 +4955,26 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  showBoonScreen() {
+    this.isPausedForUpgrade = true;
+    if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
+    this.scene.launch('UpgradeScene', {
+      upgradeManager: this.upgradeManager,
+      callingSceneKey: this.scene.key,
+      isLevelUp: false,
+      isBoon: true,
+    });
+  }
+
   resumeFromUpgrade() {
-    console.log('[GameScene] Resuming from upgrade selection.');
     this.isPausedForUpgrade = false;
-
-    // Increment the upgrade counter in UpgradeManager
-    if (this.upgradeManager) {
-      this.upgradeManager.incrementUpgradesDelivered();
+    if (this.pendingChipAfterBoon) {
+      const chip = this.pendingChipAfterBoon;
+      this.pendingChipAfterBoon = null;
+      this.enterChipPlacementMode(chip);
+      return;
     }
-
-    if (this.consumingBankedUpgrade) {
-      this.pendingUpgradeChoices = Math.max(0, this.pendingUpgradeChoices - 1);
-      this.consumingBankedUpgrade = false;
-      this.updateUpgradeReadyButton();
-    }
-
-    // Potentially re-enable game systems if they were specifically paused beyond the scene's pause
-    this.physics.world.resume();
-    this.time.paused = false;
-
-    // Resume timers explicitly if they were paused
-    if (this.nodeSpawnTimer && this.nodeSpawnTimer.paused) {
-      this.nodeSpawnTimer.paused = false;
-    }
-    if (this.gameTimer && this.gameTimer.paused) {
-      this.gameTimer.paused = false;
-    }
-    if (this.difficultyTimer && this.difficultyTimer.paused) {
-      this.difficultyTimer.paused = false;
-    }
-
-    // Make sure the main scene is responsive to input again
-    this.input.enabled = true;
-
-    this.updateActiveUpgradesDisplay(); // Update the display after an upgrade might have been selected
+    // (legacy level-up path removed in Task 6; nothing else to do)
   }
 
   updateActiveUpgradesDisplay() {
