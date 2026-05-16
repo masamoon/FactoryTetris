@@ -73,7 +73,18 @@ export default class ConveyorMachine extends BaseMachine {
 
       // Apply inventory capacity upgrade
       const capacityMod = this.scene.upgradeManager.getInventoryCapacityModifier();
-      this.maxCapacity = Math.floor(this.baseMaxCapacity * capacityMod);
+      const haulBonus =
+        typeof this.scene.upgradeManager.getConveyorCapacityBonus === 'function'
+          ? this.scene.upgradeManager.getConveyorCapacityBonus()
+          : 0;
+      const leanPenalty =
+        typeof this.scene.upgradeManager.getInventoryCapacityBonus === 'function'
+          ? this.scene.upgradeManager.getInventoryCapacityBonus()
+          : 0;
+      this.maxCapacity = Math.max(
+        1,
+        Math.floor(this.baseMaxCapacity * capacityMod) + haulBonus + leanPenalty
+      );
 
       // Apply extraction speed upgrade (lower cooldown = faster extraction)
       const extractionMod = this.scene.upgradeManager.getExtractionSpeedModifier();

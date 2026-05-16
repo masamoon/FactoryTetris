@@ -227,6 +227,17 @@ export default class BaseMachine {
     this.outputQueue = [];
   }
 
+  getInputCapacity() {
+    const baseCapacity = this.inputCapacity || 10;
+    const bonus =
+      this.scene &&
+      this.scene.upgradeManager &&
+      typeof this.scene.upgradeManager.getInventoryCapacityBonus === 'function'
+        ? this.scene.upgradeManager.getInventoryCapacityBonus()
+        : 0;
+    return Math.max(1, baseCapacity + bonus);
+  }
+
   /**
    * Get the machine's ID
    * @returns {string} The machine ID
@@ -2932,7 +2943,7 @@ export default class BaseMachine {
           return false;
         }
 
-        const capacity = this.inputCapacity || 10;
+        const capacity = this.getInputCapacity();
         const currentCount = this.inputQueue ? this.inputQueue.length : 0;
 
         // If generic capacity is full, definitely reject
@@ -2998,7 +3009,7 @@ export default class BaseMachine {
         // If we have inputLevels but no itemData, we can't validate fully but checking capacity is safe.
         // We can't do smart reservation without knowing the incoming level, so we just check generic capacity.
         // This acts as a fallback.
-        const capacity = this.inputCapacity || 10;
+        const capacity = this.getInputCapacity();
         return this.inputQueue ? this.inputQueue.length < capacity : true;
       }
       return true;
@@ -3011,7 +3022,7 @@ export default class BaseMachine {
       // For now, let's assume all processors accept it
       if (this.inputTypes.length === 0 || this.inputTypes.includes('purity-resource')) {
         // Check capacity (using queue length for purity items)
-        const capacity = this.inputCapacity || 10;
+        const capacity = this.getInputCapacity();
         return this.inputQueue ? this.inputQueue.length < capacity : true;
       }
       // If machine expects specific named resources (like 'iron'), it might not accept generic purity-resource
@@ -3032,7 +3043,7 @@ export default class BaseMachine {
     }
 
     // Check if input inventory has space (e.g., less than a capacity of 10)
-    const inputCapacity = this.inputCapacity || 10;
+    const inputCapacity = this.getInputCapacity();
     return this.inputInventory[resourceTypeId] < inputCapacity;
   }
 

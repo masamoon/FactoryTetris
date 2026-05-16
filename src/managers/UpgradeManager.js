@@ -25,7 +25,11 @@ export class UpgradeManager {
   }
 
   getProcessorSpeedModifier() {
-    return this.getModifier(UPGRADE_TYPES.PROCESSOR_EFFICIENCY);
+    let modifier = this.getModifier(UPGRADE_TYPES.PROCESSOR_EFFICIENCY);
+    if (this.activeProceduralUpgrades.has('boon_heavy_haulers')) {
+      modifier *= 0.85;
+    }
+    return modifier;
   }
 
   getResourceBountyModifier() {
@@ -37,7 +41,11 @@ export class UpgradeManager {
   }
 
   getConveyorSpeedModifier() {
-    return this.getModifier(UPGRADE_TYPES.CONVEYOR_SPEED);
+    let modifier = this.getModifier(UPGRADE_TYPES.CONVEYOR_SPEED);
+    if (this.activeProceduralUpgrades.has('boon_lean_lines')) {
+      modifier *= 1.25;
+    }
+    return modifier;
   }
 
   getNodeLongevityModifier() {
@@ -50,6 +58,15 @@ export class UpgradeManager {
 
   getExtractionSpeedModifier() {
     return this.getModifier(UPGRADE_TYPES.EXTRACTION_SPEED);
+  }
+
+  // --- Boon-derived modifiers ---
+  getConveyorCapacityBonus() {
+    return this.activeProceduralUpgrades.has('boon_heavy_haulers') ? 1 : 0;
+  }
+
+  getInventoryCapacityBonus() {
+    return this.activeProceduralUpgrades.has('boon_lean_lines') ? -1 : 0;
   }
 
   // --- Upgrade Application Logic ---
