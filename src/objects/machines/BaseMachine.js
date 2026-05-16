@@ -238,6 +238,161 @@ export default class BaseMachine {
     return Math.max(1, baseCapacity + bonus);
   }
 
+  getRequiredInputLevelCounts() {
+    const requiredLevels = {};
+    if (!this.inputLevels || this.inputLevels.length === 0) {
+      return requiredLevels;
+    }
+
+    this.inputLevels.forEach((level) => {
+      requiredLevels[level] = (requiredLevels[level] || 0) + 1;
+    });
+
+    return requiredLevels;
+  }
+
+  getQueuedInputLevelCounts() {
+    const currentInventory = {};
+    if (!this.inputQueue) {
+      return currentInventory;
+    }
+
+    this.inputQueue.forEach((item) => {
+      const lvl = item.purity || 1;
+      currentInventory[lvl] = (currentInventory[lvl] || 0) + 1;
+    });
+
+    return currentInventory;
+  }
+
+  findSurplusInputIndexForIncomingLevel(itemLevel) {
+    if (!this.inputQueue || !this.inputLevels || this.inputLevels.length === 0) {
+      return -1;
+    }
+
+    const requiredLevels = this.getRequiredInputLevelCounts();
+    const distinctRequiredLevels = Object.keys(requiredLevels);
+    if (distinctRequiredLevels.length <= 1 || !requiredLevels[itemLevel]) {
+      return -1;
+    }
+
+    const currentInventory = this.getQueuedInputLevelCounts();
+    const incomingRecipeSets = ((currentInventory[itemLevel] || 0) + 1) / requiredLevels[itemLevel];
+
+    let surplusLevel = null;
+    let largestSurplus = 0;
+    distinctRequiredLevels.forEach((level) => {
+      if (Number(level) === itemLevel) {
+        return;
+      }
+
+      const currentCount = currentInventory[level] || 0;
+      const desiredCount = Math.max(
+        requiredLevels[level],
+        Math.ceil(incomingRecipeSets * requiredLevels[level])
+      );
+      const surplus = currentCount - desiredCount;
+
+      if (surplus > largestSurplus) {
+        largestSurplus = surplus;
+        surplusLevel = Number(level);
+      }
+    });
+
+    if (surplusLevel == null) {
+      return -1;
+    }
+
+    return this.inputQueue.findIndex((item) => (item.purity || 1) === surplusLevel);
+  }
+
+  makeRoomForBalancedInput(itemLevel) {
+    const surplusIndex = this.findSurplusInputIndexForIncomingLevel(itemLevel);
+    if (surplusIndex === -1) {
+      return false;
+    }
+
+    const [removedItem] = this.inputQueue.splice(surplusIndex, 1);
+    const type = removedItem.type || 'purity-resource';
+    if (this.inputInventory[type] > 0) {
+      this.inputInventory[type]--;
+    }
+
+    console.log(
+      `[${this.id}] Removed surplus level ${removedItem.purity || 1} input to make room for level ${itemLevel}.`
+    );
+    return true;
+  }
+
+  tagItemRoute(itemData, routeTag = null) {
+    if (!itemData || typeof itemData !== 'object') return itemData;
+
+    const machineUids = Array.isArray(itemData.machineUids) ? [...itemData.machineUids] : [];
+    if (this.uid && !machineUids.includes(this.uid)) {
+      machineUids.push(this.uid);
+    }
+
+    const routeTags = Array.isArray(itemData.routeTags) ? [...itemData.routeTags] : [];
+    if (routeTag && !routeTags.includes(routeTag)) {
+      routeTags.push(routeTag);
+    }
+
+    return {
+      ...itemData,
+      machineUids,
+      routeTags,
+    };
+  }
+
+  getFlowStatus() {
+    if (this.isProcessing) return { key: 'active', color: 0x44ff88 };
+
+    if (Array.isArray(this.itemsOnBelt)) {
+      if (this.itemsOnBelt.length >= (this.maxCapacity || 1)) {
+        return { key: 'blocked', color: 0xff5555 };
+      }
+      if (this.itemsOnBelt.length > 0) {
+        return { key: 'moving', color: 0x88ccff };
+      }
+      return { key: 'idle', color: 0x777777 };
+    }
+
+    if (!this.checkOutputCapacity() || (this.outputQueue && this.outputQueue.length > 0)) {
+      return { key: 'blocked', color: 0xff5555 };
+    }
+
+    if (this.inputLevels && this.inputLevels.length > 0 && !this.canProcess()) {
+      if (this.inputQueue && this.inputQueue.length > 0) {
+        return { key: 'waiting-mix', color: 0xffcc44 };
+      }
+      return { key: 'starved', color: 0x5599ff };
+    }
+
+    if (this.canProcess()) return { key: 'ready', color: 0x88ff88 };
+    return { key: 'idle', color: 0x777777 };
+  }
+
+  updateFlowStatusVisual(time = 0) {
+    if (this.isPreview || !this.scene || !this.container || !this.grid) return;
+    if (this._lastFlowStatusAt && time - this._lastFlowStatusAt < 300) return;
+    this._lastFlowStatusAt = time;
+
+    const status = this.getFlowStatus();
+    if (!this._flowStatusDot) {
+      this._flowStatusDot = this.scene.add.circle(0, 0, 5, status.color, 0.95);
+      this._flowStatusDot.setStrokeStyle(1, 0x000000, 0.8);
+      this._flowStatusDot.setDepth(20);
+      this.container.add(this._flowStatusDot);
+    }
+
+    const shape = this.grid.getRotatedShape(this.shape || [[1]], this.direction || 'right');
+    const width = shape && shape[0] ? shape[0].length * this.grid.cellSize : this.grid.cellSize;
+    const height = shape ? shape.length * this.grid.cellSize : this.grid.cellSize;
+    this._flowStatusDot.setPosition(-width / 2 + 8, -height / 2 + 8);
+    this._flowStatusDot.setFillStyle(status.color, status.key === 'idle' ? 0.45 : 0.95);
+    this._flowStatusKey = status.key;
+  }
+
   /**
    * Get the machine's ID
    * @returns {string} The machine ID
@@ -1207,6 +1362,9 @@ export default class BaseMachine {
         typeof this.scene.upgradeManager.getProcessorSpeedModifier === 'function'
       ) {
         effectiveDelta = delta * this.scene.upgradeManager.getProcessorSpeedModifier();
+        if (typeof this.scene.upgradeManager.getArchetypeProcessingModifier === 'function') {
+          effectiveDelta *= this.scene.upgradeManager.getArchetypeProcessingModifier(this);
+        }
       }
       if (this.scene && typeof this.scene.getFlowSpeedMultiplier === 'function') {
         effectiveDelta *= this.scene.getFlowSpeedMultiplier();
@@ -1243,6 +1401,8 @@ export default class BaseMachine {
       }
     }
     // --- End Standard Processing Logic ---
+
+    this.updateFlowStatusVisual(time);
 
     try {
       // New: Attempt to pull from an adjacent input node
@@ -1386,6 +1546,17 @@ export default class BaseMachine {
               extractedItem.amount > 0
             ) {
               const typeToStore = extractedItem.type;
+              if (
+                this.inputQueue &&
+                this.inputLevels &&
+                this.inputLevels.length > 0 &&
+                this.inputQueue.length >= this.getInputCapacity()
+              ) {
+                this.makeRoomForBalancedInput(
+                  extractedItem.purity !== undefined ? extractedItem.purity : 1
+                );
+              }
+
               this.inputInventory[typeToStore] =
                 (this.inputInventory[typeToStore] || 0) + extractedItem.amount;
 
@@ -1769,8 +1940,18 @@ export default class BaseMachine {
           type: 'purity-resource', // Explicitly set type to prevent undefined issues
           purity: this.outputLevel,
           visitedMachines: new Set(processedItem.visitedMachines || []),
+          machineUids: Array.isArray(processedItem.machineUids)
+            ? [...processedItem.machineUids]
+            : [],
+          routeTags: Array.isArray(processedItem.routeTags) ? [...processedItem.routeTags] : [],
           traitTags: Array.isArray(processedItem.traitTags) ? [...processedItem.traitTags] : [],
         };
+        if (this.uid && !nextItem.machineUids.includes(this.uid)) {
+          nextItem.machineUids.push(this.uid);
+        }
+        if (!nextItem.routeTags.includes('processor')) {
+          nextItem.routeTags.push('processor');
+        }
         // Only increment chain if this is a new machine
         if (!nextItem.visitedMachines.has(this.id)) {
           nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
@@ -2092,7 +2273,7 @@ export default class BaseMachine {
               // Give bonus or special effect when advanced resources go to advanced processor
               if (this.scene && this.scene.addScore) {
                 // Award bonus points when feeding advanced resources to advanced processor
-                this.scene.addScore(10);
+                this.scene.addScore(10, { countsForFlow: false });
               }
             }
 
@@ -2780,6 +2961,10 @@ export default class BaseMachine {
       if (this._traitOverlay.iconText) this._traitOverlay.iconText.destroy();
       this._traitOverlay = null;
     }
+    if (this._flowStatusDot) {
+      this._flowStatusDot.destroy();
+      this._flowStatusDot = null;
+    }
 
     // Destroy tooltip if it exists
     if (this.tooltip) {
@@ -2945,41 +3130,45 @@ export default class BaseMachine {
 
         const capacity = this.getInputCapacity();
         const currentCount = this.inputQueue ? this.inputQueue.length : 0;
+        const canMakeRoom =
+          currentCount >= capacity && this.findSurplusInputIndexForIncomingLevel(itemLevel) !== -1;
 
-        // If generic capacity is full, definitely reject
-        if (currentCount >= capacity) {
+        // If generic capacity is full, only accept when we can evict surplus from another tier.
+        if (currentCount >= capacity && !canMakeRoom) {
           return false;
         }
 
         // Calculate what we currently have
-        const currentInventory = {};
-        if (this.inputQueue) {
-          this.inputQueue.forEach((item) => {
-            const lvl = item.purity || 1;
-            currentInventory[lvl] = (currentInventory[lvl] || 0) + 1;
-          });
-        }
+        const currentInventory = this.getQueuedInputLevelCounts();
 
-        // Keep mixed-input recipes balanced. The previous reservation logic could still allow
-        // a 3+4/5 processor to hold nine L3 items, leaving almost no practical room for L4.
-        const requiredLevels = {};
-        this.inputLevels.forEach((level) => {
-          requiredLevels[level] = (requiredLevels[level] || 0) + 1;
-        });
+        // Keep mixed-input recipes balanced. A capacity-only buffer lets one ingredient
+        // monopolize the queue, which can strand recipes like 1+3/4 without room for L3.
+        const requiredLevels = this.getRequiredInputLevelCounts();
 
-        const recipeSize = this.inputLevels.length;
-        const storableRecipeSets = Math.max(1, Math.floor(capacity / recipeSize));
         const incomingLevelCount = (currentInventory[itemLevel] || 0) + 1;
-        const maxForIncomingLevel = requiredLevels[itemLevel] * storableRecipeSets;
+        const distinctRequiredLevels = Object.keys(requiredLevels);
 
-        if (incomingLevelCount > maxForIncomingLevel) {
-          if (Math.random() < 0.05) {
-            console.log(
-              `[${this.id}] canAcceptInput: Rejected level ${itemLevel} to keep recipe buffer balanced. ` +
-                `LevelCount:${incomingLevelCount}/${maxForIncomingLevel}, Cap:${capacity}, Cur:${currentCount}`
-            );
+        if (distinctRequiredLevels.length > 1) {
+          const incomingRecipeSets = incomingLevelCount / requiredLevels[itemLevel];
+          const lowestOtherRecipeSets = distinctRequiredLevels
+            .filter((level) => Number(level) !== itemLevel)
+            .reduce((lowest, level) => {
+              const availableSets = (currentInventory[level] || 0) / requiredLevels[level];
+              return Math.min(lowest, availableSets);
+            }, Infinity);
+
+          // Allow at most one recipe-set worth of surplus over the scarcest other input.
+          // That keeps some buffering, while guaranteeing missing ingredients still get slots.
+          if (incomingRecipeSets > lowestOtherRecipeSets + 1) {
+            if (Math.random() < 0.05) {
+              console.log(
+                `[${this.id}] canAcceptInput: Rejected level ${itemLevel} to keep recipe buffer balanced. ` +
+                  `LevelCount:${incomingLevelCount}, IncomingSets:${incomingRecipeSets.toFixed(2)}, ` +
+                  `LowestOtherSets:${lowestOtherRecipeSets.toFixed(2)}, Cap:${capacity}, Cur:${currentCount}`
+              );
+            }
+            return false;
           }
-          return false;
         }
 
         // Ensure we always reserve enough slots for at least one complete set from current contents.
@@ -2991,7 +3180,7 @@ export default class BaseMachine {
 
         // Space remaining AFTER accepting this item
         // currentCount + 1 is the new count
-        const spaceAfterAccept = capacity - (currentCount + 1);
+        const spaceAfterAccept = capacity - (currentCount + 1 - (canMakeRoom ? 1 : 0));
 
         // Do we have enough space left to fit the missing pieces?
         if (spaceAfterAccept < missingForSet) {
@@ -3060,18 +3249,23 @@ export default class BaseMachine {
       return false;
     }
 
-    const itemType = itemData.type;
+    const routedItem = this.tagItemRoute(itemData, 'processor');
+    const itemType = routedItem.type;
     // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
 
-    if (this.canAcceptInput(itemType, itemData)) {
+    if (this.canAcceptInput(itemType, routedItem)) {
       // Handle purity resource queueing - queue items for machines with inputLevels
       // This ensures machines using the inputLevels system can process items correctly
       // CRITICAL: For machines with inputLevels, ALWAYS add to queue with purity (default to 1)
       if (this.inputQueue && this.inputLevels && this.inputLevels.length > 0) {
+        if (this.inputQueue.length >= this.getInputCapacity()) {
+          this.makeRoomForBalancedInput(routedItem.purity !== undefined ? routedItem.purity : 1);
+        }
+
         // Ensure the item has a purity level - default to 1 if not specified
         const queuedItem = {
-          ...itemData,
-          purity: itemData.purity !== undefined ? itemData.purity : 1,
+          ...routedItem,
+          purity: routedItem.purity !== undefined ? routedItem.purity : 1,
         };
         this.inputQueue.push(queuedItem);
         console.log(
@@ -3079,9 +3273,9 @@ export default class BaseMachine {
         );
       } else if (this.inputQueue && itemType === 'purity-resource') {
         // Legacy handling for purity resources on machines without inputLevels
-        this.inputQueue.push(itemData);
+        this.inputQueue.push(routedItem);
         console.log(
-          `[${this.name}] Enqueued purity-resource (purity: ${itemData.purity}). Queue size: ${this.inputQueue.length}`
+          `[${this.name}] Enqueued purity-resource (purity: ${routedItem.purity}). Queue size: ${this.inputQueue.length}`
         );
       }
 

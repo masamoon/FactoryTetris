@@ -121,6 +121,8 @@ export function createPurityResource(purity = 1) {
     purity: purity,
     chainCount: 0,
     visitedMachines: new Set(),
+    machineUids: [],
+    routeTags: [],
     traitTags: [], // ordered list of trait ids picked up along the chain
     amount: 1,
   };
@@ -140,6 +142,8 @@ export function processResource(resource, machineId, machineTrait = null) {
     ...resource,
     purity: resource.purity + 1,
     visitedMachines: new Set(resource.visitedMachines),
+    machineUids: Array.isArray(resource.machineUids) ? [...resource.machineUids] : [],
+    routeTags: Array.isArray(resource.routeTags) ? [...resource.routeTags] : [],
     traitTags: Array.isArray(resource.traitTags) ? [...resource.traitTags] : [],
   };
 

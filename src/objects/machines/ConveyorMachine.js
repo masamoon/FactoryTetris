@@ -533,6 +533,7 @@ export default class ConveyorMachine extends BaseMachine {
    */
   addItemVisual(itemData) {
     try {
+      itemData = this.tagItemRoute(itemData, this.id === 'conveyor' ? 'belt' : this.id);
       // --- ADDED Safety Check ---
       if (!this.container || !this.grid || !this.itemVisualsGroup) {
         console.error(
@@ -977,9 +978,11 @@ export default class ConveyorMachine extends BaseMachine {
       console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Invalid itemData.`);
       return false;
     }
-    if (!this.canAcceptInput(itemData.type)) {
+    const routedItem = this.tagItemRoute(itemData, this.id === 'conveyor' ? 'belt' : this.id);
+
+    if (!this.canAcceptInput(routedItem.type)) {
       console.log(
-        `[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Type ${itemData.type} not accepted.`
+        `[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Type ${routedItem.type} not accepted.`
       );
       return false;
     }
@@ -1006,10 +1009,10 @@ export default class ConveyorMachine extends BaseMachine {
     }
 
     // Add item visual to the start of the belt
-    this.addItemVisual(itemData); // This adds to itemsOnBelt with progress 0
+    this.addItemVisual(routedItem); // This adds to itemsOnBelt with progress 0
 
     console.log(
-      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted item: ${itemData.type} (amount: ${itemData.amount || 1})`
+      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted item: ${routedItem.type} (amount: ${routedItem.amount || 1})`
     );
     return true;
   }

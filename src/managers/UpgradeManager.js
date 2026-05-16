@@ -69,6 +69,20 @@ export class UpgradeManager {
     return this.activeProceduralUpgrades.has('boon_lean_lines') ? -1 : 0;
   }
 
+  getArchetypeProcessingModifier(machine) {
+    if (!machine || !this.activeProceduralUpgrades.has('boon_recipe_lattice')) {
+      return 1;
+    }
+
+    const levels = Array.isArray(machine.inputLevels) ? machine.inputLevels : [];
+    if (levels.length < 2) return 1;
+
+    const uniqueLevels = new Set(levels);
+    const isMixedRecipe = uniqueLevels.size > 1;
+    const hasDuplicateInput = uniqueLevels.size < levels.length;
+    return isMixedRecipe || hasDuplicateInput ? 1.25 : 1;
+  }
+
   // --- Upgrade Application Logic ---
 
   applyUpgrade(upgradeType) {

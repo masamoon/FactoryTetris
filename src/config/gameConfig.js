@@ -242,10 +242,16 @@ export const GAME_CONFIG = {
   deliveryStreakWindow: 4000,
   deliveryStreakMomentumGain: 0.75,
   maxDeliveryStreakMomentumGain: 8,
+  offContractScoreMultiplier: 0.25,
   objectiveMomentumReward: 14,
   objectivesPerBonusUpgrade: 3,
   flowSurgeDuration: 12000,
   flowSurgeSpeedMultiplier: 1.35,
+  flowSurgeDeliveryExtension: 900,
+  flowSurgeMaxDuration: 18000,
+  flowSurgeContractBonusCredit: 1,
+  flowOnlineMomentumReward: 8,
+  processorReplacementMomentumCost: 6,
 
   // Milestone upgrade system (banked choices that the player can open when ready)
   firstUpgradeScore: 300,

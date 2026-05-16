@@ -82,6 +82,13 @@ export function getPieceConfigsForEra(era) {
         output: tiers.mid,
         notation: `${prevOutput}+${chipTier}/${tiers.mid}`,
       },
+      // Ratio recipe: double-feed the chip tier with the previous output to
+      // create a compact high-pressure feeder puzzle.
+      {
+        inputs: [prevOutput, chipTier, chipTier],
+        output: tiers.mid,
+        notation: `${prevOutput}+${chipTier}+${chipTier}/${tiers.mid}`,
+      },
       // Continue the ladder with a single-step refinement.
       // E.g., Era 2: L5 -> L6
       {
@@ -112,6 +119,11 @@ export function getPieceConfigsForEra(era) {
         output: tiers.output,
         notation: `${prevOutput}+${chipTier}+${tiers.mid}/${tiers.output}`,
       },
+      {
+        inputs: [chipTier, tiers.mid, tiers.mid],
+        output: transcendTier,
+        notation: `${chipTier}+${tiers.mid}+${tiers.mid}/${transcendTier}`,
+      },
       // Reward a fuller chain with direct transcend-tier output.
       // E.g., Era 2: L3 + L4 + L6 -> L7
       {
@@ -140,6 +152,7 @@ export function getPieceConfigsForEra(era) {
 // Valid piece configurations for 4-block pieces (single input)
 export const FOUR_BLOCK_CONFIGS = [
   { inputs: [1], output: 2, notation: '1/2' },
+  { inputs: [1, 1], output: 2, notation: '1+1/2' },
   { inputs: [2], output: 3, notation: '2/3' },
   { inputs: [3], output: 4, notation: '3/4' },
 ];
@@ -150,6 +163,7 @@ export const FIVE_BLOCK_CONFIGS = [
   { inputs: [1, 2], output: 3, notation: '1/2/3' },
   { inputs: [1, 3], output: 4, notation: '1/3/4' },
   { inputs: [2, 2], output: 4, notation: '2/2/4' },
+  { inputs: [1, 1, 2], output: 4, notation: '1+1+2/4' },
 ];
 
 // Count blocks in a shape to determine if it's 4-block or 5-block

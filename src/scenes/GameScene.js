@@ -99,6 +99,9 @@ export default class GameScene extends Phaser.Scene {
     this.transcendButtonPulse = null; // Tween reference for pulsing button
     this.deliveryHistory = []; // Track recent delivery timestamps for throughput calculation
     this.deliveryHistoryWindow = 30000; // Track deliveries over last 30 seconds
+    this.recentFlowPlacements = new Map();
+    this.flowPlacementRewardWindow = 18000;
+    this.flowSurgeDeliveries = 0;
 
     // === CHIP PLACEMENT MODE ===
     this.isPlacingChip = false; // Flag for when player is choosing chip placement
@@ -271,6 +274,7 @@ export default class GameScene extends Phaser.Scene {
     // --- Update Momentum UI ---
     this.updateFlowSurge(delta);
     this.updateMomentumUI();
+    this.cleanupRecentFlowPlacements();
 
     // Update all game objects
     this.factoryGrid.update(time, delta); // Pass time, delta to Grid.update()
@@ -345,10 +349,10 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setStrokeStyle(2, 0x3a5a7a);
     this.addToUI(uiBg);
-    */
 
     // Add some decorative elements
     this.addDecorations();
+    */
   }
 
   createUI() {
@@ -767,12 +771,21 @@ export default class GameScene extends Phaser.Scene {
                     // Try to place the machine using the scene's placeMachine method
                     let canPlace = false;
                     try {
+                        const currentDirection = this.getDirectionFromRotation(currentRotation);
                         canPlace = this.factoryGrid.canPlaceMachine(
                             gameObject.machineType, 
                             gridPosition.x, 
                             gridPosition.y, 
-                            currentRotation
+                            currentDirection
                         );
+                        if (!canPlace) {
+                            canPlace = this.canReplaceProcessor(
+                                gameObject.machineType,
+                                gridPosition.x,
+                                gridPosition.y,
+                                currentDirection
+                            );
+                        }
                     } catch (placementCheckError) {
                         console.error('[DRAGEND] Error checking if can place:', placementCheckError);
                         canPlace = false;
@@ -1278,16 +1291,24 @@ export default class GameScene extends Phaser.Scene {
       id: machine.id || (machine.machineType ? machine.machineType.id : 'unknown'),
       direction: direction, // Add the direction to prevent double rotation
     };
+    const replacementInfo = this.findProcessorReplacement(machine, gridPos.x, gridPos.y, direction);
+    const previewGridPos = replacementInfo
+      ? { x: replacementInfo.gridX, y: replacementInfo.gridY }
+      : gridPos;
+
     // Check if we can place the machine here
-    const canPlace = this.grid.canPlaceMachine(
+    let canPlace = this.grid.canPlaceMachine(
       machineTypeForCheck,
-      gridPos.x,
-      gridPos.y,
+      previewGridPos.x,
+      previewGridPos.y,
       direction
     );
+    if (!canPlace && replacementInfo) {
+      canPlace = true;
+    }
 
     // Get the world position of the center of the grid cell
-    const centerWorldPos = this.grid.gridToWorld(gridPos.x, gridPos.y);
+    const centerWorldPos = this.grid.gridToWorld(previewGridPos.x, previewGridPos.y);
 
     // Update the placement preview marker position
     if (this.placementPreviewMarker) {
@@ -1377,8 +1398,8 @@ export default class GameScene extends Phaser.Scene {
         // Only draw cells with value 1 (occupied)
         if (rotatedShape[y][x] === 1) {
           // *** MODIFIED: Calculate grid coordinates using top-left anchor logic ***
-          const cellGridX = gridPos.x + x;
-          const cellGridY = gridPos.y + y;
+          const cellGridX = previewGridPos.x + x;
+          const cellGridY = previewGridPos.y + y;
 
           // *** REMOVED Center-based offset logic ***
           // const offsetX = Math.floor(rotatedShape[0].length / 2);
@@ -1402,6 +1423,9 @@ export default class GameScene extends Phaser.Scene {
           // Kept uniform color logic only
 
           // Draw the cell directly at its world position
+          if (replacementInfo) {
+            cellColor = 0xffd966;
+          }
           this.placementPreview.fillStyle(cellColor, canPlace ? 0.7 : 0.3);
           this.placementPreview.fillRect(
             cellWorldTopLeftPos.x + 2, // Use top-left X + margin
@@ -1471,7 +1495,7 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    this.drawPlacementTraitPreview(machine, gridPos, rotatedShape, canPlace);
+    this.drawPlacementTraitPreview(machine, previewGridPos, rotatedShape, canPlace);
 
     // Draw a marker at the center position
     this.placementPreview.lineStyle(1, 0xffffff, 0.8);
@@ -2068,10 +2092,17 @@ export default class GameScene extends Phaser.Scene {
   }
 
   startFlowSurge() {
-    const duration = GAME_CONFIG.flowSurgeDuration || 12000;
+    let duration = GAME_CONFIG.flowSurgeDuration || 12000;
+    if (
+      this.upgradeManager &&
+      this.upgradeManager.isProceduralUpgradeActive('boon_surge_foundry')
+    ) {
+      duration += 5000;
+    }
     const wasActive = this.flowSurgeActive;
     this.flowSurgeActive = true;
     this.flowSurgeRemaining = duration;
+    this.flowSurgeDeliveries = 0;
     this.updateFlowSurgeText();
 
     if (!wasActive) {
@@ -2102,7 +2133,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const seconds = Math.ceil(this.flowSurgeRemaining / 1000);
-    this.flowSurgeText.setText(`FLOW SURGE ${seconds}s`);
+    this.flowSurgeText.setText(`FLOW SURGE ${seconds}s  SHIP ${this.flowSurgeDeliveries}`);
   }
 
   getFlowSpeedMultiplier() {
@@ -2136,11 +2167,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   showMomentumFeedback(amount, reason) {
+    const signedAmount = amount > 0 ? `+${amount.toFixed(1)}` : amount.toFixed(1);
     const text = this.add
       .text(this.scale.width - this.rightPanelWidth - 20, 44, `+${amount.toFixed(1)} ${reason}`, {
         fontFamily: 'Arial',
         fontSize: 13,
-        color: '#88ffcc',
+        color: amount >= 0 ? '#88ffcc' : '#ff8888',
         align: 'right',
         stroke: '#000000',
         strokeThickness: 2,
@@ -2149,6 +2181,8 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     text.setDepth(1000);
     this.addToUI(text);
+
+    text.setText(`${signedAmount} ${reason}`);
 
     this.tweens.add({
       targets: text,
@@ -2183,6 +2217,29 @@ export default class GameScene extends Phaser.Scene {
     this.recordObjectiveProgress('deliveryStreak', this.deliveryStreak);
   }
 
+  registerSurgeDelivery() {
+    if (!this.flowSurgeActive) return 0;
+
+    this.flowSurgeDeliveries++;
+    this.flowSurgeRemaining = Math.min(
+      this.flowSurgeRemaining + (GAME_CONFIG.flowSurgeDeliveryExtension || 900),
+      (GAME_CONFIG.flowSurgeMaxDuration || 18000) +
+        (this.upgradeManager?.isProceduralUpgradeActive('boon_surge_foundry') ? 5000 : 0)
+    );
+    this.recordObjectiveProgress('surgeShipment', 1);
+    this.updateFlowSurgeText();
+
+    if (
+      this.upgradeManager &&
+      this.upgradeManager.isProceduralUpgradeActive('boon_surge_foundry') &&
+      this.flowSurgeDeliveries % 3 === 0
+    ) {
+      return (GAME_CONFIG.flowSurgeContractBonusCredit || 1) + 1;
+    }
+
+    return GAME_CONFIG.flowSurgeContractBonusCredit || 1;
+  }
+
   getObjectiveTemplates() {
     return [
       {
@@ -2200,6 +2257,11 @@ export default class GameScene extends Phaser.Scene {
         id: 'combo',
         label: 'Reach combo momentum',
         target: 1,
+      },
+      {
+        id: 'surgeShipment',
+        label: 'Ship during Flow Surge x2',
+        target: 2,
       },
     ];
   }
@@ -2325,13 +2387,17 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  addScore(points) {
+  addScore(points, options = {}) {
     if (this.gameOver) return; // Don't add score if game is over
 
-    this.updateDeliveryStreak();
+    const countsForFlow = options.countsForFlow !== false;
+
+    if (countsForFlow) {
+      this.updateDeliveryStreak();
+    }
 
     // Check for combo bonus (momentum > 90%)
-    let comboActive = this.currentMomentum >= this.comboThreshold;
+    let comboActive = countsForFlow && this.currentMomentum >= this.comboThreshold;
     let effectivePoints = points;
 
     if (comboActive) {
@@ -2342,8 +2408,10 @@ export default class GameScene extends Phaser.Scene {
     this.score += effectivePoints;
     this.scoreText.setText(`SCORE: ${this.score}`);
 
-    // Increase Momentum
-    this.awardMomentum(points * this.momentumGainFactor);
+    // Increase Momentum only for deliveries that advance the active contract.
+    if (countsForFlow) {
+      this.awardMomentum(points * this.momentumGainFactor);
+    }
 
     // Show visual feedback for combo
     if (comboActive) {
@@ -2380,6 +2448,47 @@ export default class GameScene extends Phaser.Scene {
 
   // === CONTRACT SYSTEM ===
 
+  getItemRouteTags(itemData) {
+    return Array.isArray(itemData?.routeTags) ? itemData.routeTags : [];
+  }
+
+  hasContractRoute(itemData, contract = this.contract) {
+    if (!contract || !contract.requiredRouteTag) return true;
+
+    const tags = this.getItemRouteTags(itemData);
+    if (contract.requiredRouteTag === 'junction') {
+      return ['splitter', 'merger', 'underground-belt'].some((tag) => tags.includes(tag));
+    }
+    return tags.includes(contract.requiredRouteTag);
+  }
+
+  getContractDemandMatch(tier, itemData, options = {}) {
+    if (this.runState !== 'CONTRACT_ACTIVE' || !this.contract) return null;
+    if (!this.hasContractRoute(itemData, this.contract)) return null;
+
+    const allowFilled = options.allowFilled === true;
+    return (
+      (this.contract.demands || []).find((demand) => {
+        if (!allowFilled && demand.delivered >= demand.quantity) return false;
+        return demand.exact ? tier === demand.tier : tier >= demand.tier;
+      }) || null
+    );
+  }
+
+  isTierRelevantToContract(tier, itemData = null) {
+    return Boolean(this.getContractDemandMatch(tier, itemData, { allowFilled: true }));
+  }
+
+  getDeliveryReward(basePoints, tier, itemData = null) {
+    const countsForFlow = Boolean(this.getContractDemandMatch(tier, itemData));
+    const multiplier = countsForFlow ? 1 : GAME_CONFIG.offContractScoreMultiplier || 0;
+
+    return {
+      points: Math.floor(basePoints * multiplier),
+      countsForFlow,
+    };
+  }
+
   buildContract() {
     const era = this.currentEra;
     let quantity = TRANSCEND_THRESHOLDS.getDeliveryThreshold(era);
@@ -2391,15 +2500,69 @@ export default class GameScene extends Phaser.Scene {
       quantity = Math.max(1, Math.round(quantity * 0.8));
       timeBudget = Math.round(timeBudget * 0.85);
     }
+    const requiredTier = getTranscendTier(era);
+    const contractShape = this.createContractShape(era, requiredTier, quantity);
     this.contract = {
       number: era,
-      requiredTier: getTranscendTier(era),
+      title: contractShape.title,
+      requiredTier,
       quantity,
       timeBudget,
       delivered: 0,
+      demands: contractShape.demands,
+      requiredRouteTag: contractShape.requiredRouteTag || null,
     };
     this.contractDeliveryCount = 0;
     return this.contract;
+  }
+
+  createContractShape(era, requiredTier, quantity) {
+    const variant = (era - 1) % 5;
+    const lowerTier = Math.max(1, requiredTier - 1);
+    const feederTier = Math.max(1, requiredTier - 2);
+
+    if (variant === 1) {
+      const highQty = Math.max(1, Math.ceil(quantity / 2));
+      return {
+        title: 'Exact Ratio',
+        demands: [
+          { tier: lowerTier, quantity: Math.max(1, quantity - highQty), delivered: 0, exact: true },
+          { tier: requiredTier, quantity: highQty, delivered: 0, exact: true },
+        ],
+      };
+    }
+
+    if (variant === 2) {
+      return {
+        title: 'Junction Run',
+        requiredRouteTag: 'junction',
+        demands: [{ tier: requiredTier, quantity, delivered: 0, exact: false }],
+      };
+    }
+
+    if (variant === 3) {
+      return {
+        title: 'Underground Run',
+        requiredRouteTag: 'underground-belt',
+        demands: [{ tier: lowerTier, quantity, delivered: 0, exact: false }],
+      };
+    }
+
+    if (variant === 4) {
+      return {
+        title: 'Three-Part Ratio',
+        demands: [
+          { tier: feederTier, quantity: 1, delivered: 0, exact: true },
+          { tier: lowerTier, quantity: 1, delivered: 0, exact: true },
+          { tier: requiredTier, quantity: Math.max(1, quantity - 2), delivered: 0, exact: true },
+        ],
+      };
+    }
+
+    return {
+      title: 'Precision Shipment',
+      demands: [{ tier: requiredTier, quantity, delivered: 0, exact: true }],
+    };
   }
 
   startContractTimer() {
@@ -2432,9 +2595,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // Called by DeliveryNode for every level/purity delivery.
-  onContractDelivery(tier) {
+  onContractDelivery(tier, itemData = null) {
     if (this.runState !== 'CONTRACT_ACTIVE' || !this.contract) return;
-    if (tier < this.contract.requiredTier) return;
+    const demand = this.getContractDemandMatch(tier, itemData);
+    if (!demand) return;
 
     this.contractDeliveryCount++;
     // "Every Fifth Counts" boon: every 5th qualifying delivery counts double
@@ -2454,11 +2618,25 @@ export default class GameScene extends Phaser.Scene {
     ) {
       credit = Math.ceil(credit * 1.2);
     }
+    if (
+      this.upgradeManager &&
+      this.upgradeManager.isProceduralUpgradeActive('boon_junction_jubilee') &&
+      this.hasContractRoute(itemData, { requiredRouteTag: 'junction' })
+    ) {
+      credit += 1;
+    }
+    if (this.flowSurgeActive) {
+      credit += this.registerSurgeDelivery();
+    }
 
-    this.contract.delivered += credit;
+    demand.delivered = Math.min(demand.quantity, demand.delivered + credit);
+    this.contract.delivered = this.contract.demands.reduce(
+      (sum, entry) => sum + Math.min(entry.delivered, entry.quantity),
+      0
+    );
     this.updateContractHud();
 
-    if (this.contract.delivered >= this.contract.quantity) {
+    if (this.contract.demands.every((entry) => entry.delivered >= entry.quantity)) {
       this.clearContract();
     }
   }
@@ -2471,13 +2649,24 @@ export default class GameScene extends Phaser.Scene {
       this.contractTimerText.setText('Ship when ready');
       return;
     }
-    this.contractText.setText(
-      `Contract ${c.number}: deliver ${Math.min(c.delivered, c.quantity)}/${c.quantity}  ·  L${c.requiredTier}+`
-    );
+    this.contractText.setText(`Contract ${c.number}: ${c.title}\n${this.getContractDemandText(c)}`);
     const rem = Math.ceil(this.getContractTimeRemaining());
     const urgent = rem <= Math.max(5, c.timeBudget * 0.2);
     this.contractTimerText.setColor(urgent ? '#ff5555' : '#88ccff');
     this.contractTimerText.setText(`⏱ ${rem}s`);
+  }
+
+  getContractDemandText(contract) {
+    const demandText = (contract.demands || [])
+      .map((demand) => {
+        const comparator = demand.exact ? '=' : '+';
+        return `${Math.min(demand.delivered, demand.quantity)}/${demand.quantity} L${demand.tier}${comparator}`;
+      })
+      .join('  ');
+    const routeText = contract.requiredRouteTag
+      ? ` via ${contract.requiredRouteTag === 'junction' ? 'junction' : contract.requiredRouteTag}`
+      : '';
+    return `${demandText}${routeText}`;
   }
 
   clearContract() {
@@ -3566,6 +3755,285 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  isProcessorTypeId(id) {
+    return typeof id === 'string' && id.toLowerCase().includes('processor');
+  }
+
+  isProcessorMachine(machine) {
+    return machine && this.isProcessorTypeId(machine.id);
+  }
+
+  getPlacementFootprint(machineType, gridX, gridY, direction) {
+    if (!this.grid || !machineType || !machineType.shape) return null;
+
+    const shape = this.grid.getRotatedShape(machineType.shape, direction);
+    if (!shape || !Array.isArray(shape) || !Array.isArray(shape[0])) return null;
+
+    const cells = [];
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x] !== 1) continue;
+        cells.push({ x: gridX + x, y: gridY + y });
+      }
+    }
+
+    return cells;
+  }
+
+  getProcessorAtCell(gridX, gridY) {
+    if (!this.grid) return null;
+    const cell = this.grid.getCell(gridX, gridY);
+    if (!cell || cell.type !== 'machine' || !cell.object) return null;
+    return this.isProcessorMachine(cell.object) ? cell.object : null;
+  }
+
+  getRotatedShapeSize(machineType, direction) {
+    if (!this.grid || !machineType || !machineType.shape) return null;
+    const shape = this.grid.getRotatedShape(machineType.shape, direction);
+    if (!shape || !Array.isArray(shape) || !Array.isArray(shape[0])) return null;
+    return { width: shape[0].length, height: shape.length };
+  }
+
+  canPlaceFootprintAfterRemoving(machineType, gridX, gridY, direction, removedMachine) {
+    const footprint = this.getPlacementFootprint(machineType, gridX, gridY, direction);
+    if (!footprint || footprint.length === 0) return false;
+
+    for (const cellPos of footprint) {
+      if (
+        cellPos.x < 0 ||
+        cellPos.x >= this.grid.width ||
+        cellPos.y < 0 ||
+        cellPos.y >= this.grid.height
+      ) {
+        return false;
+      }
+
+      const cell = this.grid.getCell(cellPos.x, cellPos.y);
+      if (!cell || cell.type === 'empty') continue;
+      if (cell.type === 'machine' && cell.object === removedMachine) continue;
+      return false;
+    }
+
+    return true;
+  }
+
+  findNearbyProcessorReplacementAnchor(machineType, clickX, clickY, direction, existingMachine) {
+    const shapeSize = this.getRotatedShapeSize(machineType, direction);
+    if (!shapeSize) return null;
+
+    const radius = Math.max(shapeSize.width, shapeSize.height, 4);
+    let best = null;
+
+    for (let y = clickY - radius; y <= clickY + radius; y++) {
+      for (let x = clickX - radius; x <= clickX + radius; x++) {
+        if (!this.canPlaceFootprintAfterRemoving(machineType, x, y, direction, existingMachine)) {
+          continue;
+        }
+
+        const centerX = x + (shapeSize.width - 1) / 2;
+        const centerY = y + (shapeSize.height - 1) / 2;
+        const distance = Math.abs(centerX - clickX) + Math.abs(centerY - clickY);
+        const candidate = { x, y, distance };
+
+        if (
+          !best ||
+          candidate.distance < best.distance ||
+          (candidate.distance === best.distance &&
+            Math.abs(candidate.x - clickX) + Math.abs(candidate.y - clickY) <
+              Math.abs(best.x - clickX) + Math.abs(best.y - clickY))
+        ) {
+          best = candidate;
+        }
+      }
+    }
+
+    return best ? { x: best.x, y: best.y } : null;
+  }
+
+  findProcessorReplacement(machineType, gridX, gridY, direction) {
+    if (!this.grid || !machineType || !this.isProcessorTypeId(machineType.id)) return null;
+
+    const clickedProcessor = this.getProcessorAtCell(gridX, gridY);
+    if (clickedProcessor) {
+      const nearbyAnchor = this.findNearbyProcessorReplacementAnchor(
+        machineType,
+        gridX,
+        gridY,
+        direction,
+        clickedProcessor
+      );
+      if (nearbyAnchor) {
+        return {
+          machine: clickedProcessor,
+          footprint: this.getPlacementFootprint(
+            machineType,
+            nearbyAnchor.x,
+            nearbyAnchor.y,
+            direction
+          ),
+          gridX: nearbyAnchor.x,
+          gridY: nearbyAnchor.y,
+          preservesTrait: Boolean(clickedProcessor.trait),
+          flushesInventory: this.machineHasBufferedItems(clickedProcessor),
+        };
+      }
+    }
+
+    const footprint = this.getPlacementFootprint(machineType, gridX, gridY, direction);
+    if (!footprint || footprint.length === 0) return null;
+
+    const occupiedObjects = new Set();
+    for (const cellPos of footprint) {
+      if (
+        cellPos.x < 0 ||
+        cellPos.x >= this.grid.width ||
+        cellPos.y < 0 ||
+        cellPos.y >= this.grid.height
+      ) {
+        return null;
+      }
+
+      const cell = this.grid.getCell(cellPos.x, cellPos.y);
+      if (!cell || cell.type === 'empty') continue;
+      if (cell.type !== 'machine' || !cell.object) return null;
+      occupiedObjects.add(cell.object);
+    }
+
+    if (occupiedObjects.size !== 1) return null;
+
+    const existingMachine = Array.from(occupiedObjects)[0];
+    if (!this.isProcessorMachine(existingMachine)) return null;
+
+    return {
+      machine: existingMachine,
+      footprint,
+      gridX,
+      gridY,
+      preservesTrait: Boolean(existingMachine.trait),
+      flushesInventory: this.machineHasBufferedItems(existingMachine),
+    };
+  }
+
+  canReplaceProcessor(machineType, gridX, gridY, direction) {
+    return Boolean(this.findProcessorReplacement(machineType, gridX, gridY, direction));
+  }
+
+  machineHasBufferedItems(machine) {
+    if (!machine) return false;
+    if (Array.isArray(machine.inputQueue) && machine.inputQueue.length > 0) return true;
+    if (Array.isArray(machine.outputQueue) && machine.outputQueue.length > 0) return true;
+
+    const inventories = [machine.inputInventory, machine.outputInventory];
+    return inventories.some(
+      (inventory) =>
+        inventory &&
+        Object.values(inventory).some((count) => typeof count === 'number' && count > 0)
+    );
+  }
+
+  getMachineTypeForProcessorReplacement(machineType, existingMachine) {
+    if (!machineType || !existingMachine || !existingMachine.trait) {
+      return machineType;
+    }
+
+    return {
+      ...machineType,
+      trait: existingMachine.trait,
+      replacementPreservedTrait: true,
+    };
+  }
+
+  removeMachineForProcessorReplacement(machine) {
+    if (!machine) return;
+
+    const machineIndex = this.machines.indexOf(machine);
+    if (machineIndex > -1) {
+      this.machines.splice(machineIndex, 1);
+    }
+
+    if (typeof machine.destroy === 'function') {
+      machine.destroy();
+    } else if (this.grid && typeof this.grid.removeMachine === 'function') {
+      this.grid.removeMachine(machine);
+    }
+  }
+
+  applyProcessorReplacementCost(replacementInfo) {
+    const cost = GAME_CONFIG.processorReplacementMomentumCost || 0;
+    if (cost > 0) {
+      this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum - cost, 0, this.maxMomentum);
+      this.showMomentumFeedback(-cost, 'rewire');
+    }
+
+    const message = replacementInfo?.flushesInventory
+      ? 'Processor replaced\nInventory flushed'
+      : replacementInfo?.preservesTrait
+        ? 'Processor replaced\nTrait preserved'
+        : 'Processor replaced';
+    this.showProcessorReplacementFeedback(message);
+  }
+
+  showProcessorReplacementFeedback(message) {
+    const text = this.add
+      .text(this.scale.width - this.rightPanelWidth - 20, 142, message, {
+        fontFamily: 'Arial Black',
+        fontSize: 15,
+        color: '#ffd966',
+        align: 'right',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 112,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  trackPlacementForFlowReward(machine) {
+    if (!machine || !machine.uid || !this.recentFlowPlacements) return;
+
+    this.recentFlowPlacements.set(machine.uid, {
+      expiresAt: this.time.now + this.flowPlacementRewardWindow,
+      rewarded: false,
+      machineId: machine.id,
+    });
+  }
+
+  cleanupRecentFlowPlacements() {
+    if (!this.recentFlowPlacements || this.recentFlowPlacements.size === 0) return;
+    const now = this.time.now;
+    for (const [uid, info] of this.recentFlowPlacements.entries()) {
+      if (info.rewarded || info.expiresAt <= now) {
+        this.recentFlowPlacements.delete(uid);
+      }
+    }
+  }
+
+  recordDeliveryFlow(itemData, tier, reward) {
+    if (!itemData || !this.recentFlowPlacements || reward?.countsForFlow === false) return;
+
+    const machineUids = Array.isArray(itemData.machineUids) ? itemData.machineUids : [];
+    for (const uid of machineUids) {
+      const info = this.recentFlowPlacements.get(uid);
+      if (!info || info.rewarded || info.expiresAt < this.time.now) continue;
+
+      info.rewarded = true;
+      this.awardMomentum(GAME_CONFIG.flowOnlineMomentumReward || 8, 'line online');
+      this.recordObjectiveProgress('linkedPlacement', 1);
+      this.showProcessorReplacementFeedback(`Line online\nL${tier} shipped`);
+      break;
+    }
+  }
+
   countNewMachineConnections(machine, gridX, gridY, direction) {
     if (!machine || !this.grid) return 0;
 
@@ -3683,6 +4151,7 @@ export default class GameScene extends Phaser.Scene {
 
       // Check 6: Final placement check using derived direction
       let canPlace = false;
+      let replacementInfo = null;
       try {
         canPlace = this.grid.canPlaceMachine(machineType, gridX, gridY, direction);
       } catch (canPlaceError) {
@@ -3691,6 +4160,21 @@ export default class GameScene extends Phaser.Scene {
           canPlaceError
         );
         return null; // Exit on error during check
+      }
+      if (!canPlace) {
+        replacementInfo = this.findProcessorReplacement(machineType, gridX, gridY, direction);
+        if (replacementInfo) {
+          machineType = this.getMachineTypeForProcessorReplacement(
+            machineType,
+            replacementInfo.machine
+          );
+          gridX = replacementInfo.gridX;
+          gridY = replacementInfo.gridY;
+          canPlace = true;
+          console.log(
+            `[GameScene.placeMachine] Processor replacement armed: ${replacementInfo.machine.id} -> ${machineType.id}`
+          );
+        }
       }
       if (!canPlace) {
         console.warn(
@@ -3712,6 +4196,9 @@ export default class GameScene extends Phaser.Scene {
         console.log(
           `[GameScene.placeMachine] Calling machineFactory.createMachine for ${machineType.id} at (${gridX},${gridY})`
         ); // LOG P7
+        if (replacementInfo) {
+          this.removeMachineForProcessorReplacement(replacementInfo.machine);
+        }
         // Pass the full machineType object so level configuration (inputLevels, outputLevel) is available
         machineObj = this.machineFactory.createMachine(
           machineType,
@@ -3785,6 +4272,7 @@ export default class GameScene extends Phaser.Scene {
       // Add the machine to the scene's tracking array
       this.machines.push(machineObj);
       this.addToWorld(machineObj);
+      this.trackPlacementForFlowReward(machineObj);
       console.log(
         `[GameScene.placeMachine] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`
       ); // LOG P11
@@ -3805,6 +4293,9 @@ export default class GameScene extends Phaser.Scene {
       );
       if (connectionCount > 0) {
         this.recordObjectiveProgress('linkedPlacement', 1);
+      }
+      if (replacementInfo) {
+        this.applyProcessorReplacementCost(replacementInfo);
       }
 
       // Always exit machine placement mode after successful placement

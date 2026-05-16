@@ -886,16 +886,35 @@ export default class MachineFactory {
       }
       console.log(`[Factory.handlePlaceMachine] Got gridPos: (${gridPos.x}, ${gridPos.y})`); // LOG H6
 
+      const placementRotation = this.selectedMachineType.rotation || 0;
+      const placementDirection =
+        this.scene && typeof this.scene.getDirectionFromRotation === 'function'
+          ? this.scene.getDirectionFromRotation(placementRotation)
+          : this.selectedMachineType.direction || 'right';
+
       // Check if we can place the machine at the grid position
       console.log(
         `[Factory.handlePlaceMachine] Checking canPlaceMachine for ${this.selectedMachineType.id} at (${gridPos.x}, ${gridPos.y})`
       ); // LOG H7
-      const canPlace = this.scene.factoryGrid.canPlaceMachine(
+      let canPlace = this.scene.factoryGrid.canPlaceMachine(
         this.selectedMachineType,
         gridPos.x,
         gridPos.y,
-        this.selectedMachineType.direction || 'right' // Use right if direction undefined
+        placementDirection
       );
+      if (
+        !canPlace &&
+        this.scene &&
+        typeof this.scene.canReplaceProcessor === 'function' &&
+        this.scene.canReplaceProcessor(
+          this.selectedMachineType,
+          gridPos.x,
+          gridPos.y,
+          placementDirection
+        )
+      ) {
+        canPlace = true;
+      }
       console.log(`[Factory.handlePlaceMachine] canPlaceMachine result: ${canPlace}`); // LOG H8
 
       if (canPlace) {
@@ -908,7 +927,7 @@ export default class MachineFactory {
             this.selectedMachineType,
             gridPos.x,
             gridPos.y,
-            this.selectedMachineType.rotation || 0
+            placementRotation
           );
 
           if (placedMachine) {

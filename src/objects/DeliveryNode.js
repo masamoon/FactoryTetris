@@ -155,26 +155,34 @@ export default class DeliveryNode {
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
       const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
+      const reward = this.scene.getDeliveryReward?.(adjustedPoints, level, itemData) || {
+        points: adjustedPoints,
+        countsForFlow: true,
+      };
 
       // Add score
-      this.scene.addScore(adjustedPoints);
+      this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow });
 
       // Track delivery for throughput calculation (only transcend tier counts)
-      if (this.scene.trackDelivery) {
+      if (reward.countsForFlow && this.scene.trackDelivery) {
         this.scene.trackDelivery(level);
       }
 
       // Track delivery toward the active Contract (tier-or-better counts)
-      if (this.scene.onContractDelivery) {
-        this.scene.onContractDelivery(level);
+      if (reward.countsForFlow && this.scene.onContractDelivery) {
+        this.scene.onContractDelivery(level, itemData);
+      }
+
+      if (this.scene.recordDeliveryFlow) {
+        this.scene.recordDeliveryFlow(itemData, level, reward);
       }
 
       // Visual feedback for level resource
       const levelName = getLevelName(level);
-      this.createLevelAcceptEffect(level, adjustedPoints, levelName);
+      this.createLevelAcceptEffect(level, reward.points, levelName);
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${adjustedPoints} points`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
       );
       return true;
     }
@@ -185,26 +193,34 @@ export default class DeliveryNode {
       const chainCount = itemData.chainCount || 1;
       const totalPoints = calculateDeliveryScore(purity, chainCount);
       const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
+      const reward = this.scene.getDeliveryReward?.(adjustedPoints, purity, itemData) || {
+        points: adjustedPoints,
+        countsForFlow: true,
+      };
 
       // Add score
-      this.scene.addScore(adjustedPoints);
+      this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow });
 
       // Track delivery for throughput calculation (only transcend tier counts)
-      if (this.scene.trackDelivery) {
+      if (reward.countsForFlow && this.scene.trackDelivery) {
         this.scene.trackDelivery(purity);
       }
 
       // Track delivery toward the active Contract (tier-or-better counts)
-      if (this.scene.onContractDelivery) {
-        this.scene.onContractDelivery(purity);
+      if (reward.countsForFlow && this.scene.onContractDelivery) {
+        this.scene.onContractDelivery(purity, itemData);
+      }
+
+      if (this.scene.recordDeliveryFlow) {
+        this.scene.recordDeliveryFlow(itemData, purity, reward);
       }
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
-      this.createPurityAcceptEffect(purity, chainCount, adjustedPoints, purityName);
+      this.createPurityAcceptEffect(purity, chainCount, reward.points, purityName);
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${adjustedPoints} points`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
       );
       return true;
     }
@@ -225,7 +241,7 @@ export default class DeliveryNode {
     }
 
     // Add score
-    this.scene.addScore(totalPoints);
+    this.scene.addScore(totalPoints, { countsForFlow: false });
 
     // Visual feedback for accepted resource
     this.createAcceptEffect(resourceType, totalPoints);
