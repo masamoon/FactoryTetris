@@ -9,6 +9,7 @@ import {
   getGridSizeForEra,
   getTranscendTier,
   TRANSCEND_THRESHOLDS,
+  getContractTimeBudget,
   CHIP_CONFIG,
 } from '../config/eraConfig';
 // Note: TestUtils and MachineRegistry are used for development/debugging but may appear unused
@@ -88,6 +89,12 @@ export default class GameScene extends Phaser.Scene {
     this.currentEra = 1; // Current era (starts at 1)
     this.chips = []; // Array of ChipNode entities from previous eras
     this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
+    // === Contract system state ===
+    // runState: 'CONTRACT_ACTIVE' | 'CONTRACT_CLEARED' | 'GRACE' | 'RUN_OVER'
+    this.runState = 'CONTRACT_ACTIVE';
+    this.contract = null; // built by buildContract()
+    this.contractTimerEvent = null; // Phaser.Time.TimerEvent for the countdown
+    this.contractDeliveryCount = 0; // for "Every Fifth Counts" boon tally
     this.canTranscend = false; // Flag when transcendence conditions are met
     this.transcendButtonPulse = null; // Tween reference for pulsing button
     this.deliveryHistory = []; // Track recent delivery timestamps for throughput calculation
@@ -190,6 +197,7 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0;
     this.gameTime = 0;
     this.gameOver = false;
+    this.buildContract();
     this.lastUpgradeMilestone = 0; // Reset milestone tracking
     this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
     this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
@@ -545,19 +553,6 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.upgradeReadyButton.button);
     this.addToUI(this.upgradeReadyButton.text);
     this.updateUpgradeReadyButton();
-
-    // Transcend Button (hidden until conditions are met)
-    this.transcendButton = this.createButton(centerX, buttonStartY + 180, 'TRANSCEND!', () => {
-      this.triggerTranscendence();
-    });
-    this.transcendButton.button.fillColor = 0x4444aa;
-    this.transcendButton.button.setStrokeStyle(3, 0x8888ff);
-    this.transcendButton.button.setVisible(false);
-    this.transcendButton.text.setVisible(false);
-    this.transcendButton.button.setScrollFactor(0);
-    this.transcendButton.text.setScrollFactor(0);
-    this.addToUI(this.transcendButton.button);
-    this.addToUI(this.transcendButton.text);
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
@@ -2414,32 +2409,99 @@ export default class GameScene extends Phaser.Scene {
     this.refreshRunWideHud();
   }
 
-  // === TRANSCENDENCE SYSTEM METHODS ===
+  // === CONTRACT SYSTEM ===
 
-  /**
-   * Check if the player can transcend to the next era
-   */
-  checkTranscendCondition() {
-    const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
+  buildContract() {
+    const era = this.currentEra;
+    this.contract = {
+      number: era,
+      requiredTier: getTranscendTier(era),
+      quantity: TRANSCEND_THRESHOLDS.getDeliveryThreshold(era),
+      timeBudget: getContractTimeBudget(era),
+      delivered: 0,
+    };
+    this.contractDeliveryCount = 0;
+    return this.contract;
+  }
 
-    // Only delivery threshold matters now (no level requirement)
-    const deliveryMet = this.deliveredHighTierResources >= deliveryThreshold;
+  startContractTimer() {
+    if (this.contractTimerEvent) {
+      this.contractTimerEvent.remove();
+      this.contractTimerEvent = null;
+    }
+    const ms = this.contract.timeBudget * 1000;
+    this.contractTimerEvent = this.time.addEvent({
+      delay: ms,
+      callback: this.onContractTimeout,
+      callbackScope: this,
+    });
+    this.runState = 'CONTRACT_ACTIVE';
+    this.updateContractHud();
+  }
 
-    const wasCanTranscend = this.canTranscend;
-    this.canTranscend = deliveryMet;
+  onContractTimeout() {
+    if (this.runState !== 'CONTRACT_ACTIVE') return;
+    this.runState = 'RUN_OVER';
+    console.log('[CONTRACT] Time expired — run over');
+    this.endGame();
+  }
 
-    // Update transcend button visibility and animation
-    if (this.canTranscend && !wasCanTranscend) {
-      console.log(
-        `[TRANSCEND] Conditions met! Deliveries ${this.deliveredHighTierResources}/${deliveryThreshold}`
-      );
-      this.showTranscendButton();
-    } else if (!this.canTranscend && wasCanTranscend) {
-      this.hideTranscendButton();
+  // Returns remaining seconds on the active contract (0 if none / paused done)
+  getContractTimeRemaining() {
+    if (!this.contractTimerEvent) return this.contract ? this.contract.timeBudget : 0;
+    const remMs = this.contractTimerEvent.delay - this.contractTimerEvent.getElapsed();
+    return Math.max(0, remMs / 1000);
+  }
+
+  // Called by DeliveryNode for every level/purity delivery.
+  onContractDelivery(tier) {
+    if (this.runState !== 'CONTRACT_ACTIVE' || !this.contract) return;
+    if (tier < this.contract.requiredTier) return;
+
+    this.contractDeliveryCount++;
+    // "Every Fifth Counts" boon: every 5th qualifying delivery counts double
+    let credit = 1;
+    if (
+      this.upgradeManager &&
+      this.upgradeManager.isProceduralUpgradeActive('boon_every_fifth') &&
+      this.contractDeliveryCount % 5 === 0
+    ) {
+      credit = 2;
+    }
+    // "Momentum Engine" boon: faster fill while momentum is at combo threshold
+    if (
+      this.upgradeManager &&
+      this.upgradeManager.isProceduralUpgradeActive('boon_momentum_engine') &&
+      this.currentMomentum >= this.comboThreshold
+    ) {
+      credit = Math.ceil(credit * 1.2);
     }
 
-    // Update transcend progress display
-    this.updateTranscendProgress();
+    this.contract.delivered += credit;
+    this.updateContractHud();
+
+    if (this.contract.delivered >= this.contract.quantity) {
+      this.clearContract();
+    }
+  }
+
+  // HUD updater stub — the full banner/timer rendering is added in Task 3.
+  // Guarded so Task 2 deliveries don't crash before the HUD text exists.
+  updateContractHud() {
+    if (!this.contractText || !this.contract) return;
+  }
+
+  clearContract() {
+    if (this.runState !== 'CONTRACT_ACTIVE') return;
+    this.runState = 'CONTRACT_CLEARED';
+    if (this.contractTimerEvent) {
+      this.contractTimerEvent.remove();
+      this.contractTimerEvent = null;
+    }
+    console.log(`[CONTRACT] Contract ${this.contract.number} cleared`);
+    // canTranscend is required by triggerTranscendence(); set it here.
+    this.canTranscend = true;
+    this.triggerTranscendence();
   }
 
   /**
@@ -2534,18 +2596,6 @@ export default class GameScene extends Phaser.Scene {
     // Calculate deliveries per second over the window
     const windowSeconds = this.deliveryHistoryWindow / 1000;
     return recentDeliveries.length / windowSeconds;
-  }
-
-  /**
-   * Called when a high-tier resource is delivered - tracks progress toward transcendence
-   * Transcendence requires delivering the chip output tier (L4 for Era 1, L7 for Era 2, etc.)
-   */
-  onHighTierDelivery(tier) {
-    const transcendTier = getTranscendTier(this.currentEra);
-    if (tier === transcendTier) {
-      this.deliveredHighTierResources++;
-      this.checkTranscendCondition();
-    }
   }
 
   /**
@@ -2832,10 +2882,7 @@ export default class GameScene extends Phaser.Scene {
     this.createInitialResourceNodes();
 
     // 9. Reset transcendence-related counters
-    this.deliveredHighTierResources = 0;
     this.deliveryHistory = [];
-    this.canTranscend = false;
-    this.hideTranscendButton();
 
     // 10. Update level display (level continues, doesn't reset)
     this.updateEraUI();

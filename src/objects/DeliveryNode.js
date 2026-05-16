@@ -164,9 +164,9 @@ export default class DeliveryNode {
         this.scene.trackDelivery(level);
       }
 
-      // Track delivery for transcendence system (only transcend tier counts)
-      if (this.scene.onHighTierDelivery) {
-        this.scene.onHighTierDelivery(level);
+      // Track delivery toward the active Contract (tier-or-better counts)
+      if (this.scene.onContractDelivery) {
+        this.scene.onContractDelivery(level);
       }
 
       // Visual feedback for level resource
@@ -194,9 +194,9 @@ export default class DeliveryNode {
         this.scene.trackDelivery(purity);
       }
 
-      // Track delivery for transcendence system (only transcend tier counts)
-      if (this.scene.onHighTierDelivery) {
-        this.scene.onHighTierDelivery(purity);
+      // Track delivery toward the active Contract (tier-or-better counts)
+      if (this.scene.onContractDelivery) {
+        this.scene.onContractDelivery(purity);
       }
 
       // Visual feedback for purity resource
