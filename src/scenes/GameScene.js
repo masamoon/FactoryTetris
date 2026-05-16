@@ -2382,11 +2382,20 @@ export default class GameScene extends Phaser.Scene {
 
   buildContract() {
     const era = this.currentEra;
+    let quantity = TRANSCEND_THRESHOLDS.getDeliveryThreshold(era);
+    let timeBudget = getContractTimeBudget(era);
+    if (
+      this.upgradeManager &&
+      this.upgradeManager.isProceduralUpgradeActive('boon_bulk_contracts')
+    ) {
+      quantity = Math.max(1, Math.round(quantity * 0.8));
+      timeBudget = Math.round(timeBudget * 0.85);
+    }
     this.contract = {
       number: era,
       requiredTier: getTranscendTier(era),
-      quantity: TRANSCEND_THRESHOLDS.getDeliveryThreshold(era),
-      timeBudget: getContractTimeBudget(era),
+      quantity,
+      timeBudget,
       delivered: 0,
     };
     this.contractDeliveryCount = 0;
