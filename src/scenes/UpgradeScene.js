@@ -14,6 +14,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.upgradeManager = data.upgradeManager;
     this.callingSceneKey = data.callingSceneKey || 'GameScene';
     this.isLevelUp = data.isLevelUp || false;
+    this.isBoon = data.isBoon || false;
     this.upgradeChoices = [];
     this.selectedUpgrade = null;
   }
@@ -32,7 +33,11 @@ export class UpgradeScene extends Phaser.Scene {
     this.overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
 
     // Add title
-    let titleText = this.isLevelUp ? 'Upgrade Ready' : 'Choose an Upgrade';
+    let titleText = this.isBoon
+      ? 'Choose a Boon'
+      : this.isLevelUp
+        ? 'Upgrade Ready'
+        : 'Choose an Upgrade';
 
     this.title = this.add
       .text(width / 2, height * 0.15, titleText, {
@@ -44,7 +49,9 @@ export class UpgradeScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     // Get upgrade choices from manager
-    this.upgradeChoices = this.upgradeManager.getUpgradeChoices(3);
+    this.upgradeChoices = this.isBoon
+      ? this.upgradeManager.getBoonChoices(3)
+      : this.upgradeManager.getUpgradeChoices(3);
 
     // Create upgrade cards
     this.createUpgradeCards();
@@ -87,7 +94,9 @@ export class UpgradeScene extends Phaser.Scene {
       .setStrokeStyle(2, 0x6a8fbb)
       .setInteractive({ useHandCursor: true });
 
-    const textContent = `${choice.name} (Lvl ${choice.level})\n${choice.description}`;
+    const textContent = choice.level
+      ? `${choice.name} (Lvl ${choice.level})\n${choice.description}`
+      : `${choice.name}\n${choice.description}`;
     const text = this.add
       .text(x, y, textContent, {
         fontSize: '18px',
@@ -104,16 +113,15 @@ export class UpgradeScene extends Phaser.Scene {
       bg.fillColor = 0x3a5f95;
     });
     bg.on('pointerdown', () => {
-      // Apply the upgrade
-      this.upgradeManager.applyUpgrade(choice.type);
-      console.log(`Selected Upgrade: ${choice.name}`);
-
-      // Play sound (optional)
-      if (this.scene.get(this.callingSceneKey)?.playSound) {
-        this.scene.get(this.callingSceneKey).playSound('upgrade-select'); // Assuming sound key exists
+      if (this.isBoon) {
+        this.upgradeManager.applyBoon(choice.type);
+      } else {
+        this.upgradeManager.applyUpgrade(choice.type);
       }
-
-      // Close this scene and resume the calling scene
+      console.log(`Selected: ${choice.name}`);
+      if (this.scene.get(this.callingSceneKey)?.playSound) {
+        this.scene.get(this.callingSceneKey).playSound('upgrade-select');
+      }
       this.closeScene();
     });
 

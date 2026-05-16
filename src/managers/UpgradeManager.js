@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { upgradesConfig, UPGRADE_TYPES, TIER_THRESHOLDS } from '../config/upgrades.js';
+import { BOON_POOL } from '../config/boons.js';
 
 export class UpgradeManager {
   constructor() {
@@ -139,6 +140,22 @@ export class UpgradeManager {
     // Shuffle and pick 'count' upgrades
     Phaser.Utils.Array.Shuffle(availableUpgrades);
     return availableUpgrades.slice(0, count);
+  }
+
+  getBoonChoices(count = 3) {
+    const available = BOON_POOL.filter((b) => !this.activeProceduralUpgrades.has(b.id));
+    Phaser.Utils.Array.Shuffle(available);
+    return available.slice(0, count).map((b) => ({
+      type: b.id,
+      name: b.name,
+      description: b.description,
+      rarity: b.rarity || 'common',
+    }));
+  }
+
+  applyBoon(boonId) {
+    this.activeProceduralUpgrades.add(boonId);
+    console.log(`[BOON] Applied ${boonId}`);
   }
 
   // Check if a procedural upgrade is active

@@ -229,8 +229,10 @@ export default class GameScene extends Phaser.Scene {
     // Initial Momentus UI Update will handle positioning
     this.updateMomentumUI();
 
-    // ADD EVENT LISTENER FOR UPGRADE TRIGGER
-    this.events.on('triggerUpgradeSelection', this.showUpgradeScreen, this);
+    // Legacy upgrade-package trigger removed (Task 6): boons are the sole
+    // reward cadence (1 Contract = 1 boon). No listener binds
+    // `triggerUpgradeSelection` -> showUpgradeScreen anymore, so the legacy
+    // DeliveryNode emit is a harmless no-op event with zero listeners.
     // ADD EVENT LISTENER FOR UPGRADE COMPLETION
     this.events.on('upgradeSelected', this.resumeFromUpgrade, this); // Listen for signal from UpgradeScene
 
@@ -547,23 +549,6 @@ export default class GameScene extends Phaser.Scene {
     this.updateSkipButton();
     this.addToUI(this.skipButton.button);
     this.addToUI(this.skipButton.text);
-
-    // Banked Upgrade Button (hidden until a milestone is ready)
-    this.upgradeReadyButton = this.createButton(
-      centerX,
-      buttonStartY + 120,
-      'UPGRADE READY',
-      () => {
-        this.showUpgradeScreen();
-      }
-    );
-    this.upgradeReadyButton.button.fillColor = 0x7a5a00;
-    this.upgradeReadyButton.button.setStrokeStyle(3, 0xffd966);
-    this.upgradeReadyButton.button.setScrollFactor(0);
-    this.upgradeReadyButton.text.setScrollFactor(0);
-    this.addToUI(this.upgradeReadyButton.button);
-    this.addToUI(this.upgradeReadyButton.text);
-    this.updateUpgradeReadyButton();
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
@@ -2310,29 +2295,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateUpgradeReadyButton() {
-    if (!this.upgradeReadyButton) return;
-
-    const hasPending = this.pendingUpgradeChoices > 0;
-    this.upgradeReadyButton.button.setVisible(hasPending);
-    this.upgradeReadyButton.text.setVisible(hasPending);
-    this.upgradeReadyButton.text.setText(`UPGRADE READY (${this.pendingUpgradeChoices})`);
-
-    if (hasPending && !this.upgradeReadyPulse) {
-      this.upgradeReadyPulse = this.tweens.add({
-        targets: [this.upgradeReadyButton.button, this.upgradeReadyButton.text],
-        scaleX: 1.06,
-        scaleY: 1.06,
-        duration: 450,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
-    } else if (!hasPending && this.upgradeReadyPulse) {
-      this.upgradeReadyPulse.stop();
-      this.upgradeReadyPulse = null;
-      this.upgradeReadyButton.button.setScale(1);
-      this.upgradeReadyButton.text.setScale(1);
-    }
+    // Banked/milestone upgrade UI removed (Task 6); safe no-op for any
+    // lingering callers. Boons are the sole reward cadence now.
+    return;
   }
 
   showUpgradeReadyFeedback() {
@@ -2379,13 +2344,6 @@ export default class GameScene extends Phaser.Scene {
 
     // Increase Momentum
     this.awardMomentum(points * this.momentumGainFactor);
-
-    // Bank milestone upgrades so the player chooses when to break flow.
-    while (this.score >= this.nextUpgradeScore) {
-      console.log(`[UPGRADE] Milestone ${this.nextUpgradeScore} reached - banking upgrade choice`);
-      this.queueUpgradeChoice();
-      this.advanceNextUpgradeMilestone();
-    }
 
     // Show visual feedback for combo
     if (comboActive) {
