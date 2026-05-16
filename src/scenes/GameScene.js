@@ -242,6 +242,8 @@ export default class GameScene extends Phaser.Scene {
 
     // Set initial camera bounds
     this.updateCameraBounds();
+
+    this.startContractTimer();
   }
 
   update(time, delta) {
@@ -292,6 +294,10 @@ export default class GameScene extends Phaser.Scene {
     if (this._traitHudAccum >= 500) {
       this.refreshRunWideHud();
       this._traitHudAccum = 0;
+    }
+
+    if (this.runState === 'CONTRACT_ACTIVE') {
+      this.updateContractHud();
     }
 
     // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
@@ -394,17 +400,28 @@ export default class GameScene extends Phaser.Scene {
 
     currentY += spacing * 0.6;
 
-    // Transcend Progress Display
-    this.transcendProgressText = this.add
+    // Contract Banner
+    this.contractText = this.add
       .text(centerX, currentY, '', {
         fontFamily: 'Arial',
-        fontSize: 11,
-        color: '#8888aa',
+        fontSize: 13,
+        color: '#ffd966',
         align: 'center',
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
-    this.updateTranscendProgress();
+
+    currentY += spacing * 0.5;
+
+    this.contractTimerText = this.add
+      .text(centerX, currentY, '', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        color: '#88ccff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
     currentY += spacing;
 
@@ -2485,10 +2502,21 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // HUD updater stub — the full banner/timer rendering is added in Task 3.
-  // Guarded so Task 2 deliveries don't crash before the HUD text exists.
   updateContractHud() {
     if (!this.contractText || !this.contract) return;
+    const c = this.contract;
+    if (this.runState === 'GRACE' || this.runState === 'CONTRACT_CLEARED') {
+      this.contractText.setText(`Contract ${c.number} cleared`);
+      this.contractTimerText.setText('Ship when ready');
+      return;
+    }
+    this.contractText.setText(
+      `Contract ${c.number}: deliver ${Math.min(c.delivered, c.quantity)}/${c.quantity}  ·  L${c.requiredTier}+`
+    );
+    const rem = Math.ceil(this.getContractTimeRemaining());
+    const urgent = rem <= Math.max(5, c.timeBudget * 0.2);
+    this.contractTimerText.setColor(urgent ? '#ff5555' : '#88ccff');
+    this.contractTimerText.setText(`⏱ ${rem}s`);
   }
 
   clearContract() {
@@ -2538,20 +2566,6 @@ export default class GameScene extends Phaser.Scene {
         this.transcendButtonPulse = null;
       }
     }
-  }
-
-  /**
-   * Update the transcendence progress display in UI
-   */
-  updateTranscendProgress() {
-    if (!this.transcendProgressText) return;
-
-    const deliveryThreshold = TRANSCEND_THRESHOLDS.getDeliveryThreshold(this.currentEra);
-    const transcendTier = getTranscendTier(this.currentEra);
-
-    this.transcendProgressText.setText(
-      `Transcend: L${transcendTier} ${this.deliveredHighTierResources}/${deliveryThreshold}`
-    );
   }
 
   /**
@@ -2886,7 +2900,6 @@ export default class GameScene extends Phaser.Scene {
 
     // 10. Update level display (level continues, doesn't reset)
     this.updateEraUI();
-    this.updateTranscendProgress();
 
     // 11. Update camera bounds for larger grid
     this.updateCameraBounds();
@@ -2963,6 +2976,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.paused) {
       // Pause timers
       this.gameTimer.paused = true;
+      if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
       if (this.nodeSpawnTimer) {
         this.nodeSpawnTimer.paused = true;
         console.log('[TIMER_DEBUG] Paused nodeSpawnTimer via togglePause.'); // Log pause
@@ -2975,6 +2989,8 @@ export default class GameScene extends Phaser.Scene {
     } else {
       // Resume timers
       this.gameTimer.paused = false;
+      if (this.contractTimerEvent && this.runState === 'CONTRACT_ACTIVE')
+        this.contractTimerEvent.paused = false;
       if (this.nodeSpawnTimer) {
         this.nodeSpawnTimer.paused = false;
         console.log('[TIMER_DEBUG] Resumed nodeSpawnTimer via togglePause.'); // Log resume
