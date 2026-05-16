@@ -270,12 +270,6 @@ export default class GameScene extends Phaser.Scene {
     this.updateFlowSurge(delta);
     this.updateMomentumUI();
 
-    // --- Check Game Over Condition ---
-    if (this.currentMomentum <= 0) {
-      this.endGame();
-      return; // Stop further updates if game is over
-    }
-
     // Update all game objects
     this.factoryGrid.update(time, delta); // Pass time, delta to Grid.update()
     this.machineFactory.update(); // Does MachineFactory need time/delta?
@@ -3162,11 +3156,6 @@ export default class GameScene extends Phaser.Scene {
 
     // Update skip button UI (mainly for visual feedback if needed)
     this.updateSkipButton();
-
-    // Check if this leads to game over
-    if (this.currentMomentum <= 0) {
-      this.endGame();
-    }
   }
 
   /**
