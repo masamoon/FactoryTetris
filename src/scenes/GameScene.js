@@ -2915,7 +2915,10 @@ export default class GameScene extends Phaser.Scene {
       msg.destroy();
       btn.destroy();
     };
+    let accepted = false;
     const accept = () => {
+      if (accepted) return;
+      accepted = true;
       cleanup();
       this.startContractTimer();
     };
