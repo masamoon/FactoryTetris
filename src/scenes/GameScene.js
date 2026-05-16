@@ -2449,7 +2449,7 @@ export default class GameScene extends Phaser.Scene {
   // Returns remaining seconds on the active contract (0 if none / paused done)
   getContractTimeRemaining() {
     if (!this.contractTimerEvent) return this.contract ? this.contract.timeBudget : 0;
-    const remMs = this.contractTimerEvent.delay - this.contractTimerEvent.getElapsed();
+    const remMs = this.contractTimerEvent.getRemaining();
     return Math.max(0, remMs / 1000);
   }
 
