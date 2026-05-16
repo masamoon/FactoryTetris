@@ -47,17 +47,24 @@ export function getAllChipTiersForEra(currentEra) {
   return tiers;
 }
 
+// === Contract tuning (Era == Contract number) ===
+// Quantity: generous start, ~+25% per contract
+export const CONTRACT_N_BASE = 4;
+export const CONTRACT_N_GROWTH = 1.25;
+// Time budget (seconds): grows slower than N so required throughput compounds
+export const CONTRACT_T_BASE = 55;
+export const CONTRACT_T_GROWTH = 1.12;
+
 // Transcendence thresholds
 export const TRANSCEND_THRESHOLDS = {
-  // Number of highest-tier resources that must be delivered (only requirement now)
-  getDeliveryThreshold: (era) => {
-    if (era === 1) return 5;
-    if (era === 2) return 6;
-    if (era === 3) return 9;
-    // Scale for higher eras
-    return Math.floor(6 * Math.pow(1.35, era - 2));
-  },
+  // Units of qualifying resource a Contract demands. era == contract number.
+  getDeliveryThreshold: (era) => Math.round(CONTRACT_N_BASE * Math.pow(CONTRACT_N_GROWTH, era - 1)),
 };
+
+// Per-Contract time budget in seconds. Grows slower than the quantity curve.
+export function getContractTimeBudget(era) {
+  return Math.round(CONTRACT_T_BASE * Math.pow(CONTRACT_T_GROWTH, era - 1));
+}
 
 // Point scaling for resource tiers
 // Higher tiers = exponentially more points
