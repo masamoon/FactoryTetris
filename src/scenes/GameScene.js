@@ -2503,7 +2503,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateContractHud() {
-    if (!this.contractText || !this.contract) return;
+    if (!this.contractText || !this.contractTimerText || !this.contract) return;
     const c = this.contract;
     if (this.runState === 'GRACE' || this.runState === 'CONTRACT_CLEARED') {
       this.contractText.setText(`Contract ${c.number} cleared`);
