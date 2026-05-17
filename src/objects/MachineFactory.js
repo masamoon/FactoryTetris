@@ -4,6 +4,7 @@ import MachineRegistry from './machines/MachineRegistry';
 import { MACHINE_COLORS } from './machines/BaseMachine';
 import { assignLevelsToShape } from '../utils/PieceGenerator';
 import { getTraitById, getTraitBandColor } from '../config/traits';
+import { ARITHMETIC_OPERATION_TYPES } from '../config/resourceLevels';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -157,8 +158,10 @@ export default class MachineFactory {
           shape: this.selectedMachineType.shape,
           direction: this.selectedMachineType.direction || 'right',
           rotation: this.selectedMachineType.rotation || 0,
+          rotationDegrees: this.selectedMachineType.rotationDegrees,
           trait: this.selectedMachineType.trait || null,
           outputLevel: this.selectedMachineType.outputLevel || null,
+          previewOutputLevel: this.selectedMachineType.previewOutputLevel || null,
           machineType: this.selectedMachineType,
         };
 
@@ -213,6 +216,31 @@ export default class MachineFactory {
     }
 
     this.availableProcessors = [];
+
+    if ((this.scene?.currentRound || 1) <= (GAME_CONFIG.starterDraftRounds || 1)) {
+      const starterOperations = [
+        { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
+        { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 2 },
+        { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
+      ];
+
+      for (let i = 0; i < this.numProcessorSlots; i++) {
+        this.availableProcessors.push(
+          this.createDraftProcessor({
+            forcedArithmeticOperation: starterOperations[i % starterOperations.length],
+            suppressTrait: true,
+          })
+        );
+      }
+
+      this.ensureUsableDraft();
+      console.log(
+        'Refreshed starter processors:',
+        this.availableProcessors.map((p) => `${p.id} (${p.notation})`)
+      );
+      return;
+    }
+
     let hasHigherTier = false;
 
     for (let i = 0; i < this.numProcessorSlots; i++) {
@@ -222,7 +250,7 @@ export default class MachineFactory {
         (!hasHigherTier && i === 1) || (!hasHigherTier && i === this.numProcessorSlots - 1);
 
       const processorWithLevels = this.createDraftProcessor({ forceHigherTier });
-      if (processorWithLevels.outputLevel > 2) {
+      if (this.getDraftOutputLevel(processorWithLevels) > 2) {
         hasHigherTier = true;
       }
 
@@ -268,7 +296,7 @@ export default class MachineFactory {
     this.availableProcessors.splice(removedSlotIndex, 1);
 
     // Check if remaining processors have a higher tier piece
-    const hasHigherTier = this.availableProcessors.some((p) => p.outputLevel > 2);
+    const hasHigherTier = this.availableProcessors.some((p) => this.getDraftOutputLevel(p) > 2);
 
     // Force higher tier if none remain after removing the used one
     const forceHigherTier = !hasHigherTier;
@@ -300,7 +328,10 @@ export default class MachineFactory {
         ...baseProcessor,
         inputLevels: levelConfig.inputLevels,
         outputLevel: levelConfig.outputLevel,
+        previewOutputLevel: levelConfig.previewOutputLevel,
         notation: levelConfig.notation,
+        arithmeticOperation: levelConfig.arithmeticOperation || null,
+        arithmeticInputCount: levelConfig.arithmeticInputCount || 0,
         trait: levelConfig.trait || null,
         isUsable: levelConfig.isUsable,
       };
@@ -339,10 +370,48 @@ export default class MachineFactory {
       forceTrait: true,
     });
 
-    if (forcedProcessor.outputLevel >= 3 && forcedProcessor.isUsable && forcedProcessor.trait) {
+    if (
+      this.getDraftOutputLevel(forcedProcessor) >= 3 &&
+      forcedProcessor.isUsable &&
+      forcedProcessor.trait
+    ) {
       this.availableProcessors[0] = forcedProcessor;
       console.log('[traits] Forced usable build-around trait into processor draft');
     }
+  }
+
+  getDraftOutputLevel(machineType) {
+    return machineType?.outputLevel || machineType?.previewOutputLevel || 1;
+  }
+
+  injectDraftProcessor(options = {}) {
+    const slotIndex = Phaser.Math.Clamp(options.slotIndex ?? 0, 0, this.numProcessorSlots - 1);
+    const processor = this.createDraftProcessor({
+      ...options,
+      requireUsable: options.requireUsable !== false,
+    });
+
+    if (!processor) return false;
+
+    this.availableProcessors[slotIndex] = processor;
+    this.displayCurrentProcessorPreview();
+    return true;
+  }
+
+  injectAddConstantDraft(value = 1, slotIndex = 0) {
+    return this.injectDraftProcessor({
+      slotIndex,
+      forcedArithmeticOperation: {
+        type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT,
+        value,
+      },
+      suppressTrait: value < 2,
+    });
+  }
+
+  rerollProcessorDrafts() {
+    this.refreshAvailableProcessors();
+    this.displayCurrentProcessorPreview();
   }
 
   markTraitIntroducedIfVisible() {
@@ -574,11 +643,31 @@ export default class MachineFactory {
 
     // Double check that the machine type has a proper shape
     if (!machineType.shape || !Array.isArray(machineType.shape)) {
+      try {
+        const registryConfig = this.machineRegistry.getMachineConfig(machineType.id);
+        if (registryConfig?.shape) {
+          machineType.shape = registryConfig.shape;
+          machineType.direction =
+            machineType.direction || registryConfig.direction || registryConfig.defaultDirection;
+          machineType.defaultDirection =
+            machineType.defaultDirection || registryConfig.defaultDirection;
+        }
+      } catch (_error) {
+        // Fall through to the config-table fallback below.
+      }
+    }
+
+    if (!machineType.shape || !Array.isArray(machineType.shape)) {
       // Set appropriate default shapes based on machine type
       const id = machineType.id.toLowerCase();
       switch (id) {
         case 'processor-a':
         case 'processor-b':
+        case 'processor-c':
+        case 'processor-d':
+        case 'processor-e':
+        case 'advanced-processor-1':
+        case 'advanced-processor-2':
         case 'splitter':
         case 'merger':
         case 'underground-belt':
@@ -614,6 +703,15 @@ export default class MachineFactory {
 
     // Set the selected machine type
     this.selectedMachineType = machineType;
+    if (machineType.id !== 'conveyor') {
+      this.isDraggingConveyor = false;
+      this.dragPath = [];
+      this.lastDragGridPos = null;
+    }
+    if (this.scene) {
+      this.scene.isPlacingMachine = true;
+      this.scene.selectedMachineType = machineType;
+    }
 
     // Notify any listeners (e.g., the scene)
     this.scene.events.emit('machineSelected', machineType);
@@ -631,10 +729,12 @@ export default class MachineFactory {
         id: machineType.id,
         type: machineType.id, // Keep type for potential legacy use
         shape: machineType.shape, // Use the potentially updated shape
-        direction: machineType.defaultDirection || 'right',
-        rotation: 0,
+        direction: machineType.direction || machineType.defaultDirection || 'right',
+        rotation: machineType.rotation || 0,
+        rotationDegrees: machineType.rotationDegrees || 0,
         trait: machineType.trait || null,
         outputLevel: machineType.outputLevel || null,
+        previewOutputLevel: machineType.previewOutputLevel || null,
         machineType: machineType, // Pass the full object
       };
       console.log('[MachineFactory] Preview data:', JSON.stringify(previewData));
@@ -648,6 +748,17 @@ export default class MachineFactory {
   clearSelection() {
     // Reset the selected machine type
     this.selectedMachineType = null;
+    if (this.scene) {
+      this.scene.isPlacingMachine = false;
+      this.scene.selectedMachineType = null;
+      if (this.scene.isTouchPlacing) {
+        this.scene.isTouchPlacing = false;
+        this.scene.touchPreviewGridPos = null;
+      }
+      if (this.scene.removePlaceButton) {
+        this.scene.removePlaceButton();
+      }
+    }
 
     // Remove any selection graphics (Still relevant if we add selection feedback elsewhere)
     if (this.selectionGraphics) {
@@ -669,34 +780,37 @@ export default class MachineFactory {
    * @param {Phaser.Input.Pointer} pointer
    */
   handlePointerDown(pointer) {
-    // If not a conveyor, use standard click placement
-    // Also, if it IS a conveyor but we want to allow single clicks, we can start the drag here.
-
     // Check basic validity first
     if (!this.selectedMachineType) return;
     if (this.isPointerOverUI(pointer)) return;
+    if (!this.isPrimaryPointer(pointer)) return;
 
-    // Check if it's a conveyor
-    if (this.selectedMachineType.id === 'conveyor') {
-      this.isDraggingConveyor = true;
-      this.dragPath = [];
-      this.lastDragGridPos = null;
+    // Only conveyors use the factory-level pointer handler for drag placement.
+    // Other machines are placed by GameScene's normal click handler.
+    if (this.selectedMachineType.id !== 'conveyor') return;
 
-      // Add the initial point
-      if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
-        const worldPoint = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
-        const gridPos = this.scene.factoryGrid.worldToGrid(worldPoint.x, worldPoint.y);
-        if (gridPos) {
-          this.dragPath.push(gridPos);
-          this.lastDragGridPos = gridPos;
-          // Update preview immediately
-          this.updateDragPreview();
-        }
+    this.isDraggingConveyor = true;
+    this.dragPath = [];
+    this.lastDragGridPos = null;
+
+    // Add the initial point
+    if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
+      const worldPoint = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const gridPos = this.scene.factoryGrid.worldToGrid(worldPoint.x, worldPoint.y);
+      if (gridPos) {
+        this.dragPath.push(gridPos);
+        this.lastDragGridPos = gridPos;
+        // Update preview immediately
+        this.updateDragPreview();
       }
-    } else {
-      // Standard placement for other machines
-      this.handlePlaceMachine(pointer);
     }
+  }
+
+  isPrimaryPointer(pointer) {
+    return (
+      pointer?.button === 0 ||
+      (pointer && typeof pointer.leftButtonDown === 'function' && pointer.leftButtonDown())
+    );
   }
 
   /**
@@ -860,7 +974,12 @@ export default class MachineFactory {
     ); // LOG H1
 
     // Only proceed if NOT dragging conveyor (redundant check but safe)
-    if (this.isDraggingConveyor) return;
+    if (this.isDraggingConveyor) {
+      if (this.selectedMachineType?.id === 'conveyor') return;
+      this.isDraggingConveyor = false;
+      this.dragPath = [];
+      this.lastDragGridPos = null;
+    }
 
     // Check if we have a selected machine type
     if (!this.selectedMachineType) {
@@ -886,11 +1005,16 @@ export default class MachineFactory {
       }
       console.log(`[Factory.handlePlaceMachine] Got gridPos: (${gridPos.x}, ${gridPos.y})`); // LOG H6
 
-      const placementRotation = this.selectedMachineType.rotation || 0;
       const placementDirection =
-        this.scene && typeof this.scene.getDirectionFromRotation === 'function'
-          ? this.scene.getDirectionFromRotation(placementRotation)
-          : this.selectedMachineType.direction || 'right';
+        this.selectedMachineType.direction ||
+        this.selectedMachineType.defaultDirection ||
+        (this.scene && typeof this.scene.getDirectionFromRotation === 'function'
+          ? this.scene.getDirectionFromRotation(this.selectedMachineType.rotation || 0)
+          : 'right');
+      const placementRotation =
+        this.selectedMachineType.rotation !== undefined
+          ? this.selectedMachineType.rotation
+          : this.getRotationFromDirection(placementDirection);
 
       // Check if we can place the machine at the grid position
       console.log(
@@ -902,14 +1026,34 @@ export default class MachineFactory {
         gridPos.y,
         placementDirection
       );
+      let placementGridPos = gridPos;
       if (
         !canPlace &&
+        this.scene &&
+        typeof this.scene.isProcessorTypeId === 'function' &&
+        this.scene.isProcessorTypeId(this.selectedMachineType.id) &&
+        typeof this.scene.findNearbyValidPlacementAnchor === 'function'
+      ) {
+        const nearbyAnchor = this.scene.findNearbyValidPlacementAnchor(
+          this.selectedMachineType,
+          gridPos.x,
+          gridPos.y,
+          placementDirection
+        );
+        if (nearbyAnchor) {
+          placementGridPos = nearbyAnchor;
+          canPlace = true;
+        }
+      }
+      if (
+        !canPlace &&
+        !this.selectedMachineType.fromPlacedMachine &&
         this.scene &&
         typeof this.scene.canReplaceProcessor === 'function' &&
         this.scene.canReplaceProcessor(
           this.selectedMachineType,
-          gridPos.x,
-          gridPos.y,
+          placementGridPos.x,
+          placementGridPos.y,
           placementDirection
         )
       ) {
@@ -923,10 +1067,11 @@ export default class MachineFactory {
             `[Factory.handlePlaceMachine] About to call scene.placeMachine for ${this.selectedMachineType.id}`
           ); // LOG H9
           // Place the machine using the scene's placeMachine method
+          const shouldClearAfterPlacement = Boolean(this.selectedMachineType.fromPlacedMachine);
           const placedMachine = this.scene.placeMachine(
             this.selectedMachineType,
-            gridPos.x,
-            gridPos.y,
+            placementGridPos.x,
+            placementGridPos.y,
             placementRotation
           );
 
@@ -936,6 +1081,13 @@ export default class MachineFactory {
             ); // LOG H10
             // Play a placement sound
             this.scene.playSound('place');
+
+            if (shouldClearAfterPlacement) {
+              this.clearSelection();
+              this.lastSelectedCategory = null;
+              this.lastSelectedSlotIndex = -1;
+              return;
+            }
 
             // If a processor or logistics was placed
             if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex >= 0) {
@@ -1344,8 +1496,15 @@ export default class MachineFactory {
         if (typeOrId.outputLevel) {
           config.outputLevel = typeOrId.outputLevel;
         }
+        if (typeOrId.previewOutputLevel) {
+          config.previewOutputLevel = typeOrId.previewOutputLevel;
+        }
         if (typeOrId.notation) {
           config.notation = typeOrId.notation;
+        }
+        if (typeOrId.arithmeticOperation) {
+          config.arithmeticOperation = { ...typeOrId.arithmeticOperation };
+          config.arithmeticInputCount = typeOrId.arithmeticInputCount || 0;
         }
         if (typeOrId.trait) {
           config.trait = typeOrId.trait;
@@ -1368,7 +1527,9 @@ export default class MachineFactory {
         this.scene &&
         this.scene.firstL2Placed === false &&
         machine &&
-        machine.outputLevel === 2
+        (machine.outputLevel === 2 ||
+          machine.previewOutputLevel === 2 ||
+          machine.arithmeticOperation?.type === 'add-constant')
       ) {
         this.scene.firstL2Placed = true;
         console.log('[traits] firstL2Placed armed; next draft will guarantee a trait');
@@ -1442,6 +1603,17 @@ export default class MachineFactory {
     } else if (machineType.id === 'underground-belt') {
       tooltipText = 'Transports items underground.\n\n';
       tooltipText += 'Use to pass under machines or other belts.';
+    } else if (machineType.arithmeticOperation) {
+      const inputCount = machineType.arithmeticInputCount || 1;
+      tooltipText = `Operation: ${machineType.notation}\n\n`;
+      tooltipText +=
+        inputCount > 1
+          ? `Combines ${inputCount} different numeric inputs.\n`
+          : `Accepts any numeric input.\n`;
+      if (machineType.previewOutputLevel) {
+        tooltipText += `Likely output now: L${machineType.previewOutputLevel}\n`;
+      }
+      tooltipText += `Processing time: ${machineType.processingTime / 1000}s`;
     } else {
       // Regular machine tooltip for processors
 
@@ -1774,6 +1946,7 @@ export default class MachineFactory {
         rotationDegrees: newRotationDegrees, // Explicit degrees property
         trait: this.selectedMachineType.trait || null,
         outputLevel: this.selectedMachineType.outputLevel || null,
+        previewOutputLevel: this.selectedMachineType.previewOutputLevel || null,
         machineType: this.selectedMachineType,
       };
 

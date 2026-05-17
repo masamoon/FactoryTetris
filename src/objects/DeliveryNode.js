@@ -1,11 +1,26 @@
 import { GAME_CONFIG } from '../config/gameConfig';
 import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js';
-import { calculateDeliveryScore, getPurityName } from '../utils/PurityUtils';
+import {
+  calculateDeliveryScore,
+  getChainMultiplier,
+  getItemColorHex,
+  getItemColorName,
+  getPurityName,
+  getPurityPoints,
+} from '../utils/PurityUtils';
 import {
   getLevelPoints,
   getLevelName,
   getLevelColor as _getLevelColor,
 } from '../config/resourceLevels';
+
+const DELIVERY_SCORE_POPUP_DURATION = 1700;
+const DELIVERY_DETAIL_POPUP_DURATION = 1450;
+const DELIVERY_CHAIN_POPUP_DURATION = 1800;
+const DELIVERY_POPUP_STACK_SPACING = 22;
+const DELIVERY_POPUP_COLUMN_SPACING = 28;
+const DELIVERY_POPUP_ROWS = 5;
+const DELIVERY_POPUP_COLUMNS = [-1, 0, 1];
 
 export default class DeliveryNode {
   constructor(scene, config) {
@@ -14,6 +29,7 @@ export default class DeliveryNode {
     this.y = config.y;
     this.gridX = config.gridX;
     this.gridY = config.gridY;
+    this.activeDeliveryPopups = [];
     // Delivery nodes might accept specific types later, for now generic
     // this.requiredResourceType = config.requiredResourceType;
     this.lifespan = config.lifespan || GAME_CONFIG.nodeLifespan; // Use default lifespan if not provided
@@ -25,6 +41,26 @@ export default class DeliveryNode {
 
     // Output nodes are permanent and don't expire
     // (lifespan timer removed)
+  }
+
+  reserveDeliveryPopupSlot() {
+    const now = this.scene?.time?.now || Date.now();
+    this.activeDeliveryPopups = this.activeDeliveryPopups.filter((entry) => entry.expiresAt > now);
+
+    const activeCount = this.activeDeliveryPopups.length;
+    const row = activeCount % DELIVERY_POPUP_ROWS;
+    const column =
+      DELIVERY_POPUP_COLUMNS[
+        Math.floor(activeCount / DELIVERY_POPUP_ROWS) % DELIVERY_POPUP_COLUMNS.length
+      ];
+    const slot = {
+      x: this.container.x + column * DELIVERY_POPUP_COLUMN_SPACING,
+      y: this.container.y - row * DELIVERY_POPUP_STACK_SPACING,
+      expiresAt: now + DELIVERY_SCORE_POPUP_DURATION + 200,
+    };
+
+    this.activeDeliveryPopups.push(slot);
+    return slot;
   }
 
   createVisuals() {
@@ -80,17 +116,40 @@ export default class DeliveryNode {
    * @returns {number} Adjusted (floored) score.
    */
   applyTraitDeliveryModifiers(basePoints, itemData) {
+    return this.getTraitDeliveryBreakdown(basePoints, itemData).points;
+  }
+
+  getTraitDeliveryBreakdown(basePoints, itemData) {
     const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
     const reg = this.scene && this.scene.traitRegistry;
+    const labels = [];
+    const colorConfig = GAME_CONFIG.itemColors?.[itemData.itemColor];
     // Beacon: each placed Beacon adds +0.1 to the base delivery modifier.
     const beaconBonus =
       reg && typeof reg.getBeaconChainBonus === 'function' ? reg.getBeaconChainBonus() : 0;
     // Accumulate ALL modifiers multiplicatively, then floor ONCE below.
     let modifier = 1.0 + beaconBonus;
-    if (tags.includes('tycoon')) modifier *= 1.5;
-    if (tags.includes('polarized')) modifier *= 2.0;
-    if (tags.includes('bypass')) modifier *= 0.75;
-    if (tags.includes('resonant')) modifier *= 1.5;
+    if (colorConfig?.scoreMultiplier) {
+      modifier *= colorConfig.scoreMultiplier;
+      labels.push(colorConfig.name || getItemColorName(itemData.itemColor));
+    }
+    if (beaconBonus > 0) labels.push('Beacon');
+    if (tags.includes('tycoon')) {
+      modifier *= 1.5;
+      labels.push('Tycoon');
+    }
+    if (tags.includes('polarized')) {
+      modifier *= 2.0;
+      labels.push('Polarized');
+    }
+    if (tags.includes('bypass')) {
+      modifier *= 0.75;
+      labels.push('Bypass');
+    }
+    if (tags.includes('resonant')) {
+      modifier *= 1.5;
+      labels.push('Resonant');
+    }
     // Hoarder: per-machine running counter; every 5th delivery doubles.
     const hoarderTag = tags.find((t) => typeof t === 'string' && t.startsWith('hoarder@'));
     if (hoarderTag && reg && typeof reg.incrementHoarder === 'function') {
@@ -98,6 +157,7 @@ export default class DeliveryNode {
       const count = reg.incrementHoarder(machineId);
       if (count % 5 === 0) {
         modifier *= 2.0;
+        labels.push('Hoarder');
         console.log(
           `[trait:hoarder] ${machineId} hit ${count}-th delivery, doubling this delivery's score`
         );
@@ -109,7 +169,23 @@ export default class DeliveryNode {
         `[DeliveryNode] trait-adjusted score: ${basePoints} -> ${adjusted} (tags: ${tags.join(',')})`
       );
     }
-    return adjusted;
+    return {
+      points: adjusted,
+      multiplier: modifier,
+      labels,
+      itemColor: itemData.itemColor,
+    };
+  }
+
+  formatMultiplier(multiplier) {
+    const rounded = Math.round((multiplier || 1) * 10) / 10;
+    return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
+  }
+
+  getScoreBreakdownText(resourceLabel, basePoints, multiplier, labels = []) {
+    const multText = this.formatMultiplier(multiplier);
+    const tagText = labels.length > 0 ? ` ${labels.slice(0, 2).join('+')}` : '';
+    return `${resourceLabel}  ${basePoints} x${multText}${tagText}`;
   }
 
   /**
@@ -154,14 +230,16 @@ export default class DeliveryNode {
     if (itemType === 'level-resource') {
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
-      const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
-      const reward = this.scene.getDeliveryReward?.(adjustedPoints, level, itemData) || {
-        points: adjustedPoints,
+      const traitBreakdown = this.getTraitDeliveryBreakdown(totalPoints, itemData);
+      const reward = this.scene.getDeliveryReward?.(traitBreakdown.points, level, itemData) || {
+        points: traitBreakdown.points,
         countsForFlow: true,
       };
 
       // Add score
-      this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow });
+      const awardedPoints =
+        this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow }) ||
+        reward.points;
 
       // Track delivery for throughput calculation (only transcend tier counts)
       if (reward.countsForFlow && this.scene.trackDelivery) {
@@ -179,7 +257,15 @@ export default class DeliveryNode {
 
       // Visual feedback for level resource
       const levelName = getLevelName(level);
-      this.createLevelAcceptEffect(level, reward.points, levelName);
+      this.createLevelAcceptEffect(level, awardedPoints, levelName, {
+        basePoints: totalPoints,
+        multiplier: awardedPoints / Math.max(1, totalPoints),
+        itemColor: traitBreakdown.itemColor,
+        labels:
+          awardedPoints > reward.points
+            ? [...traitBreakdown.labels, 'Combo']
+            : traitBreakdown.labels,
+      });
 
       console.log(
         `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
@@ -191,15 +277,19 @@ export default class DeliveryNode {
     if (itemType === 'purity-resource') {
       const purity = itemData.purity || 1;
       const chainCount = itemData.chainCount || 1;
+      const basePoints = getPurityPoints(purity);
+      const chainMultiplier = getChainMultiplier(chainCount);
       const totalPoints = calculateDeliveryScore(purity, chainCount);
-      const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
-      const reward = this.scene.getDeliveryReward?.(adjustedPoints, purity, itemData) || {
-        points: adjustedPoints,
+      const traitBreakdown = this.getTraitDeliveryBreakdown(totalPoints, itemData);
+      const reward = this.scene.getDeliveryReward?.(traitBreakdown.points, purity, itemData) || {
+        points: traitBreakdown.points,
         countsForFlow: true,
       };
 
       // Add score
-      this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow });
+      const awardedPoints =
+        this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow }) ||
+        reward.points;
 
       // Track delivery for throughput calculation (only transcend tier counts)
       if (reward.countsForFlow && this.scene.trackDelivery) {
@@ -217,7 +307,21 @@ export default class DeliveryNode {
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
-      this.createPurityAcceptEffect(purity, chainCount, reward.points, purityName);
+      this.createPurityAcceptEffect(purity, chainCount, awardedPoints, purityName, {
+        basePoints,
+        multiplier: awardedPoints / Math.max(1, basePoints),
+        itemColor: traitBreakdown.itemColor,
+        labels:
+          chainMultiplier > 1
+            ? [
+                `Chain x${this.formatMultiplier(chainMultiplier)}`,
+                ...traitBreakdown.labels,
+                ...(awardedPoints > reward.points ? ['Combo'] : []),
+              ]
+            : awardedPoints > reward.points
+              ? [...traitBreakdown.labels, 'Combo']
+              : traitBreakdown.labels,
+      });
 
       console.log(
         `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
@@ -287,6 +391,7 @@ export default class DeliveryNode {
    * @param {number} points - The points awarded (0 for upgrades).
    */
   createAcceptEffect(itemType, points) {
+    const popupSlot = this.reserveDeliveryPopupSlot();
     const color =
       itemType === 'upgrade' ? 0xcc00ff : GAME_CONFIG.resourceColors[itemType] || 0xaaaaaa;
     const textToShow = itemType === 'upgrade' ? 'Upgrade!' : `+${points}`;
@@ -294,7 +399,7 @@ export default class DeliveryNode {
 
     // Score/Upgrade popup text
     const popupText = this.scene.add
-      .text(this.container.x, this.container.y - 15, textToShow, {
+      .text(popupSlot.x, popupSlot.y - 15, textToShow, {
         fontFamily: 'Arial',
         fontSize: 12,
         color: textColor,
@@ -311,9 +416,9 @@ export default class DeliveryNode {
 
     this.scene.tweens.add({
       targets: popupText,
-      y: this.container.y - 40,
+      y: popupSlot.y - 34,
       alpha: 0,
-      duration: 800,
+      duration: DELIVERY_SCORE_POPUP_DURATION,
       ease: 'Power1',
       onComplete: () => {
         popupText.destroy();
@@ -356,14 +461,20 @@ export default class DeliveryNode {
    * @param {number} points - The total points awarded.
    * @param {string} purityName - Display name for the purity level.
    */
-  createPurityAcceptEffect(purity, chainCount, points, purityName) {
+  createPurityAcceptEffect(purity, chainCount, points, purityName, breakdown = null) {
+    const popupSlot = this.reserveDeliveryPopupSlot();
     // Get color based on purity
     const colors = [0x8b4513, 0xcd853f, 0xffd700, 0xfffacd, 0xffffff];
-    const color = purity <= colors.length ? colors[purity - 1] : 0xffffff;
+    const color =
+      breakdown?.itemColor != null
+        ? getItemColorHex(breakdown.itemColor, colors[purity - 1] || 0xffffff)
+        : purity <= colors.length
+          ? colors[purity - 1]
+          : 0xffffff;
 
     // Main score popup
     const scoreText = this.scene.add
-      .text(this.container.x, this.container.y - 15, `+${points}`, {
+      .text(popupSlot.x, popupSlot.y - 15, `+${points}`, {
         fontFamily: 'Arial',
         fontSize: 14,
         fontWeight: 'bold',
@@ -378,7 +489,7 @@ export default class DeliveryNode {
     // Chain multiplier text (if chain > 1)
     if (chainCount > 1) {
       const chainText = this.scene.add
-        .text(this.container.x + 30, this.container.y - 15, `x${chainCount}`, {
+        .text(popupSlot.x + 30, popupSlot.y - 15, `x${chainCount}`, {
           fontFamily: 'Arial',
           fontSize: 12,
           fontWeight: 'bold',
@@ -393,19 +504,27 @@ export default class DeliveryNode {
       // Animate chain text
       this.scene.tweens.add({
         targets: chainText,
-        y: this.container.y - 50,
+        y: popupSlot.y - 42,
         alpha: 0,
         scaleX: 1.5,
         scaleY: 1.5,
-        duration: 1000,
+        duration: DELIVERY_CHAIN_POPUP_DURATION,
         ease: 'Power2',
         onComplete: () => chainText.destroy(),
       });
     }
 
     // Purity name text
+    const detailText = breakdown
+      ? this.getScoreBreakdownText(
+          `P${purity}`,
+          breakdown.basePoints,
+          breakdown.multiplier,
+          breakdown.labels
+        )
+      : purityName;
     const purityText = this.scene.add
-      .text(this.container.x, this.container.y + 5, purityName, {
+      .text(popupSlot.x, popupSlot.y + 5, detailText, {
         fontFamily: 'Arial',
         fontSize: 10,
         color: `#${color.toString(16).padStart(6, '0')}`,
@@ -419,11 +538,11 @@ export default class DeliveryNode {
     // Animate score text
     this.scene.tweens.add({
       targets: scoreText,
-      y: this.container.y - 45,
+      y: popupSlot.y - 38,
       alpha: 0,
       scaleX: 1.3,
       scaleY: 1.3,
-      duration: 900,
+      duration: DELIVERY_SCORE_POPUP_DURATION,
       ease: 'Power1',
       onComplete: () => scoreText.destroy(),
     });
@@ -431,9 +550,9 @@ export default class DeliveryNode {
     // Animate purity text
     this.scene.tweens.add({
       targets: purityText,
-      y: this.container.y - 20,
+      y: popupSlot.y - 16,
       alpha: 0,
-      duration: 700,
+      duration: DELIVERY_DETAIL_POPUP_DURATION,
       ease: 'Power1',
       onComplete: () => purityText.destroy(),
     });
@@ -468,14 +587,20 @@ export default class DeliveryNode {
    * @param {number} points - The points awarded.
    * @param {string} levelName - Display name for the level.
    */
-  createLevelAcceptEffect(level, points, levelName) {
+  createLevelAcceptEffect(level, points, levelName, breakdown = null) {
+    const popupSlot = this.reserveDeliveryPopupSlot();
     // Level colors: Gray (1), Green (2), Blue (3), Gold (4)
     const colors = [0x888888, 0x22cc22, 0x2288ff, 0xffcc00];
-    const color = level <= colors.length ? colors[level - 1] : 0xffffff;
+    const color =
+      breakdown?.itemColor != null
+        ? getItemColorHex(breakdown.itemColor, colors[level - 1] || 0xffffff)
+        : level <= colors.length
+          ? colors[level - 1]
+          : 0xffffff;
 
     // Main score popup
     const scoreText = this.scene.add
-      .text(this.container.x, this.container.y - 15, `+${points}`, {
+      .text(popupSlot.x, popupSlot.y - 15, `+${points}`, {
         fontFamily: 'Arial',
         fontSize: 14,
         fontWeight: 'bold',
@@ -488,8 +613,16 @@ export default class DeliveryNode {
     if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
 
     // Level name text
+    const detailText = breakdown
+      ? this.getScoreBreakdownText(
+          `L${level} ${levelName}`,
+          breakdown.basePoints,
+          breakdown.multiplier,
+          breakdown.labels
+        )
+      : `L${level} ${levelName}`;
     const levelText = this.scene.add
-      .text(this.container.x, this.container.y + 5, `L${level} ${levelName}`, {
+      .text(popupSlot.x, popupSlot.y + 5, detailText, {
         fontFamily: 'Arial',
         fontSize: 10,
         color: `#${color.toString(16).padStart(6, '0')}`,
@@ -503,11 +636,11 @@ export default class DeliveryNode {
     // Animate score text
     this.scene.tweens.add({
       targets: scoreText,
-      y: this.container.y - 45,
+      y: popupSlot.y - 38,
       alpha: 0,
       scaleX: 1.3,
       scaleY: 1.3,
-      duration: 900,
+      duration: DELIVERY_SCORE_POPUP_DURATION,
       ease: 'Power1',
       onComplete: () => scoreText.destroy(),
     });
@@ -515,9 +648,9 @@ export default class DeliveryNode {
     // Animate level text
     this.scene.tweens.add({
       targets: levelText,
-      y: this.container.y - 20,
+      y: popupSlot.y - 16,
       alpha: 0,
-      duration: 700,
+      duration: DELIVERY_DETAIL_POPUP_DURATION,
       ease: 'Power1',
       onComplete: () => levelText.destroy(),
     });

@@ -1,6 +1,7 @@
 import _Phaser from 'phaser';
 import { CHIP_CONFIG, getChipOutputTier, _getTiersForEra } from '../config/eraConfig';
 import { getLevelColor, _getLevelName } from '../config/resourceLevels';
+import { getMixedItemColor } from '../utils/PurityUtils';
 
 /**
  * ChipNode - A 3×3 passive resource emitter representing a previous era's factory
@@ -294,6 +295,7 @@ export default class ChipNode {
       const itemToPush = {
         type: 'purity-resource',
         purity: pin.tier,
+        itemColor: getMixedItemColor(),
         amount: 1,
       };
       // Pass itemData to canAcceptInput for level-based validation

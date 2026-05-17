@@ -5,17 +5,16 @@ import ResourceNode from '../objects/ResourceNode';
 import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import ChipNode from '../objects/ChipNode'; // Transcendence chip entity
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
-import {
-  getGridSizeForEra,
-  getTranscendTier,
-  TRANSCEND_THRESHOLDS,
-  getContractTimeBudget,
-  CHIP_CONFIG,
-} from '../config/eraConfig';
+import { getGridSizeForEra, CHIP_CONFIG } from '../config/eraConfig';
 // Note: TestUtils and MachineRegistry are used for development/debugging but may appear unused
 import { UpgradeManager } from '../managers/UpgradeManager.js';
+import { BOON_POOL } from '../config/boons.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
 import { UPGRADE_PACKAGE_TYPE, upgradesConfig } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig
+import {
+  ARITHMETIC_OPERATION_TAGS,
+  getArithmeticOperationTagLabel,
+} from '../config/resourceLevels';
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
 import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
 import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
@@ -35,6 +34,8 @@ export default class GameScene extends Phaser.Scene {
     this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
     this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
     this.pendingUpgradeChoices = 0;
+    this.scrap = 0;
+    this.yellowScrapProgress = 0;
     this.currentObjective = null;
     this.objectiveIndex = 0;
 
@@ -89,11 +90,18 @@ export default class GameScene extends Phaser.Scene {
     this.currentEra = 1; // Current era (starts at 1)
     this.chips = []; // Array of ChipNode entities from previous eras
     this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
-    // === Contract system state ===
-    // runState: 'CONTRACT_ACTIVE' | 'CONTRACT_CLEARED' | 'GRACE' | 'RUN_OVER'
-    this.runState = 'CONTRACT_ACTIVE';
-    this.contract = null; // built by buildContract()
-    this.contractTimerEvent = null; // Phaser.Time.TimerEvent for the countdown
+    // === Round / quota system state ===
+    // runState: 'ROUND_ACTIVE' | 'ROUND_CLEARED' | 'GRACE' | 'RUN_OVER'
+    this.runState = 'ROUND_ACTIVE';
+    this.currentRound = 1;
+    this.roundScore = 0;
+    this.roundQuota = 0;
+    this.roundSurvived = false;
+    this.roundTimerEvent = null;
+    this.highestDeliveredTierThisRound = 0;
+    this.highestDeliveredTierThisEra = 0;
+    this.contract = null; // legacy HUD/modifier shell; replaced by round quota loop
+    this.contractTimerEvent = null; // legacy alias for older pause code paths
     this.contractDeliveryCount = 0; // for "Every Fifth Counts" boon tally
     this.canTranscend = false; // Flag when transcendence conditions are met
     this.transcendButtonPulse = null; // Tween reference for pulsing button
@@ -200,11 +208,18 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0;
     this.gameTime = 0;
     this.gameOver = false;
-    this.buildContract();
+    this.currentRound = 1;
+    this.roundScore = 0;
+    this.roundSurvived = false;
+    this.highestDeliveredTierThisRound = 0;
+    this.highestDeliveredTierThisEra = 0;
+    this.buildRound();
     this.lastUpgradeMilestone = 0; // Reset milestone tracking
     this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
     this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
     this.pendingUpgradeChoices = 0;
+    this.scrap = 0;
+    this.yellowScrapProgress = 0;
     this.deliveryStreak = 0;
     this.lastDeliveryScoreTime = 0;
     this.flowSurgeActive = false;
@@ -248,7 +263,7 @@ export default class GameScene extends Phaser.Scene {
     // Set initial camera bounds
     this.updateCameraBounds();
 
-    this.startContractTimer();
+    this.startRoundTimer();
   }
 
   update(time, delta) {
@@ -296,7 +311,7 @@ export default class GameScene extends Phaser.Scene {
       this._traitHudAccum = 0;
     }
 
-    if (this.runState === 'CONTRACT_ACTIVE') {
+    if (this.runState === 'ROUND_ACTIVE') {
       this.updateContractHud();
     }
 
@@ -386,6 +401,18 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
 
     currentY += spacing;
+
+    this.scrapText = this.add
+      .text(centerX, currentY, `SCRAP: ${this.scrap || 0}`, {
+        fontFamily: 'Arial',
+        fontSize: 16,
+        color: '#ffd166',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += spacing * 0.65;
 
     // Era Display (Transcendence System)
     this.eraText = this.add
@@ -482,6 +509,22 @@ export default class GameScene extends Phaser.Scene {
 
     currentY += spacing * 0.9;
 
+    this.transcendButton = this.createPanelButton(
+      centerX,
+      currentY,
+      180,
+      34,
+      'ERA GATE R3',
+      () => {
+        if (!this.canTranscend || this.isPausedForUpgrade || this.isPlacingChip) return;
+        this.triggerTranscendence();
+      },
+      0x7a55cc
+    );
+    this.updateTranscendButtonState();
+
+    currentY += spacing * 0.9;
+
     // Active Upgrades Display Header
     this.add
       .text(centerX, currentY, 'ACTIVE UPGRADES', {
@@ -573,7 +616,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (pointer) => {
       // Handle chip placement mode first (highest priority)
-      if (this.isPlacingChip && pointer.leftButtonDown()) {
+      if (this.isPlacingChip && this.isPrimaryPointer(pointer)) {
         const worldX = pointer.x + this.cameras.main.scrollX;
         const worldY = pointer.y + this.cameras.main.scrollY;
         const gridPos = this.factoryGrid.worldToGrid(worldX, worldY);
@@ -1087,51 +1130,38 @@ export default class GameScene extends Phaser.Scene {
           return;
         }
 
-        if (pointer.leftButtonDown()) {
+        if (this.isPrimaryPointer(pointer)) {
           console.log('[POINTERDOWN] Left button down.');
           const worldX = pointer.worldX;
           const worldY = pointer.worldY;
 
-          // Priority 1: Check for conveyor deletion if NOT in active machine placement mode
-          const isPlacingMachine = this.machineFactory && this.machineFactory.selectedMachineType;
+          // Priority 1: Pick up an existing placed machine.
+          const selectedMachineType =
+            this.machineFactory && this.machineFactory.selectedMachineType;
+          const isPlacingMachine = selectedMachineType;
+          const isMovingPickedUpMachine = Boolean(selectedMachineType?.fromPlacedMachine);
           console.log(`[POINTERDOWN] Is placing machine? ${isPlacingMachine}`);
 
-          if (!isPlacingMachine) {
-            console.log('[POINTERDOWN] Not actively placing. Checking for conveyor deletion.');
+          if (!isMovingPickedUpMachine) {
+            console.log('[POINTERDOWN] Checking for placed machine pickup.');
             if (this.grid.isInBounds(worldX, worldY)) {
               console.log('[POINTERDOWN] Click is in grid bounds.');
               const gridPos = this.grid.worldToGrid(worldX, worldY);
               if (gridPos) {
                 console.log(`[POINTERDOWN] Grid position: (${gridPos.x}, ${gridPos.y})`);
                 const cell = this.grid.getCell(gridPos.x, gridPos.y);
-                if (cell && cell.object) {
+                if (cell && cell.type === 'machine' && cell.object) {
                   console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
-
-                  // Exclude advanced logistics from instant one-click deletion
-                  const logisticsIds = ['conveyor', 'splitter', 'merger', 'underground-belt'];
-                  const isLogisticsItem =
-                    (cell.object instanceof BaseMachine || cell.object.machineType) &&
-                    logisticsIds.includes(cell.object.id);
-
-                  if (isLogisticsItem) {
-                    console.log(
-                      '[POINTERDOWN] Logistics item detected! Calling deleteLogisticsOnClick.'
-                    );
-                    this.deleteLogisticsOnClick(cell.object);
-                    return; // Deletion handled, stop further processing for this click
-                  } else {
-                    console.log(
-                      '[POINTERDOWN] Cell object is either a machine or a logistics component. Not instantly deleting.'
-                    );
-                  }
+                  this.pickUpPlacedMachine(cell.object);
+                  return;
                 } else {
-                  console.log('[POINTERDOWN] Cell is empty or has no object.');
+                  console.log('[POINTERDOWN] Cell is empty or has no placed machine.');
                 }
               } else {
                 console.log('[POINTERDOWN] Could not convert to grid position.');
               }
             } else {
-              console.log('[POINTERDOWN] Click is out of grid bounds for deletion check.');
+              console.log('[POINTERDOWN] Click is out of grid bounds for pickup check.');
             }
           }
 
@@ -1174,6 +1204,101 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     });
+  }
+
+  isPrimaryPointer(pointer) {
+    return (
+      pointer?.button === 0 ||
+      (pointer && typeof pointer.leftButtonDown === 'function' && pointer.leftButtonDown())
+    );
+  }
+
+  getRotationFromDirection(direction) {
+    const directionToRotation = {
+      right: { radians: 0, degrees: 0 },
+      down: { radians: Math.PI / 2, degrees: 90 },
+      left: { radians: Math.PI, degrees: 180 },
+      up: { radians: (3 * Math.PI) / 2, degrees: 270 },
+    };
+
+    return directionToRotation[direction] || directionToRotation.right;
+  }
+
+  normalizeRotationValue(rotation) {
+    const value = Number(rotation);
+    if (isNaN(value)) {
+      return null;
+    }
+
+    if (Math.abs(value) <= Math.PI * 2 + 0.01) {
+      const degrees = Math.round((value * 180) / Math.PI);
+      return {
+        radians: value,
+        degrees: ((degrees % 360) + 360) % 360,
+      };
+    }
+
+    const degrees = Math.round(value);
+    return {
+      radians: (degrees * Math.PI) / 180,
+      degrees: ((degrees % 360) + 360) % 360,
+    };
+  }
+
+  getPlacementOrientation(machine) {
+    const source = machine?.machineType || machine || {};
+
+    if (source.rotationDegrees !== undefined) {
+      const rotation = this.normalizeRotationValue(Number(source.rotationDegrees));
+      if (rotation) {
+        return {
+          ...rotation,
+          direction: this.getDirectionFromRotation(rotation.radians),
+        };
+      }
+    }
+
+    if (source.rotation !== undefined) {
+      const rotation = this.normalizeRotationValue(source.rotation);
+      if (rotation) {
+        return {
+          ...rotation,
+          direction: this.getDirectionFromRotation(rotation.radians),
+        };
+      }
+    }
+
+    if (machine?.rotationDegrees !== undefined && Number(machine.rotationDegrees) !== 0) {
+      const rotation = this.normalizeRotationValue(Number(machine.rotationDegrees));
+      if (rotation) {
+        return {
+          ...rotation,
+          direction: this.getDirectionFromRotation(rotation.radians),
+        };
+      }
+    }
+
+    if (machine?.rotation !== undefined && Number(machine.rotation) !== 0) {
+      const rotation = this.normalizeRotationValue(machine.rotation);
+      if (rotation) {
+        return {
+          ...rotation,
+          direction: this.getDirectionFromRotation(rotation.radians),
+        };
+      }
+    }
+
+    const direction =
+      source.direction ||
+      source.defaultDirection ||
+      machine?.direction ||
+      machine?.defaultDirection ||
+      'right';
+    const rotation = this.getRotationFromDirection(direction);
+    return {
+      ...rotation,
+      direction,
+    };
   }
 
   // Create a visual preview of where the machine will be placed
@@ -1240,11 +1365,13 @@ export default class GameScene extends Phaser.Scene {
       machine.shape = [[1]];
     }
 
+    const orientation = this.getPlacementOrientation(machine);
+
     // Get the rotated shape of the machine
     let rotatedShape;
     try {
       // Prepare rotation value - handle both radians and degrees
-      let rotationValue;
+      let _rotationValue;
 
       // If we have a numeric rotation
       if (typeof machine.rotation === 'number') {
@@ -1253,18 +1380,18 @@ export default class GameScene extends Phaser.Scene {
           // Likely radians
           //console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in radians: ${machine.rotation}`);
           // Convert to degrees for grid
-          rotationValue = Math.round((machine.rotation * 180) / Math.PI);
+          _rotationValue = Math.round((machine.rotation * 180) / Math.PI);
         } else {
           // Likely degrees
           //console.log(`[PLACEMENT PREVIEW] Rotation value appears to be in degrees: ${machine.rotation}`);
-          rotationValue = Math.round(machine.rotation);
+          _rotationValue = Math.round(machine.rotation);
         }
       } else {
         // Use direction string if no rotation
-        rotationValue = machine.direction || 'right';
+        _rotationValue = machine.direction || 'right';
       }
 
-      rotatedShape = this.grid.getRotatedShape(machine.shape, rotationValue);
+      rotatedShape = this.grid.getRotatedShape(machine.shape, orientation.direction);
     } catch (error) {
       console.error('[PLACEMENT PREVIEW] Error getting rotated shape:', error);
       // If we can't get the rotated shape, use the original shape as fallback
@@ -1282,14 +1409,14 @@ export default class GameScene extends Phaser.Scene {
       return; // Pointer is outside the grid
     }
 
-    // Get the direction from the rotation
-    const direction = this.getDirectionFromRotation(machine.rotation);
+    // Get the direction from the selected orientation
+    const direction = orientation.direction;
 
     // Create a minimal machineType object for canPlaceMachine if it doesn't exist
     const machineTypeForCheck = {
-      shape: rotatedShape,
+      shape: machine.shape,
       id: machine.id || (machine.machineType ? machine.machineType.id : 'unknown'),
-      direction: direction, // Add the direction to prevent double rotation
+      direction: direction,
     };
     const replacementInfo = this.findProcessorReplacement(machine, gridPos.x, gridPos.y, direction);
     const previewGridPos = replacementInfo
@@ -1584,7 +1711,13 @@ export default class GameScene extends Phaser.Scene {
 
   getPreviewOutputLevel(machine) {
     if (!machine) return null;
-    return machine.outputLevel || (machine.machineType && machine.machineType.outputLevel) || null;
+    return (
+      machine.outputLevel ||
+      machine.previewOutputLevel ||
+      (machine.machineType &&
+        (machine.machineType.outputLevel || machine.machineType.previewOutputLevel)) ||
+      null
+    );
   }
 
   drawPlacementTraitPreview(machine, gridPos, rotatedShape, canPlace) {
@@ -1963,9 +2096,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // Modify spawnResourceNode to pass the current round
-  spawnResourceNode(preferredY = null) {
+  spawnResourceNode(preferredY = null, resourceTypeIndex = 0, lifespan = GAME_CONFIG.nodeLifespan) {
     try {
-      if (this.gameOver || this.paused) return;
+      if (this.gameOver || this.paused) return null;
 
       // Ensure resourceNodes is initialized
       if (!this.resourceNodes) {
@@ -1981,18 +2114,15 @@ export default class GameScene extends Phaser.Scene {
           : this.grid.findEmptyCellInColumn(0);
       if (!emptySpot) {
         console.warn('[GAME] No empty cells found in left edge for resource node placement');
-        return;
+        return null;
       }
 
       // Convert grid position to world coordinates
       const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
       if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
         console.error('[GAME] Invalid world position for resource node:', worldPos);
-        return;
+        return null;
       }
-
-      // Select a random resource type (currently hardcoded to basic)
-      const resourceTypeIndex = 0;
 
       // Create a new resource node, passing the current era for scaling AND upgradeManager
       const node = new ResourceNode(
@@ -2003,7 +2133,7 @@ export default class GameScene extends Phaser.Scene {
           gridX: emptySpot.x,
           gridY: emptySpot.y,
           resourceType: resourceTypeIndex,
-          lifespan: GAME_CONFIG.nodeLifespan,
+          lifespan,
         },
         this.currentEra,
         this.upgradeManager
@@ -2014,8 +2144,10 @@ export default class GameScene extends Phaser.Scene {
       this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'node', object: node });
 
       //console.log(`[GAME] Created resource node for round ${this.currentRound} at grid (${emptySpot.x}, ${emptySpot.y})`);
+      return node;
     } catch (error) {
       console.error('[GAME] Error creating resource node:', error);
+      return null;
     }
   }
 
@@ -2388,7 +2520,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   addScore(points, options = {}) {
-    if (this.gameOver) return; // Don't add score if game is over
+    if (this.gameOver) return 0; // Don't add score if game is over
 
     const countsForFlow = options.countsForFlow !== false;
 
@@ -2407,8 +2539,11 @@ export default class GameScene extends Phaser.Scene {
 
     this.score += effectivePoints;
     this.scoreText.setText(`SCORE: ${this.score}`);
+    if (countsForFlow) {
+      this.addRoundScore(effectivePoints);
+    }
 
-    // Increase Momentum only for deliveries that advance the active contract.
+    // Increase Momentum only for deliveries that count toward the active scoring round.
     if (countsForFlow) {
       this.awardMomentum(points * this.momentumGainFactor);
     }
@@ -2444,9 +2579,21 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.refreshRunWideHud();
+    return effectivePoints;
   }
 
-  // === CONTRACT SYSTEM ===
+  addRoundScore(points) {
+    if (this.runState !== 'ROUND_ACTIVE' || this.roundSurvived) return;
+
+    this.roundScore += Math.max(0, Math.floor(points || 0));
+    if (this.roundScore >= this.roundQuota) {
+      this.clearRoundQuota();
+    } else {
+      this.updateContractHud();
+    }
+  }
+
+  // === ROUND QUOTA SYSTEM ===
 
   getItemRouteTags(itemData) {
     return Array.isArray(itemData?.routeTags) ? itemData.routeTags : [];
@@ -2462,14 +2609,21 @@ export default class GameScene extends Phaser.Scene {
     return tags.includes(contract.requiredRouteTag);
   }
 
+  hasContractOperation(itemData, demand) {
+    if (!demand || !demand.requiredLastOperationTag) return true;
+
+    return itemData?.lastOperationTag === demand.requiredLastOperationTag;
+  }
+
   getContractDemandMatch(tier, itemData, options = {}) {
-    if (this.runState !== 'CONTRACT_ACTIVE' || !this.contract) return null;
+    if (this.runState !== 'ROUND_ACTIVE' || !this.contract) return null;
     if (!this.hasContractRoute(itemData, this.contract)) return null;
 
     const allowFilled = options.allowFilled === true;
     return (
       (this.contract.demands || []).find((demand) => {
         if (!allowFilled && demand.delivered >= demand.quantity) return false;
+        if (!this.hasContractOperation(itemData, demand)) return false;
         return demand.exact ? tier === demand.tier : tier >= demand.tier;
       }) || null
     );
@@ -2479,47 +2633,60 @@ export default class GameScene extends Phaser.Scene {
     return Boolean(this.getContractDemandMatch(tier, itemData, { allowFilled: true }));
   }
 
-  getDeliveryReward(basePoints, tier, itemData = null) {
-    const countsForFlow = Boolean(this.getContractDemandMatch(tier, itemData));
-    const multiplier = countsForFlow ? 1 : GAME_CONFIG.offContractScoreMultiplier || 0;
-
+  getDeliveryReward(basePoints, tier, _itemData = null) {
     return {
-      points: Math.floor(basePoints * multiplier),
-      countsForFlow,
+      points: Math.floor(basePoints),
+      countsForFlow: this.runState === 'ROUND_ACTIVE',
     };
   }
 
-  buildContract() {
-    const era = this.currentEra;
-    let quantity = TRANSCEND_THRESHOLDS.getDeliveryThreshold(era);
-    let timeBudget = getContractTimeBudget(era);
-    if (
-      this.upgradeManager &&
-      this.upgradeManager.isProceduralUpgradeActive('boon_bulk_contracts')
-    ) {
-      quantity = Math.max(1, Math.round(quantity * 0.8));
-      timeBudget = Math.round(timeBudget * 0.85);
-    }
-    const requiredTier = getTranscendTier(era);
-    const contractShape = this.createContractShape(era, requiredTier, quantity);
+  getRoundQuota(round = this.currentRound) {
+    const base = GAME_CONFIG.roundBaseQuota || 450;
+    const growth = GAME_CONFIG.roundQuotaGrowth || 1.55;
+    const flatGrowth = GAME_CONFIG.roundQuotaFlatGrowth || 180;
+    return Math.round(base * Math.pow(growth, Math.max(0, round - 1)) + flatGrowth * (round - 1));
+  }
+
+  getRoundTimeBudget(round = this.currentRound) {
+    const base = GAME_CONFIG.roundTimeBudget || 75;
+    const growth = GAME_CONFIG.roundTimeGrowth || 4;
+    return Math.round(base + growth * Math.max(0, round - 1));
+  }
+
+  buildRound() {
+    const round = this.currentRound;
+    this.roundScore = 0;
+    this.roundQuota = this.getRoundQuota(round);
+    this.roundSurvived = false;
+    this.highestDeliveredTierThisRound = 0;
     this.contract = {
-      number: era,
-      title: contractShape.title,
-      requiredTier,
-      quantity,
-      timeBudget,
+      number: round,
+      title: 'Score Quota',
+      requiredTier: null,
+      quantity: this.roundQuota,
+      timeBudget: this.getRoundTimeBudget(round),
       delivered: 0,
-      demands: contractShape.demands,
-      requiredRouteTag: contractShape.requiredRouteTag || null,
+      demands: [],
+      requiredRouteTag: null,
     };
     this.contractDeliveryCount = 0;
     return this.contract;
+  }
+
+  buildContract() {
+    return this.buildRound();
   }
 
   createContractShape(era, requiredTier, quantity) {
     const variant = (era - 1) % 5;
     const lowerTier = Math.max(1, requiredTier - 1);
     const feederTier = Math.max(1, requiredTier - 2);
+    const mixFinish = {
+      requiredLastOperationTag: ARITHMETIC_OPERATION_TAGS.ADD,
+    };
+    const jumpFinish = {
+      requiredLastOperationTag: ARITHMETIC_OPERATION_TAGS.ADD_TWO,
+    };
 
     if (variant === 1) {
       const highQty = Math.max(1, Math.ceil(quantity / 2));
@@ -2527,24 +2694,24 @@ export default class GameScene extends Phaser.Scene {
         title: 'Exact Ratio',
         demands: [
           { tier: lowerTier, quantity: Math.max(1, quantity - highQty), delivered: 0, exact: true },
-          { tier: requiredTier, quantity: highQty, delivered: 0, exact: true },
+          { tier: requiredTier, quantity: highQty, delivered: 0, exact: true, ...mixFinish },
         ],
       };
     }
 
     if (variant === 2) {
       return {
-        title: 'Junction Run',
+        title: 'Junction Mix',
         requiredRouteTag: 'junction',
-        demands: [{ tier: requiredTier, quantity, delivered: 0, exact: false }],
+        demands: [{ tier: requiredTier, quantity, delivered: 0, exact: false, ...mixFinish }],
       };
     }
 
     if (variant === 3) {
       return {
-        title: 'Underground Run',
+        title: 'Underground Jump',
         requiredRouteTag: 'underground-belt',
-        demands: [{ tier: lowerTier, quantity, delivered: 0, exact: false }],
+        demands: [{ tier: lowerTier, quantity, delivered: 0, exact: false, ...jumpFinish }],
       };
     }
 
@@ -2553,9 +2720,22 @@ export default class GameScene extends Phaser.Scene {
         title: 'Three-Part Ratio',
         demands: [
           { tier: feederTier, quantity: 1, delivered: 0, exact: true },
-          { tier: lowerTier, quantity: 1, delivered: 0, exact: true },
-          { tier: requiredTier, quantity: Math.max(1, quantity - 2), delivered: 0, exact: true },
+          { tier: lowerTier, quantity: 1, delivered: 0, exact: true, ...jumpFinish },
+          {
+            tier: requiredTier,
+            quantity: Math.max(1, quantity - 2),
+            delivered: 0,
+            exact: true,
+            ...mixFinish,
+          },
         ],
+      };
+    }
+
+    if (era > 1) {
+      return {
+        title: 'Precision Mix',
+        demands: [{ tier: requiredTier, quantity, delivered: 0, exact: true, ...mixFinish }],
       };
     }
 
@@ -2565,23 +2745,41 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
-  startContractTimer() {
-    if (this.contractTimerEvent) {
-      this.contractTimerEvent.remove();
-      this.contractTimerEvent = null;
+  startRoundTimer() {
+    if (this.roundTimerEvent) {
+      this.roundTimerEvent.remove();
+      this.roundTimerEvent = null;
     }
     const ms = this.contract.timeBudget * 1000;
-    this.contractTimerEvent = this.time.addEvent({
+    this.roundTimerEvent = this.time.addEvent({
       delay: ms,
-      callback: this.onContractTimeout,
+      callback: this.onRoundTimeout,
       callbackScope: this,
     });
-    this.runState = 'CONTRACT_ACTIVE';
+    this.contractTimerEvent = this.roundTimerEvent;
+    this.runState = 'ROUND_ACTIVE';
     this.updateContractHud();
   }
 
+  startContractTimer() {
+    this.startRoundTimer();
+  }
+
+  onRoundTimeout() {
+    if (this.runState !== 'ROUND_ACTIVE') return;
+
+    if (!this.roundSurvived) {
+      this.runState = 'RUN_OVER';
+      console.log('[ROUND] Quota missed - run over');
+      this.endGame();
+      return;
+    }
+
+    this.finishSurvivedRound();
+  }
+
   onContractTimeout() {
-    if (this.runState !== 'CONTRACT_ACTIVE') return;
+    if (this.runState !== 'ROUND_ACTIVE') return;
     this.runState = 'RUN_OVER';
     console.log('[CONTRACT] Time expired — run over');
     this.endGame();
@@ -2589,78 +2787,53 @@ export default class GameScene extends Phaser.Scene {
 
   // Returns remaining seconds on the active contract (0 if none / paused done)
   getContractTimeRemaining() {
-    if (!this.contractTimerEvent) return this.contract ? this.contract.timeBudget : 0;
-    const remMs = this.contractTimerEvent.getRemaining();
+    if (!this.roundTimerEvent) return this.contract ? this.contract.timeBudget : 0;
+    const remMs = this.roundTimerEvent.getRemaining();
     return Math.max(0, remMs / 1000);
   }
 
   // Called by DeliveryNode for every level/purity delivery.
-  onContractDelivery(tier, itemData = null) {
-    if (this.runState !== 'CONTRACT_ACTIVE' || !this.contract) return;
-    const demand = this.getContractDemandMatch(tier, itemData);
-    if (!demand) return;
+  onContractDelivery(tier, _itemData = null) {
+    if (this.runState !== 'ROUND_ACTIVE' || !this.contract) return;
 
     this.contractDeliveryCount++;
-    // "Every Fifth Counts" boon: every 5th qualifying delivery counts double
-    let credit = 1;
-    if (
-      this.upgradeManager &&
-      this.upgradeManager.isProceduralUpgradeActive('boon_every_fifth') &&
-      this.contractDeliveryCount % 5 === 0
-    ) {
-      credit = 2;
-    }
-    // "Momentum Engine" boon: faster fill while momentum is at combo threshold
-    if (
-      this.upgradeManager &&
-      this.upgradeManager.isProceduralUpgradeActive('boon_momentum_engine') &&
-      this.currentMomentum >= this.comboThreshold
-    ) {
-      credit = Math.ceil(credit * 1.2);
-    }
-    if (
-      this.upgradeManager &&
-      this.upgradeManager.isProceduralUpgradeActive('boon_junction_jubilee') &&
-      this.hasContractRoute(itemData, { requiredRouteTag: 'junction' })
-    ) {
-      credit += 1;
-    }
+
     if (this.flowSurgeActive) {
-      credit += this.registerSurgeDelivery();
-    }
-
-    demand.delivered = Math.min(demand.quantity, demand.delivered + credit);
-    this.contract.delivered = this.contract.demands.reduce(
-      (sum, entry) => sum + Math.min(entry.delivered, entry.quantity),
-      0
-    );
-    this.updateContractHud();
-
-    if (this.contract.demands.every((entry) => entry.delivered >= entry.quantity)) {
-      this.clearContract();
+      this.registerSurgeDelivery();
     }
   }
 
   updateContractHud() {
     if (!this.contractText || !this.contractTimerText || !this.contract) return;
     const c = this.contract;
-    if (this.runState === 'GRACE' || this.runState === 'CONTRACT_CLEARED') {
-      this.contractText.setText(`Contract ${c.number} cleared`);
-      this.contractTimerText.setText('Ship when ready');
+    if (this.runState === 'GRACE' || this.runState === 'ROUND_CLEARED') {
+      this.contractText.setText(
+        `Round ${c.number} survived\nScore: ${this.roundScore}/${this.roundQuota}`
+      );
+      this.contractTimerText.setText('Reward pending');
       return;
     }
-    this.contractText.setText(`Contract ${c.number}: ${c.title}\n${this.getContractDemandText(c)}`);
+    const status = this.canTranscend
+      ? 'ERA GATE - transcend ready'
+      : this.roundSurvived
+        ? 'SURVIVED - greed for score'
+        : 'Quota';
+    this.contractText.setText(
+      `Round ${c.number}: ${status}\n${this.roundScore}/${this.roundQuota} score`
+    );
     const rem = Math.ceil(this.getContractTimeRemaining());
     const urgent = rem <= Math.max(5, c.timeBudget * 0.2);
     this.contractTimerText.setColor(urgent ? '#ff5555' : '#88ccff');
     this.contractTimerText.setText(`⏱ ${rem}s`);
+    this.updateTranscendButtonState();
   }
 
   getContractDemandText(contract) {
     const demandText = (contract.demands || [])
       .map((demand) => {
         const comparator = demand.exact ? '=' : '+';
-        return `${Math.min(demand.delivered, demand.quantity)}/${demand.quantity} L${demand.tier}${comparator}`;
+        const operationText = this.getDemandOperationText(demand);
+        return `${Math.min(demand.delivered, demand.quantity)}/${demand.quantity} L${demand.tier}${comparator}${operationText}`;
       })
       .join('  ');
     const routeText = contract.requiredRouteTag
@@ -2669,17 +2842,146 @@ export default class GameScene extends Phaser.Scene {
     return `${demandText}${routeText}`;
   }
 
-  clearContract() {
-    if (this.runState !== 'CONTRACT_ACTIVE') return;
-    this.runState = 'CONTRACT_CLEARED';
-    if (this.contractTimerEvent) {
-      this.contractTimerEvent.remove();
+  getDemandOperationText(demand) {
+    const label = getArithmeticOperationTagLabel(demand.requiredLastOperationTag);
+    return label ? ` ${label}` : '';
+  }
+
+  clearRoundQuota() {
+    if (this.roundSurvived || this.runState !== 'ROUND_ACTIVE') return;
+
+    this.roundSurvived = true;
+    this.roundScore = Math.max(this.roundScore, this.roundQuota);
+    this.awardMomentum(GAME_CONFIG.roundClearMomentumReward || 18, 'quota clear');
+    this.playSound('round-complete');
+    this.showRoundSurvivedFeedback();
+    if (this.isEraGateRound()) {
+      this.canTranscend = true;
+      this.showTranscendButton();
+    }
+    this.updateContractHud();
+  }
+
+  isEraGateRound(round = this.currentRound) {
+    const roundsPerEraGate = GAME_CONFIG.roundsPerEraGate || 3;
+    return round > 0 && round % roundsPerEraGate === 0;
+  }
+
+  getNextEraGateRound(round = this.currentRound) {
+    const roundsPerEraGate = GAME_CONFIG.roundsPerEraGate || 3;
+    return Math.ceil(round / roundsPerEraGate) * roundsPerEraGate;
+  }
+
+  updateTranscendButtonState() {
+    if (!this.transcendButton) return;
+
+    const isHiddenForPlacement = this.isPlacingChip || this.runState === 'GRACE';
+    const ready = this.canTranscend && !isHiddenForPlacement;
+    this.transcendButton.button.setVisible(!isHiddenForPlacement);
+    this.transcendButton.text.setVisible(!isHiddenForPlacement);
+
+    if (isHiddenForPlacement) return;
+
+    if (ready) {
+      this.transcendButton.button.fillColor = 0x7a55cc;
+      this.transcendButton.button.setAlpha(1);
+      this.transcendButton.text.setText('TRANSCEND');
+      this.transcendButton.text.setAlpha(1);
+    } else {
+      this.transcendButton.button.fillColor = 0x333344;
+      this.transcendButton.button.setAlpha(0.65);
+      this.transcendButton.text.setText(`ERA GATE R${this.getNextEraGateRound()}`);
+      this.transcendButton.text.setAlpha(0.8);
+    }
+  }
+
+  finishSurvivedRound() {
+    if (this.runState !== 'ROUND_ACTIVE' || !this.roundSurvived) return;
+
+    this.runState = 'ROUND_CLEARED';
+    if (this.roundTimerEvent) {
+      this.roundTimerEvent.remove();
+      this.roundTimerEvent = null;
       this.contractTimerEvent = null;
     }
-    console.log(`[CONTRACT] Contract ${this.contract.number} cleared`);
-    // canTranscend is required by triggerTranscendence(); set it here.
-    this.canTranscend = true;
-    this.triggerTranscendence();
+
+    if (this.isEraGateRound()) {
+      this.canTranscend = true;
+      this.triggerTranscendence();
+      return;
+    }
+
+    this.awardRoundScrap();
+    this.pendingRoundAdvanceAfterBoon = true;
+    this.showShopScreen();
+  }
+
+  updateScrapText() {
+    if (this.scrapText) {
+      this.scrapText.setText(`SCRAP: ${this.scrap || 0}`);
+    }
+  }
+
+  addScrap(amount, reason = 'reward') {
+    const gained = Math.max(0, Math.floor(amount || 0));
+    if (gained <= 0) return 0;
+
+    this.scrap = (this.scrap || 0) + gained;
+    this.updateScrapText();
+    console.log(`[SHOP] +${gained} Scrap (${reason})`);
+    return gained;
+  }
+
+  spendScrap(amount) {
+    const cost = Math.max(0, Math.floor(amount || 0));
+    if ((this.scrap || 0) < cost) return false;
+
+    this.scrap -= cost;
+    this.updateScrapText();
+    return true;
+  }
+
+  awardRoundScrap() {
+    const base = GAME_CONFIG.shopRoundClearScrap || 6;
+    const overkillScore = Math.max(0, (this.roundScore || 0) - (this.roundQuota || 0));
+    const overkillScrap = Math.floor(
+      overkillScore / (GAME_CONFIG.shopOverkillScorePerScrap || 250)
+    );
+    return this.addScrap(base + overkillScrap, `round ${this.currentRound} clear`);
+  }
+
+  showRoundSurvivedFeedback() {
+    const text = this.add
+      .text(
+        this.scale.width - this.rightPanelWidth - 20,
+        76,
+        `Round ${this.currentRound} survived`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 18,
+          color: '#88ffcc',
+          align: 'right',
+          stroke: '#000000',
+          strokeThickness: 4,
+        }
+      )
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 48,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  clearContract() {
+    this.clearRoundQuota();
   }
 
   /**
@@ -2687,8 +2989,7 @@ export default class GameScene extends Phaser.Scene {
    */
   showTranscendButton() {
     if (this.transcendButton) {
-      this.transcendButton.button.setVisible(true);
-      this.transcendButton.text.setVisible(true);
+      this.updateTranscendButtonState();
 
       // Pulsing animation
       this.transcendButtonPulse = this.tweens.add({
@@ -2708,29 +3009,30 @@ export default class GameScene extends Phaser.Scene {
    */
   hideTranscendButton() {
     if (this.transcendButton) {
-      this.transcendButton.button.setVisible(false);
-      this.transcendButton.text.setVisible(false);
-
       if (this.transcendButtonPulse) {
         this.transcendButtonPulse.stop();
         this.transcendButtonPulse = null;
       }
+      this.updateTranscendButtonState();
     }
   }
 
   /**
-   * Called when a resource is delivered - tracks throughput for chip emission rate
-   * Only counts deliveries of the transcend tier (L4 for Era 1, L7 for Era 2, etc.)
-   * This creates continuity: your L4 delivery rate becomes your chip's L4 emission rate
+   * Called when a scoring resource is delivered. This powers era-gate chip
+   * quality: faster engines create faster chips, while higher-tier engines
+   * archive a stronger output tier.
    * @param {number} tier - The tier of the delivered resource
    */
   trackDelivery(tier) {
-    const transcendTier = getTranscendTier(this.currentEra);
-
-    // Only track deliveries of the transcend tier for throughput calculation
-    if (tier !== transcendTier) {
-      return;
-    }
+    const deliveredTier = Math.max(1, Math.floor(Number(tier) || 1));
+    this.highestDeliveredTierThisRound = Math.max(
+      this.highestDeliveredTierThisRound || 0,
+      deliveredTier
+    );
+    this.highestDeliveredTierThisEra = Math.max(
+      this.highestDeliveredTierThisEra || 0,
+      deliveredTier
+    );
 
     const now = this.time.now;
     this.deliveryHistory.push(now);
@@ -2772,6 +3074,12 @@ export default class GameScene extends Phaser.Scene {
     }
 
     console.log(`[TRANSCEND] Beginning transcendence from Era ${this.currentEra}!`);
+    this.hideTranscendButton();
+    if (this.roundTimerEvent) {
+      this.roundTimerEvent.remove();
+      this.roundTimerEvent = null;
+      this.contractTimerEvent = null;
+    }
 
     // Flash effect
     this.cameras.main.flash(500, 100, 100, 255, true);
@@ -2803,13 +3111,18 @@ export default class GameScene extends Phaser.Scene {
       `[TRANSCEND] Factory throughput: ${throughput.toFixed(2)} deliveries/sec → Chip emission rate: ${emissionRate}ms`
     );
 
+    const archivedTier = Math.max(
+      1,
+      this.highestDeliveredTierThisEra || this.highestDeliveredTierThisRound || 1
+    );
+
     // 2. Create chip data from current era with throughput-based emission rate
     const newChip = {
       era: this.currentEra,
       emissionRate: emissionRate,
       throughput: throughput,
       grade: chipGrade,
-      outputTier: getTranscendTier(this.currentEra),
+      outputTier: archivedTier,
     };
 
     // 3. Clear the current factory
@@ -3020,70 +3333,52 @@ export default class GameScene extends Phaser.Scene {
 
     // Continue with remaining transcendence steps
     this.finalizeTranscendence();
-    this.showShipWhenReady();
+    this.startNextRound();
   }
 
-  showShipWhenReady() {
-    this.runState = 'GRACE';
-    this.buildContract();
-    this.updateContractHud();
+  startNextRound() {
+    this.currentRound++;
+    this.buildRound();
+    this.startRoundTimer();
+    this.showContractOnlineFeedback();
+    this.updateTranscendButtonState();
+    if (this.machineFactory) {
+      this.machineFactory.refreshAvailableProcessors();
+      this.machineFactory.displayCurrentProcessorPreview();
+    }
+  }
 
-    const cx = this.cameras.main.width / 2;
-    const cy = this.cameras.main.height / 2;
-    const panel = this.add
-      .rectangle(cx, cy, 420, 130, 0x102030, 0.92)
-      .setStrokeStyle(3, 0xffd966)
-      .setScrollFactor(0)
-      .setDepth(5000);
-    const msg = this.add
-      .text(cx, cy - 28, `Contract ${this.contract.number} ready`, {
-        fontFamily: 'Arial',
-        fontSize: 20,
-        color: '#ffffff',
-        align: 'center',
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(5001);
-    const btn = this.add
-      .text(cx, cy + 14, 'SHIP IT (10)', {
-        fontFamily: 'Arial',
-        fontSize: 18,
-        color: '#ffd966',
-        backgroundColor: '#2a4060',
-        padding: { x: 14, y: 6 },
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(5001)
-      .setInteractive({ useHandCursor: true });
+  startNextContract() {
+    this.startNextRound();
+  }
 
-    let secs = 10;
-    const cleanup = () => {
-      countdown.remove();
-      panel.destroy();
-      msg.destroy();
-      btn.destroy();
-    };
-    let accepted = false;
-    const accept = () => {
-      if (accepted) return;
-      accepted = true;
-      cleanup();
-      this.startContractTimer();
-    };
-    btn.on('pointerdown', accept);
-    const countdown = this.time.addEvent({
-      delay: 1000,
-      loop: true,
-      callback: () => {
-        secs--;
-        if (secs <= 0) {
-          accept();
-        } else {
-          btn.setText(`SHIP IT (${secs})`);
+  showContractOnlineFeedback() {
+    const text = this.add
+      .text(
+        this.scale.width - this.rightPanelWidth - 20,
+        76,
+        `Round ${this.contract.number} online`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 18,
+          color: '#ffd966',
+          align: 'right',
+          stroke: '#000000',
+          strokeThickness: 4,
         }
-      },
+      )
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 48,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
     });
   }
 
@@ -3114,6 +3409,9 @@ export default class GameScene extends Phaser.Scene {
 
     // 9. Reset transcendence-related counters
     this.deliveryHistory = [];
+    this.highestDeliveredTierThisEra = 0;
+    this.canTranscend = false;
+    this.hideTranscendButton();
 
     // 10. Update level display (level continues, doesn't reset)
     this.updateEraUI();
@@ -3206,7 +3504,7 @@ export default class GameScene extends Phaser.Scene {
     } else {
       // Resume timers
       this.gameTimer.paused = false;
-      if (this.contractTimerEvent && this.runState === 'CONTRACT_ACTIVE')
+      if (this.contractTimerEvent && this.runState === 'ROUND_ACTIVE')
         this.contractTimerEvent.paused = false;
       if (this.nodeSpawnTimer) {
         this.nodeSpawnTimer.paused = false;
@@ -3265,6 +3563,11 @@ export default class GameScene extends Phaser.Scene {
 
     // Stop all timers
     this.gameTimer.remove();
+    if (this.roundTimerEvent) {
+      this.roundTimerEvent.remove();
+      this.roundTimerEvent = null;
+      this.contractTimerEvent = null;
+    }
     if (this.nodeSpawnTimer) {
       console.log('[TIMER_DEBUG] Removing nodeSpawnTimer in endGame.');
       this.nodeSpawnTimer.remove();
@@ -3398,6 +3701,49 @@ export default class GameScene extends Phaser.Scene {
     return { button, text: buttonText };
   }
 
+  createPanelButton(x, y, width, height, text, callback, color = 0x4a6fb5) {
+    const button = this.add
+      .rectangle(x, y, width, height, color)
+      .setInteractive({ useHandCursor: true })
+      .setScrollFactor(0);
+    const buttonText = this.add
+      .text(x, y, text, {
+        fontFamily: 'Arial Black',
+        fontSize: 13,
+        color: '#ffffff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    button.on('pointerover', () => {
+      if (this.transcendButton?.button === button && !this.canTranscend) return;
+      button.fillColor = 0x8f6bea;
+    });
+    button.on('pointerout', () => {
+      if (this.transcendButton?.button === button && !this.canTranscend) {
+        button.fillColor = 0x333344;
+        return;
+      }
+      button.fillColor = color;
+    });
+    button.on('pointerdown', () => {
+      if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
+        try {
+          this.sound.play('click');
+        } catch (_error) {
+          this.audioAvailable = false;
+          this.registry.set('audioAvailable', false);
+        }
+      }
+      callback();
+    });
+
+    return { button, text: buttonText };
+  }
+
   addDecorations() {
     // Note: width and height are intentionally unused - kept for potential future decorations
     // const width = this.cameras.main.width;
@@ -3441,6 +3787,10 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Normalize rotation to 0-2π range
+    if (Math.abs(rotation) > Math.PI * 2 + 0.01) {
+      rotation = (rotation * Math.PI) / 180;
+    }
+
     const normalizedRotation = ((rotation % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 
     // Convert rotation to direction - using exact values for better precision
@@ -3850,6 +4200,39 @@ export default class GameScene extends Phaser.Scene {
     return best ? { x: best.x, y: best.y } : null;
   }
 
+  findNearbyValidPlacementAnchor(machineType, clickX, clickY, direction) {
+    const shapeSize = this.getRotatedShapeSize(machineType, direction);
+    if (!shapeSize) return null;
+
+    const radius = Math.max(shapeSize.width, shapeSize.height, 3);
+    let best = null;
+
+    for (let y = clickY - radius; y <= clickY + radius; y++) {
+      for (let x = clickX - radius; x <= clickX + radius; x++) {
+        if (!this.grid.canPlaceMachine(machineType, x, y, direction)) {
+          continue;
+        }
+
+        const centerX = x + (shapeSize.width - 1) / 2;
+        const centerY = y + (shapeSize.height - 1) / 2;
+        const distance = Math.abs(centerX - clickX) + Math.abs(centerY - clickY);
+        const candidate = { x, y, distance };
+
+        if (
+          !best ||
+          candidate.distance < best.distance ||
+          (candidate.distance === best.distance &&
+            Math.abs(candidate.x - clickX) + Math.abs(candidate.y - clickY) <
+              Math.abs(best.x - clickX) + Math.abs(best.y - clickY))
+        ) {
+          best = candidate;
+        }
+      }
+    }
+
+    return best ? { x: best.x, y: best.y } : null;
+  }
+
   findProcessorReplacement(machineType, gridX, gridY, direction) {
     if (!this.grid || !machineType || !this.isProcessorTypeId(machineType.id)) return null;
 
@@ -4021,6 +4404,15 @@ export default class GameScene extends Phaser.Scene {
   recordDeliveryFlow(itemData, tier, reward) {
     if (!itemData || !this.recentFlowPlacements || reward?.countsForFlow === false) return;
 
+    if (itemData.itemColor === 'yellow') {
+      const threshold = GAME_CONFIG.yellowScorePerScrap || 120;
+      this.yellowScrapProgress += Math.max(0, Math.floor(reward?.points || 0));
+      while (this.yellowScrapProgress >= threshold) {
+        this.yellowScrapProgress -= threshold;
+        this.addScrap(1, 'yellow delivery');
+      }
+    }
+
     const machineUids = Array.isArray(itemData.machineUids) ? itemData.machineUids : [];
     for (const uid of machineUids) {
       const info = this.recentFlowPlacements.get(uid);
@@ -4117,6 +4509,7 @@ export default class GameScene extends Phaser.Scene {
         );
         return null;
       }
+      const isRepositionedMachine = Boolean(machineType.fromPlacedMachine);
 
       // Get direction from rotation (assuming degrees for now)
       const direction = this.getDirectionFromRotation(rotation);
@@ -4161,8 +4554,26 @@ export default class GameScene extends Phaser.Scene {
         );
         return null; // Exit on error during check
       }
+      if (!canPlace && this.isProcessorTypeId(machineType.id)) {
+        const nearbyAnchor = this.findNearbyValidPlacementAnchor(
+          machineType,
+          gridX,
+          gridY,
+          direction
+        );
+        if (nearbyAnchor) {
+          gridX = nearbyAnchor.x;
+          gridY = nearbyAnchor.y;
+          canPlace = true;
+          console.log(
+            `[GameScene.placeMachine] Adjusted processor placement anchor to (${gridX}, ${gridY})`
+          );
+        }
+      }
       if (!canPlace) {
-        replacementInfo = this.findProcessorReplacement(machineType, gridX, gridY, direction);
+        replacementInfo = isRepositionedMachine
+          ? null
+          : this.findProcessorReplacement(machineType, gridX, gridY, direction);
         if (replacementInfo) {
           machineType = this.getMachineTypeForProcessorReplacement(
             machineType,
@@ -4237,8 +4648,17 @@ export default class GameScene extends Phaser.Scene {
       if (machineType.outputLevel) {
         machineObj.outputLevel = machineType.outputLevel;
       }
+      if (machineType.previewOutputLevel) {
+        machineObj.previewOutputLevel = machineType.previewOutputLevel;
+      }
       if (machineType.notation) {
         machineObj.notation = machineType.notation;
+      }
+      if (machineType.arithmeticOperation) {
+        machineObj.arithmeticOperation = { ...machineType.arithmeticOperation };
+        machineObj.arithmeticInputCount = machineType.arithmeticInputCount || 0;
+        machineObj.inputLevels = [];
+        machineObj.outputLevel = null;
       }
 
       // Ensure the machine is visible
@@ -4272,7 +4692,9 @@ export default class GameScene extends Phaser.Scene {
       // Add the machine to the scene's tracking array
       this.machines.push(machineObj);
       this.addToWorld(machineObj);
-      this.trackPlacementForFlowReward(machineObj);
+      if (!isRepositionedMachine) {
+        this.trackPlacementForFlowReward(machineObj);
+      }
       console.log(
         `[GameScene.placeMachine] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`
       ); // LOG P11
@@ -4285,14 +4707,16 @@ export default class GameScene extends Phaser.Scene {
       }
 
       const connectionCount = this.countNewMachineConnections(machineObj, gridX, gridY, direction);
-      const placementGain = GAME_CONFIG.placementMomentumGain || 2;
-      const connectionGain = (GAME_CONFIG.connectionMomentumGain || 3) * connectionCount;
-      this.awardMomentum(
-        placementGain + connectionGain,
-        connectionCount > 0 ? `link x${connectionCount}` : ''
-      );
-      if (connectionCount > 0) {
-        this.recordObjectiveProgress('linkedPlacement', 1);
+      if (!isRepositionedMachine) {
+        const placementGain = GAME_CONFIG.placementMomentumGain || 2;
+        const connectionGain = (GAME_CONFIG.connectionMomentumGain || 3) * connectionCount;
+        this.awardMomentum(
+          placementGain + connectionGain,
+          connectionCount > 0 ? `link x${connectionCount}` : ''
+        );
+        if (connectionCount > 0) {
+          this.recordObjectiveProgress('linkedPlacement', 1);
+        }
       }
       if (replacementInfo) {
         this.applyProcessorReplacementCost(replacementInfo);
@@ -5407,7 +5831,9 @@ export default class GameScene extends Phaser.Scene {
 
   showBoonScreen() {
     this.isPausedForUpgrade = true;
+    if (this.gameTimer) this.gameTimer.paused = true;
     if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
+    if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
     this.scene.launch('UpgradeScene', {
       upgradeManager: this.upgradeManager,
       callingSceneKey: this.scene.key,
@@ -5416,12 +5842,128 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  showShopScreen() {
+    this.isPausedForUpgrade = true;
+    if (this.gameTimer) this.gameTimer.paused = true;
+    if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
+    if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
+    this.scene.launch('UpgradeScene', {
+      upgradeManager: this.upgradeManager,
+      callingSceneKey: this.scene.key,
+      isShop: true,
+    });
+  }
+
+  getShopChoices() {
+    const boonChoice = this.upgradeManager.getBoonChoices(1)[0];
+    const choices = [
+      {
+        type: 'draft_add_2',
+        kind: 'Machine',
+        name: '+2 Processor Draft',
+        description: 'Put a usable +2 processor into the first draft slot.',
+        cost: 5,
+      },
+      {
+        type: 'yellow_source',
+        kind: 'Color',
+        name: 'Add Yellow Source',
+        description: 'Spawn a Yellow source on the left edge. Yellow deliveries earn extra score.',
+        cost: 6,
+      },
+      {
+        type: 'reroll_drafts',
+        kind: 'Utility',
+        name: 'Reroll Machine Drafts',
+        description: 'Refresh the processor draft row immediately.',
+        cost: 3,
+      },
+    ];
+
+    if (boonChoice) {
+      choices.push({
+        type: 'boon',
+        kind: 'Sticker',
+        boonId: boonChoice.type,
+        name: boonChoice.name,
+        description: boonChoice.description,
+        cost: 7,
+      });
+    }
+
+    choices.push({
+      type: 'skip_shop',
+      kind: 'Skip',
+      name: 'Save Scrap',
+      description: 'Buy nothing and keep Scrap for later.',
+      cost: 0,
+      isFree: true,
+    });
+
+    return choices;
+  }
+
+  buyShopChoice(choice) {
+    if (!choice) return { success: false, message: 'No shop choice selected.' };
+
+    if (choice.type === 'skip_shop') {
+      return { success: true, closeShop: true };
+    }
+
+    if (!this.spendScrap(choice.cost || 0)) {
+      return { success: false, message: 'Not enough Scrap.' };
+    }
+
+    let success = true;
+    switch (choice.type) {
+      case 'draft_add_2':
+        success = this.machineFactory?.injectAddConstantDraft(2, 0) !== false;
+        break;
+      case 'yellow_source':
+        success = this.spawnShopSource('yellow');
+        break;
+      case 'reroll_drafts':
+        this.machineFactory?.rerollProcessorDrafts();
+        break;
+      case 'boon':
+        this.upgradeManager.applyBoon(choice.boonId);
+        this.updateActiveUpgradesDisplay();
+        break;
+      default:
+        success = false;
+        break;
+    }
+
+    if (!success) {
+      this.addScrap(choice.cost || 0, 'refund');
+      return { success: false, message: 'Could not apply shop item.' };
+    }
+
+    this.playSound('upgrade-select');
+    return { success: true, closeShop: true };
+  }
+
+  spawnShopSource(itemColor = 'yellow') {
+    const resourceTypeIndex = GAME_CONFIG.resourceTypes.findIndex(
+      (resourceType) => resourceType.itemColor === itemColor
+    );
+    const index = resourceTypeIndex === -1 ? 0 : resourceTypeIndex;
+    return this.spawnResourceNode(null, index, GAME_CONFIG.shopSourceLifespan || 180) !== null;
+  }
+
   resumeFromUpgrade() {
     this.isPausedForUpgrade = false;
+    if (this.gameTimer) this.gameTimer.paused = false;
+    if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = false;
     if (this.pendingChipAfterBoon) {
       const chip = this.pendingChipAfterBoon;
       this.pendingChipAfterBoon = null;
       this.enterChipPlacementMode(chip);
+      return;
+    }
+    if (this.pendingRoundAdvanceAfterBoon) {
+      this.pendingRoundAdvanceAfterBoon = false;
+      this.startNextRound();
       return;
     }
     // (legacy level-up path removed in Task 6; nothing else to do)
@@ -5433,9 +5975,10 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const activeUpgrades = this.upgradeManager.currentUpgrades;
+    const activeBoons = Array.from(this.upgradeManager.activeProceduralUpgrades || []);
     let displayText = 'Active Upgrades:\n';
 
-    if (Object.keys(activeUpgrades).length === 0) {
+    if (Object.keys(activeUpgrades).length === 0 && activeBoons.length === 0) {
       displayText += '- None';
     } else {
       for (const upgradeType in activeUpgrades) {
@@ -5446,8 +5989,142 @@ export default class GameScene extends Phaser.Scene {
           displayText += `- ${config.name} (Lvl ${level}): ${tierInfo ? tierInfo.description : ''}\n`;
         }
       }
+      activeBoons.forEach((boonId) => {
+        const boon = BOON_POOL.find((entry) => entry.id === boonId);
+        displayText += `- ${boon?.name || boonId}\n`;
+      });
     }
     this.activeUpgradesText.setText(displayText);
+  }
+
+  getRotationForPlacedMachine(machine) {
+    if (machine?.rotationDegrees !== undefined) {
+      return {
+        radians: (Number(machine.rotationDegrees) * Math.PI) / 180,
+        degrees: Number(machine.rotationDegrees),
+      };
+    }
+
+    if (machine?.rotation !== undefined && !isNaN(Number(machine.rotation))) {
+      const rotation = Number(machine.rotation);
+      const degrees = rotation < 10 ? Math.round((rotation * 180) / Math.PI) : rotation;
+      return {
+        radians: rotation < 10 ? rotation : (degrees * Math.PI) / 180,
+        degrees,
+      };
+    }
+
+    const direction = machine?.direction || 'right';
+    const directionToRadians = {
+      right: 0,
+      down: Math.PI / 2,
+      left: Math.PI,
+      up: (3 * Math.PI) / 2,
+    };
+    const radians = directionToRadians[direction] || 0;
+    return {
+      radians,
+      degrees: Math.round((radians * 180) / Math.PI),
+    };
+  }
+
+  createMachineTypeFromPlacedMachine(machine) {
+    if (!machine || !machine.id) return null;
+
+    let baseType = null;
+    if (this.machineFactory && typeof this.machineFactory.getMachineTypeById === 'function') {
+      try {
+        baseType = this.machineFactory.getMachineTypeById(machine.id);
+      } catch (_error) {
+        baseType = null;
+      }
+    }
+
+    const rotation = this.getRotationForPlacedMachine(machine);
+    const machineType = {
+      ...(baseType || {}),
+      id: machine.id,
+      name: machine.name || baseType?.name || machine.id,
+      description: machine.description || baseType?.description || '',
+      shape: Array.isArray(machine.shape) ? machine.shape.map((row) => [...row]) : baseType?.shape,
+      direction: machine.direction || baseType?.direction || 'right',
+      rotation: rotation.radians,
+      rotationDegrees: rotation.degrees,
+      fromPlacedMachine: true,
+    };
+
+    if (Array.isArray(machine.inputLevels)) {
+      machineType.inputLevels = [...machine.inputLevels];
+    }
+    if (machine.outputLevel != null) {
+      machineType.outputLevel = machine.outputLevel;
+    }
+    if (machine.previewOutputLevel != null) {
+      machineType.previewOutputLevel = machine.previewOutputLevel;
+    }
+    if (machine.notation) {
+      machineType.notation = machine.notation;
+    }
+    if (machine.arithmeticOperation) {
+      machineType.arithmeticOperation = { ...machine.arithmeticOperation };
+      machineType.arithmeticInputCount = machine.arithmeticInputCount || 0;
+    }
+    if (machine.trait) {
+      machineType.trait = machine.trait;
+    }
+
+    return machineType.shape ? machineType : null;
+  }
+
+  clearMachineRuntimeItems(machine) {
+    if (!machine) return;
+
+    if (Array.isArray(machine.itemsOnBelt)) {
+      machine.itemsOnBelt.forEach((itemOnBelt) => {
+        const visual = itemOnBelt?.visual || itemOnBelt;
+        if (visual && typeof visual.destroy === 'function') {
+          visual.destroy();
+        }
+      });
+      machine.itemsOnBelt = [];
+    }
+
+    if (machine.itemVisualsGroup && typeof machine.itemVisualsGroup.clear === 'function') {
+      machine.itemVisualsGroup.clear(true, true);
+    }
+  }
+
+  pickUpPlacedMachine(machine) {
+    if (this.paused || this.gameOver || !machine || !this.machineFactory) return;
+
+    const machineType = this.createMachineTypeFromPlacedMachine(machine);
+    if (!machineType) {
+      console.warn('[PICKUP] Could not create placement data for clicked machine.');
+      return;
+    }
+
+    this.clearMachineRuntimeItems(machine);
+
+    const machineIndex = this.machines.indexOf(machine);
+    if (machineIndex > -1) {
+      this.machines.splice(machineIndex, 1);
+    }
+
+    if (typeof machine.destroy === 'function') {
+      machine.destroy();
+    } else if (this.grid && typeof this.grid.removeMachine === 'function') {
+      this.grid.removeMachine(machine);
+    }
+
+    this.machineFactory.lastSelectedCategory = null;
+    this.machineFactory.lastSelectedSlotIndex = -1;
+    this.machineFactory.selectMachineType(machineType);
+    this.isPlacingMachine = true;
+    this.selectedMachineType = machineType;
+
+    if (typeof this.playSound === 'function') {
+      this.playSound('destroy');
+    }
   }
 
   deleteLogisticsOnClick(machine) {
@@ -5515,8 +6192,10 @@ export default class GameScene extends Phaser.Scene {
       shape: this.selectedMachineType.shape,
       direction: this.selectedMachineType.direction || 'right',
       rotation: this.selectedMachineType.rotation || 0,
+      rotationDegrees: this.selectedMachineType.rotationDegrees,
       trait: this.selectedMachineType.trait || null,
       outputLevel: this.selectedMachineType.outputLevel || null,
+      previewOutputLevel: this.selectedMachineType.previewOutputLevel || null,
       machineType: this.selectedMachineType,
       gridX: gridPos.x,
       gridY: gridPos.y,
@@ -5561,12 +6240,8 @@ export default class GameScene extends Phaser.Scene {
   }
   tryPlaceMachineAt(gridPos) {
     if (!this.selectedMachineType || !gridPos) return;
-    this.placeMachine(
-      this.selectedMachineType,
-      gridPos.x,
-      gridPos.y,
-      this.selectedMachineType.rotation || 0
-    );
+    const orientation = this.getPlacementOrientation(this.selectedMachineType);
+    this.placeMachine(this.selectedMachineType, gridPos.x, gridPos.y, orientation.radians);
   }
 
   /**
