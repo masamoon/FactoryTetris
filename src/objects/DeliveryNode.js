@@ -1,6 +1,13 @@
 import { GAME_CONFIG } from '../config/gameConfig';
 import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js';
-import { calculateDeliveryScore, getPurityName } from '../utils/PurityUtils';
+import {
+  calculateDeliveryScore,
+  getItemColorHex,
+  getItemColorName,
+  getItemColorText,
+  getPurityColor,
+  getPurityName,
+} from '../utils/PurityUtils';
 import {
   getLevelPoints,
   getLevelName,
@@ -83,6 +90,13 @@ export default class DeliveryNode {
     this.progressBar.setOrigin(0, 0.5);
     this.container.add(this.progressBar);
 
+    if (this.condition.itemColor) {
+      const swatchColor = this.getConditionItemColor();
+      this.colorSwatch = this.scene.add.circle(10, -10, 5, swatchColor, 1);
+      this.colorSwatch.setStrokeStyle(1.5, 0xffffff, 0.95);
+      this.container.add(this.colorSwatch);
+    }
+
     // Lifespan bar removed - output nodes are permanent
 
     // Optional: Add a different animation? Or keep pulsing?
@@ -105,9 +119,19 @@ export default class DeliveryNode {
     return colors[tier - 1];
   }
 
+  getConditionItemColor() {
+    return getItemColorHex(this.condition.itemColor, this.getConditionColor());
+  }
+
+  getConditionColorName() {
+    return this.condition.itemColor ? getItemColorName(this.condition.itemColor) : null;
+  }
+
   getConditionShortLabel() {
     const tier = this.condition.tier || 1;
-    return `${this.condition.exact ? '=' : ''}L${tier}${this.condition.exact ? '' : '+'}`;
+    const tierLabel = `${this.condition.exact ? '=' : ''}L${tier}${this.condition.exact ? '' : '+'}`;
+    const colorName = this.getConditionColorName();
+    return colorName ? `${colorName.charAt(0).toUpperCase()} ${tierLabel}` : tierLabel;
   }
 
   getHudLabel() {
@@ -136,7 +160,10 @@ export default class DeliveryNode {
     if (this.completed) return false;
     const tier = this.getItemTier(itemData);
     const requiredTier = this.condition.tier || 1;
-    return this.condition.exact ? tier === requiredTier : tier >= requiredTier;
+    const tierMatches = this.condition.exact ? tier === requiredTier : tier >= requiredTier;
+    const colorMatches =
+      !this.condition.itemColor || (itemData && itemData.itemColor === this.condition.itemColor);
+    return tierMatches && colorMatches;
   }
 
   /**
@@ -252,7 +279,7 @@ export default class DeliveryNode {
 
       // Visual feedback for level resource
       const levelName = getLevelName(level);
-      this.createLevelAcceptEffect(level, reward.points, levelName);
+      this.createLevelAcceptEffect(level, reward.points, levelName, itemData);
 
       console.log(
         `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
@@ -282,7 +309,7 @@ export default class DeliveryNode {
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
-      this.createPurityAcceptEffect(purity, chainCount, reward.points, purityName);
+      this.createPurityAcceptEffect(purity, chainCount, reward.points, purityName, itemData);
 
       console.log(
         `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
@@ -337,7 +364,7 @@ export default class DeliveryNode {
   }
 
   createFillPulse(tier) {
-    const color = this.getConditionColor();
+    const itemColor = this.getConditionItemColor();
     if (this.background) {
       this.scene.tweens.add({
         targets: this.background,
@@ -348,9 +375,19 @@ export default class DeliveryNode {
         ease: 'Quad.easeOut',
       });
     }
+    if (this.colorSwatch) {
+      this.scene.tweens.add({
+        targets: this.colorSwatch,
+        scaleX: 1.65,
+        scaleY: 1.65,
+        duration: 120,
+        yoyo: true,
+        ease: 'Back.easeOut',
+      });
+    }
 
-    const ring = this.scene.add.circle(this.container.x, this.container.y, 15, color, 0);
-    ring.setStrokeStyle(2, color, 0.9);
+    const ring = this.scene.add.circle(this.container.x, this.container.y, 15, itemColor, 0);
+    ring.setStrokeStyle(2, itemColor, 0.9);
     ring.setDepth(this.container.depth + 2);
     if (this.scene.addToWorld) this.scene.addToWorld(ring);
     this.scene.tweens.add({
@@ -384,7 +421,8 @@ export default class DeliveryNode {
   }
 
   createCompletionBurst() {
-    const color = this.getConditionColor();
+    const tierColor = this.getConditionColor();
+    const itemColor = this.getConditionItemColor();
     this.scene.cameras.main.shake(120, 0.004);
     this.scene.cameras.main.flash(90, 255, 255, 255, true);
 
@@ -411,8 +449,29 @@ export default class DeliveryNode {
       onComplete: () => burstText.destroy(),
     });
 
+    for (let i = 0; i < 3; i++) {
+      const ring = this.scene.add.circle(
+        this.container.x,
+        this.container.y,
+        18 + i * 4,
+        itemColor,
+        0
+      );
+      ring.setStrokeStyle(2, i % 2 === 0 ? itemColor : tierColor, 0.95 - i * 0.2);
+      ring.setDepth(this.container.depth + 3);
+      if (this.scene.addToWorld) this.scene.addToWorld(ring);
+      this.scene.tweens.add({
+        targets: ring,
+        radius: 44 + i * 14,
+        alpha: 0,
+        duration: 520 + i * 120,
+        ease: 'Cubic.easeOut',
+        onComplete: () => ring.destroy(),
+      });
+    }
+
     const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
-      color: [color, 0xffffff, 0x88ffcc],
+      color: [itemColor, tierColor, 0xffffff, 0x88ffcc],
       lifespan: 700,
       speed: { min: 90, max: 210 },
       scale: { start: 1.1, end: 0 },
@@ -542,10 +601,10 @@ export default class DeliveryNode {
    * @param {number} points - The total points awarded.
    * @param {string} purityName - Display name for the purity level.
    */
-  createPurityAcceptEffect(purity, chainCount, points, purityName) {
-    // Get color based on purity
-    const colors = [0x8b4513, 0xcd853f, 0xffd700, 0xfffacd, 0xffffff];
-    const color = purity <= colors.length ? colors[purity - 1] : 0xffffff;
+  createPurityAcceptEffect(purity, chainCount, points, purityName, itemData = null) {
+    const color = getItemColorHex(itemData?.itemColor, this.getConditionItemColor());
+    const purityColor = getPurityColor(purity, this.scene.time.now);
+    const colorName = itemData?.itemColor ? getItemColorName(itemData.itemColor) : null;
 
     // Main score popup
     const scoreText = this.scene.add
@@ -591,13 +650,18 @@ export default class DeliveryNode {
 
     // Purity name text
     const purityText = this.scene.add
-      .text(this.container.x, this.container.y + 5, purityName, {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        color: `#${color.toString(16).padStart(6, '0')}`,
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
+      .text(
+        this.container.x,
+        this.container.y + 5,
+        colorName ? `${colorName} ${purityName}` : purityName,
+        {
+          fontFamily: 'Arial',
+          fontSize: 10,
+          color: getItemColorText(itemData?.itemColor, `#${color.toString(16).padStart(6, '0')}`),
+          stroke: '#000000',
+          strokeThickness: 2,
+        }
+      )
       .setOrigin(0.5);
     purityText.setDepth(this.container.depth + 3);
     if (this.scene.addToWorld) this.scene.addToWorld(purityText);
@@ -626,7 +690,7 @@ export default class DeliveryNode {
 
     // Particle burst effect with purity color
     const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
-      color: [color],
+      color: [color, purityColor],
       colorEase: 'quad.out',
       lifespan: 500,
       speed: { min: 60, max: 120 },
@@ -654,10 +718,12 @@ export default class DeliveryNode {
    * @param {number} points - The points awarded.
    * @param {string} levelName - Display name for the level.
    */
-  createLevelAcceptEffect(level, points, levelName) {
+  createLevelAcceptEffect(level, points, levelName, itemData = null) {
     // Level colors: Gray (1), Green (2), Blue (3), Gold (4)
     const colors = [0x888888, 0x22cc22, 0x2288ff, 0xffcc00];
-    const color = level <= colors.length ? colors[level - 1] : 0xffffff;
+    const tierColor = level <= colors.length ? colors[level - 1] : 0xffffff;
+    const color = getItemColorHex(itemData?.itemColor, tierColor);
+    const colorName = itemData?.itemColor ? getItemColorName(itemData.itemColor) : null;
 
     // Main score popup
     const scoreText = this.scene.add
@@ -675,13 +741,18 @@ export default class DeliveryNode {
 
     // Level name text
     const levelText = this.scene.add
-      .text(this.container.x, this.container.y + 5, `L${level} ${levelName}`, {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        color: `#${color.toString(16).padStart(6, '0')}`,
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
+      .text(
+        this.container.x,
+        this.container.y + 5,
+        `${colorName ? `${colorName} ` : ''}L${level} ${levelName}`,
+        {
+          fontFamily: 'Arial',
+          fontSize: 10,
+          color: getItemColorText(itemData?.itemColor, `#${color.toString(16).padStart(6, '0')}`),
+          stroke: '#000000',
+          strokeThickness: 2,
+        }
+      )
       .setOrigin(0.5);
     levelText.setDepth(this.container.depth + 3);
     if (this.scene.addToWorld) this.scene.addToWorld(levelText);
@@ -710,7 +781,7 @@ export default class DeliveryNode {
 
     // Particle burst effect with level color
     const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
-      color: [color],
+      color: [color, tierColor],
       colorEase: 'quad.out',
       lifespan: 500,
       speed: { min: 60, max: 120 },
