@@ -79,7 +79,7 @@ export default class DeliveryNode {
 
     // Delivery nodes are small contracts on the board.
     const nodeColor = this.getConditionColor();
-    const borderColor = 0xffffff;
+    const borderColor = this.getConditionTierColor();
 
     // Create node background (square instead of circle)
     this.background = this.scene.add.rectangle(0, 0, 24, 24, nodeColor);
@@ -116,12 +116,12 @@ export default class DeliveryNode {
     this.progressBarBg.setOrigin(0.5);
     this.container.add(this.progressBarBg);
 
-    this.progressBar = this.scene.add.rectangle(-12, 17, 0, 4, 0x88ffcc);
+    this.progressBar = this.scene.add.rectangle(-12, 17, 0, 4, nodeColor);
     this.progressBar.setOrigin(0, 0.5);
     this.container.add(this.progressBar);
 
     if (this.condition.itemColor) {
-      const swatchColor = this.getConditionItemColor();
+      const swatchColor = this.getConditionTierColor();
       this.colorSwatch = this.scene.add.circle(10, -10, 5, swatchColor, 1);
       this.colorSwatch.setStrokeStyle(1.5, 0xffffff, 0.95);
       this.container.add(this.colorSwatch);
@@ -144,13 +144,20 @@ export default class DeliveryNode {
   }
 
   getConditionColor() {
+    if (this.condition.itemColor) {
+      return this.getConditionItemColor();
+    }
+    return this.getConditionTierColor();
+  }
+
+  getConditionTierColor() {
     const colors = [0x888888, 0x22cc66, 0x2288ff, 0xffcc00, 0xff66cc, 0xffffff];
     const tier = Math.max(1, Math.min(colors.length, this.condition.tier || 1));
     return colors[tier - 1];
   }
 
   getConditionItemColor() {
-    return getItemColorHex(this.condition.itemColor, this.getConditionColor());
+    return getItemColorHex(this.condition.itemColor, this.getConditionTierColor());
   }
 
   getConditionColorName() {
@@ -189,13 +196,17 @@ export default class DeliveryNode {
     return 1;
   }
 
+  getItemColorKey(itemData) {
+    return itemData?.itemColor || GAME_CONFIG.defaultItemColor || 'blue';
+  }
+
   matchesCondition(itemData) {
     if (this.completed) return false;
     const tier = this.getItemTier(itemData);
     const requiredTier = this.condition.tier || 1;
     const tierMatches = this.condition.exact ? tier === requiredTier : tier >= requiredTier;
     const colorMatches =
-      !this.condition.itemColor || (itemData && itemData.itemColor === this.condition.itemColor);
+      !this.condition.itemColor || this.getItemColorKey(itemData) === this.condition.itemColor;
     const operationMatches =
       !this.condition.requiredLastOperationTag ||
       itemData?.lastOperationTag === this.condition.requiredLastOperationTag;
@@ -535,7 +546,7 @@ export default class DeliveryNode {
   }
 
   createCompletionBurst() {
-    const tierColor = this.getConditionColor();
+    const tierColor = this.getConditionTierColor();
     const itemColor = this.getConditionItemColor();
     this.scene.cameras.main.shake(120, 0.004);
     this.scene.cameras.main.flash(90, 255, 255, 255, true);
