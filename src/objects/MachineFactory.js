@@ -31,7 +31,7 @@ export default class MachineFactory {
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
-    this.numLogisticsSlots = 3; // Number of logistics slots (Splitter, Merger, Underground)
+    this.numLogisticsSlots = 4; // Splitter, Merger, Underground, Painter
     this.availableLogistics = []; // Array of currently available logistics machines
     this.logisticsTypes = []; // Pool of logistics machine types
 
@@ -182,7 +182,7 @@ export default class MachineFactory {
 
     // Filter for logistics machines
     this.logisticsTypes = allMachineTypes.filter((type) =>
-      ['splitter', 'merger', 'underground-belt'].includes(type.id.toLowerCase())
+      ['splitter', 'merger', 'underground-belt', 'painter'].includes(type.id.toLowerCase())
     );
 
     // Get the conveyor type
@@ -1604,6 +1604,9 @@ export default class MachineFactory {
     } else if (machineType.id === 'underground-belt') {
       tooltipText = 'Transports items underground.\n\n';
       tooltipText += 'Use to pass under machines or other belts.';
+    } else if (machineType.id === 'painter') {
+      tooltipText = 'Recolors passing items.\n\n';
+      tooltipText += 'Rotate it to choose Blue, Yellow, Red, or Green.';
     } else if (machineType.arithmeticOperation) {
       const inputCount = machineType.arithmeticInputCount || 1;
       tooltipText = `Operation: ${machineType.notation}\n\n`;

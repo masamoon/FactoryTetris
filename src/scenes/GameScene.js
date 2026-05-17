@@ -223,7 +223,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.currentMomentum = GAME_CONFIG.startingMomentum || 40;
     this.startNextObjective();
-    this.startRound(1);
+    this.startRound(1, { buildPhase: true });
 
     // Play background music
     this.playBackgroundMusic();
@@ -304,6 +304,13 @@ export default class GameScene extends Phaser.Scene {
     this.resourceNodes.forEach((node) => node.update(time, delta)); // Pass time/delta just in case
     // Update delivery nodes
     this.deliveryNodes.forEach((node) => node.update(time, delta)); // Pass time/delta just in case
+
+    this._roundHudAccum = (this._roundHudAccum || 0) + delta;
+    if (this._roundHudAccum >= 500) {
+      this.updateRoundUI();
+      this._roundHudAccum = 0;
+    }
+
     // Update chips (transcendence system)
     if (this.chips) {
       this.chips.forEach((chip) => chip.update());
@@ -314,10 +321,6 @@ export default class GameScene extends Phaser.Scene {
     if (this._traitHudAccum >= 500) {
       this.refreshRunWideHud();
       this._traitHudAccum = 0;
-    }
-
-    if (this.runState === 'ROUND_ACTIVE') {
-      this.updateContractHud();
     }
 
     // --- REMOVED CLEAR COOLDOWN UI UPDATE ---
@@ -393,8 +396,8 @@ export default class GameScene extends Phaser.Scene {
       contentX + statWidth + statGap,
       22,
       statWidth,
-      'SCRAP',
-      `${this.scrap || 0}`,
+      'NODES',
+      '0/0',
       '#ffd166'
     );
     this.eraText = this.createStatChip(
@@ -415,7 +418,7 @@ export default class GameScene extends Phaser.Scene {
     );
 
     this.createHudPanel(contentX, 108, contentWidth, 104, 0x12151d, 0x51472a);
-    this.createSectionLabel(contentX + 10, 118, 'CONTRACT');
+    this.createSectionLabel(contentX + 10, 118, 'DELIVERIES');
     this.contractText = this.add
       .text(contentX + 12, 141, '', {
         fontFamily: 'Arial',
@@ -497,24 +500,12 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     this.objectiveText.setDepth(3);
 
-    this.transcendButton = this.createPanelButton(
-      centerX,
-      385,
-      contentWidth,
-      32,
-      'ERA GATE R3',
-      () => {
-        if (!this.canTranscend || this.isPausedForUpgrade || this.isPlacingChip) return;
-        this.triggerTranscendence();
-      },
-      0x7a55cc
-    );
-    this.updateTranscendButtonState();
+    this.transcendButton = null;
 
-    this.createHudPanel(contentX, 414, contentWidth, 74, 0x15151b, 0x3f3d55);
-    this.createSectionLabel(contentX + 10, 424, 'UPGRADES');
+    this.createHudPanel(contentX, 372, contentWidth, 58, 0x15151b, 0x3f3d55);
+    this.createSectionLabel(contentX + 10, 382, 'UPGRADES');
     this.activeUpgradesText = this.add
-      .text(contentX + 12, 446, 'None', {
+      .text(contentX + 12, 404, 'None', {
         fontFamily: 'Arial',
         fontSize: 12,
         color: '#dfefff',
@@ -2608,11 +2599,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.runState !== 'ROUND_ACTIVE' || this.roundSurvived) return;
 
     this.roundScore += Math.max(0, Math.floor(points || 0));
-    if (this.roundScore >= this.roundQuota) {
-      this.clearRoundQuota();
-    } else {
-      this.updateContractHud();
-    }
+    this.updateRoundUI();
   }
 
   // === ROUND QUOTA SYSTEM ===
@@ -2768,19 +2755,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   startRoundTimer() {
-    if (this.roundTimerEvent) {
-      this.roundTimerEvent.remove();
-      this.roundTimerEvent = null;
-    }
-    const ms = this.contract.timeBudget * 1000;
-    this.roundTimerEvent = this.time.addEvent({
-      delay: ms,
-      callback: this.onRoundTimeout,
-      callbackScope: this,
-    });
-    this.contractTimerEvent = this.roundTimerEvent;
-    this.runState = 'ROUND_ACTIVE';
-    this.updateContractHud();
+    this.beginActiveRound();
   }
 
   startContractTimer() {
@@ -2826,26 +2801,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateContractHud() {
-    if (!this.contractText || !this.contractTimerText || !this.contract) return;
-    const c = this.contract;
-    if (this.runState === 'GRACE' || this.runState === 'ROUND_CLEARED') {
-      this.contractText.setText(`ROUND ${c.number} CLEAR\n${this.roundScore}/${this.roundQuota}`);
-      this.contractTimerText.setText('Reward pending');
-      return;
-    }
-    const status = this.canTranscend
-      ? 'GATE READY'
-      : this.roundSurvived
-        ? 'SURVIVED'
-        : 'SCORE QUOTA';
-    this.contractText.setText(
-      `ROUND ${c.number}  ${status}\n${this.roundScore}/${this.roundQuota}`
-    );
-    const rem = Math.ceil(this.getContractTimeRemaining());
-    const urgent = rem <= Math.max(5, c.timeBudget * 0.2);
-    this.contractTimerText.setColor(urgent ? '#ff5555' : '#88ccff');
-    this.contractTimerText.setText(`${rem}s`);
-    this.updateTranscendButtonState();
+    this.updateRoundUI();
   }
 
   getContractDemandText(contract) {
@@ -2868,18 +2824,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   clearRoundQuota() {
-    if (this.roundSurvived || this.runState !== 'ROUND_ACTIVE') return;
-
-    this.roundSurvived = true;
-    this.roundScore = Math.max(this.roundScore, this.roundQuota);
-    this.awardMomentum(GAME_CONFIG.roundClearMomentumReward || 18, 'quota clear');
-    this.playSound('round-complete');
-    this.showRoundSurvivedFeedback();
-    if (this.isEraGateRound()) {
-      this.canTranscend = true;
-      this.showTranscendButton();
-    }
-    this.updateContractHud();
+    this.clearRound();
   }
 
   isEraGateRound(round = this.currentRound) {
@@ -2916,24 +2861,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   finishSurvivedRound() {
-    if (this.runState !== 'ROUND_ACTIVE' || !this.roundSurvived) return;
-
-    this.runState = 'ROUND_CLEARED';
-    if (this.roundTimerEvent) {
-      this.roundTimerEvent.remove();
-      this.roundTimerEvent = null;
-      this.contractTimerEvent = null;
-    }
-
-    if (this.isEraGateRound()) {
-      this.canTranscend = true;
-      this.triggerTranscendence();
-      return;
-    }
-
-    this.awardRoundScrap();
-    this.pendingRoundAdvanceAfterBoon = true;
-    this.showShopScreen();
+    this.clearRound();
   }
 
   updateScrapText() {
@@ -3363,15 +3291,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   startNextRound() {
-    this.currentRound++;
-    this.buildRound();
-    this.startRoundTimer();
-    this.showContractOnlineFeedback();
-    this.updateTranscendButtonState();
-    if (this.machineFactory) {
-      this.machineFactory.refreshAvailableProcessors();
-      this.machineFactory.displayCurrentProcessorPreview();
-    }
+    this.startRound(this.currentRound + 1, { buildPhase: true });
   }
 
   startNextContract() {
@@ -5649,38 +5569,65 @@ export default class GameScene extends Phaser.Scene {
   }
 
   createDeliveryCondition(round, index) {
-    const tier = round === 1 ? 2 : Math.min(4, 1 + Math.ceil((round + Math.max(0, index - 1)) / 2));
+    const tier = round === 1 ? 2 : Math.min(6, 1 + Math.ceil((round + Math.max(0, index - 1)) / 2));
     const exact = round <= 2 || index % 2 === 0;
     const requiredCount = Math.max(2, 2 + round + (index % 3));
     const colorCycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
     const itemColor = round >= 2 ? colorCycle[index % colorCycle.length] : null;
     const colorConfig = itemColor ? GAME_CONFIG.itemColors?.[itemColor] : null;
+    const operationCycle = [
+      ARITHMETIC_OPERATION_TAGS.ADD_ONE,
+      ARITHMETIC_OPERATION_TAGS.ADD_TWO,
+      ARITHMETIC_OPERATION_TAGS.ADD,
+    ];
+    const requiredLastOperationTag =
+      round >= 3 && index % 3 === 2
+        ? operationCycle[(round + index) % operationCycle.length]
+        : null;
+    const operationLabel = this.getOperationDemandLabel(requiredLastOperationTag);
     const payout =
       (GAME_CONFIG.deliveryNodeBasePayout || 18) +
       tier * (GAME_CONFIG.deliveryNodePayoutPerTier || 7) +
       requiredCount * (GAME_CONFIG.deliveryNodePayoutPerItem || 3) +
-      (itemColor ? 8 : 0);
+      (itemColor ? 8 : 0) +
+      (requiredLastOperationTag ? 12 : 0);
     const tierLabel = `${exact ? '=' : ''}L${tier}${exact ? '' : '+'}`;
 
     return {
       tier,
       exact,
       itemColor,
+      requiredLastOperationTag,
+      operationLabel,
       requiredCount,
       payout,
-      label: `${colorConfig ? `${colorConfig.name} ` : ''}${tierLabel} x${requiredCount}`,
+      label: `${colorConfig ? `${colorConfig.name} ` : ''}${operationLabel ? `${operationLabel} ` : ''}${tierLabel} x${requiredCount}`,
     };
+  }
+
+  getOperationDemandLabel(operationTag) {
+    if (!operationTag) return null;
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.ADD_ONE) return '+1';
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.ADD_TWO) return '+2';
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.ADD) return 'MIX';
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.MULTIPLY) return 'x';
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.DIVIDE) return '/';
+    return null;
   }
 
   updateRoundUI() {
     if (this.eraText) {
       this.eraText.setText(`${this.currentRound}`);
     }
+    const activeNodes = (this.deliveryNodes || []).filter((node) => !node.completed);
+    const completedNodes = (this.deliveryNodes || []).filter((node) => node.completed);
+    if (this.scrapText) {
+      this.scrapText.setText(`${completedNodes.length}/${this.deliveryNodes?.length || 0}`);
+    }
     if (this.moneyText) {
       this.moneyText.setText(`$${this.money}`);
     }
     if (this.contractText) {
-      const activeNodes = (this.deliveryNodes || []).filter((node) => !node.completed);
       const visibleNodes = activeNodes.slice(0, 4);
       const lines =
         activeNodes.length > 0
@@ -5693,12 +5640,25 @@ export default class GameScene extends Phaser.Scene {
               .filter(Boolean)
               .join('\n')
           : 'All deliveries filled';
-      this.contractText.setText(`DELIVERIES\n${lines}`);
+      this.contractText.setText(lines);
     }
     if (this.contractTimerText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.contractTimerText.setText(`Build, then start`);
+        this.contractTimerText.setText(`Build: ${activeNodes.length} nodes ready`);
         this.contractTimerText.setColor('#88ffcc');
+      } else if (this.runState === 'ROUND_ACTIVE') {
+        const elapsedSeconds = Math.max(
+          0,
+          ((this.time?.now || 0) - (this.roundStartedAt || 0)) / 1000
+        );
+        const hurryRemaining = Math.ceil((GAME_CONFIG.roundNodeParSeconds || 55) - elapsedSeconds);
+        if (hurryRemaining > 0) {
+          this.contractTimerText.setText(`Hurry +20%: ${hurryRemaining}s`);
+          this.contractTimerText.setColor(hurryRemaining <= 10 ? '#ffd166' : '#88ccff');
+        } else {
+          this.contractTimerText.setText(`Clear all nodes`);
+          this.contractTimerText.setColor('#88ccff');
+        }
       } else {
         this.contractTimerText.setText(`Clear all nodes to advance`);
         this.contractTimerText.setColor('#88ccff');
@@ -5755,6 +5715,7 @@ export default class GameScene extends Phaser.Scene {
     if (id === 'splitter') return costs.splitter || 4;
     if (id === 'merger') return costs.merger || 4;
     if (id === 'underground-belt') return costs['underground-belt'] || 5;
+    if (id === 'painter') return costs.painter || 3;
     if (id.includes('advanced-processor') || (machineType?.outputLevel || 0) >= 3) {
       return costs.advancedProcessor || 12;
     }
@@ -5804,6 +5765,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.runState = 'ROUND_ACTIVE';
     this.roundClearing = false;
+    this.roundStartedAt = this.time?.now || 0;
     this.setProductionPaused(false);
     this.setBuildPhaseUIVisible(false);
     this.updateRoundUI();
@@ -5884,9 +5846,22 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  getDeliveryNodePayout(node) {
+    const basePayout = node?.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
+    const elapsedSeconds = Math.max(0, ((this.time?.now || 0) - (this.roundStartedAt || 0)) / 1000);
+    const parSeconds = GAME_CONFIG.roundNodeParSeconds || 55;
+    const hurryBonus =
+      this.runState === 'ROUND_ACTIVE' && elapsedSeconds <= parSeconds
+        ? Math.max(2, Math.ceil(basePayout * 0.2))
+        : 0;
+    return basePayout + hurryBonus;
+  }
+
   onDeliveryNodeCompleted(node) {
     if (!node || this.roundClearing) return;
-    this.addMoney(node.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18, 'delivery');
+    const basePayout = node.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
+    const totalPayout = this.getDeliveryNodePayout(node);
+    this.addMoney(totalPayout, totalPayout > basePayout ? 'delivery hurry' : 'delivery');
     this.awardMomentum(10, 'delivery filled');
     this.updateRoundUI();
 
@@ -6509,6 +6484,7 @@ export default class GameScene extends Phaser.Scene {
     if (typeof this.playSound === 'function') {
       this.playSound('destroy');
     }
+    this.showProcessorReplacementFeedback('Picked up\nplace for free');
   }
 
   deleteLogisticsOnClick(machine) {

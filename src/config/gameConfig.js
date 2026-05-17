@@ -158,6 +158,16 @@ export const GAME_CONFIG = {
       description: 'Transports resources between machines',
     },
     {
+      id: 'painter',
+      name: 'Color Painter',
+      shape: [[1]],
+      inputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      outputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      processingTime: 700,
+      direction: 'right',
+      description: 'Recolors passing items based on facing direction',
+    },
+    {
       id: 'processor-c',
       name: 'Processor C',
       shape: [
@@ -302,6 +312,7 @@ export const GAME_CONFIG = {
   roundBaseMoney: 28,
   roundMoneyGrowth: 8,
   roundClearBonus: 18,
+  roundNodeParSeconds: 55,
   deliveryNodeBasePayout: 18,
   deliveryNodePayoutPerTier: 7,
   deliveryNodePayoutPerItem: 3,
@@ -311,6 +322,7 @@ export const GAME_CONFIG = {
     splitter: 4,
     merger: 4,
     'underground-belt': 5,
+    painter: 3,
     processor: 8,
     advancedProcessor: 12,
   },

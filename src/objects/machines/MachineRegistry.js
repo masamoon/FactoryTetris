@@ -11,6 +11,7 @@ import AdvancedProcessor2Machine from './AdvancedProcessor2Machine';
 import SplitterMachine from './SplitterMachine';
 import MergerMachine from './MergerMachine';
 import UndergroundBeltMachine from './UndergroundBeltMachine';
+import ColorPainterMachine from './ColorPainterMachine';
 
 /**
  * Registry for all machine types
@@ -38,6 +39,7 @@ export default class MachineRegistry {
     this.registerMachineType('splitter', SplitterMachine);
     this.registerMachineType('merger', MergerMachine);
     this.registerMachineType('underground-belt', UndergroundBeltMachine);
+    this.registerMachineType('painter', ColorPainterMachine);
   }
 
   /**

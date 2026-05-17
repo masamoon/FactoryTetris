@@ -161,7 +161,10 @@ export default class DeliveryNode {
     const tier = this.condition.tier || 1;
     const tierLabel = `${this.condition.exact ? '=' : ''}L${tier}${this.condition.exact ? '' : '+'}`;
     const colorName = this.getConditionColorName();
-    return colorName ? `${colorName.charAt(0).toUpperCase()} ${tierLabel}` : tierLabel;
+    const operationLabel = this.condition.operationLabel || null;
+    return [colorName ? colorName.charAt(0).toUpperCase() : null, operationLabel, tierLabel]
+      .filter(Boolean)
+      .join(' ');
   }
 
   getHudLabel() {
@@ -193,7 +196,10 @@ export default class DeliveryNode {
     const tierMatches = this.condition.exact ? tier === requiredTier : tier >= requiredTier;
     const colorMatches =
       !this.condition.itemColor || (itemData && itemData.itemColor === this.condition.itemColor);
-    return tierMatches && colorMatches;
+    const operationMatches =
+      !this.condition.requiredLastOperationTag ||
+      itemData?.lastOperationTag === this.condition.requiredLastOperationTag;
+    return tierMatches && colorMatches && operationMatches;
   }
 
   /**
@@ -508,6 +514,10 @@ export default class DeliveryNode {
     if (this.completed) return;
     this.completed = true;
     this.deliveredCount = this.condition.requiredCount || this.deliveredCount;
+    this.completionPayout =
+      this.scene && typeof this.scene.getDeliveryNodePayout === 'function'
+        ? this.scene.getDeliveryNodePayout(this)
+        : this.condition.payout;
     this.updateProgressVisuals();
     this.createCompletionBurst();
 
@@ -531,13 +541,18 @@ export default class DeliveryNode {
     this.scene.cameras.main.flash(90, 255, 255, 255, true);
 
     const burstText = this.scene.add
-      .text(this.container.x, this.container.y - 24, `+$${this.condition.payout}`, {
-        fontFamily: 'Arial Black',
-        fontSize: 18,
-        color: '#88ffcc',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
+      .text(
+        this.container.x,
+        this.container.y - 24,
+        `+$${this.completionPayout || this.condition.payout}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 18,
+          color: '#88ffcc',
+          stroke: '#000000',
+          strokeThickness: 4,
+        }
+      )
       .setOrigin(0.5);
     burstText.setDepth(this.container.depth + 4);
     if (this.scene.addToWorld) this.scene.addToWorld(burstText);

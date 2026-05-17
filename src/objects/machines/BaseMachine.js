@@ -22,6 +22,7 @@ const MACHINE_COLORS = {
   'advanced-processor-1': 0xaa44aa, // purple
   'advanced-processor-2': 0xfc039d, // pink
   conveyor: 0x888888, // gray
+  painter: 0x3f8cff, // color painter
   splitter: 0xaa88ff, // light purple
   merger: 0xff88aa, // light pink
   'underground-belt': 0x444444, // dark gray
