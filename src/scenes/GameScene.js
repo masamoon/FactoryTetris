@@ -95,7 +95,7 @@ export default class GameScene extends Phaser.Scene {
     this.chips = []; // Array of ChipNode entities from previous eras
     this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
     // === Round / quota system state ===
-    // runState: 'ROUND_ACTIVE' | 'ROUND_CLEARED' | 'GRACE' | 'RUN_OVER'
+    // runState: 'BUILD_PHASE' | 'ROUND_ACTIVE' | 'ROUND_CLEARED' | 'GRACE' | 'RUN_OVER'
     this.runState = 'ROUND_ACTIVE';
     this.currentRound = 1;
     this.roundScore = 0;
@@ -272,6 +272,14 @@ export default class GameScene extends Phaser.Scene {
     if (this.nodeSpawnTimer && this.time.now % 1000 < 20) {
       // Log roughly once per second
       //console.log(`[TIMER_DEBUG] nodeSpawnTimer Progress: ${(this.nodeSpawnTimer.getProgress() * 100).toFixed(1)}% (${this.nodeSpawnTimer.getRemaining().toFixed(0)}ms remaining) Paused: ${this.nodeSpawnTimer.paused}`);
+    }
+
+    if (this.runState === 'BUILD_PHASE') {
+      this.machineFactory.update();
+      this.deliveryNodes.forEach((node) => node.update(time, delta));
+      this.updateMomentumUI();
+      this.cleanupRecentFlowPlacements();
+      return;
     }
 
     // --- Momentum Decay ---
@@ -546,6 +554,17 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(pauseButton.button);
     this.addToUI(pauseButton.text);
 
+    this.startRoundButton = this.createButton(centerX, buttonStartY - 42, 'START ROUND', () => {
+      this.beginActiveRound();
+    });
+    this.startRoundButton.button.fillColor = 0x2c7a55;
+    this.startRoundButton.button.setStrokeStyle(2, 0x88ffcc);
+    this.startRoundButton.button.setScrollFactor(0);
+    this.startRoundButton.text.setScrollFactor(0);
+    this.addToUI(this.startRoundButton.button);
+    this.addToUI(this.startRoundButton.text);
+    this.setBuildPhaseUIVisible(false);
+
     // Skip Button
     this.skipButton = this.createButton(
       centerX,
@@ -566,7 +585,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
-      this.clearButton = this.createButton(centerX, buttonStartY - 42, 'CLEAR (DEBUG)', () => {
+      this.clearButton = this.createButton(centerX, buttonStartY - 84, 'CLEAR (DEBUG)', () => {
         this.clearPlacedItems();
       });
       this.clearButton.button.setScrollFactor(0);
@@ -2067,18 +2086,18 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const starterLaneY = Math.floor(this.grid.height / 2);
-
-    // Create one readable starter lane so the first payoff is easy to see.
-    this.spawnResourceNode(starterLaneY);
-
-    const resourceNodeCount = Math.min(
+    const targetResourceNodeCount = Math.min(
       this.grid.height,
       (GAME_CONFIG.initialNodeCount || 3) + Math.floor((this.currentRound - 1) / 2)
     );
 
-    // Create remaining round resource nodes.
-    for (let i = 1; i < resourceNodeCount; i++) {
-      this.spawnResourceNode();
+    // Resource sources persist between rounds. Add only enough new sources to
+    // reach the current round's target, so the factory grows around its old spine.
+    const existingResourceCount = (this.resourceNodes || []).filter(
+      (node) => node?.container
+    ).length;
+    for (let i = existingResourceCount; i < targetResourceNodeCount; i++) {
+      this.spawnResourceNode(i === 0 ? starterLaneY : null);
     }
 
     const deliveryNodeCount = this.getDeliveryNodeCountForRound(this.currentRound);
@@ -3497,8 +3516,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.paused) {
       // Pause timers
-      this.gameTimer.paused = true;
-      if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
+      this.setProductionPaused(true);
       if (this.nodeSpawnTimer) {
         this.nodeSpawnTimer.paused = true;
         console.log('[TIMER_DEBUG] Paused nodeSpawnTimer via togglePause.'); // Log pause
@@ -3510,7 +3528,7 @@ export default class GameScene extends Phaser.Scene {
       this.showPauseScreen();
     } else {
       // Resume timers
-      this.gameTimer.paused = false;
+      this.setProductionPaused(this.runState === 'BUILD_PHASE');
       if (this.contractTimerEvent && this.runState === 'ROUND_ACTIVE')
         this.contractTimerEvent.paused = false;
       if (this.nodeSpawnTimer) {
@@ -5342,7 +5360,14 @@ export default class GameScene extends Phaser.Scene {
   clearPlacedItems(options = {}) {
     if (this.paused || this.gameOver) return;
 
-    console.log('Clearing all placed machines, belts, and nodes with effects...');
+    const clearMachines = options.clearMachines !== false;
+    const clearResources = options.clearResources !== false;
+    const clearDeliveries = options.clearDeliveries !== false;
+    const clearUpgrade = options.clearUpgrade !== false;
+
+    console.log(
+      `Clearing placed items with effects. Machines:${clearMachines} Resources:${clearResources} Deliveries:${clearDeliveries}`
+    );
 
     // --- 1. Score Remaining Items ---
     let salvagedScore = 0;
@@ -5351,34 +5376,38 @@ export default class GameScene extends Phaser.Scene {
 
     if (salvage) {
       // Score items on conveyor belts
-      this.machines.forEach((machine) => {
-        if (machine instanceof ConveyorMachine && machine.itemsOnBelt) {
-          machine.itemsOnBelt.forEach((itemOnBelt) => {
-            const itemType = itemOnBelt.itemData.type;
-            if (itemType !== UPGRADE_PACKAGE_TYPE && resourceValue[itemType]) {
-              salvagedScore += resourceValue[itemType];
-            }
-          });
-        }
-        // Score items in machine inventories (optional, might double count if belts feed machines)
-        // Consider if needed based on how inventories work
-        // for (const type in machine.inputInventory) {
-        //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
-        //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
-        //     }
+      if (clearMachines) {
+        this.machines.forEach((machine) => {
+          if (machine instanceof ConveyorMachine && machine.itemsOnBelt) {
+            machine.itemsOnBelt.forEach((itemOnBelt) => {
+              const itemType = itemOnBelt.itemData.type;
+              if (itemType !== UPGRADE_PACKAGE_TYPE && resourceValue[itemType]) {
+                salvagedScore += resourceValue[itemType];
+              }
+            });
+          }
+          // Score items in machine inventories (optional, might double count if belts feed machines)
+          // Consider if needed based on how inventories work
+          // for (const type in machine.inputInventory) {
+          //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+          //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
+          //     }
 
-        // for (const type in machine.outputInventory) {
-        //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
-        //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
-        //      }
-      });
+          // for (const type in machine.outputInventory) {
+          //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+          //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
+          //      }
+        });
+      }
 
       // Score items still in Resource Nodes
-      this.resourceNodes.forEach((node) => {
-        if (node.resources > 0 && resourceValue[node.resourceType.id]) {
-          salvagedScore += node.resources * resourceValue[node.resourceType.id];
-        }
-      });
+      if (clearResources) {
+        this.resourceNodes.forEach((node) => {
+          if (node.resources > 0 && resourceValue[node.resourceType.id]) {
+            salvagedScore += node.resources * resourceValue[node.resourceType.id];
+          }
+        });
+      }
 
       if (salvagedScore > 0) {
         console.log(`Adding ${salvagedScore} from salvaged resources.`);
@@ -5480,39 +5509,39 @@ export default class GameScene extends Phaser.Scene {
     };
     // --- End Helper function ---
 
+    let clearIndex = 0;
+
     // --- Clear Machines ---
-    const machinesToClear = [...this.machines];
-    this.machines = []; // Clear the main array
-    machinesToClear.forEach((machine, index) => disintegrate(machine, index, true));
+    const machinesToClear = clearMachines ? [...this.machines] : [];
+    if (clearMachines) {
+      this.machines = []; // Clear the main array
+      machinesToClear.forEach((machine) => disintegrate(machine, clearIndex++, true));
+    }
 
     // --- Clear Resource Nodes ---
-    const resourceNodesToClear = [...this.resourceNodes];
-    this.resourceNodes = []; // Clear the main array
-    resourceNodesToClear.forEach((node, index) =>
-      disintegrate(node, machinesToClear.length + index, false)
-    );
+    const resourceNodesToClear = clearResources ? [...this.resourceNodes] : [];
+    if (clearResources) {
+      this.resourceNodes = []; // Clear the main array
+      resourceNodesToClear.forEach((node) => disintegrate(node, clearIndex++, false));
+    }
 
     // --- Clear Delivery Nodes ---
-    const deliveryNodesToClear = [...this.deliveryNodes];
-    this.deliveryNodes = []; // Clear the main array
-    deliveryNodesToClear.forEach((node, index) =>
-      disintegrate(node, machinesToClear.length + resourceNodesToClear.length + index, false)
-    );
+    const deliveryNodesToClear = clearDeliveries ? [...this.deliveryNodes] : [];
+    if (clearDeliveries) {
+      this.deliveryNodes = []; // Clear the main array
+      deliveryNodesToClear.forEach((node) => disintegrate(node, clearIndex++, false));
+    }
 
     // --- Clear Upgrade Node ---
-    if (this.currentUpgradeNode) {
-      disintegrate(
-        this.currentUpgradeNode,
-        machinesToClear.length + resourceNodesToClear.length + deliveryNodesToClear.length,
-        false
-      );
+    if (clearUpgrade && this.currentUpgradeNode) {
+      disintegrate(this.currentUpgradeNode, clearIndex++, false);
       this.currentUpgradeNode = null; // Clear the reference
     }
 
     // --- Grid visual clear (optional, can be removed if animation handles it) ---
     // this.grid.clearGrid(); // Might interfere with animations, clear via cell removal instead
 
-    console.log('Factory clear initiated. Items will disintegrate.');
+    console.log('Factory clear initiated. Selected items will disintegrate.');
   }
 
   updateMomentumUI() {
@@ -5667,8 +5696,13 @@ export default class GameScene extends Phaser.Scene {
       this.contractText.setText(`DELIVERIES\n${lines}`);
     }
     if (this.contractTimerText) {
-      this.contractTimerText.setText(`Clear all nodes to advance`);
-      this.contractTimerText.setColor('#88ccff');
+      if (this.runState === 'BUILD_PHASE') {
+        this.contractTimerText.setText(`Build, then start`);
+        this.contractTimerText.setColor('#88ffcc');
+      } else {
+        this.contractTimerText.setText(`Clear all nodes to advance`);
+        this.contractTimerText.setColor('#88ccff');
+      }
     }
   }
 
@@ -5732,10 +5766,53 @@ export default class GameScene extends Phaser.Scene {
     return this.money >= this.getMachinePlacementCost(machineType);
   }
 
-  startRound(round = this.currentRound) {
+  setProductionPaused(paused) {
+    if (this.gameTimer) {
+      this.gameTimer.paused = paused;
+    }
+    if (this.contractTimerEvent) {
+      this.contractTimerEvent.paused = paused;
+    }
+    this.resourceNodes?.forEach((node) => {
+      if (node?.resourceTimer) {
+        node.resourceTimer.paused = paused;
+      }
+    });
+    this.chips?.forEach((chip) => {
+      if (chip?.emissionTimer) {
+        chip.emissionTimer.paused = paused;
+      }
+    });
+  }
+
+  setBuildPhaseUIVisible(visible) {
+    if (!this.startRoundButton) return;
+
+    this.startRoundButton.text.setText(`START R${this.currentRound}`);
+    this.startRoundButton.button.setVisible(visible);
+    this.startRoundButton.text.setVisible(visible);
+    if (visible) {
+      this.startRoundButton.button.setInteractive({ useHandCursor: true });
+      this.startRoundButton.text.setAlpha(1);
+    } else {
+      this.startRoundButton.button.disableInteractive();
+    }
+  }
+
+  beginActiveRound() {
+    if (this.gameOver || this.paused || this.runState === 'ROUND_ACTIVE') return;
+
+    this.runState = 'ROUND_ACTIVE';
+    this.roundClearing = false;
+    this.setProductionPaused(false);
+    this.setBuildPhaseUIVisible(false);
+    this.updateRoundUI();
+    this.showRoundStartFeedback(this.currentRound);
+  }
+
+  startRound(round = this.currentRound, options = {}) {
     this.currentRound = round;
     this.roundClearing = false;
-    this.runState = 'ROUND_ACTIVE';
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
     this.createInitialResourceNodes();
     if (this.machineFactory) {
@@ -5743,7 +5820,43 @@ export default class GameScene extends Phaser.Scene {
       this.machineFactory.displayCurrentProcessorPreview();
     }
     this.updateRoundUI();
-    this.showRoundStartFeedback(round);
+
+    if (options.buildPhase) {
+      this.runState = 'BUILD_PHASE';
+      this.setProductionPaused(true);
+      this.setBuildPhaseUIVisible(true);
+      this.showBuildPhaseFeedback(round);
+      this.updateRoundUI();
+      return;
+    }
+
+    this.runState = 'BUILD_PHASE';
+    this.beginActiveRound();
+  }
+
+  showBuildPhaseFeedback(round) {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 78, `BUILD R${round}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 32,
+        color: '#88ffcc',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 52,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
   }
 
   showRoundStartFeedback(round) {
@@ -5790,15 +5903,17 @@ export default class GameScene extends Phaser.Scene {
     this.addMoney(clearBonus, 'round clear');
     this.showRoundClearFeedback();
 
-    const entitiesToClear =
-      (this.machines?.length || 0) +
-      (this.resourceNodes?.length || 0) +
-      (this.deliveryNodes?.length || 0);
+    const entitiesToClear = this.deliveryNodes?.length || 0;
     this.time.delayedCall(650, () => {
-      this.clearPlacedItems({ salvage: false });
+      this.clearPlacedItems({
+        salvage: false,
+        clearMachines: false,
+        clearResources: false,
+        clearUpgrade: false,
+      });
       const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
       this.time.delayedCall(nextRoundDelay, () => {
-        this.startRound(this.currentRound + 1);
+        this.startRound(this.currentRound + 1, { buildPhase: true });
       });
     });
   }

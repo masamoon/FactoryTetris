@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { getMixedItemColor, processResource } from '../../utils/PurityUtils';
+import { processResource } from '../../utils/PurityUtils';
 import {
   ARITHMETIC_OPERATION_TAGS,
   calculateArithmeticOutput,
@@ -2248,10 +2248,7 @@ export default class BaseMachine {
           const visited = item.visitedMachines || [];
           visited.forEach((machineUid) => mergedVisitedMachines.add(machineUid));
         });
-        const itemColor =
-          sourceColors.length > 1
-            ? getMixedItemColor()
-            : sourceColors[0] || processedItem.itemColor;
+        const itemColor = processedItem.itemColor || sourceColors[0] || null;
         const lastOperationTag =
           operationTags.find(
             (tag) =>
