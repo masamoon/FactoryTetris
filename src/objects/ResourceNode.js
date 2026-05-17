@@ -177,7 +177,7 @@ export default class ResourceNode {
           this.container.x,
           this.container.y,
           4,
-          0xffff00 // Use a distinct color for generation feedback maybe?
+          getItemColorHex(this.itemColor, this.resourceType?.color || 0xffff00)
         )
         .setDepth(this.container.depth + 1); // Ensure particle is visible
 
@@ -351,7 +351,7 @@ export default class ResourceNode {
       this.container.x,
       this.container.y,
       5,
-      this.resourceType.color || 0xaaaaaa
+      getItemColorHex(this.itemColor, this.resourceType.color || 0xaaaaaa)
     );
     particle.setDepth(this.container.depth + 1);
 
@@ -430,7 +430,7 @@ export default class ResourceNode {
       this.lastPushTime = now;
 
       console.log(
-        `ResourceNode at (${this.gridX}, ${this.gridY}) extracted ${amountExtracted} ${this.resourceType.id}, remaining: ${this.resources}`
+        `ResourceNode at (${this.gridX}, ${this.gridY}) extracted ${amountExtracted} ${this.itemColor} L1, remaining: ${this.resources}`
       );
 
       this.updateResourceIndicator();

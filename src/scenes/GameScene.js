@@ -2087,8 +2087,16 @@ export default class GameScene extends Phaser.Scene {
     const existingResourceCount = (this.resourceNodes || []).filter(
       (node) => node?.container
     ).length;
+    const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
+      GAME_CONFIG.defaultItemColor || 'blue',
+    ];
     for (let i = existingResourceCount; i < targetResourceNodeCount; i++) {
-      this.spawnResourceNode(i === 0 ? starterLaneY : null);
+      this.spawnResourceNode(
+        i === 0 ? starterLaneY : null,
+        0,
+        GAME_CONFIG.nodeLifespan,
+        sourceColorCycle[i % sourceColorCycle.length]
+      );
     }
 
     const deliveryNodeCount = this.getDeliveryNodeCountForRound(this.currentRound);
@@ -2100,7 +2108,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // Modify spawnResourceNode to pass the current round
-  spawnResourceNode(preferredY = null, resourceTypeIndex = 0, lifespan = GAME_CONFIG.nodeLifespan) {
+  spawnResourceNode(
+    preferredY = null,
+    resourceTypeIndex = 0,
+    lifespan = GAME_CONFIG.nodeLifespan,
+    itemColorOverride = null
+  ) {
     try {
       if (this.gameOver || this.paused) return null;
 
@@ -2133,7 +2146,8 @@ export default class GameScene extends Phaser.Scene {
       const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
         GAME_CONFIG.defaultItemColor || 'blue',
       ];
-      const itemColor = sourceColorCycle[sourceIndex % sourceColorCycle.length];
+      const itemColor =
+        itemColorOverride || sourceColorCycle[sourceIndex % sourceColorCycle.length];
 
       // Create a new resource node, passing the current era for scaling AND upgradeManager
       const node = new ResourceNode(
@@ -5986,6 +6000,10 @@ export default class GameScene extends Phaser.Scene {
       }
 
       const resourceTypeIndex = 0;
+      const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
+        GAME_CONFIG.defaultItemColor || 'blue',
+      ];
+      const itemColor = sourceColorCycle[this.resourceNodes.length % sourceColorCycle.length];
       console.log(`[SPAWN_DEBUG] Spawning Resource Node at (${emptySpot1.x}, ${emptySpot1.y})`);
       const resourceNode = new ResourceNode(
         this,
@@ -5995,6 +6013,8 @@ export default class GameScene extends Phaser.Scene {
           gridX: emptySpot1.x,
           gridY: emptySpot1.y,
           resourceType: resourceTypeIndex,
+          sourceIndex: this.resourceNodes.length,
+          itemColor,
           lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier(),
         },
         this.currentEra,
@@ -6295,7 +6315,9 @@ export default class GameScene extends Phaser.Scene {
       (resourceType) => resourceType.itemColor === itemColor
     );
     const index = resourceTypeIndex === -1 ? 0 : resourceTypeIndex;
-    return this.spawnResourceNode(null, index, GAME_CONFIG.shopSourceLifespan || 180) !== null;
+    return (
+      this.spawnResourceNode(null, index, GAME_CONFIG.shopSourceLifespan || 180, itemColor) !== null
+    );
   }
 
   resumeFromUpgrade() {
