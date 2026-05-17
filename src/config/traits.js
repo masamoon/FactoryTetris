@@ -31,8 +31,7 @@ export const TRAITS = [
     category: TRAIT_CATEGORIES.STAT,
     description: 'Resources gain +2 purity through this machine instead of +1.',
     hooks: {
-      // BaseMachine.completeProcessing has already set purity to outputLevel.
-      // Catalyst adds +1 more on top, modeling the "+2 purity instead of +1" effect.
+      // Catalyst adds +1 more on top of the machine's own arithmetic operation.
       onProcess: (resource) => {
         resource.purity = (resource.purity || 1) + 1;
         return resource;
@@ -81,10 +80,8 @@ export const TRAITS = [
     description: 'Refuses resources with purity below 3. Accepted resources output 2x value.',
     hooks: {
       onProcess: (resource, machine, scene, ctx) => {
-        // onProcess fires AFTER the machine overwrites purity to outputLevel
-        // (absolute, NOT input+1), so resource.purity cannot tell us the
-        // input purity. BaseMachine passes the true consumed-input purity in
-        // ctx.inputPurity. Fall back defensively if ctx is absent.
+        // BaseMachine passes the true consumed-input purity in ctx.inputPurity.
+        // Fall back defensively if ctx is absent.
         const inputPurity =
           ctx && typeof ctx.inputPurity === 'number' ? ctx.inputPurity : (resource.purity || 1) - 1;
         if (inputPurity < 3) {

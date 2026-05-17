@@ -296,11 +296,20 @@ export default class MachineFactory {
       const randomIndex = Math.floor(Math.random() * this.processorTypes.length);
       const baseProcessor = this.processorTypes[randomIndex];
       const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, levelOptions);
+      const inputLevels = Array.isArray(levelConfig.inputLevels) ? levelConfig.inputLevels : [1];
+      const highestInputLevel = Math.max(...inputLevels, 1);
+      const arithmeticDelta = Math.max(
+        1,
+        Math.min(2, (levelConfig.outputLevel || highestInputLevel + 1) - highestInputLevel)
+      );
       const candidate = {
         ...baseProcessor,
-        inputLevels: levelConfig.inputLevels,
+        inputLevels,
         outputLevel: levelConfig.outputLevel,
-        notation: levelConfig.notation,
+        notation: `+${arithmeticDelta}`,
+        recipeNotation: levelConfig.notation,
+        arithmeticDelta,
+        acceptsAnyLevel: true,
         trait: levelConfig.trait || null,
         isUsable: levelConfig.isUsable,
       };
@@ -1346,6 +1355,15 @@ export default class MachineFactory {
         }
         if (typeOrId.notation) {
           config.notation = typeOrId.notation;
+        }
+        if (typeOrId.recipeNotation) {
+          config.recipeNotation = typeOrId.recipeNotation;
+        }
+        if (typeOrId.arithmeticDelta) {
+          config.arithmeticDelta = typeOrId.arithmeticDelta;
+        }
+        if (typeOrId.acceptsAnyLevel) {
+          config.acceptsAnyLevel = true;
         }
         if (typeOrId.trait) {
           config.trait = typeOrId.trait;

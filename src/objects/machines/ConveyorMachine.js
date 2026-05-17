@@ -672,21 +672,18 @@ export default class ConveyorMachine extends BaseMachine {
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
 
-      // Add numeric badge for high purity
-      if (purity > 1) {
-        // Small text badge
-        const badge = this.scene.add
-          .text(0, 0, `${purity}`, {
-            fontFamily: 'Arial',
-            fontSize: '10px',
-            fontStyle: 'bold',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 2,
-          })
-          .setOrigin(0.5);
-        container.add(badge);
-      }
+      // Add numeric badge for every tier, including raw tier 1 resources.
+      const badge = this.scene.add
+        .text(0, 0, `${purity}`, {
+          fontFamily: 'Arial',
+          fontSize: '10px',
+          fontStyle: 'bold',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+      container.add(badge);
 
       visual = container;
       visual.isPurityVisual = true; // Flag for updates
@@ -1170,7 +1167,29 @@ export default class ConveyorMachine extends BaseMachine {
     });
 
     // Add click handler
-    this.container.on('pointerdown', () => {
+    this.container.on('pointerdown', (pointer) => {
+      const placementIsActive = !!this.scene?.machineFactory?.selectedMachineType;
+      if (placementIsActive) {
+        return;
+      }
+      if (
+        !this.isPreview &&
+        (this.scene?.time?.now || 0) - (this.placedAtTime || -Infinity) < 250
+      ) {
+        return;
+      }
+
+      if (pointer?.event) {
+        pointer.event.stopPropagation();
+      }
+      if (
+        !this.isPreview &&
+        this.scene &&
+        typeof this.scene.beginMachineRelocation === 'function' &&
+        this.scene.beginMachineRelocation(this)
+      ) {
+        return;
+      }
       // Show detailed info or controls
       this.showDetailedInfo();
     });

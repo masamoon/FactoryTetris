@@ -642,7 +642,7 @@ export default class Grid {
               // Update the cell with machine data
               cell.type = 'machine'; // Set the cell type to 'machine'
               cell.object = machine; // *** ADD THIS LINE: Store a direct reference to the machine object ***
-              // cell.machine = machine; // Keep this commented or remove, as we're using cell.object
+              cell.machine = machine; // Compatibility with older flow code that checks cell.machine
 
               // *** ADDED LOGGING ***
               // console.log(`[Grid.placeMachine] Marked cell (${cellX}, ${cellY}) as 'machine' for ${machine.id}`);

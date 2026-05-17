@@ -37,6 +37,9 @@ export default class GameScene extends Phaser.Scene {
     this.pendingUpgradeChoices = 0;
     this.currentObjective = null;
     this.objectiveIndex = 0;
+    this.currentRound = 1;
+    this.money = GAME_CONFIG.startingMoney || 45;
+    this.roundClearing = false;
 
     // Momentum state
     this.currentMomentum = 0;
@@ -85,7 +88,8 @@ export default class GameScene extends Phaser.Scene {
     this.rightPanelWidth = 300; // Fixed width for right panel
     this.debugMode = false; // Toggle for debug features like "Clear Factory"
 
-    // === ERA / TRANSCENDENCE SYSTEM ===
+    // === LEGACY ERA / TRANSCENDENCE SYSTEM ===
+    // Kept dormant while the active loop moves to round-based delivery nodes.
     this.currentEra = 1; // Current era (starts at 1)
     this.chips = []; // Array of ChipNode entities from previous eras
     this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
@@ -167,9 +171,6 @@ export default class GameScene extends Phaser.Scene {
     // Add decorative elements
     this.addDecorations();
 
-    // Create initial resource nodes
-    this.createInitialResourceNodes();
-
     // Setup game timers
     this.gameTimer = this.time.addEvent({
       delay: 1000,
@@ -178,15 +179,8 @@ export default class GameScene extends Phaser.Scene {
       loop: true,
     });
 
-    // ADD NODE SPAWN TIMER
-    this.nodeSpawnTimer = this.time.addEvent({
-      delay: GAME_CONFIG.nodeSpawnRate, // Use config value
-      callback: this.spawnNode, // Restore original callback
-      // callback: () => { console.error("[TIMER_DEBUG] Minimal nodeSpawnTimer CALLBACK FIRED!"); }, // Remove simple log
-      callbackScope: this,
-      loop: true,
-    });
-    //console.log(`[TIMER_DEBUG] nodeSpawnTimer created:`, this.nodeSpawnTimer ? `Exists, Delay: ${this.nodeSpawnTimer.delay}, Paused: ${this.nodeSpawnTimer.paused}` : 'FAILED TO CREATE');
+    // Delivery/resource nodes are now spawned by round setup, not a timer.
+    this.nodeSpawnTimer = null;
 
     // Setup difficulty timer
     this.difficultyTimer = this.time.addEvent({
@@ -200,7 +194,6 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0;
     this.gameTime = 0;
     this.gameOver = false;
-    this.buildContract();
     this.lastUpgradeMilestone = 0; // Reset milestone tracking
     this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
     this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
@@ -214,6 +207,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.currentMomentum = GAME_CONFIG.startingMomentum || 40;
     this.startNextObjective();
+    this.startRound(1);
 
     // Play background music
     this.playBackgroundMusic();
@@ -248,7 +242,7 @@ export default class GameScene extends Phaser.Scene {
     // Set initial camera bounds
     this.updateCameraBounds();
 
-    this.startContractTimer();
+    this.updateRoundUI();
   }
 
   update(time, delta) {
@@ -387,9 +381,9 @@ export default class GameScene extends Phaser.Scene {
 
     currentY += spacing;
 
-    // Era Display (Transcendence System)
+    // Round display
     this.eraText = this.add
-      .text(centerX, currentY, `ERA: ${this.currentEra}`, {
+      .text(centerX, currentY, `ROUND: ${this.currentRound}`, {
         fontFamily: 'Arial',
         fontSize: 16,
         color: '#aaaaff',
@@ -400,18 +394,31 @@ export default class GameScene extends Phaser.Scene {
 
     currentY += spacing * 0.6;
 
-    // Contract Banner
+    this.moneyText = this.add
+      .text(centerX, currentY, `$${this.money}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#88ffcc',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+
+    currentY += spacing * 0.6;
+
+    // Delivery node conditions
     this.contractText = this.add
       .text(centerX, currentY, '', {
         fontFamily: 'Arial',
         fontSize: 13,
         color: '#ffd966',
         align: 'center',
+        wordWrap: { width: this.rightPanelWidth - 34 },
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
 
-    currentY += spacing * 0.5;
+    currentY += spacing * 0.75;
 
     this.contractTimerText = this.add
       .text(centerX, currentY, '', {
@@ -1107,18 +1114,12 @@ export default class GameScene extends Phaser.Scene {
                 if (cell && cell.object) {
                   console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
 
-                  // Exclude advanced logistics from instant one-click deletion
-                  const logisticsIds = ['conveyor', 'splitter', 'merger', 'underground-belt'];
-                  const isLogisticsItem =
-                    (cell.object instanceof BaseMachine || cell.object.machineType) &&
-                    logisticsIds.includes(cell.object.id);
+                  const isPlacedMachine = cell.object instanceof BaseMachine || cell.object.id;
 
-                  if (isLogisticsItem) {
-                    console.log(
-                      '[POINTERDOWN] Logistics item detected! Calling deleteLogisticsOnClick.'
-                    );
-                    this.deleteLogisticsOnClick(cell.object);
-                    return; // Deletion handled, stop further processing for this click
+                  if (isPlacedMachine && typeof this.beginMachineRelocation === 'function') {
+                    console.log('[POINTERDOWN] Placed machine detected; beginning relocation.');
+                    this.beginMachineRelocation(cell.object);
+                    return; // Relocation handled, stop further processing for this click
                   } else {
                     console.log(
                       '[POINTERDOWN] Cell object is either a machine or a logistics component. Not instantly deleting.'
@@ -1911,54 +1912,21 @@ export default class GameScene extends Phaser.Scene {
     // Create one readable starter lane so the first payoff is easy to see.
     this.spawnResourceNode(starterLaneY);
 
-    // Create remaining initial resource nodes
-    for (let i = 1; i < GAME_CONFIG.initialNodeCount; i++) {
+    const resourceNodeCount = Math.min(
+      this.grid.height,
+      (GAME_CONFIG.initialNodeCount || 3) + Math.floor((this.currentRound - 1) / 2)
+    );
+
+    // Create remaining round resource nodes.
+    for (let i = 1; i < resourceNodeCount; i++) {
       this.spawnResourceNode();
     }
 
-    // Spawn one initial delivery node on the right edge
-    try {
-      const preferredDeliveryCell = this.grid.getCell(this.grid.width - 1, starterLaneY);
-      const emptySpot =
-        preferredDeliveryCell && preferredDeliveryCell.type === 'empty'
-          ? { x: this.grid.width - 1, y: starterLaneY }
-          : this.grid.findEmptyCellInColumn(this.grid.width - 1);
-      if (!emptySpot) {
-        console.warn(
-          '[GAME] No empty cell found in right edge for initial delivery node placement.'
-        );
-        return;
-      }
-
-      const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
-      if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
-        console.error('[GAME] Invalid world position for initial delivery node:', worldPos);
-        return;
-      }
-
-      const deliveryNode = new DeliveryNode(this, {
-        x: worldPos.x,
-        y: worldPos.y,
-        gridX: emptySpot.x,
-        gridY: emptySpot.y,
-        lifespan: GAME_CONFIG.nodeLifespan,
-        pointsPerResource: 10,
-      });
-
-      this.deliveryNodes.push(deliveryNode);
-      this.grid.setCell(emptySpot.x, emptySpot.y, { type: 'delivery-node', object: deliveryNode });
-
-      // Ensure it's added to world view strictly
-      if (this.uiCamera) {
-        this.addToWorld(deliveryNode);
-      } else {
-        // If called before setupCameras (shouldn't happen with fix, but safe)
-        console.warn('[GAME] createInitialResourceNodes called before setupCameras?');
-      }
-
-      console.log(`[GAME] Created initial delivery node at grid (${emptySpot.x}, ${emptySpot.y})`);
-    } catch (error) {
-      console.error('[GAME] Error creating initial delivery node:', error);
+    const deliveryNodeCount = this.getDeliveryNodeCountForRound(this.currentRound);
+    for (let i = 0; i < deliveryNodeCount; i++) {
+      const preferredY =
+        i === 0 ? starterLaneY : Math.floor(((i + 1) * this.grid.height) / (deliveryNodeCount + 1));
+      this.spawnDeliveryNode(this.createDeliveryCondition(this.currentRound, i), preferredY);
     }
   }
 
@@ -2005,7 +1973,7 @@ export default class GameScene extends Phaser.Scene {
           resourceType: resourceTypeIndex,
           lifespan: GAME_CONFIG.nodeLifespan,
         },
-        this.currentEra,
+        this.currentRound,
         this.upgradeManager
       );
 
@@ -4118,6 +4086,15 @@ export default class GameScene extends Phaser.Scene {
         return null;
       }
 
+      const placementCost = this.getMachinePlacementCost(machineType);
+      if (!this.canAffordMachine(machineType)) {
+        console.warn(
+          `[GameScene.placeMachine] Exit P3b: Cannot afford ${machineType.id}. Cost ${placementCost}, money ${this.money}`
+        );
+        this.showMoneyFeedback(-placementCost, 'needed');
+        return null;
+      }
+
       // Get direction from rotation (assuming degrees for now)
       const direction = this.getDirectionFromRotation(rotation);
       console.log(
@@ -4240,6 +4217,15 @@ export default class GameScene extends Phaser.Scene {
       if (machineType.notation) {
         machineObj.notation = machineType.notation;
       }
+      if (machineType.recipeNotation) {
+        machineObj.recipeNotation = machineType.recipeNotation;
+      }
+      if (machineType.arithmeticDelta) {
+        machineObj.arithmeticDelta = machineType.arithmeticDelta;
+      }
+      if (machineType.acceptsAnyLevel) {
+        machineObj.acceptsAnyLevel = true;
+      }
 
       // Ensure the machine is visible
       if (machineObj.container) {
@@ -4271,6 +4257,7 @@ export default class GameScene extends Phaser.Scene {
 
       // Add the machine to the scene's tracking array
       this.machines.push(machineObj);
+      machineObj.placedAtTime = this.time?.now || 0;
       this.addToWorld(machineObj);
       this.trackPlacementForFlowReward(machineObj);
       console.log(
@@ -4283,6 +4270,9 @@ export default class GameScene extends Phaser.Scene {
       } catch (_soundError) {
         // Continue even if sound playback fails
       }
+
+      machineObj.placementCost = placementCost;
+      this.addMoney(-placementCost, machineObj.id);
 
       const connectionCount = this.countNewMachineConnections(machineObj, gridX, gridY, direction);
       const placementGain = GAME_CONFIG.placementMomentumGain || 2;
@@ -4306,6 +4296,12 @@ export default class GameScene extends Phaser.Scene {
         } catch (_modeError) {
           // Continue even if exit mode fails
         }
+      }
+
+      if (machineType.isRelocation && this.machineFactory) {
+        this.machineFactory.clearSelection();
+        this.machineFactory.lastSelectedCategory = null;
+        this.machineFactory.lastSelectedSlotIndex = -1;
       }
 
       console.log(`[GameScene.placeMachine] Successfully placed ${machineObj.id}`); // LOG P12
@@ -4888,7 +4884,7 @@ export default class GameScene extends Phaser.Scene {
 
   // --- Clear Factory Ability ---
 
-  clearPlacedItems() {
+  clearPlacedItems(options = {}) {
     if (this.paused || this.gameOver) return;
 
     console.log('Clearing all placed machines, belts, and nodes with effects...');
@@ -4896,41 +4892,44 @@ export default class GameScene extends Phaser.Scene {
     // --- 1. Score Remaining Items ---
     let salvagedScore = 0;
     const resourceValue = GAME_CONFIG.resourceValueMap;
+    const salvage = options.salvage !== false;
 
-    // Score items on conveyor belts
-    this.machines.forEach((machine) => {
-      if (machine instanceof ConveyorMachine && machine.itemsOnBelt) {
-        machine.itemsOnBelt.forEach((itemOnBelt) => {
-          const itemType = itemOnBelt.itemData.type;
-          if (itemType !== UPGRADE_PACKAGE_TYPE && resourceValue[itemType]) {
-            salvagedScore += resourceValue[itemType];
-          }
-        });
+    if (salvage) {
+      // Score items on conveyor belts
+      this.machines.forEach((machine) => {
+        if (machine instanceof ConveyorMachine && machine.itemsOnBelt) {
+          machine.itemsOnBelt.forEach((itemOnBelt) => {
+            const itemType = itemOnBelt.itemData.type;
+            if (itemType !== UPGRADE_PACKAGE_TYPE && resourceValue[itemType]) {
+              salvagedScore += resourceValue[itemType];
+            }
+          });
+        }
+        // Score items in machine inventories (optional, might double count if belts feed machines)
+        // Consider if needed based on how inventories work
+        // for (const type in machine.inputInventory) {
+        //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+        //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
+        //     }
+
+        // for (const type in machine.outputInventory) {
+        //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+        //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
+        //      }
+      });
+
+      // Score items still in Resource Nodes
+      this.resourceNodes.forEach((node) => {
+        if (node.resources > 0 && resourceValue[node.resourceType.id]) {
+          salvagedScore += node.resources * resourceValue[node.resourceType.id];
+        }
+      });
+
+      if (salvagedScore > 0) {
+        console.log(`Adding ${salvagedScore} from salvaged resources.`);
+        this.score += salvagedScore;
+        this.scoreText.setText(`SCORE: ${this.score}`);
       }
-      // Score items in machine inventories (optional, might double count if belts feed machines)
-      // Consider if needed based on how inventories work
-      // for (const type in machine.inputInventory) {
-      //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
-      //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
-      //     }
-
-      // for (const type in machine.outputInventory) {
-      //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
-      //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
-      //      }
-    });
-
-    // Score items still in Resource Nodes
-    this.resourceNodes.forEach((node) => {
-      if (node.resources > 0 && resourceValue[node.resourceType.id]) {
-        salvagedScore += node.resources * resourceValue[node.resourceType.id];
-      }
-    });
-
-    if (salvagedScore > 0) {
-      console.log(`Adding ${salvagedScore} from salvaged resources.`);
-      this.score += salvagedScore;
-      this.scoreText.setText(`SCORE: ${this.score}`);
     }
 
     // --- 2. Clear Entities with Animation ---
@@ -5147,6 +5146,214 @@ export default class GameScene extends Phaser.Scene {
 
     this.runWideHudLabel.setText(lines.join('\n'));
     this.runWideHudLabel.setVisible(lines.length > 0);
+  }
+
+  getRoundStartingMoney(round = this.currentRound) {
+    const base = GAME_CONFIG.roundBaseMoney || 28;
+    const growth = GAME_CONFIG.roundMoneyGrowth || 8;
+    return base + Math.max(0, round - 1) * growth;
+  }
+
+  getDeliveryNodeCountForRound(round = this.currentRound) {
+    const maxNodes = GAME_CONFIG.maxDeliveryNodesPerRound || 7;
+    return Math.min(maxNodes, round === 1 ? 1 : 1 + (round - 1) * 2);
+  }
+
+  createDeliveryCondition(round, index) {
+    const tier = round === 1 ? 2 : Math.min(4, 1 + Math.ceil((round + Math.max(0, index - 1)) / 2));
+    const exact = round <= 2 || index % 2 === 0;
+    const requiredCount = Math.max(2, 2 + round + (index % 3));
+    const payout =
+      (GAME_CONFIG.deliveryNodeBasePayout || 18) +
+      tier * (GAME_CONFIG.deliveryNodePayoutPerTier || 7) +
+      requiredCount * (GAME_CONFIG.deliveryNodePayoutPerItem || 3);
+
+    return {
+      tier,
+      exact,
+      requiredCount,
+      payout,
+      label: `${exact ? '=' : ''}L${tier}${exact ? '' : '+'} x${requiredCount}`,
+    };
+  }
+
+  updateRoundUI() {
+    if (this.eraText) {
+      this.eraText.setText(`ROUND: ${this.currentRound}`);
+    }
+    if (this.moneyText) {
+      this.moneyText.setText(`$${this.money}`);
+    }
+    if (this.contractText) {
+      const activeNodes = (this.deliveryNodes || []).filter((node) => !node.completed);
+      const lines =
+        activeNodes.length > 0
+          ? activeNodes.map((node) => node.getHudLabel()).join('\n')
+          : 'All deliveries filled';
+      this.contractText.setText(`DELIVERIES\n${lines}`);
+    }
+    if (this.contractTimerText) {
+      this.contractTimerText.setText(`Clear all nodes to advance`);
+      this.contractTimerText.setColor('#88ccff');
+    }
+  }
+
+  addMoney(amount, reason = '') {
+    if (!amount || this.gameOver) return;
+    this.money = Math.max(0, Math.floor(this.money + amount));
+    this.updateRoundUI();
+    if (reason) {
+      this.showMoneyFeedback(amount, reason);
+    }
+  }
+
+  showMoneyFeedback(amount, reason) {
+    const text = this.add
+      .text(
+        this.scale.width - this.rightPanelWidth - 20,
+        72,
+        `${amount >= 0 ? '+' : ''}$${amount} ${reason}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 15,
+          color: amount >= 0 ? '#88ffcc' : '#ff8888',
+          align: 'right',
+          stroke: '#000000',
+          strokeThickness: 4,
+        }
+      )
+      .setOrigin(1, 0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 48,
+      alpha: 0,
+      duration: 850,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  getMachinePlacementCost(machineType) {
+    if (machineType?.isRelocation && typeof machineType.placementCost === 'number') {
+      return machineType.placementCost;
+    }
+    const costs = GAME_CONFIG.machinePlacementCosts || {};
+    const id = machineType?.id || '';
+    if (id === 'conveyor') return costs.conveyor || 1;
+    if (id === 'splitter') return costs.splitter || 4;
+    if (id === 'merger') return costs.merger || 4;
+    if (id === 'underground-belt') return costs['underground-belt'] || 5;
+    if (id.includes('advanced-processor') || (machineType?.outputLevel || 0) >= 3) {
+      return costs.advancedProcessor || 12;
+    }
+    if (id.includes('processor')) return costs.processor || 8;
+    return 3;
+  }
+
+  canAffordMachine(machineType) {
+    return this.money >= this.getMachinePlacementCost(machineType);
+  }
+
+  startRound(round = this.currentRound) {
+    this.currentRound = round;
+    this.roundClearing = false;
+    this.runState = 'ROUND_ACTIVE';
+    this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
+    this.createInitialResourceNodes();
+    if (this.machineFactory) {
+      this.machineFactory.refreshAvailableProcessors();
+      this.machineFactory.displayCurrentProcessorPreview();
+    }
+    this.updateRoundUI();
+    this.showRoundStartFeedback(round);
+  }
+
+  showRoundStartFeedback(round) {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 78, `ROUND ${round}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 32,
+        color: '#ffffff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 52,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  onDeliveryNodeCompleted(node) {
+    if (!node || this.roundClearing) return;
+    this.addMoney(node.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18, 'delivery');
+    this.awardMomentum(10, 'delivery filled');
+    this.updateRoundUI();
+
+    if (this.deliveryNodes.length > 0 && this.deliveryNodes.every((n) => n.completed)) {
+      this.clearRound();
+    }
+  }
+
+  clearRound() {
+    if (this.roundClearing) return;
+    this.roundClearing = true;
+    this.runState = 'ROUND_CLEARED';
+    const clearBonus = (GAME_CONFIG.roundClearBonus || 18) + this.currentRound * 4;
+    this.addMoney(clearBonus, 'round clear');
+    this.showRoundClearFeedback();
+
+    const entitiesToClear =
+      (this.machines?.length || 0) +
+      (this.resourceNodes?.length || 0) +
+      (this.deliveryNodes?.length || 0);
+    this.time.delayedCall(650, () => {
+      this.clearPlacedItems({ salvage: false });
+      const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
+      this.time.delayedCall(nextRoundDelay, () => {
+        this.startRound(this.currentRound + 1);
+      });
+    });
+  }
+
+  showRoundClearFeedback() {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, 'ROUND CLEAR', {
+        fontFamily: 'Arial Black',
+        fontSize: 36,
+        color: '#88ffcc',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.flash(180, 120, 255, 210, true);
+
+    this.tweens.add({
+      targets: text,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      alpha: 0,
+      duration: 1200,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
   }
 
   /** Spawns a Resource Node and a Delivery Node pair */
@@ -5450,6 +5657,85 @@ export default class GameScene extends Phaser.Scene {
     this.activeUpgradesText.setText(displayText);
   }
 
+  getMachineTypeForRelocation(machine) {
+    if (!machine) return null;
+
+    const registryType =
+      this.machineFactory && typeof this.machineFactory.getMachineTypeById === 'function'
+        ? this.machineFactory.getMachineTypeById(machine.id)
+        : null;
+
+    return {
+      ...(registryType || {}),
+      id: machine.id,
+      name: machine.name || registryType?.name || machine.id,
+      description: machine.description || registryType?.description || '',
+      shape: machine.shape || registryType?.shape || [[1]],
+      inputTypes: machine.inputTypes || registryType?.inputTypes || [],
+      outputTypes: machine.outputTypes || registryType?.outputTypes || [],
+      processingTime: machine.processingTime || registryType?.processingTime,
+      direction: machine.direction || registryType?.direction || 'right',
+      rotation: machine.rotation || 0,
+      rotationDegrees: machine.rotation || 0,
+      inputLevels: Array.isArray(machine.inputLevels) ? [...machine.inputLevels] : [],
+      outputLevel: machine.outputLevel || null,
+      notation: machine.notation || null,
+      recipeNotation: machine.recipeNotation || null,
+      arithmeticDelta: machine.arithmeticDelta || null,
+      acceptsAnyLevel: machine.acceptsAnyLevel || false,
+      trait: machine.trait || null,
+      placementCost: machine.placementCost || this.getMachinePlacementCost(machine),
+      isRelocation: true,
+    };
+  }
+
+  beginMachineRelocation(machine) {
+    if (this.paused || this.gameOver || !machine || this.roundClearing) return false;
+    if (!this.machines || !this.machines.includes(machine)) return false;
+    if (this.machineFactory?.selectedMachineType) return false;
+    if ((this.time?.now || 0) - (machine.placedAtTime || -Infinity) < 250) return false;
+
+    const machineType = this.getMachineTypeForRelocation(machine);
+    if (!machineType) return false;
+
+    if (machine.itemsOnBelt && machine.itemsOnBelt.length > 0) {
+      machine.itemsOnBelt.forEach((itemOnBelt) => {
+        if (itemOnBelt?.visual && typeof itemOnBelt.visual.destroy === 'function') {
+          itemOnBelt.visual.destroy();
+        } else if (itemOnBelt && typeof itemOnBelt.destroy === 'function') {
+          itemOnBelt.destroy();
+        }
+      });
+      machine.itemsOnBelt = [];
+    }
+
+    const refund = machineType.placementCost || 0;
+    if (refund > 0) {
+      this.addMoney(refund, 'relocate');
+    }
+
+    const machineIndex = this.machines.indexOf(machine);
+    if (machineIndex > -1) {
+      this.machines.splice(machineIndex, 1);
+    }
+
+    if (typeof machine.destroy === 'function') {
+      machine.destroy();
+    } else if (this.grid && typeof this.grid.removeMachine === 'function') {
+      this.grid.removeMachine(machine);
+    }
+
+    if (this.machineFactory && typeof this.machineFactory.selectMachineType === 'function') {
+      this.machineFactory.lastSelectedCategory = 'relocation';
+      this.machineFactory.lastSelectedSlotIndex = -1;
+      this.machineFactory.selectMachineType(machineType);
+    }
+
+    this.playSound('click');
+    this.showProcessorReplacementFeedback('Picked up\nPlace to relocate');
+    return true;
+  }
+
   deleteLogisticsOnClick(machine) {
     if (this.paused || this.gameOver || !machine) return;
 
@@ -5464,6 +5750,14 @@ export default class GameScene extends Phaser.Scene {
         }
       });
       machine.itemsOnBelt = []; // Clear the array
+    }
+
+    const refund = Math.floor(
+      (machine.placementCost || this.getMachinePlacementCost(machine)) *
+        (GAME_CONFIG.machineRefundRate || 0.5)
+    );
+    if (refund > 0) {
+      this.addMoney(refund, 'refund');
     }
 
     // 2. Remove from the scene's machines array
@@ -5573,7 +5867,7 @@ export default class GameScene extends Phaser.Scene {
    * Spawns a single delivery node at an empty cell
    * @returns {DeliveryNode|null} The spawned delivery node or null if unsuccessful
    */
-  spawnDeliveryNode() {
+  spawnDeliveryNode(condition = null, preferredY = null) {
     try {
       if (this.gameOver || this.paused) return null;
 
@@ -5583,7 +5877,14 @@ export default class GameScene extends Phaser.Scene {
       }
 
       // Find an empty spot on the right edge of the grid (last column)
-      const emptySpot = this.grid.findEmptyCellInColumn(this.grid.width - 1);
+      const preferredCell =
+        preferredY !== null && preferredY !== undefined
+          ? this.grid.getCell(this.grid.width - 1, preferredY)
+          : null;
+      const emptySpot =
+        preferredCell && preferredCell.type === 'empty'
+          ? { x: this.grid.width - 1, y: preferredY }
+          : this.grid.findEmptyCellInColumn(this.grid.width - 1);
       if (!emptySpot) {
         console.warn('[GAME] No empty cells found in right edge for delivery node placement');
         return null;
@@ -5604,6 +5905,8 @@ export default class GameScene extends Phaser.Scene {
         gridY: emptySpot.y,
         lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier(),
         pointsPerResource: 10,
+        condition:
+          condition || this.createDeliveryCondition(this.currentRound, this.deliveryNodes.length),
       });
 
       this.deliveryNodes.push(deliveryNode);

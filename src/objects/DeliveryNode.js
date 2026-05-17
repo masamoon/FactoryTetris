@@ -14,11 +14,20 @@ export default class DeliveryNode {
     this.y = config.y;
     this.gridX = config.gridX;
     this.gridY = config.gridY;
-    // Delivery nodes might accept specific types later, for now generic
-    // this.requiredResourceType = config.requiredResourceType;
+    this.condition = config.condition || {
+      tier: 1,
+      exact: false,
+      requiredCount: 3,
+      payout: GAME_CONFIG.deliveryNodeBasePayout || 18,
+      label: 'L1+ x3',
+    };
+    this.deliveredCount = 0;
+    this.completed = false;
     this.lifespan = config.lifespan || GAME_CONFIG.nodeLifespan; // Use default lifespan if not provided
 
-    console.log(`Created delivery node at (${this.gridX}, ${this.gridY})`);
+    console.log(
+      `Created delivery node at (${this.gridX}, ${this.gridY}) with condition ${this.condition.label}`
+    );
 
     // Create visual representation
     this.createVisuals();
@@ -31,9 +40,9 @@ export default class DeliveryNode {
     // Create container for node parts
     this.container = this.scene.add.container(this.x, this.y);
 
-    // Simple delivery node visuals - square, different color
-    const nodeColor = 0x4a6fb5; // Blue color for delivery
-    const borderColor = 0x3a5f95;
+    // Delivery nodes are small contracts on the board.
+    const nodeColor = this.getConditionColor();
+    const borderColor = 0xffffff;
 
     // Create node background (square instead of circle)
     this.background = this.scene.add.rectangle(0, 0, 24, 24, nodeColor);
@@ -44,8 +53,35 @@ export default class DeliveryNode {
     this.border.setStrokeStyle(2, borderColor);
     this.container.add(this.border);
 
-    // Maybe an icon instead of text? For now, just the shape.
-    // Remove resource indicator text
+    this.conditionText = this.scene.add
+      .text(0, -20, this.getConditionShortLabel(), {
+        fontFamily: 'Arial Black',
+        fontSize: 9,
+        color: '#ffffff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    this.container.add(this.conditionText);
+
+    this.progressText = this.scene.add
+      .text(0, 0, `${this.deliveredCount}/${this.condition.requiredCount}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 9,
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    this.container.add(this.progressText);
+
+    this.progressBarBg = this.scene.add.rectangle(0, 17, 24, 4, 0x111111, 0.85);
+    this.progressBarBg.setOrigin(0.5);
+    this.container.add(this.progressBarBg);
+
+    this.progressBar = this.scene.add.rectangle(-12, 17, 0, 4, 0x88ffcc);
+    this.progressBar.setOrigin(0, 0.5);
+    this.container.add(this.progressBar);
 
     // Lifespan bar removed - output nodes are permanent
 
@@ -59,6 +95,48 @@ export default class DeliveryNode {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+
+    this.updateProgressVisuals();
+  }
+
+  getConditionColor() {
+    const colors = [0x888888, 0x22cc66, 0x2288ff, 0xffcc00, 0xff66cc, 0xffffff];
+    const tier = Math.max(1, Math.min(colors.length, this.condition.tier || 1));
+    return colors[tier - 1];
+  }
+
+  getConditionShortLabel() {
+    const tier = this.condition.tier || 1;
+    return `${this.condition.exact ? '=' : ''}L${tier}${this.condition.exact ? '' : '+'}`;
+  }
+
+  getHudLabel() {
+    return `${this.getConditionShortLabel()} ${this.deliveredCount}/${this.condition.requiredCount}  +$${this.condition.payout}`;
+  }
+
+  updateProgressVisuals() {
+    const required = Math.max(1, this.condition.requiredCount || 1);
+    const progress = Math.min(1, this.deliveredCount / required);
+    if (this.progressText) {
+      this.progressText.setText(`${this.deliveredCount}/${required}`);
+    }
+    if (this.progressBar) {
+      this.progressBar.displayWidth = 24 * progress;
+    }
+  }
+
+  getItemTier(itemData) {
+    if (!itemData) return 1;
+    if (typeof itemData.level === 'number') return itemData.level;
+    if (typeof itemData.purity === 'number') return itemData.purity;
+    return 1;
+  }
+
+  matchesCondition(itemData) {
+    if (this.completed) return false;
+    const tier = this.getItemTier(itemData);
+    const requiredTier = this.condition.tier || 1;
+    return this.condition.exact ? tier === requiredTier : tier >= requiredTier;
   }
 
   /**
@@ -125,6 +203,9 @@ export default class DeliveryNode {
       console.warn('DeliveryNode received invalid itemData:', itemData);
       return false;
     }
+    if (this.completed) {
+      return false;
+    }
 
     const itemType = itemData.type; // Get type from itemData
     const amount = itemData.amount || 1; // Get amount, default to 1 if missing
@@ -152,30 +233,22 @@ export default class DeliveryNode {
 
     // --- Handle level-based resources (new dynamic level system) ---
     if (itemType === 'level-resource') {
+      if (!this.matchesCondition(itemData)) {
+        return false;
+      }
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
       const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
-      const reward = this.scene.getDeliveryReward?.(adjustedPoints, level, itemData) || {
-        points: adjustedPoints,
-        countsForFlow: true,
-      };
+      const reward = { points: adjustedPoints, countsForFlow: true };
 
       // Add score
       this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow });
 
-      // Track delivery for throughput calculation (only transcend tier counts)
-      if (reward.countsForFlow && this.scene.trackDelivery) {
-        this.scene.trackDelivery(level);
-      }
-
-      // Track delivery toward the active Contract (tier-or-better counts)
-      if (reward.countsForFlow && this.scene.onContractDelivery) {
-        this.scene.onContractDelivery(level, itemData);
-      }
-
       if (this.scene.recordDeliveryFlow) {
         this.scene.recordDeliveryFlow(itemData, level, reward);
       }
+
+      this.recordSatisfiedDelivery(level);
 
       // Visual feedback for level resource
       const levelName = getLevelName(level);
@@ -189,31 +262,23 @@ export default class DeliveryNode {
 
     // --- Handle purity resources ---
     if (itemType === 'purity-resource') {
+      if (!this.matchesCondition(itemData)) {
+        return false;
+      }
       const purity = itemData.purity || 1;
       const chainCount = itemData.chainCount || 1;
       const totalPoints = calculateDeliveryScore(purity, chainCount);
       const adjustedPoints = this.applyTraitDeliveryModifiers(totalPoints, itemData);
-      const reward = this.scene.getDeliveryReward?.(adjustedPoints, purity, itemData) || {
-        points: adjustedPoints,
-        countsForFlow: true,
-      };
+      const reward = { points: adjustedPoints, countsForFlow: true };
 
       // Add score
       this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow });
 
-      // Track delivery for throughput calculation (only transcend tier counts)
-      if (reward.countsForFlow && this.scene.trackDelivery) {
-        this.scene.trackDelivery(purity);
-      }
-
-      // Track delivery toward the active Contract (tier-or-better counts)
-      if (reward.countsForFlow && this.scene.onContractDelivery) {
-        this.scene.onContractDelivery(purity, itemData);
-      }
-
       if (this.scene.recordDeliveryFlow) {
         this.scene.recordDeliveryFlow(itemData, purity, reward);
       }
+
+      this.recordSatisfiedDelivery(purity);
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
@@ -227,6 +292,9 @@ export default class DeliveryNode {
 
     // --- Handle regular resources (legacy) ---
     const resourceType = itemType;
+    if (!this.matchesCondition({ ...itemData, purity: 1 })) {
+      return false;
+    }
 
     // Find the score for this resource type from the config
     const resourceConfig = GAME_CONFIG.resourceTypes.find((r) => r.id === resourceType);
@@ -242,6 +310,7 @@ export default class DeliveryNode {
 
     // Add score
     this.scene.addScore(totalPoints, { countsForFlow: false });
+    this.recordSatisfiedDelivery(1);
 
     // Visual feedback for accepted resource
     this.createAcceptEffect(resourceType, totalPoints);
@@ -252,27 +321,144 @@ export default class DeliveryNode {
     return true;
   }
 
+  recordSatisfiedDelivery(tier) {
+    if (this.completed) return;
+    this.deliveredCount++;
+    this.updateProgressVisuals();
+    this.createFillPulse(tier);
+
+    if (this.scene && typeof this.scene.updateRoundUI === 'function') {
+      this.scene.updateRoundUI();
+    }
+
+    if (this.deliveredCount >= (this.condition.requiredCount || 1)) {
+      this.completeDeliveryNode();
+    }
+  }
+
+  createFillPulse(tier) {
+    const color = this.getConditionColor();
+    if (this.background) {
+      this.scene.tweens.add({
+        targets: this.background,
+        scaleX: 1.45,
+        scaleY: 1.45,
+        duration: 100,
+        yoyo: true,
+        ease: 'Quad.easeOut',
+      });
+    }
+
+    const ring = this.scene.add.circle(this.container.x, this.container.y, 15, color, 0);
+    ring.setStrokeStyle(2, color, 0.9);
+    ring.setDepth(this.container.depth + 2);
+    if (this.scene.addToWorld) this.scene.addToWorld(ring);
+    this.scene.tweens.add({
+      targets: ring,
+      radius: 26 + tier * 2,
+      alpha: 0,
+      duration: 360,
+      ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  completeDeliveryNode() {
+    if (this.completed) return;
+    this.completed = true;
+    this.deliveredCount = this.condition.requiredCount || this.deliveredCount;
+    this.updateProgressVisuals();
+    this.createCompletionBurst();
+
+    if (this.progressText) {
+      this.progressText.setText('FULL');
+      this.progressText.setFontSize(8);
+    }
+    if (this.conditionText) {
+      this.conditionText.setText('DONE');
+    }
+
+    if (this.scene && typeof this.scene.onDeliveryNodeCompleted === 'function') {
+      this.scene.onDeliveryNodeCompleted(this);
+    }
+  }
+
+  createCompletionBurst() {
+    const color = this.getConditionColor();
+    this.scene.cameras.main.shake(120, 0.004);
+    this.scene.cameras.main.flash(90, 255, 255, 255, true);
+
+    const burstText = this.scene.add
+      .text(this.container.x, this.container.y - 24, `+$${this.condition.payout}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#88ffcc',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5);
+    burstText.setDepth(this.container.depth + 4);
+    if (this.scene.addToWorld) this.scene.addToWorld(burstText);
+
+    this.scene.tweens.add({
+      targets: burstText,
+      y: this.container.y - 60,
+      alpha: 0,
+      scaleX: 1.35,
+      scaleY: 1.35,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => burstText.destroy(),
+    });
+
+    const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
+      color: [color, 0xffffff, 0x88ffcc],
+      lifespan: 700,
+      speed: { min: 90, max: 210 },
+      scale: { start: 1.1, end: 0 },
+      gravityY: 120,
+      blendMode: 'ADD',
+      emitting: false,
+    });
+    particles.setDepth(this.container.depth + 3);
+    if (this.scene.addToWorld) this.scene.addToWorld(particles);
+    particles.explode(34);
+    this.scene.time.delayedCall(800, () => particles.destroy());
+
+    this.scene.tweens.add({
+      targets: this.container,
+      scaleX: 1.35,
+      scaleY: 1.35,
+      duration: 130,
+      yoyo: true,
+      ease: 'Back.easeOut',
+    });
+  }
+
   /**
    * Checks if the Delivery Node can accept a given item type.
    * @param {string} itemType - The type ID of the item (e.g., 'basic-resource', 'upgrade_package').
    * @returns {boolean} True if the type is acceptable, false otherwise.
    */
-  canAcceptInput(itemType) {
+  canAcceptInput(itemType, itemData = null) {
+    if (this.completed) {
+      return false;
+    }
     // Allow upgrade packages
     if (itemType === UPGRADE_PACKAGE_TYPE) {
       return true;
     }
     // Allow level-based resources (new dynamic level system)
     if (itemType === 'level-resource') {
-      return true;
+      return itemData ? this.matchesCondition(itemData) : true;
     }
     // Allow purity resources (legacy system)
     if (itemType === 'purity-resource') {
-      return true;
+      return itemData ? this.matchesCondition(itemData) : true;
     }
     // Allow any resource type defined in the game config (legacy)
     if (GAME_CONFIG.resourceTypes.some((r) => r.id === itemType)) {
-      return true;
+      return itemData ? this.matchesCondition({ ...itemData, purity: 1 }) : true;
     }
     // Reject unknown types
     console.warn(

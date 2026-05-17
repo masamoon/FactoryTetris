@@ -38,12 +38,8 @@ export default class ResourceNode {
     );
     this.resources = Phaser.Math.Between(initialMin, initialMax); // Start with resources based on round
 
-    // Apply Node Longevity Modifier to Lifespan
-    const longevityModifier = this.upgradeManager.getNodeLongevityModifier();
-    this.lifespan = Math.floor(config.lifespan * longevityModifier);
-    console.log(
-      `[ResourceNode] Created with lifespan ${this.lifespan} (Base: ${config.lifespan}, Mod: ${longevityModifier})`
-    );
+    this.lifespan = Infinity;
+    console.log('[ResourceNode] Created as permanent resource source');
 
     // Max resources based on round
     this.maxResources = baseMaxResources + (this.round - 1) * roundFactorMaxResources;
@@ -67,13 +63,7 @@ export default class ResourceNode {
     // Create visual representation
     this.createVisuals();
 
-    // Set up lifespan timer
-    this.lifespanTimer = scene.time.addEvent({
-      delay: 1000,
-      callback: this.updateLifespan,
-      callbackScope: this,
-      loop: true,
-    });
+    this.lifespanTimer = null;
 
     // Set up resource generation timer using calculated delay
     this.resourceTimer = scene.time.addEvent({
@@ -117,19 +107,20 @@ export default class ResourceNode {
     this.border.setStrokeStyle(2, 0x008833);
     this.container.add(this.border);
 
-    // Create resource indicator
+    // Create resource stock indicator.
     this.resourceIndicator = this.scene.add
-      .text(0, 0, '0', {
+      .text(0, 0, `${this.resources}`, {
         fontFamily: 'Arial',
         fontSize: 10,
+        fontStyle: 'bold',
         color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
       })
       .setOrigin(0.5);
     this.container.add(this.resourceIndicator);
 
-    // Create lifespan indicator
-    this.lifespanBar = this.scene.add.rectangle(0, 16, 24, 4, 0x00ff00);
-    this.container.add(this.lifespanBar);
+    this.lifespanBar = null;
 
     // Add pulsing animation
     this.scene.tweens.add({
@@ -141,6 +132,12 @@ export default class ResourceNode {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+  }
+
+  updateResourceIndicator() {
+    if (this.resourceIndicator) {
+      this.resourceIndicator.setText(`${this.resources}`);
+    }
   }
 
   /**
@@ -179,32 +176,14 @@ export default class ResourceNode {
       //console.log(`Resource node at (${this.gridX}, ${this.gridY}) is full: ${this.resources}/${this.maxResources}`);
     }
 
-    // Update the visual indicator
-    if (this.resourceIndicator) {
-      this.resourceIndicator.setText(this.resources.toString());
-    }
+    this.updateResourceIndicator();
   }
 
   /**
    * Update the node's visual representation
    */
   update() {
-    // Update resource indicator
-    if (this.resourceIndicator) {
-      this.resourceIndicator.setText(this.resources.toString());
-    }
-
-    // Update lifespan bar
-    if (this.lifespanBar) {
-      this.lifespanBar.scaleX = this.lifespan / GAME_CONFIG.nodeLifespan;
-
-      // Update color based on lifespan
-      if (this.lifespan < GAME_CONFIG.nodeLifespan * 0.25) {
-        this.lifespanBar.fillColor = 0xff0000;
-      } else if (this.lifespan < GAME_CONFIG.nodeLifespan * 0.5) {
-        this.lifespanBar.fillColor = 0xffaa00;
-      }
-    }
+    this.updateResourceIndicator();
 
     // Push resources to adjacent conveyors
     this.pushResourcesToConveyors();
@@ -299,9 +278,7 @@ export default class ResourceNode {
           if (targetMachine.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
-            if (this.resourceIndicator) {
-              this.resourceIndicator.setText(this.resources.toString());
-            }
+            this.updateResourceIndicator();
             this.createTransferEffect(targetMachine);
             return; // Pushed successfully to machine
           }
@@ -329,9 +306,7 @@ export default class ResourceNode {
           if (conveyor.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
-            if (this.resourceIndicator) {
-              this.resourceIndicator.setText(this.resources.toString());
-            }
+            this.updateResourceIndicator();
             this.createTransferEffect(conveyor);
             return; // Pushed successfully to conveyor
           }
@@ -375,11 +350,7 @@ export default class ResourceNode {
   }
 
   updateLifespan() {
-    this.lifespan--;
-
-    if (this.lifespan <= 0) {
-      this.destroy();
-    }
+    // Resource nodes are permanent in the round-based loop.
   }
 
   destroy() {
@@ -439,10 +410,7 @@ export default class ResourceNode {
         `ResourceNode at (${this.gridX}, ${this.gridY}) extracted ${amountExtracted} ${this.resourceType.id}, remaining: ${this.resources}`
       );
 
-      // Update visual indicator
-      if (this.resourceIndicator) {
-        this.resourceIndicator.setText(this.resources.toString());
-      }
+      this.updateResourceIndicator();
 
       // Return purity resource with initial purity 1
       const purityResource = createPurityResource(1);

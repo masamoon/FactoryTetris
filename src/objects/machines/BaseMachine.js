@@ -85,6 +85,29 @@ export default class BaseMachine {
     // Let child classes define their specific properties
     this.initMachineProperties();
 
+    // Child classes initialize before they can store `config`, so apply
+    // runtime draft metadata here while visuals still have not been created.
+    if (config) {
+      if (Array.isArray(config.inputLevels)) {
+        this.inputLevels = [...config.inputLevels];
+      }
+      if (config.outputLevel) {
+        this.outputLevel = config.outputLevel;
+      }
+      if (config.notation) {
+        this.notation = config.notation;
+      }
+      if (config.recipeNotation) {
+        this.recipeNotation = config.recipeNotation;
+      }
+      if (config.arithmeticDelta) {
+        this.arithmeticDelta = config.arithmeticDelta;
+      }
+      if (config.acceptsAnyLevel) {
+        this.acceptsAnyLevel = true;
+      }
+    }
+
     // Allow config to provide trait id (set by MachineFactory for higher-tier pieces).
     // Read AFTER initMachineProperties so child classes can override defaults but
     // the runtime trait (from draft) always wins.
@@ -182,12 +205,15 @@ export default class BaseMachine {
     this.inputCapacity = 10; // Increased buffer size to handling mixed belts better
 
     // Dynamic resource level system
-    // inputLevels: array of required input levels (e.g., [1] or [1, 2])
-    // outputLevel: the level this machine outputs (e.g., 2)
-    // notation: display string like "1/2" or "1/2/3"
+    // inputLevels/outputLevel are retained as draft metadata.
+    // arithmeticDelta is the actual machine operation, e.g. +1 or +2.
+    // notation is the display string for the operation.
     this.inputLevels = [];
     this.outputLevel = null;
     this.notation = null;
+    this.recipeNotation = null;
+    this.arithmeticDelta = null;
+    this.acceptsAnyLevel = false;
     this.trait = null;
   }
 
@@ -1000,9 +1026,29 @@ export default class BaseMachine {
 
     // Add click handler
     this.container.on('pointerdown', (pointer) => {
-      // Stop propagation to prevent placing a new machine immediately if one is selected
+      const placementIsActive = !!this.scene?.machineFactory?.selectedMachineType;
+      if (placementIsActive) {
+        return;
+      }
+      if (
+        !this.isPreview &&
+        (this.scene?.time?.now || 0) - (this.placedAtTime || -Infinity) < 250
+      ) {
+        return;
+      }
+
+      // Stop propagation only for normal machine inspection/relocation clicks.
       if (pointer.event) {
         pointer.event.stopPropagation();
+      }
+
+      if (
+        !this.isPreview &&
+        this.scene &&
+        typeof this.scene.beginMachineRelocation === 'function' &&
+        this.scene.beginMachineRelocation(this)
+      ) {
+        return;
       }
 
       this.setSelected(true);
@@ -1705,8 +1751,8 @@ export default class BaseMachine {
   checkOutputCapacity() {
     const outputCapacity = this.outputCapacity || 5;
 
-    // For machines using the new level system, check outputQueue
-    if (this.outputLevel) {
+    // For machines using purity queues, check outputQueue
+    if (this.arithmeticDelta || this.outputLevel) {
       return (this.outputQueue?.length || 0) < outputCapacity;
     }
 
@@ -1734,6 +1780,10 @@ export default class BaseMachine {
     }
 
     // 2. Check Input Availability
+    if (this.arithmeticDelta) {
+      return this.inputQueue && this.inputQueue.length > 0;
+    }
+
     // NEW SYSTEM: If inputLevels is defined, use it for validation
     if (this.inputLevels && this.inputLevels.length > 0) {
       if (!this.inputQueue || this.inputQueue.length === 0) {
@@ -1803,7 +1853,17 @@ export default class BaseMachine {
     // 1. Consume resources
     this.currentProcessingItems = []; // Reset current processing items
 
-    if (this.inputLevels && this.inputLevels.length > 0) {
+    if (this.arithmeticDelta) {
+      const item = this.inputQueue.shift();
+      if (item) {
+        this.currentProcessingItems.push(item);
+
+        const type = item.type || 'purity-resource';
+        if (this.inputInventory[type] > 0) {
+          this.inputInventory[type]--;
+        }
+      }
+    } else if (this.inputLevels && this.inputLevels.length > 0) {
       // NEW SYSTEM: Consume specific levels from inputQueue
       this.inputLevels.forEach((reqLevel) => {
         const index = this.inputQueue.findIndex((item) => (item.purity || 1) === reqLevel);
@@ -1930,9 +1990,39 @@ export default class BaseMachine {
     }
 
     if (processedItem) {
-      // NEW: If this machine has an outputLevel configured, set purity to that level
+      // Arithmetic processors apply their own visible operation (+1/+2) to the item.
       let nextItem;
-      if (this.outputLevel) {
+      if (this.arithmeticDelta) {
+        const inputPurity = processedItem.purity || 1;
+        nextItem = {
+          ...processedItem,
+          type: 'purity-resource',
+          purity: inputPurity + this.arithmeticDelta,
+          visitedMachines: new Set(processedItem.visitedMachines || []),
+          machineUids: Array.isArray(processedItem.machineUids)
+            ? [...processedItem.machineUids]
+            : [],
+          routeTags: Array.isArray(processedItem.routeTags) ? [...processedItem.routeTags] : [],
+          traitTags: Array.isArray(processedItem.traitTags) ? [...processedItem.traitTags] : [],
+        };
+        if (this.uid && !nextItem.machineUids.includes(this.uid)) {
+          nextItem.machineUids.push(this.uid);
+        }
+        if (!nextItem.routeTags.includes('processor')) {
+          nextItem.routeTags.push('processor');
+        }
+        // Only increment chain if this is a new machine
+        if (!nextItem.visitedMachines.has(this.id)) {
+          nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
+          nextItem.visitedMachines.add(this.id);
+        }
+        if (this.trait) {
+          nextItem.traitTags.push(this.trait);
+        }
+        console.log(
+          `[${this.id}] Applied +${this.arithmeticDelta}: ${inputPurity} -> ${nextItem.purity}, tags: [${nextItem.traitTags.join(',')}]`
+        );
+      } else if (this.outputLevel) {
         // Create output resource with the configured outputLevel as its purity
         // Always ensure type is 'purity-resource' for the new level system
         nextItem = {
@@ -2012,8 +2102,8 @@ export default class BaseMachine {
    * @returns {boolean} True if there are output resources, false otherwise.
    */
   hasOutput() {
-    // For machines using the new level system, check outputQueue
-    if (this.outputLevel) {
+    // For machines using purity queues, check outputQueue
+    if (this.arithmeticDelta || this.outputLevel) {
       return this.outputQueue && this.outputQueue.length > 0;
     }
 
@@ -3115,6 +3205,11 @@ export default class BaseMachine {
    * @returns {boolean} True if the resource can be accepted, false otherwise.
    */
   canAcceptInput(resourceTypeId, itemData = null) {
+    if (this.arithmeticDelta && resourceTypeId === 'purity-resource') {
+      const capacity = this.getInputCapacity();
+      return this.inputQueue ? this.inputQueue.length < capacity : true;
+    }
+
     // NEW: Check level-based system first if this machine has inputLevels configured
     if (this.inputLevels && this.inputLevels.length > 0) {
       // We need the item's level to validate
@@ -3257,8 +3352,14 @@ export default class BaseMachine {
       // Handle purity resource queueing - queue items for machines with inputLevels
       // This ensures machines using the inputLevels system can process items correctly
       // CRITICAL: For machines with inputLevels, ALWAYS add to queue with purity (default to 1)
-      if (this.inputQueue && this.inputLevels && this.inputLevels.length > 0) {
+      if (
+        this.inputQueue &&
+        ((this.inputLevels && this.inputLevels.length > 0) || this.arithmeticDelta)
+      ) {
         if (this.inputQueue.length >= this.getInputCapacity()) {
+          if (this.arithmeticDelta) {
+            return false;
+          }
           this.makeRoomForBalancedInput(routedItem.purity !== undefined ? routedItem.purity : 1);
         }
 

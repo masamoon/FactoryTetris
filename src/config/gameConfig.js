@@ -253,6 +253,25 @@ export const GAME_CONFIG = {
   flowOnlineMomentumReward: 8,
   processorReplacementMomentumCost: 6,
 
+  // Round / economy loop
+  startingMoney: 45,
+  roundBaseMoney: 28,
+  roundMoneyGrowth: 8,
+  roundClearBonus: 18,
+  deliveryNodeBasePayout: 18,
+  deliveryNodePayoutPerTier: 7,
+  deliveryNodePayoutPerItem: 3,
+  maxDeliveryNodesPerRound: 7,
+  machinePlacementCosts: {
+    conveyor: 1,
+    splitter: 4,
+    merger: 4,
+    'underground-belt': 5,
+    processor: 8,
+    advancedProcessor: 12,
+  },
+  machineRefundRate: 0.5,
+
   // Milestone upgrade system (banked choices that the player can open when ready)
   firstUpgradeScore: 300,
   upgradeMilestoneInterval: 650,
