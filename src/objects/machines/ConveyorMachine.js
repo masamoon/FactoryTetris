@@ -7,8 +7,14 @@ import {
   getPurityScale,
   shouldShowGlow,
   getGlowIntensity,
+  getItemColorHex,
+  getItemColorName,
   shouldShowTrail,
 } from '../../utils/PurityUtils';
+import {
+  ARITHMETIC_OPERATION_TAGS,
+  getArithmeticOperationTagLabel,
+} from '../../config/resourceLevels';
 // import ResourceNode from '../ResourceNode'; // Import ResourceNode
 // import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
 
@@ -73,7 +79,18 @@ export default class ConveyorMachine extends BaseMachine {
 
       // Apply inventory capacity upgrade
       const capacityMod = this.scene.upgradeManager.getInventoryCapacityModifier();
-      this.maxCapacity = Math.floor(this.baseMaxCapacity * capacityMod);
+      const haulBonus =
+        typeof this.scene.upgradeManager.getConveyorCapacityBonus === 'function'
+          ? this.scene.upgradeManager.getConveyorCapacityBonus()
+          : 0;
+      const leanPenalty =
+        typeof this.scene.upgradeManager.getInventoryCapacityBonus === 'function'
+          ? this.scene.upgradeManager.getInventoryCapacityBonus()
+          : 0;
+      this.maxCapacity = Math.max(
+        1,
+        Math.floor(this.baseMaxCapacity * capacityMod) + haulBonus + leanPenalty
+      );
 
       // Apply extraction speed upgrade (lower cooldown = faster extraction)
       const extractionMod = this.scene.upgradeManager.getExtractionSpeedModifier();
@@ -522,6 +539,7 @@ export default class ConveyorMachine extends BaseMachine {
    */
   addItemVisual(itemData) {
     try {
+      itemData = this.tagItemRoute(itemData, this.id === 'conveyor' ? 'belt' : this.id);
       // --- ADDED Safety Check ---
       if (!this.container || !this.grid || !this.itemVisualsGroup) {
         console.error(
@@ -626,7 +644,8 @@ export default class ConveyorMachine extends BaseMachine {
     } else if (itemType === 'purity-resource') {
       // --- PURITY RESOURCE VISUAL ---
       const purity = itemData.purity || 1;
-      const color = getPurityColor(purity);
+      const itemColor = getItemColorHex(itemData.itemColor, getPurityColor(purity));
+      const purityColor = getPurityColor(purity);
       const scale = getPurityScale(purity);
       const showGlow = shouldShowGlow(purity);
 
@@ -637,7 +656,7 @@ export default class ConveyorMachine extends BaseMachine {
       if (showGlow) {
         const glowIntensity = getGlowIntensity(purity);
         const glowSize = size * 2.0 * scale;
-        const glow = this.scene.add.circle(0, 0, glowSize / 2, color, glowIntensity * 0.5);
+        const glow = this.scene.add.circle(0, 0, glowSize / 2, purityColor, glowIntensity * 0.5);
         // Add a tween for pulsing glow
         this.scene.tweens.add({
           targets: glow,
@@ -653,27 +672,43 @@ export default class ConveyorMachine extends BaseMachine {
 
       // Main shape (diamond for purity resources to distinguish)
       // Draw a rotated square (diamond)
-      const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, color);
+      const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, itemColor);
       diamond.rotation = Math.PI / 4;
-      diamond.setStrokeStyle(1.5, 0xffffff); // White border for 'pure' look
+      diamond.setStrokeStyle(1.5, purityColor); // Tier color border keeps level readable
 
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
+      container.itemColorKey = itemData.itemColor;
+      container.itemColorName = getItemColorName(itemData.itemColor);
 
-      // Add numeric badge for high purity
-      if (purity > 1) {
-        // Small text badge
-        const badge = this.scene.add
-          .text(0, 0, `${purity}`, {
-            fontFamily: 'Arial',
-            fontSize: '10px',
-            fontStyle: 'bold',
-            color: '#ffffff',
+      const tierBadge = this.scene.add
+        .text(0, 0, `${purity}`, {
+          fontFamily: 'Arial Black, Arial, sans-serif',
+          fontSize: '10px',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+      container.add(tierBadge);
+
+      const operationBadgeText = this.getItemOperationBadgeText(itemData);
+      if (operationBadgeText) {
+        const badgeBg = this.scene.add
+          .circle(size * 0.45, -size * 0.45, 5, 0x101820, 0.95)
+          .setStrokeStyle(1, 0xffd966, 0.9);
+        container.add(badgeBg);
+
+        const opBadge = this.scene.add
+          .text(size * 0.45, -size * 0.45, operationBadgeText, {
+            fontFamily: 'Arial Black, Arial, sans-serif',
+            fontSize: operationBadgeText.length > 1 ? '6px' : '8px',
+            color: '#ffd966',
             stroke: '#000000',
-            strokeThickness: 2,
+            strokeThickness: 1,
           })
           .setOrigin(0.5);
-        container.add(badge);
+        container.add(opBadge);
       }
 
       visual = container;
@@ -693,6 +728,20 @@ export default class ConveyorMachine extends BaseMachine {
       // this.container.add(visual); // DON'T add directly to container if using group
     }
     return visual;
+  }
+
+  getItemOperationBadgeText(itemData) {
+    const tags = Array.isArray(itemData?.operationTags) ? itemData.operationTags : [];
+    const lastTag = itemData?.lastOperationTag || tags[tags.length - 1];
+
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD_ONE) return '+1';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD_TWO) return '+2';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD) return 'M';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.MULTIPLY) return 'x';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.DIVIDE) return '/';
+
+    const label = getArithmeticOperationTagLabel(lastTag);
+    return label ? label.charAt(0).toUpperCase() : null;
   }
 
   /**
@@ -801,11 +850,11 @@ export default class ConveyorMachine extends BaseMachine {
           this.trailEmitter.emitParticleAt(currentItem.visual.x, currentItem.visual.y);
         }
 
-        // Purity 6+ has rainbow effect (dynamic color)
+        // Purity 6+ has rainbow effect on the tier glow/stroke while body keeps color lane identity.
         if (purity >= 6) {
           const newColor = getPurityColor(purity, this.scene.time.now);
           if (currentItem.visual.mainShape) {
-            currentItem.visual.mainShape.fillColor = newColor;
+            currentItem.visual.mainShape.strokeColor = newColor;
           }
           if (currentItem.visual.glowShape) {
             currentItem.visual.glowShape.fillColor = newColor;
@@ -966,9 +1015,11 @@ export default class ConveyorMachine extends BaseMachine {
       console.log(`[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Invalid itemData.`);
       return false;
     }
-    if (!this.canAcceptInput(itemData.type)) {
+    const routedItem = this.tagItemRoute(itemData, this.id === 'conveyor' ? 'belt' : this.id);
+
+    if (!this.canAcceptInput(routedItem.type)) {
       console.log(
-        `[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Type ${itemData.type} not accepted.`
+        `[CONVEYOR] (${this.gridX}, ${this.gridY}) rejected: Type ${routedItem.type} not accepted.`
       );
       return false;
     }
@@ -995,10 +1046,10 @@ export default class ConveyorMachine extends BaseMachine {
     }
 
     // Add item visual to the start of the belt
-    this.addItemVisual(itemData); // This adds to itemsOnBelt with progress 0
+    this.addItemVisual(routedItem); // This adds to itemsOnBelt with progress 0
 
     console.log(
-      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted item: ${itemData.type} (amount: ${itemData.amount || 1})`
+      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted item: ${routedItem.type} (amount: ${routedItem.amount || 1})`
     );
     return true;
   }

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { upgradesConfig, UPGRADE_TYPES, TIER_THRESHOLDS } from '../config/upgrades.js';
+import { BOON_POOL } from '../config/boons.js';
 
 export class UpgradeManager {
   constructor() {
@@ -24,7 +25,11 @@ export class UpgradeManager {
   }
 
   getProcessorSpeedModifier() {
-    return this.getModifier(UPGRADE_TYPES.PROCESSOR_EFFICIENCY);
+    let modifier = this.getModifier(UPGRADE_TYPES.PROCESSOR_EFFICIENCY);
+    if (this.activeProceduralUpgrades.has('boon_heavy_haulers')) {
+      modifier *= 0.85;
+    }
+    return modifier;
   }
 
   getResourceBountyModifier() {
@@ -36,7 +41,11 @@ export class UpgradeManager {
   }
 
   getConveyorSpeedModifier() {
-    return this.getModifier(UPGRADE_TYPES.CONVEYOR_SPEED);
+    let modifier = this.getModifier(UPGRADE_TYPES.CONVEYOR_SPEED);
+    if (this.activeProceduralUpgrades.has('boon_lean_lines')) {
+      modifier *= 1.25;
+    }
+    return modifier;
   }
 
   getNodeLongevityModifier() {
@@ -49,6 +58,29 @@ export class UpgradeManager {
 
   getExtractionSpeedModifier() {
     return this.getModifier(UPGRADE_TYPES.EXTRACTION_SPEED);
+  }
+
+  // --- Boon-derived modifiers ---
+  getConveyorCapacityBonus() {
+    return this.activeProceduralUpgrades.has('boon_heavy_haulers') ? 1 : 0;
+  }
+
+  getInventoryCapacityBonus() {
+    return this.activeProceduralUpgrades.has('boon_lean_lines') ? -1 : 0;
+  }
+
+  getArchetypeProcessingModifier(machine) {
+    if (!machine || !this.activeProceduralUpgrades.has('boon_recipe_lattice')) {
+      return 1;
+    }
+
+    const levels = Array.isArray(machine.inputLevels) ? machine.inputLevels : [];
+    if (levels.length < 2) return 1;
+
+    const uniqueLevels = new Set(levels);
+    const isMixedRecipe = uniqueLevels.size > 1;
+    const hasDuplicateInput = uniqueLevels.size < levels.length;
+    return isMixedRecipe || hasDuplicateInput ? 1.25 : 1;
   }
 
   // --- Upgrade Application Logic ---
@@ -139,6 +171,22 @@ export class UpgradeManager {
     // Shuffle and pick 'count' upgrades
     Phaser.Utils.Array.Shuffle(availableUpgrades);
     return availableUpgrades.slice(0, count);
+  }
+
+  getBoonChoices(count = 3) {
+    const available = BOON_POOL.filter((b) => !this.activeProceduralUpgrades.has(b.id));
+    Phaser.Utils.Array.Shuffle(available);
+    return available.slice(0, count).map((b) => ({
+      type: b.id,
+      name: b.name,
+      description: b.description,
+      rarity: b.rarity || 'common',
+    }));
+  }
+
+  applyBoon(boonId) {
+    this.activeProceduralUpgrades.add(boonId);
+    console.log(`[BOON] Applied ${boonId}`);
   }
 
   // Check if a procedural upgrade is active

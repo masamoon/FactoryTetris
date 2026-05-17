@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { _UpgradeManager } from '../managers/UpgradeManager';
-import { createPurityResource } from '../utils/PurityUtils';
+import { createPurityResource, getItemColorHex, getSourceItemColor } from '../utils/PurityUtils';
 
 export default class ResourceNode {
   constructor(scene, config, round, upgradeManager) {
@@ -12,6 +12,7 @@ export default class ResourceNode {
     this.gridX = config.gridX;
     this.gridY = config.gridY;
     this.resourceType = GAME_CONFIG.resourceTypes[config.resourceType];
+    this.itemColor = getSourceItemColor(this.resourceType?.id, config.resourceType || 0);
     this.resourceLevel = 1; // Resource nodes always output Level 1 resources
     this.lifespan = config.lifespan;
     this.round = round || 1;
@@ -90,7 +91,7 @@ export default class ResourceNode {
     this.container = this.scene.add.container(this.x, this.y);
 
     // Set color based on resource type
-    let nodeColor;
+    let nodeColor = getItemColorHex(this.itemColor, this.resourceType?.color || 0x00aa44);
     switch (this.resourceType.id) {
       case 'raw-resource':
         nodeColor = 0x00aa44; // Green for raw resources
@@ -105,7 +106,7 @@ export default class ResourceNode {
         nodeColor = 0x36454f; // Coal color
         break;
       default:
-        nodeColor = 0x00aa44; // Default green
+        nodeColor = getItemColorHex(this.itemColor, this.resourceType?.color || 0x00aa44);
     }
 
     // Create node background
@@ -290,7 +291,7 @@ export default class ResourceNode {
       if (cell && cell.type === 'machine' && cell.machine && cell.machine.id !== 'conveyor') {
         const targetMachine = cell.machine;
         // Create purity resource with initial purity 1
-        const itemToPush = createPurityResource(1);
+        const itemToPush = createPurityResource(1, this.itemColor);
         // Pass itemData to canAcceptInput for level-based validation
         if (
           targetMachine.canAcceptInput &&
@@ -320,7 +321,7 @@ export default class ResourceNode {
         if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true; // Target is up, conveyor not pointing down
 
         // Create purity resource with initial purity 1 for validation check
-        const itemToPush = createPurityResource(1);
+        const itemToPush = createPurityResource(1, this.itemColor);
         if (
           isPointingAway &&
           conveyor.canAcceptInput &&
@@ -445,7 +446,7 @@ export default class ResourceNode {
       }
 
       // Return purity resource with initial purity 1
-      const purityResource = createPurityResource(1);
+      const purityResource = createPurityResource(1, this.itemColor);
       purityResource.amount = amountExtracted;
       return purityResource;
     } else {

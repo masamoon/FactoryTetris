@@ -114,55 +114,16 @@ export default class ProcessorAMachine extends BaseMachine {
    * Override the createVisuals method to customize the processor appearance
    */
   createVisuals() {
-    // 1. Call the base class to create the common visuals (container, shape parts, progress bar, indicator)
+    // Call the base class to create the common visuals
     super.createVisuals();
 
-    // --- Add Processor A Specific Visuals ---
-
-    // Ensure the container was created by the base method
-    if (!this.container) {
-      console.error(
-        `[${this.id}] Container not created by super.createVisuals(). Aborting specific visuals.`
-      );
-      return;
+    // Add processor-specific visuals using the standardized method
+    if (this.container) {
+      this.createProcessorVisuals('A', {
+        coreColor: 0x00ccff,
+        coreShape: 'circle',
+      });
     }
-
-    // Recalculate visual center needed for label/core positioning
-    // (since the base method's calculation isn't directly accessible)
-    const currentDirection = this.direction || this.getDirectionFromRotation(this.rotation);
-    let rotatedShape = this.grid.getRotatedShape(this.shape, currentDirection);
-    if (
-      !rotatedShape ||
-      !Array.isArray(rotatedShape) ||
-      rotatedShape.length === 0 ||
-      !Array.isArray(rotatedShape[0])
-    ) {
-      rotatedShape = [[1]]; // Fallback
-    }
-    const shapeWidth = rotatedShape[0].length;
-    const shapeHeight = rotatedShape.length;
-    const cellSize = this.grid.cellSize;
-    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
-    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
-
-    // Add machine type label (relative to container 0,0 which is top-left)
-    const machineLabel = this.scene.add
-      .text(visualCenterX, visualCenterY, 'A', {
-        fontFamily: 'Arial',
-        fontSize: 14,
-        color: '#ffffff',
-      })
-      .setOrigin(0.5);
-    this.container.add(machineLabel);
-
-    // Add processor core visual element (relative to container 0,0)
-    // this.processorCore = this.scene.add.circle(visualCenterX, visualCenterY, cellSize / 4, 0xff5500);
-    // this.processorCore.setStrokeStyle(1, 0xffffff);
-    // this.container.add(this.processorCore);
-    // this.processorCore.setDepth(machineLabel.depth + 1); // Ensure core is above label background if any
-
-    // Optional: Adjust container position if needed AFTER adding all elements
-    // this.adjustContainerPosition(); // BaseMachine.adjustContainerPosition currently does nothing
   }
 
   /**
@@ -214,6 +175,28 @@ export default class ProcessorAMachine extends BaseMachine {
       inputPos: ioPositions.inputPos,
       outputPos: ioPositions.outputPos,
       direction: direction,
+    });
+  }
+
+  static getConfig() {
+    const ioPositions = ProcessorAMachine.getIOPositionsForDirection('processor-a', 'right');
+
+    return BaseMachine.getStandardConfig({
+      id: 'processor-a',
+      name: 'Processor A',
+      description: 'Processes basic resources into advanced resources',
+      shape: [
+        [1, 1],
+        [1, 0],
+        [1, 0],
+      ],
+      inputTypes: ['basic-resource'],
+      outputTypes: ['advanced-resource'],
+      processingTime: 3000,
+      defaultDirection: 'right',
+      requiredInputs: { 'basic-resource': 1 },
+      inputCoord: ioPositions.inputPos,
+      outputCoord: ioPositions.outputPos,
     });
   }
 

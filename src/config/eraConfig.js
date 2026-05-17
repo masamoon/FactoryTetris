@@ -47,17 +47,37 @@ export function getAllChipTiersForEra(currentEra) {
   return tiers;
 }
 
+// === Contract tuning (Era == Contract number) ===
+// Contract tiers jump by three levels each era, so Contract 2 is much harder
+// than a simple "+25% units" curve implies. Keep the first contract readable,
+// then scale quantity gently while the tier ladder supplies the real pressure.
+export const CONTRACT_N_BASE = 4;
+export const CONTRACT_N_LATER_BASE = 3;
+export const CONTRACT_N_GROWTH = 1.18;
+
+// Time budget (seconds): includes rebuild/routing time after transcendence.
+// Later contracts still need more throughput, but Contract 2 should be a
+// ramp into the chip loop instead of a wall.
+export const CONTRACT_T_BASE = 70;
+export const CONTRACT_T_GROWTH = 1.08;
+export const CONTRACT_REBUILD_BASE = 42;
+export const CONTRACT_REBUILD_GROWTH = 18;
+
 // Transcendence thresholds
 export const TRANSCEND_THRESHOLDS = {
-  // Number of highest-tier resources that must be delivered (only requirement now)
+  // Units of qualifying resource a Contract demands. era == contract number.
   getDeliveryThreshold: (era) => {
-    if (era === 1) return 5;
-    if (era === 2) return 6;
-    if (era === 3) return 9;
-    // Scale for higher eras
-    return Math.floor(6 * Math.pow(1.35, era - 2));
+    if (era <= 1) return CONTRACT_N_BASE;
+    return Math.max(3, Math.round(CONTRACT_N_LATER_BASE * Math.pow(CONTRACT_N_GROWTH, era - 2)));
   },
 };
+
+// Per-Contract time budget in seconds.
+export function getContractTimeBudget(era) {
+  const throughputBudget = CONTRACT_T_BASE * Math.pow(CONTRACT_T_GROWTH, era - 1);
+  const rebuildBudget = era <= 1 ? 0 : CONTRACT_REBUILD_BASE + (era - 2) * CONTRACT_REBUILD_GROWTH;
+  return Math.round(throughputBudget + rebuildBudget);
+}
 
 // Point scaling for resource tiers
 // Higher tiers = exponentially more points

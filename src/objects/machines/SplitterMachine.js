@@ -9,6 +9,7 @@ export default class SplitterMachine extends ConveyorMachine {
   constructor(scene, config) {
     super(scene, config);
     this.outputIndex = 0; // 0 or 1 for round-robin
+    this._surgeUsedThisCycle = false;
   }
 
   initMachineProperties() {
@@ -78,6 +79,9 @@ export default class SplitterMachine extends ConveyorMachine {
       if (this.attemptTransferTo(itemToTransfer, targetCoords)) {
         // Successful transfer, update round-robin index for NEXT item
         this.outputIndex = (idx + 1) % outputs.length;
+        if (this.outputIndex === 0) {
+          this._surgeUsedThisCycle = false;
+        }
 
         // Remove item from belt
         if (itemToTransfer.visual) {
@@ -113,11 +117,36 @@ export default class SplitterMachine extends ConveyorMachine {
       typeof targetEntity.acceptItem === 'function' &&
       typeof targetEntity.canAcceptInput === 'function'
     ) {
-      if (targetEntity.canAcceptInput(itemToTransfer.itemData.type, itemToTransfer.itemData)) {
-        return targetEntity.acceptItem(itemToTransfer.itemData);
+      const { itemData, surgeApplied } = this.getOutputItemData(itemToTransfer.itemData);
+      if (targetEntity.canAcceptInput(itemData.type, itemData)) {
+        const accepted = targetEntity.acceptItem(itemData);
+        if (accepted && surgeApplied) {
+          this._surgeUsedThisCycle = true;
+        }
+        return accepted;
       }
     }
     return false;
+  }
+
+  getOutputItemData(itemData) {
+    if (
+      this._surgeUsedThisCycle ||
+      !this.scene ||
+      !this.scene.upgradeManager ||
+      !this.scene.upgradeManager.isProceduralUpgradeActive('boon_overclock_surge') ||
+      !itemData
+    ) {
+      return { itemData, surgeApplied: false };
+    }
+
+    if (typeof itemData.level === 'number') {
+      return { itemData: { ...itemData, level: itemData.level + 1 }, surgeApplied: true };
+    }
+    if (typeof itemData.purity === 'number') {
+      return { itemData: { ...itemData, purity: itemData.purity + 1 }, surgeApplied: true };
+    }
+    return { itemData, surgeApplied: false };
   }
 
   /**
