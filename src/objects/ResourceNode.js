@@ -245,6 +245,16 @@ export default class ResourceNode {
     }
   }
 
+  createOutputItem(amount = 1) {
+    const item = createPurityResource(1, this.itemColor);
+    item.amount = amount;
+    item.itemColor = this.itemColor;
+    item.sourceColor = this.itemColor;
+    item.sourceGridX = this.gridX;
+    item.sourceGridY = this.gridY;
+    return item;
+  }
+
   /**
    * Check adjacent cells and push resources to valid conveyors OR machines
    */
@@ -288,11 +298,13 @@ export default class ResourceNode {
 
       const cell = this.scene.factoryGrid.getCell(targetX, targetY);
 
-      // --- Priority 1: Push directly to adjacent Machine (non-conveyor) ---
-      if (cell && cell.type === 'machine' && cell.machine && cell.machine.id !== 'conveyor') {
-        const targetMachine = cell.machine;
+      const targetMachine = cell?.machine || cell?.object;
+      const isConveyorLike = Boolean(targetMachine && Array.isArray(targetMachine.itemsOnBelt));
+
+      // --- Priority 1: Push directly to adjacent processing Machine (non-belt) ---
+      if (cell && cell.type === 'machine' && targetMachine && !isConveyorLike) {
         // Create purity resource with initial purity 1
-        const itemToPush = createPurityResource(1, this.itemColor);
+        const itemToPush = this.createOutputItem();
         // Pass itemData to canAcceptInput for level-based validation
         if (
           targetMachine.canAcceptInput &&
@@ -308,30 +320,27 @@ export default class ResourceNode {
         }
       }
 
-      // --- Priority 2: Push to adjacent Conveyor pointing AWAY ---
-      else if (cell && cell.type === 'machine' && cell.machine && cell.machine.id === 'conveyor') {
-        const conveyor = cell.machine;
-
-        // Check if conveyor is pointing away from the node
+      // --- Priority 2: Push to adjacent belt-like machine pointing AWAY ---
+      else if (cell && cell.type === 'machine' && targetMachine && isConveyorLike) {
         let isPointingAway = false;
-        if (offset.dx === 1 && conveyor.direction !== 'left') isPointingAway = true; // Target is right, conveyor not pointing left
-        if (offset.dx === -1 && conveyor.direction !== 'right') isPointingAway = true; // Target is left, conveyor not pointing right
-        if (offset.dy === 1 && conveyor.direction !== 'up') isPointingAway = true; // Target is down, conveyor not pointing up
-        if (offset.dy === -1 && conveyor.direction !== 'down') isPointingAway = true; // Target is up, conveyor not pointing down
+        if (offset.dx === 1 && targetMachine.direction !== 'left') isPointingAway = true;
+        if (offset.dx === -1 && targetMachine.direction !== 'right') isPointingAway = true;
+        if (offset.dy === 1 && targetMachine.direction !== 'up') isPointingAway = true;
+        if (offset.dy === -1 && targetMachine.direction !== 'down') isPointingAway = true;
 
         // Create purity resource with initial purity 1 for validation check
-        const itemToPush = createPurityResource(1, this.itemColor);
+        const itemToPush = this.createOutputItem();
         if (
           isPointingAway &&
-          conveyor.canAcceptInput &&
-          conveyor.canAcceptInput('purity-resource', itemToPush)
+          targetMachine.canAcceptInput &&
+          targetMachine.canAcceptInput('purity-resource', itemToPush)
         ) {
-          if (conveyor.acceptItem(itemToPush)) {
+          if (targetMachine.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
             this.updateResourceIndicator();
-            this.createTransferEffect(conveyor);
-            return; // Pushed successfully to conveyor
+            this.createTransferEffect(targetMachine);
+            return; // Pushed successfully to belt-like machine
           }
         }
       }
@@ -436,9 +445,7 @@ export default class ResourceNode {
       this.updateResourceIndicator();
 
       // Return purity resource with initial purity 1
-      const purityResource = createPurityResource(1, this.itemColor);
-      purityResource.amount = amountExtracted;
-      return purityResource;
+      return this.createOutputItem(amountExtracted);
     } else {
       //console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) attempt to extract failed, no resources.`);
       return null; // No resources available

@@ -59,6 +59,7 @@ export default class ColorPainterMachine extends ConveyorMachine {
 
     return {
       ...itemData,
+      sourceColor: itemData.sourceColor || itemData.itemColor,
       itemColor: paintColor,
       colorHistory,
       routeTags,

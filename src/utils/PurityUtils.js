@@ -64,11 +64,13 @@ export function getItemColorName(itemColor) {
 }
 
 export function getSourceItemColor(resourceTypeId, fallbackIndex = 0) {
-  const resourceType = GAME_CONFIG.resourceTypes.find((resource) => resource.id === resourceTypeId);
-  if (resourceType?.itemColor) return resourceType.itemColor;
-
   const cycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
-  return cycle[fallbackIndex % cycle.length] || GAME_CONFIG.defaultItemColor || 'blue';
+  if (cycle.length > 0) {
+    return cycle[fallbackIndex % cycle.length] || GAME_CONFIG.defaultItemColor || 'blue';
+  }
+
+  const resourceType = GAME_CONFIG.resourceTypes.find((resource) => resource.id === resourceTypeId);
+  return resourceType?.itemColor || GAME_CONFIG.defaultItemColor || 'blue';
 }
 
 export function getMixedItemColor() {
@@ -150,10 +152,12 @@ export function calculateDeliveryScore(purity, chainCount, streakBonus = 1) {
  * @returns {object} Resource item data
  */
 export function createPurityResource(purity = 1, itemColor = null) {
+  const colorKey = itemColor || GAME_CONFIG.defaultItemColor || 'blue';
   return {
     type: 'purity-resource',
     purity: purity,
-    itemColor: itemColor || GAME_CONFIG.defaultItemColor || 'blue',
+    itemColor: colorKey,
+    sourceColor: colorKey,
     chainCount: 0,
     visitedMachines: new Set(),
     machineUids: [],

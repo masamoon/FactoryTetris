@@ -492,7 +492,7 @@ export default class ConveyorMachine extends BaseMachine {
       this.lastExtractTime = now;
 
       console.log(
-        `[CONVEYOR_EXTRACT] Extracted item '${extractedItem.type}' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`
+        `[CONVEYOR_EXTRACT] Extracted ${extractedItem.itemColor || extractedItem.sourceColor || 'uncolored'} item '${extractedItem.type}' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`
       );
 
       // --- ADD ITEM VISUAL LOGIC ---
@@ -1049,7 +1049,7 @@ export default class ConveyorMachine extends BaseMachine {
     this.addItemVisual(routedItem); // This adds to itemsOnBelt with progress 0
 
     console.log(
-      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted item: ${routedItem.type} (amount: ${routedItem.amount || 1})`
+      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted ${routedItem.itemColor || routedItem.sourceColor || 'uncolored'} item: ${routedItem.type} (amount: ${routedItem.amount || 1})`
     );
     return true;
   }

@@ -1784,7 +1784,13 @@ export default class BaseMachine {
 
           // Create a mock item data for level-based acceptance check
           // Resource nodes always produce level 1 purity resources
-          const mockItemData = { type: 'purity-resource', purity: 1, amount: 1 };
+          const mockItemData = {
+            type: 'purity-resource',
+            purity: 1,
+            amount: 1,
+            itemColor: resourceNode.itemColor,
+            sourceColor: resourceNode.itemColor,
+          };
           if (this.canAcceptInput('purity-resource', mockItemData)) {
             const extractedItem = resourceNode.extractResource();
 
