@@ -262,14 +262,24 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   const pool = usableConfigs.length > 0 ? usableConfigs : configs;
 
   // Select a config
-  const config = selectWeightedConfig(pool, producibleLevels, currentEra);
+  const config = selectWeightedConfig(pool, producibleLevels, currentEra) || {
+    inputs: [1],
+    output: 2,
+    notation: '1/2',
+  };
+  const inputLevels = Array.isArray(config?.inputs)
+    ? config.inputs
+    : Array.isArray(config?.inputLevels)
+      ? config.inputLevels
+      : [1];
+  const outputLevel = config?.output || config?.outputLevel || Math.max(...inputLevels, 1) + 1;
 
   return {
-    inputLevels: [...config.inputs],
-    outputLevel: config.output,
-    notation: config.notation,
+    inputLevels: [...inputLevels],
+    outputLevel,
+    notation: config?.notation || `${inputLevels.join('+')}/${outputLevel}`,
     isUsable: isPieceUsable(config, producibleLevels),
-    trait: config.output >= 3 ? (forceTrait ? rollBuildAroundTrait() : rollTrait()) : null,
+    trait: outputLevel >= 3 ? (forceTrait ? rollBuildAroundTrait() : rollTrait()) : null,
   };
 }
 

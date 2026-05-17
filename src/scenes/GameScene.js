@@ -1961,6 +1961,11 @@ export default class GameScene extends Phaser.Scene {
 
       // Select a random resource type (currently hardcoded to basic)
       const resourceTypeIndex = 0;
+      const sourceIndex = this.resourceNodes.length;
+      const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
+        GAME_CONFIG.defaultItemColor || 'blue',
+      ];
+      const itemColor = sourceColorCycle[sourceIndex % sourceColorCycle.length];
 
       // Create a new resource node, passing the current era for scaling AND upgradeManager
       const node = new ResourceNode(
@@ -1971,6 +1976,8 @@ export default class GameScene extends Phaser.Scene {
           gridX: emptySpot.x,
           gridY: emptySpot.y,
           resourceType: resourceTypeIndex,
+          sourceIndex,
+          itemColor,
           lifespan: GAME_CONFIG.nodeLifespan,
         },
         this.currentRound,
@@ -5163,17 +5170,23 @@ export default class GameScene extends Phaser.Scene {
     const tier = round === 1 ? 2 : Math.min(4, 1 + Math.ceil((round + Math.max(0, index - 1)) / 2));
     const exact = round <= 2 || index % 2 === 0;
     const requiredCount = Math.max(2, 2 + round + (index % 3));
+    const colorCycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
+    const itemColor = round >= 2 ? colorCycle[index % colorCycle.length] : null;
+    const colorConfig = itemColor ? GAME_CONFIG.itemColors?.[itemColor] : null;
     const payout =
       (GAME_CONFIG.deliveryNodeBasePayout || 18) +
       tier * (GAME_CONFIG.deliveryNodePayoutPerTier || 7) +
-      requiredCount * (GAME_CONFIG.deliveryNodePayoutPerItem || 3);
+      requiredCount * (GAME_CONFIG.deliveryNodePayoutPerItem || 3) +
+      (itemColor ? 8 : 0);
+    const tierLabel = `${exact ? '=' : ''}L${tier}${exact ? '' : '+'}`;
 
     return {
       tier,
       exact,
+      itemColor,
       requiredCount,
       payout,
-      label: `${exact ? '=' : ''}L${tier}${exact ? '' : '+'} x${requiredCount}`,
+      label: `${colorConfig ? `${colorConfig.name} ` : ''}${tierLabel} x${requiredCount}`,
     };
   }
 

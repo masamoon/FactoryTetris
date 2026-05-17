@@ -8,6 +8,8 @@ import {
   shouldShowGlow,
   getGlowIntensity,
   shouldShowTrail,
+  getItemColorHex,
+  getItemColorName,
 } from '../../utils/PurityUtils';
 // import ResourceNode from '../ResourceNode'; // Import ResourceNode
 // import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
@@ -638,7 +640,8 @@ export default class ConveyorMachine extends BaseMachine {
     } else if (itemType === 'purity-resource') {
       // --- PURITY RESOURCE VISUAL ---
       const purity = itemData.purity || 1;
-      const color = getPurityColor(purity);
+      const purityColor = getPurityColor(purity);
+      const itemColor = getItemColorHex(itemData.itemColor, purityColor);
       const scale = getPurityScale(purity);
       const showGlow = shouldShowGlow(purity);
 
@@ -649,7 +652,7 @@ export default class ConveyorMachine extends BaseMachine {
       if (showGlow) {
         const glowIntensity = getGlowIntensity(purity);
         const glowSize = size * 2.0 * scale;
-        const glow = this.scene.add.circle(0, 0, glowSize / 2, color, glowIntensity * 0.5);
+        const glow = this.scene.add.circle(0, 0, glowSize / 2, purityColor, glowIntensity * 0.5);
         // Add a tween for pulsing glow
         this.scene.tweens.add({
           targets: glow,
@@ -665,12 +668,14 @@ export default class ConveyorMachine extends BaseMachine {
 
       // Main shape (diamond for purity resources to distinguish)
       // Draw a rotated square (diamond)
-      const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, color);
+      const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, itemColor);
       diamond.rotation = Math.PI / 4;
-      diamond.setStrokeStyle(1.5, 0xffffff); // White border for 'pure' look
+      diamond.setStrokeStyle(1.5, purityColor);
 
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
+      container.itemColorKey = itemData.itemColor;
+      container.itemColorName = getItemColorName(itemData.itemColor);
 
       // Add numeric badge for every tier, including raw tier 1 resources.
       const badge = this.scene.add
@@ -814,7 +819,7 @@ export default class ConveyorMachine extends BaseMachine {
         if (purity >= 6) {
           const newColor = getPurityColor(purity, this.scene.time.now);
           if (currentItem.visual.mainShape) {
-            currentItem.visual.mainShape.fillColor = newColor;
+            currentItem.visual.mainShape.setStrokeStyle(1.5, newColor);
           }
           if (currentItem.visual.glowShape) {
             currentItem.visual.glowShape.fillColor = newColor;

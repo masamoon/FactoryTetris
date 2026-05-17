@@ -24,10 +24,40 @@ export const GAME_CONFIG = {
   // Resource generation
   resourceGenerationRate: 2000, // ms
   resourceTypes: [
-    { id: 'basic-resource', name: 'Basic Resource', color: 0x00aa44, points: 10 },
-    { id: 'advanced-resource', name: 'Advanced Resource', color: 0xd2691e, points: 50 },
-    { id: 'mega-resource', name: 'Mega Resource', color: 0xff00ff, points: 300 },
+    {
+      id: 'basic-resource',
+      name: 'Basic Resource',
+      color: 0x3f8cff,
+      points: 10,
+      itemColor: 'blue',
+    },
+    {
+      id: 'advanced-resource',
+      name: 'Advanced Resource',
+      color: 0xffd166,
+      points: 50,
+      itemColor: 'yellow',
+    },
+    {
+      id: 'mega-resource',
+      name: 'Mega Resource',
+      color: 0xb56cff,
+      points: 300,
+      itemColor: 'purple',
+    },
   ],
+
+  // Color identity for raw items. Delivery nodes can ask for both tier and color.
+  defaultItemColor: 'blue',
+  mixedItemColor: 'purple',
+  sourceColorCycle: ['blue', 'yellow', 'red', 'green'],
+  itemColors: {
+    blue: { name: 'Blue', color: 0x3f8cff, textColor: '#3f8cff', scoreMultiplier: 1.0 },
+    yellow: { name: 'Yellow', color: 0xffd166, textColor: '#ffd166', scoreMultiplier: 1.0 },
+    red: { name: 'Red', color: 0xff5f57, textColor: '#ff5f57', scoreMultiplier: 1.0 },
+    green: { name: 'Green', color: 0x4dd47e, textColor: '#4dd47e', scoreMultiplier: 1.0 },
+    purple: { name: 'Purple', color: 0xb56cff, textColor: '#b56cff', scoreMultiplier: 1.0 },
+  },
 
   // Purity system configuration
   purityConfig: {

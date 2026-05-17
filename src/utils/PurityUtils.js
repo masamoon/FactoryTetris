@@ -41,6 +41,36 @@ export function getPurityColor(purity, time = 0) {
   return hslToHex(hue, 1, 0.7);
 }
 
+export function getItemColorConfig(itemColor) {
+  const colorKey = itemColor || GAME_CONFIG.defaultItemColor || 'blue';
+  return (
+    GAME_CONFIG.itemColors?.[colorKey] ||
+    GAME_CONFIG.itemColors?.[GAME_CONFIG.defaultItemColor] ||
+    GAME_CONFIG.itemColors?.blue ||
+    null
+  );
+}
+
+export function getItemColorHex(itemColor, fallback = 0x3f8cff) {
+  return getItemColorConfig(itemColor)?.color || fallback;
+}
+
+export function getItemColorText(itemColor, fallback = '#3f8cff') {
+  return getItemColorConfig(itemColor)?.textColor || fallback;
+}
+
+export function getItemColorName(itemColor) {
+  return getItemColorConfig(itemColor)?.name || itemColor || 'Color';
+}
+
+export function getSourceItemColor(resourceTypeId, fallbackIndex = 0) {
+  const resourceType = GAME_CONFIG.resourceTypes.find((resource) => resource.id === resourceTypeId);
+  if (resourceType?.itemColor) return resourceType.itemColor;
+
+  const cycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
+  return cycle[fallbackIndex % cycle.length] || GAME_CONFIG.defaultItemColor || 'blue';
+}
+
 /**
  * Get the scale multiplier for a given purity level
  * @param {number} purity - The purity level (1+)
@@ -115,10 +145,11 @@ export function calculateDeliveryScore(purity, chainCount, streakBonus = 1) {
  * @param {number} purity - Initial purity level (default 1)
  * @returns {object} Resource item data
  */
-export function createPurityResource(purity = 1) {
+export function createPurityResource(purity = 1, itemColor = null) {
   return {
     type: 'purity-resource',
     purity: purity,
+    itemColor: itemColor || GAME_CONFIG.defaultItemColor || 'blue',
     chainCount: 0,
     visitedMachines: new Set(),
     machineUids: [],
