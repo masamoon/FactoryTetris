@@ -7,7 +7,12 @@
  * - Factory bottlenecks and efficiency metrics
  */
 
-import { RESOURCE_LEVELS } from '../config/resourceLevels';
+import {
+  RESOURCE_LEVELS,
+  estimateArithmeticOutput,
+  getArithmeticInputCount,
+  isArithmeticConfig,
+} from '../config/resourceLevels';
 
 /**
  * Analyzes the factory to determine producible resource levels
@@ -57,6 +62,23 @@ export function getProducibleLevels(scene) {
     // Add the machine's output level if it has one
     if (machine.outputLevel && typeof machine.outputLevel === 'number') {
       producibleLevels.add(machine.outputLevel);
+    }
+
+    if (machine.lastOutputLevel && typeof machine.lastOutputLevel === 'number') {
+      producibleLevels.add(machine.lastOutputLevel);
+    }
+
+    if (machine.arithmeticOperation) {
+      const estimatedOutput = estimateArithmeticOutput(
+        {
+          arithmeticOperation: machine.arithmeticOperation,
+          inputCount: machine.arithmeticInputCount,
+        },
+        producibleLevels
+      );
+      if (estimatedOutput && typeof estimatedOutput === 'number') {
+        producibleLevels.add(estimatedOutput);
+      }
     }
   }
 
@@ -215,7 +237,20 @@ function getAllMachines(scene) {
  * @returns {boolean} True if all inputs are producible
  */
 export function isPieceUsable(config, producibleLevels) {
-  if (!config || !config.inputs || !producibleLevels) {
+  if (!config || !producibleLevels) {
+    return false;
+  }
+
+  if (isArithmeticConfig(config)) {
+    const requiredCount = getArithmeticInputCount(config);
+    if (requiredCount <= 1) {
+      return producibleLevels.size > 0;
+    }
+
+    return producibleLevels.size >= requiredCount;
+  }
+
+  if (!config.inputs) {
     return false;
   }
 

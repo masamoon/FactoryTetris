@@ -139,8 +139,12 @@ export const TRAITS = [
       onProcess: (resource, machine, scene) => {
         if (!resource) return resource;
         const neighbors = getOrthogonalNeighborMachines(machine, scene);
+        const machineTier =
+          machine.outputLevel || machine.lastOutputLevel || machine.previewOutputLevel;
         const sameTier = neighbors.some(
-          (n) => n.outputLevel != null && n.outputLevel === machine.outputLevel
+          (n) =>
+            (n.outputLevel || n.lastOutputLevel || n.previewOutputLevel) != null &&
+            (n.outputLevel || n.lastOutputLevel || n.previewOutputLevel) === machineTier
         );
         resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
         // completeProcessing already auto-appended 'resonant'. Keep it ONLY if

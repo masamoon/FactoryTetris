@@ -1,6 +1,14 @@
 import Phaser from 'phaser';
-import { processResource } from '../../utils/PurityUtils';
-import { getLevelColor, getLevelName } from '../../config/resourceLevels';
+import { getMixedItemColor, processResource } from '../../utils/PurityUtils';
+import {
+  ARITHMETIC_OPERATION_TAGS,
+  calculateArithmeticOutput,
+  getArithmeticOperationTagLabel,
+  getArithmeticOperationTags,
+  getArithmeticInputCount,
+  getLevelColor,
+  getLevelName,
+} from '../../config/resourceLevels';
 import { getTraitById, getTraitBandColor } from '../../config/traits';
 
 // Unique colors for each machine type
@@ -40,6 +48,7 @@ export default class BaseMachine {
    */
   constructor(scene, config) {
     this.scene = scene;
+    this.config = config || {};
 
     // Unique per-instance id (distinct from this.id which is the type string).
     this.uid = ++_machineUidCounter;
@@ -85,28 +94,7 @@ export default class BaseMachine {
     // Let child classes define their specific properties
     this.initMachineProperties();
 
-    // Child classes initialize before they can store `config`, so apply
-    // runtime draft metadata here while visuals still have not been created.
-    if (config) {
-      if (Array.isArray(config.inputLevels)) {
-        this.inputLevels = [...config.inputLevels];
-      }
-      if (config.outputLevel) {
-        this.outputLevel = config.outputLevel;
-      }
-      if (config.notation) {
-        this.notation = config.notation;
-      }
-      if (config.recipeNotation) {
-        this.recipeNotation = config.recipeNotation;
-      }
-      if (config.arithmeticDelta) {
-        this.arithmeticDelta = config.arithmeticDelta;
-      }
-      if (config.acceptsAnyLevel) {
-        this.acceptsAnyLevel = true;
-      }
-    }
+    this.applyRuntimeRecipeConfig(config || {});
 
     // Allow config to provide trait id (set by MachineFactory for higher-tier pieces).
     // Read AFTER initMachineProperties so child classes can override defaults but
@@ -210,11 +198,151 @@ export default class BaseMachine {
     // notation is the display string for the operation.
     this.inputLevels = [];
     this.outputLevel = null;
+    this.previewOutputLevel = null;
+    this.lastOutputLevel = null;
     this.notation = null;
-    this.recipeNotation = null;
-    this.arithmeticDelta = null;
-    this.acceptsAnyLevel = false;
+    this.arithmeticOperation = null;
+    this.arithmeticInputCount = 0;
     this.trait = null;
+  }
+
+  isArithmeticMachine() {
+    return Boolean(this.arithmeticOperation);
+  }
+
+  getArithmeticRequiredInputCount() {
+    return this.arithmeticInputCount || getArithmeticInputCount(this.arithmeticOperation);
+  }
+
+  requiresMixedArithmeticInputs() {
+    return this.isArithmeticMachine() && this.getArithmeticRequiredInputCount() > 1;
+  }
+
+  getOperationBadgeText() {
+    if (!this.isArithmeticMachine()) return null;
+
+    const tags = getArithmeticOperationTags(this.arithmeticOperation);
+    if (tags.includes(ARITHMETIC_OPERATION_TAGS.ADD_ONE)) return '+1';
+    if (tags.includes(ARITHMETIC_OPERATION_TAGS.ADD_TWO)) return '+2';
+    if (tags.includes(ARITHMETIC_OPERATION_TAGS.ADD)) return 'MIX';
+    if (tags.includes(ARITHMETIC_OPERATION_TAGS.MULTIPLY)) return 'x';
+    if (tags.includes(ARITHMETIC_OPERATION_TAGS.DIVIDE)) return '/';
+
+    const label = getArithmeticOperationTagLabel(tags[0]);
+    return label ? label.toUpperCase() : null;
+  }
+
+  getItemInputLevel(item) {
+    return Math.max(1, Math.floor(Number(item?.purity) || 1));
+  }
+
+  findArithmeticInputIndices() {
+    if (!this.inputQueue || !this.isArithmeticMachine()) {
+      return null;
+    }
+
+    const requiredCount = this.getArithmeticRequiredInputCount();
+    if (this.inputQueue.length < requiredCount) {
+      return null;
+    }
+
+    if (requiredCount <= 1) {
+      return [0];
+    }
+
+    // Two-input arithmetic pieces are meant to combine mixed tiers. If we
+    // consume the first two queued items, a feeder with bursts like 2,2,3
+    // will always process 2+2 before the 3 can join the recipe.
+    if (requiredCount === 2) {
+      let bestPair = null;
+      let bestScore = -Infinity;
+      const operationType = this.arithmeticOperation?.type;
+
+      for (let i = 0; i < this.inputQueue.length - 1; i++) {
+        const a = this.getItemInputLevel(this.inputQueue[i]);
+        for (let j = i + 1; j < this.inputQueue.length; j++) {
+          const b = this.getItemInputLevel(this.inputQueue[j]);
+          if (a === b) {
+            continue;
+          }
+
+          let score;
+          if (operationType === 'divide') {
+            score = Math.max(a, b) / Math.max(1, Math.min(a, b));
+          } else if (operationType === 'multiply') {
+            score = a * b;
+          } else {
+            score = a + b;
+          }
+
+          // Prefer stronger mixed pairs, with a tiny bias toward older queued
+          // items to keep throughput stable when scores tie.
+          score -= (i + j) * 0.001;
+          if (score > bestScore) {
+            bestScore = score;
+            bestPair = [i, j];
+          }
+        }
+      }
+
+      return bestPair;
+    }
+
+    const selected = [];
+    const seenLevels = new Set();
+    for (let i = 0; i < this.inputQueue.length && selected.length < requiredCount; i++) {
+      const level = this.getItemInputLevel(this.inputQueue[i]);
+      if (!seenLevels.has(level)) {
+        seenLevels.add(level);
+        selected.push(i);
+      }
+    }
+
+    return selected.length === requiredCount ? selected : null;
+  }
+
+  findArithmeticSurplusInputIndexForIncomingLevel(itemLevel) {
+    if (!this.inputQueue || !this.requiresMixedArithmeticInputs()) {
+      return -1;
+    }
+
+    const counts = this.getQueuedInputLevelCounts();
+    let surplusLevel = null;
+    let largestCount = 1;
+
+    Object.entries(counts).forEach(([level, count]) => {
+      const numericLevel = Number(level);
+      if (numericLevel === itemLevel || count <= largestCount) {
+        return;
+      }
+
+      largestCount = count;
+      surplusLevel = numericLevel;
+    });
+
+    if (surplusLevel == null) {
+      return -1;
+    }
+
+    return this.inputQueue.findIndex((item) => this.getItemInputLevel(item) === surplusLevel);
+  }
+
+  makeRoomForArithmeticInput(itemLevel) {
+    const surplusIndex = this.findArithmeticSurplusInputIndexForIncomingLevel(itemLevel);
+    if (surplusIndex === -1) {
+      return false;
+    }
+
+    const [removedItem] = this.inputQueue.splice(surplusIndex, 1);
+    const type = removedItem.type || 'purity-resource';
+    if (this.inputInventory[type] > 0) {
+      this.inputInventory[type]--;
+    }
+
+    console.log(
+      `[${this.id}] Removed surplus level ${this.getItemInputLevel(removedItem)} arithmetic input to make room for level ${itemLevel}.`
+    );
+    return true;
   }
 
   /**
@@ -224,6 +352,32 @@ export default class BaseMachine {
   initMachineProperties() {
     // This is intentionally empty in the base class
     // Child classes will override this method
+  }
+
+  applyRuntimeRecipeConfig(config) {
+    if (!config || typeof config !== 'object') return;
+
+    if (Array.isArray(config.inputLevels)) {
+      this.inputLevels = [...config.inputLevels];
+    }
+    if (config.outputLevel != null) {
+      this.outputLevel = config.outputLevel;
+    }
+    if (config.previewOutputLevel != null) {
+      this.previewOutputLevel = config.previewOutputLevel;
+    }
+    if (config.notation) {
+      this.notation = config.notation;
+    }
+    if (config.arithmeticOperation) {
+      this.arithmeticOperation = { ...config.arithmeticOperation };
+      this.arithmeticInputCount =
+        config.arithmeticInputCount || getArithmeticInputCount(config.arithmeticOperation);
+      this.inputLevels = [];
+      this.outputLevel = null;
+      this.outputTypes = ['purity-resource'];
+      this.inputTypes = ['purity-resource'];
+    }
   }
 
   /**
@@ -387,7 +541,10 @@ export default class BaseMachine {
       return { key: 'blocked', color: 0xff5555 };
     }
 
-    if (this.inputLevels && this.inputLevels.length > 0 && !this.canProcess()) {
+    if (
+      ((this.inputLevels && this.inputLevels.length > 0) || this.isArithmeticMachine()) &&
+      !this.canProcess()
+    ) {
       if (this.inputQueue && this.inputQueue.length > 0) {
         return { key: 'waiting-mix', color: 0xffcc44 };
       }
@@ -791,6 +948,7 @@ export default class BaseMachine {
 
     // Check if we have input levels (new system) or input types (legacy)
     const hasInputs =
+      this.isArithmeticMachine() ||
       (this.inputLevels && this.inputLevels.length > 0) ||
       (this.inputTypes && this.inputTypes.length > 0);
 
@@ -888,8 +1046,10 @@ export default class BaseMachine {
     }
 
     // Add output level indicator if we have an output level
-    if (this.outputLevel) {
-      const outputColor = getLevelColor(this.outputLevel);
+    const indicatorOutputLevel =
+      this.outputLevel || this.previewOutputLevel || this.lastOutputLevel;
+    if (indicatorOutputLevel) {
+      const outputColor = getLevelColor(indicatorOutputLevel);
 
       // Add a small colored circle near the output direction to indicate output level
       // Position at the output edge (right in local space)
@@ -900,6 +1060,29 @@ export default class BaseMachine {
 
       outputIndicator.isResourceIndicator = true;
       this.container.add(outputIndicator);
+    }
+
+    const operationBadgeText = this.getOperationBadgeText();
+    if (operationBadgeText) {
+      const badgeWidth = operationBadgeText.length > 2 ? 34 : 24;
+      const badgeBg = this.scene.add
+        .rectangle(0, -halfHeight + 12, badgeWidth, 18, 0x101820, 0.9)
+        .setOrigin(0.5)
+        .setStrokeStyle(1, 0xffd966, 0.9);
+      badgeBg.isResourceIndicator = true;
+      this.container.add(badgeBg);
+
+      const badgeText = this.scene.add
+        .text(0, -halfHeight + 12, operationBadgeText, {
+          fontSize: operationBadgeText.length > 2 ? '9px' : '11px',
+          fontFamily: 'Arial Black, Arial, sans-serif',
+          color: '#ffd966',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+      badgeText.isResourceIndicator = true;
+      this.container.add(badgeText);
     }
 
     // Add notation text label if available (shows input/output level notation like "1/2" or "1/2/3")
@@ -1213,6 +1396,15 @@ export default class BaseMachine {
         tooltipContent += 'Empty';
       }
     } else {
+      if (this.isArithmeticMachine()) {
+        const inputCount = this.getArithmeticRequiredInputCount();
+        tooltipContent += `\nOperation: ${this.notation || 'arithmetic'}`;
+        tooltipContent +=
+          inputCount > 1
+            ? `\nInputs: ${inputCount} different level resources`
+            : `\nInputs: any level resource`;
+      }
+
       // Show level-based input/output info (new system)
       if (this.inputLevels && this.inputLevels.length > 0) {
         const inputNames = this.inputLevels
@@ -1223,6 +1415,10 @@ export default class BaseMachine {
 
       if (this.outputLevel) {
         tooltipContent += `\nOutput: L${this.outputLevel} (${getLevelName(this.outputLevel)})`;
+      } else if (this.lastOutputLevel) {
+        tooltipContent += `\nLast Output: L${this.lastOutputLevel} (${getLevelName(this.lastOutputLevel)})`;
+      } else if (this.previewOutputLevel) {
+        tooltipContent += `\nLikely Output: L${this.previewOutputLevel} (${getLevelName(this.previewOutputLevel)})`;
       }
 
       // Show notation if available
@@ -1245,7 +1441,7 @@ export default class BaseMachine {
           .map(([level, count]) => `L${level}(${count})`)
           .join(', ');
         tooltipContent += `\nInventory: ${inventoryStr}`;
-      } else if (this.inputLevels && this.inputLevels.length > 0) {
+      } else if ((this.inputLevels && this.inputLevels.length > 0) || this.isArithmeticMachine()) {
         // Show empty inventory for level-based machines
         tooltipContent += '\nInventory: Empty';
       }
@@ -1271,7 +1467,8 @@ export default class BaseMachine {
       if (
         this.inputTypes &&
         this.inputTypes.length > 0 &&
-        (!this.inputLevels || this.inputLevels.length === 0)
+        (!this.inputLevels || this.inputLevels.length === 0) &&
+        !this.isArithmeticMachine()
       ) {
         tooltipContent += '\nInputs: ';
         this.inputTypes.forEach((type) => {
@@ -1285,7 +1482,12 @@ export default class BaseMachine {
         }
       }
 
-      if (this.outputTypes && this.outputTypes.length > 0 && !this.outputLevel) {
+      if (
+        this.outputTypes &&
+        this.outputTypes.length > 0 &&
+        !this.outputLevel &&
+        !this.isArithmeticMachine()
+      ) {
         tooltipContent += '\nOutputs: ';
         this.outputTypes.forEach((type) => {
           const count = this.outputInventory[type] || 0;
@@ -1594,13 +1796,15 @@ export default class BaseMachine {
               const typeToStore = extractedItem.type;
               if (
                 this.inputQueue &&
-                this.inputLevels &&
-                this.inputLevels.length > 0 &&
+                ((this.inputLevels && this.inputLevels.length > 0) || this.isArithmeticMachine()) &&
                 this.inputQueue.length >= this.getInputCapacity()
               ) {
-                this.makeRoomForBalancedInput(
-                  extractedItem.purity !== undefined ? extractedItem.purity : 1
-                );
+                const incomingLevel = extractedItem.purity !== undefined ? extractedItem.purity : 1;
+                if (this.isArithmeticMachine()) {
+                  this.makeRoomForArithmeticInput(incomingLevel);
+                } else {
+                  this.makeRoomForBalancedInput(incomingLevel);
+                }
               }
 
               this.inputInventory[typeToStore] =
@@ -1751,8 +1955,8 @@ export default class BaseMachine {
   checkOutputCapacity() {
     const outputCapacity = this.outputCapacity || 5;
 
-    // For machines using purity queues, check outputQueue
-    if (this.arithmeticDelta || this.outputLevel) {
+    // For machines using the new level system, check outputQueue
+    if (this.outputLevel || this.isArithmeticMachine()) {
       return (this.outputQueue?.length || 0) < outputCapacity;
     }
 
@@ -1780,8 +1984,8 @@ export default class BaseMachine {
     }
 
     // 2. Check Input Availability
-    if (this.arithmeticDelta) {
-      return this.inputQueue && this.inputQueue.length > 0;
+    if (this.isArithmeticMachine()) {
+      return Boolean(this.findArithmeticInputIndices());
     }
 
     // NEW SYSTEM: If inputLevels is defined, use it for validation
@@ -1853,16 +2057,35 @@ export default class BaseMachine {
     // 1. Consume resources
     this.currentProcessingItems = []; // Reset current processing items
 
-    if (this.arithmeticDelta) {
-      const item = this.inputQueue.shift();
-      if (item) {
-        this.currentProcessingItems.push(item);
-
-        const type = item.type || 'purity-resource';
-        if (this.inputInventory[type] > 0) {
-          this.inputInventory[type]--;
-        }
+    if (this.isArithmeticMachine()) {
+      const selectedIndices = this.findArithmeticInputIndices();
+      if (!selectedIndices) {
+        console.warn(`[${this.id}] startProcessing called without a valid arithmetic input pair.`);
+        return;
       }
+
+      const selectedItems = selectedIndices
+        .slice()
+        .sort((a, b) => a - b)
+        .map((index) => this.inputQueue[index])
+        .filter(Boolean);
+
+      selectedIndices
+        .slice()
+        .sort((a, b) => b - a)
+        .forEach((index) => {
+          this.inputQueue.splice(index, 1);
+        });
+
+      selectedItems.forEach((item) => {
+        if (item) {
+          this.currentProcessingItems.push(item);
+          const type = item.type || 'purity-resource';
+          if (this.inputInventory[type] > 0) {
+            this.inputInventory[type]--;
+          }
+        }
+      });
     } else if (this.inputLevels && this.inputLevels.length > 0) {
       // NEW SYSTEM: Consume specific levels from inputQueue
       this.inputLevels.forEach((reqLevel) => {
@@ -1942,7 +2165,7 @@ export default class BaseMachine {
   completeProcessing() {
     // Add output resources - only use legacy inventory if NOT using the new level system
     // The new level system uses outputQueue exclusively
-    if (this.outputTypes && !this.outputLevel) {
+    if (this.outputTypes && !this.outputLevel && !this.isArithmeticMachine()) {
       this.outputTypes.forEach((type) => {
         if (this.outputInventory[type] !== undefined) {
           this.outputInventory[type]++;
@@ -1979,8 +2202,10 @@ export default class BaseMachine {
     // Fallback to checking inputQueue only for legacy compatibility,
     // but prefer currentProcessingItems which contains the actual consumed items.
     let processedItem = null;
+    let consumedItems = [];
 
     if (this.currentProcessingItems && this.currentProcessingItems.length > 0) {
+      consumedItems = [...this.currentProcessingItems];
       processedItem = this.currentProcessingItems[0]; // Use the first item as the primary source
       // Clear them after use to prevent double usage
       this.currentProcessingItems = [];
@@ -1992,35 +2217,83 @@ export default class BaseMachine {
     if (processedItem) {
       // Arithmetic processors apply their own visible operation (+1/+2) to the item.
       let nextItem;
-      if (this.arithmeticDelta) {
-        const inputPurity = processedItem.purity || 1;
+      if (this.isArithmeticMachine()) {
+        const inputLevels = consumedItems.map((item) => item.purity || 1);
+        const arithmeticOutput = calculateArithmeticOutput(this.arithmeticOperation, inputLevels);
+        const nextLevel = arithmeticOutput || processedItem.purity || 1;
+        const operationTags = getArithmeticOperationTags(this.arithmeticOperation);
+        const sourceItems = consumedItems.length > 0 ? consumedItems : [processedItem];
+        const mergedMachineUids = [];
+        const mergedRouteTags = [];
+        const mergedTraitTags = [];
+        const mergedOperationTags = [];
+        const mergedVisitedMachines = new Set();
+        const sourceColors = [];
+        sourceItems.forEach((item) => {
+          if (item.itemColor && !sourceColors.includes(item.itemColor)) {
+            sourceColors.push(item.itemColor);
+          }
+          (Array.isArray(item.machineUids) ? item.machineUids : []).forEach((uid) => {
+            if (!mergedMachineUids.includes(uid)) mergedMachineUids.push(uid);
+          });
+          (Array.isArray(item.routeTags) ? item.routeTags : []).forEach((tag) => {
+            if (!mergedRouteTags.includes(tag)) mergedRouteTags.push(tag);
+          });
+          (Array.isArray(item.traitTags) ? item.traitTags : []).forEach((tag) => {
+            if (!mergedTraitTags.includes(tag)) mergedTraitTags.push(tag);
+          });
+          (Array.isArray(item.operationTags) ? item.operationTags : []).forEach((tag) => {
+            if (!mergedOperationTags.includes(tag)) mergedOperationTags.push(tag);
+          });
+          const visited = item.visitedMachines || [];
+          visited.forEach((machineUid) => mergedVisitedMachines.add(machineUid));
+        });
+        const itemColor =
+          sourceColors.length > 1
+            ? getMixedItemColor()
+            : sourceColors[0] || processedItem.itemColor;
+        const lastOperationTag =
+          operationTags.find(
+            (tag) =>
+              tag !== ARITHMETIC_OPERATION_TAGS.ADD_CONSTANT &&
+              tag !== ARITHMETIC_OPERATION_TAGS.BINARY
+          ) ||
+          operationTags[0] ||
+          processedItem.lastOperationTag ||
+          null;
         nextItem = {
           ...processedItem,
           type: 'purity-resource',
-          purity: inputPurity + this.arithmeticDelta,
-          visitedMachines: new Set(processedItem.visitedMachines || []),
-          machineUids: Array.isArray(processedItem.machineUids)
-            ? [...processedItem.machineUids]
-            : [],
-          routeTags: Array.isArray(processedItem.routeTags) ? [...processedItem.routeTags] : [],
-          traitTags: Array.isArray(processedItem.traitTags) ? [...processedItem.traitTags] : [],
+          purity: nextLevel,
+          visitedMachines: mergedVisitedMachines,
+          machineUids: mergedMachineUids,
+          routeTags: mergedRouteTags,
+          traitTags: mergedTraitTags,
+          operationTags: mergedOperationTags,
+          lastOperationTag,
+          itemColor,
         };
+        operationTags.forEach((tag) => {
+          if (!nextItem.operationTags.includes(tag)) {
+            nextItem.operationTags.push(tag);
+          }
+        });
+        this.lastOutputLevel = nextLevel;
         if (this.uid && !nextItem.machineUids.includes(this.uid)) {
           nextItem.machineUids.push(this.uid);
         }
         if (!nextItem.routeTags.includes('processor')) {
           nextItem.routeTags.push('processor');
         }
-        // Only increment chain if this is a new machine
-        if (!nextItem.visitedMachines.has(this.id)) {
+        if (!nextItem.visitedMachines.has(this.uid)) {
           nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
-          nextItem.visitedMachines.add(this.id);
+          nextItem.visitedMachines.add(this.uid);
         }
         if (this.trait) {
           nextItem.traitTags.push(this.trait);
         }
         console.log(
-          `[${this.id}] Applied +${this.arithmeticDelta}: ${inputPurity} -> ${nextItem.purity}, tags: [${nextItem.traitTags.join(',')}]`
+          `[${this.id}] Arithmetic ${this.notation || this.arithmeticOperation.type}: [${inputLevels.join(',')}] -> L${nextLevel}`
         );
       } else if (this.outputLevel) {
         // Create output resource with the configured outputLevel as its purity
@@ -2102,8 +2375,8 @@ export default class BaseMachine {
    * @returns {boolean} True if there are output resources, false otherwise.
    */
   hasOutput() {
-    // For machines using purity queues, check outputQueue
-    if (this.arithmeticDelta || this.outputLevel) {
+    // For machines using the new level system, check outputQueue
+    if (this.outputLevel || this.isArithmeticMachine()) {
       return this.outputQueue && this.outputQueue.length > 0;
     }
 
@@ -3205,9 +3478,22 @@ export default class BaseMachine {
    * @returns {boolean} True if the resource can be accepted, false otherwise.
    */
   canAcceptInput(resourceTypeId, itemData = null) {
-    if (this.arithmeticDelta && resourceTypeId === 'purity-resource') {
+    if (this.isArithmeticMachine()) {
       const capacity = this.getInputCapacity();
-      return this.inputQueue ? this.inputQueue.length < capacity : true;
+      const currentCount = this.inputQueue ? this.inputQueue.length : 0;
+      const itemLevel = this.getItemInputLevel(itemData);
+      const hasNumericItem =
+        resourceTypeId === 'purity-resource' || Boolean(itemData && itemData.purity != null);
+
+      if (!hasNumericItem) {
+        return false;
+      }
+
+      if (currentCount >= capacity) {
+        return this.findArithmeticSurplusInputIndexForIncomingLevel(itemLevel) !== -1;
+      }
+
+      return true;
     }
 
     // NEW: Check level-based system first if this machine has inputLevels configured
@@ -3354,19 +3640,21 @@ export default class BaseMachine {
       // CRITICAL: For machines with inputLevels, ALWAYS add to queue with purity (default to 1)
       if (
         this.inputQueue &&
-        ((this.inputLevels && this.inputLevels.length > 0) || this.arithmeticDelta)
+        ((this.inputLevels && this.inputLevels.length > 0) || this.isArithmeticMachine())
       ) {
+        const incomingLevel = routedItem.purity !== undefined ? routedItem.purity : 1;
         if (this.inputQueue.length >= this.getInputCapacity()) {
-          if (this.arithmeticDelta) {
-            return false;
+          if (this.isArithmeticMachine()) {
+            this.makeRoomForArithmeticInput(incomingLevel);
+          } else {
+            this.makeRoomForBalancedInput(incomingLevel);
           }
-          this.makeRoomForBalancedInput(routedItem.purity !== undefined ? routedItem.purity : 1);
         }
 
         // Ensure the item has a purity level - default to 1 if not specified
         const queuedItem = {
           ...routedItem,
-          purity: routedItem.purity !== undefined ? routedItem.purity : 1,
+          purity: incomingLevel,
         };
         this.inputQueue.push(queuedItem);
         console.log(
@@ -3537,9 +3825,11 @@ export default class BaseMachine {
       inputTypes: options.inputTypes || ['basic-resource'],
       outputTypes: options.outputTypes || ['advanced-resource'],
       processingTime: options.processingTime || 3000,
-      direction: options.direction || 'right',
+      direction: options.direction || options.defaultDirection || 'right',
       defaultDirection: options.defaultDirection || 'right',
       requiredInputs: options.requiredInputs || { 'basic-resource': 1 },
+      inputCoord: options.inputCoord || null,
+      outputCoord: options.outputCoord || null,
     };
   }
 

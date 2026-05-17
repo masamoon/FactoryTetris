@@ -71,6 +71,10 @@ export function getSourceItemColor(resourceTypeId, fallbackIndex = 0) {
   return cycle[fallbackIndex % cycle.length] || GAME_CONFIG.defaultItemColor || 'blue';
 }
 
+export function getMixedItemColor() {
+  return GAME_CONFIG.mixedItemColor || 'purple';
+}
+
 /**
  * Get the scale multiplier for a given purity level
  * @param {number} purity - The purity level (1+)

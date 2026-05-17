@@ -47,16 +47,16 @@ export const GAME_CONFIG = {
     },
   ],
 
-  // Color identity for raw items. Delivery nodes can ask for both tier and color.
+  // Color identity: easy-to-read lanes that can later grow into archetypes.
   defaultItemColor: 'blue',
   mixedItemColor: 'purple',
   sourceColorCycle: ['blue', 'yellow', 'red', 'green'],
   itemColors: {
-    blue: { name: 'Blue', color: 0x3f8cff, textColor: '#3f8cff', scoreMultiplier: 1.0 },
-    yellow: { name: 'Yellow', color: 0xffd166, textColor: '#ffd166', scoreMultiplier: 1.0 },
-    red: { name: 'Red', color: 0xff5f57, textColor: '#ff5f57', scoreMultiplier: 1.0 },
-    green: { name: 'Green', color: 0x4dd47e, textColor: '#4dd47e', scoreMultiplier: 1.0 },
-    purple: { name: 'Purple', color: 0xb56cff, textColor: '#b56cff', scoreMultiplier: 1.0 },
+    blue: { name: 'Blue', color: 0x3f8cff, textColor: '#3f8cff', scoreMultiplier: 1.05 },
+    yellow: { name: 'Yellow', color: 0xffd166, textColor: '#ffd166', scoreMultiplier: 1.1 },
+    red: { name: 'Red', color: 0xff5f57, textColor: '#ff5f57', scoreMultiplier: 1.15 },
+    green: { name: 'Green', color: 0x4dd47e, textColor: '#4dd47e', scoreMultiplier: 1.05 },
+    purple: { name: 'Purple', color: 0xb56cff, textColor: '#b56cff', scoreMultiplier: 1.2 },
   },
 
   // Purity system configuration
@@ -110,8 +110,9 @@ export const GAME_CONFIG = {
       id: 'processor-a',
       name: 'Processor A',
       shape: [
-        [1, 1, 1],
-        [1, 0, 0],
+        [1, 1],
+        [1, 0],
+        [1, 0],
       ],
       inputTypes: ['basic-resource'],
       outputTypes: ['advanced-resource'],
@@ -143,7 +144,7 @@ export const GAME_CONFIG = {
       inputTypes: ['basic-resource', 'advanced-resource'],
       outputTypes: ['mega-resource'],
       processingTime: 5000, // ms
-      direction: 'down', // Default output direction
+      direction: 'right', // Default output direction
       description: 'Combines basic and advanced resources',
     },
     {
@@ -172,26 +173,26 @@ export const GAME_CONFIG = {
     {
       id: 'processor-d',
       name: 'Processor D',
-      shape: [
-        [1, 1],
-        [1, 0],
-        [1, 0],
-      ],
+      shape: [[1, 1, 1]],
       inputTypes: ['basic-resource'],
       outputTypes: ['advanced-resource'],
-      processingTime: 3500,
+      processingTime: 3000,
       direction: 'right',
-      description: 'Processes basic resources into advanced resources. (L-Shape)',
+      description: 'Processes basic resources into advanced resources. (Line)',
     },
     {
       id: 'processor-e',
       name: 'Processor E',
-      shape: [[1], [1], [1], [1]],
+      shape: [
+        [1, 1],
+        [0, 1],
+        [0, 1],
+      ],
       inputTypes: ['basic-resource'],
       outputTypes: ['advanced-resource'],
-      processingTime: 3300,
+      processingTime: 4000,
       direction: 'right',
-      description: 'Processes basic resources into advanced resources. (I-Shape)',
+      description: 'Processes basic resources into advanced resources. (L-Shape)',
     },
     {
       id: 'advanced-processor-1',
@@ -253,9 +254,9 @@ export const GAME_CONFIG = {
 
   // Resource colors for visualization
   resourceColors: {
-    'basic-resource': 0x00aa44,
-    'advanced-resource': 0xd2691e,
-    'mega-resource': 0xff00ff,
+    'basic-resource': 0x3f8cff,
+    'advanced-resource': 0xffd166,
+    'mega-resource': 0xb56cff,
   },
 
   // *** ADDED: Resource value map for scoring ***
@@ -273,6 +274,19 @@ export const GAME_CONFIG = {
   deliveryStreakMomentumGain: 0.75,
   maxDeliveryStreakMomentumGain: 8,
   offContractScoreMultiplier: 0.25,
+  roundBaseQuota: 450,
+  roundQuotaGrowth: 1.55,
+  roundQuotaFlatGrowth: 180,
+  roundTimeBudget: 75,
+  roundTimeGrowth: 4,
+  roundClearMomentumReward: 18,
+  roundsPerEraGate: 3,
+  starterDraftRounds: 1,
+  shopRoundClearScrap: 6,
+  shopOverkillScorePerScrap: 250,
+  shopRerollCost: 2,
+  shopSourceLifespan: 180,
+  yellowScorePerScrap: 120,
   objectiveMomentumReward: 14,
   objectivesPerBonusUpgrade: 3,
   flowSurgeDuration: 12000,

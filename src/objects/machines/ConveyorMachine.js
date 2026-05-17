@@ -7,10 +7,14 @@ import {
   getPurityScale,
   shouldShowGlow,
   getGlowIntensity,
-  shouldShowTrail,
   getItemColorHex,
   getItemColorName,
+  shouldShowTrail,
 } from '../../utils/PurityUtils';
+import {
+  ARITHMETIC_OPERATION_TAGS,
+  getArithmeticOperationTagLabel,
+} from '../../config/resourceLevels';
 // import ResourceNode from '../ResourceNode'; // Import ResourceNode
 // import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
 
@@ -640,8 +644,8 @@ export default class ConveyorMachine extends BaseMachine {
     } else if (itemType === 'purity-resource') {
       // --- PURITY RESOURCE VISUAL ---
       const purity = itemData.purity || 1;
+      const itemColor = getItemColorHex(itemData.itemColor, getPurityColor(purity));
       const purityColor = getPurityColor(purity);
-      const itemColor = getItemColorHex(itemData.itemColor, purityColor);
       const scale = getPurityScale(purity);
       const showGlow = shouldShowGlow(purity);
 
@@ -670,25 +674,42 @@ export default class ConveyorMachine extends BaseMachine {
       // Draw a rotated square (diamond)
       const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, itemColor);
       diamond.rotation = Math.PI / 4;
-      diamond.setStrokeStyle(1.5, purityColor);
+      diamond.setStrokeStyle(1.5, purityColor); // Tier color border keeps level readable
 
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
       container.itemColorKey = itemData.itemColor;
       container.itemColorName = getItemColorName(itemData.itemColor);
 
-      // Add numeric badge for every tier, including raw tier 1 resources.
-      const badge = this.scene.add
+      const tierBadge = this.scene.add
         .text(0, 0, `${purity}`, {
-          fontFamily: 'Arial',
+          fontFamily: 'Arial Black, Arial, sans-serif',
           fontSize: '10px',
-          fontStyle: 'bold',
           color: '#ffffff',
           stroke: '#000000',
           strokeThickness: 2,
         })
         .setOrigin(0.5);
-      container.add(badge);
+      container.add(tierBadge);
+
+      const operationBadgeText = this.getItemOperationBadgeText(itemData);
+      if (operationBadgeText) {
+        const badgeBg = this.scene.add
+          .circle(size * 0.45, -size * 0.45, 5, 0x101820, 0.95)
+          .setStrokeStyle(1, 0xffd966, 0.9);
+        container.add(badgeBg);
+
+        const opBadge = this.scene.add
+          .text(size * 0.45, -size * 0.45, operationBadgeText, {
+            fontFamily: 'Arial Black, Arial, sans-serif',
+            fontSize: operationBadgeText.length > 1 ? '6px' : '8px',
+            color: '#ffd966',
+            stroke: '#000000',
+            strokeThickness: 1,
+          })
+          .setOrigin(0.5);
+        container.add(opBadge);
+      }
 
       visual = container;
       visual.isPurityVisual = true; // Flag for updates
@@ -707,6 +728,20 @@ export default class ConveyorMachine extends BaseMachine {
       // this.container.add(visual); // DON'T add directly to container if using group
     }
     return visual;
+  }
+
+  getItemOperationBadgeText(itemData) {
+    const tags = Array.isArray(itemData?.operationTags) ? itemData.operationTags : [];
+    const lastTag = itemData?.lastOperationTag || tags[tags.length - 1];
+
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD_ONE) return '+1';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD_TWO) return '+2';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD) return 'M';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.MULTIPLY) return 'x';
+    if (lastTag === ARITHMETIC_OPERATION_TAGS.DIVIDE) return '/';
+
+    const label = getArithmeticOperationTagLabel(lastTag);
+    return label ? label.charAt(0).toUpperCase() : null;
   }
 
   /**
@@ -815,7 +850,7 @@ export default class ConveyorMachine extends BaseMachine {
           this.trailEmitter.emitParticleAt(currentItem.visual.x, currentItem.visual.y);
         }
 
-        // Purity 6+ has rainbow effect (dynamic color)
+        // Purity 6+ has rainbow effect on the tier glow/stroke while body keeps color lane identity.
         if (purity >= 6) {
           const newColor = getPurityColor(purity, this.scene.time.now);
           if (currentItem.visual.mainShape) {

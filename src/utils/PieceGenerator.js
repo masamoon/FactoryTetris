@@ -6,14 +6,17 @@
  */
 
 import {
-  FOUR_BLOCK_CONFIGS,
-  FIVE_BLOCK_CONFIGS,
+  ARITHMETIC_PIECE_CONFIGS,
+  ARITHMETIC_OPERATION_TYPES,
+  estimateArithmeticOutput,
   getConfigsForBlockCount,
-  getPieceConfigsForEra,
+  getArithmeticOperationTags,
+  isArithmeticConfig,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
 import { getTranscendTier } from '../config/eraConfig';
 import { rollBuildAroundTrait, rollTrait } from '../config/traits';
+import { GAME_CONFIG } from '../config/gameConfig';
 
 // How much more likely a draft piece that outputs the era's transcend tier
 // (the tier you must deliver to advance) is, relative to the pyramid baseline.
@@ -35,16 +38,8 @@ export function generatePieceOptions(scene, count = 3) {
   // Get the current era from scene (default to Era 1)
   const currentEra = scene?.currentEra || 1;
 
-  // Get all available configurations - include era-specific configs
-  let allConfigs = [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
-
-  // Add era-specific configs if we're beyond Era 1
-  if (currentEra > 1) {
-    const eraConfigs = getPieceConfigsForEra(currentEra);
-    const eraFourBlock = eraConfigs.fourBlock || [];
-    const eraFiveBlock = eraConfigs.fiveBlock || [];
-    allConfigs = [...allConfigs, ...eraFourBlock, ...eraFiveBlock];
-  }
+  // Get all available arithmetic configurations.
+  const allConfigs = getDraftConfigPool(scene);
 
   // Filter to usable configurations
   const usableConfigs = allConfigs.filter((config) => isPieceUsable(config, producibleLevels));
@@ -53,7 +48,9 @@ export function generatePieceOptions(scene, count = 3) {
   // Era 1: output > 2. Era 2+: Also output > 2 to include L3/L4/L5 in the "higher tier" pool
   // This prevents L6 dominance in Era 2 by diluting the pool with L3-L5
   const higherTierThreshold = 2;
-  const higherTierConfigs = allConfigs.filter((config) => config.output > higherTierThreshold);
+  const higherTierConfigs = allConfigs.filter(
+    (config) => getDraftOutputLevel(config, producibleLevels) > higherTierThreshold
+  );
   const usableHigherTierConfigs = higherTierConfigs.filter((config) =>
     isPieceUsable(config, producibleLevels)
   );
@@ -67,34 +64,34 @@ export function generatePieceOptions(scene, count = 3) {
 
     // For the first piece, guarantee it's usable if possible
     if (i === 0 && usableConfigs.length > 0) {
-      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra);
+      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra, scene);
       guaranteedUsable = true;
-      if (selectedConfig.output > higherTierThreshold) {
+      if (getDraftOutputLevel(selectedConfig, producibleLevels) > higherTierThreshold) {
         guaranteedHigherTier = true;
       }
     } else if (!guaranteedHigherTier && higherTierConfigs.length > 0) {
       // Guarantee at least one higher tier piece for balance
       // Prefer usable higher tier, but include any higher tier for progression visibility
       const pool = usableHigherTierConfigs.length > 0 ? usableHigherTierConfigs : higherTierConfigs;
-      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra);
+      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra, scene);
       guaranteedHigherTier = true;
       if (isPieceUsable(selectedConfig, producibleLevels)) {
         guaranteedUsable = true;
       }
     } else if (!guaranteedUsable && i === count - 1 && usableConfigs.length > 0) {
       // Last chance to ensure at least one usable piece
-      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra);
+      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra, scene);
       guaranteedUsable = true;
     } else {
       // Random selection from all configs (biased toward usable)
       const pool = Math.random() < 0.7 && usableConfigs.length > 0 ? usableConfigs : allConfigs;
-      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra);
+      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra, scene);
     }
 
     options.push({
       ...selectedConfig,
       isUsable: isPieceUsable(selectedConfig, producibleLevels),
-      trait: selectedConfig.output >= 3 ? rollTrait() : null,
+      trait: getDraftOutputLevel(selectedConfig, producibleLevels) >= 3 ? rollTrait() : null,
     });
   }
 
@@ -108,10 +105,10 @@ export function generatePieceOptions(scene, count = 3) {
     !options.some((o) => o.isUsable && o.trait)
   ) {
     const usableL3Plus = allConfigs.filter(
-      (c) => c.output >= 3 && isPieceUsable(c, producibleLevels)
+      (c) => getDraftOutputLevel(c, producibleLevels) >= 3 && isPieceUsable(c, producibleLevels)
     );
     if (usableL3Plus.length > 0) {
-      const forced = selectWeightedConfig(usableL3Plus, producibleLevels, currentEra);
+      const forced = selectWeightedConfig(usableL3Plus, producibleLevels, currentEra, scene);
       options[0] = {
         ...forced,
         isUsable: true,
@@ -136,12 +133,13 @@ export function generatePieceOptions(scene, count = 3) {
  * @param {Array<object>} configs - Available configurations
  * @param {Set<number>} producibleLevels - Currently producible levels
  * @param {number} currentEra - The current game era (default 1)
+ * @param {object} scene - The game scene, used for active contract pressure
  * @returns {object} Selected configuration
  */
-function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
+function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene = null) {
   if (configs.length === 0) {
-    // Fallback to basic 1/2 config
-    return FOUR_BLOCK_CONFIGS[0];
+    // Fallback to the simplest arithmetic config
+    return ARITHMETIC_PIECE_CONFIGS[0];
   }
 
   // FORMULAIC BALANCE (Pyramid Distribution)
@@ -157,9 +155,11 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
   const rarityFactor = 3.0;
 
   // Calculate weights
+  const contractOperationTags = getActiveContractOperationTags(scene);
   const weights = configs.map((config) => {
+    const outputLevel = getDraftOutputLevel(config, producibleLevels);
     // Calculate distance from the apex (transcend) tier
-    const rawDist = eraMax - config.output;
+    const rawDist = eraMax - outputLevel;
 
     // Cap the distance at 1.3 so the broad base of low tiers shares similar
     // commonality (~3^1.3 ≈ 4.17x the apex baseline) instead of exploding.
@@ -170,13 +170,20 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
 
     // The transcend tier is the run goal — it must not be the rarest draw.
     // Boost it so it appears often enough to actually farm the threshold.
-    if (config.output === eraMax) {
+    if (outputLevel === eraMax) {
       weight *= TRANSCEND_TIER_WEIGHT_BOOST;
     }
 
     // Minor boosting for new levels to ensure they appear
-    if (!producibleLevels.has(config.output)) {
+    if (!producibleLevels.has(outputLevel)) {
       weight *= 1.2;
+    }
+
+    if (contractOperationTags.size > 0 && isArithmeticConfig(config)) {
+      const operationTags = getArithmeticOperationTags(config.arithmeticOperation);
+      if (operationTags.some((tag) => contractOperationTags.has(tag))) {
+        weight *= 2.4;
+      }
     }
 
     return weight;
@@ -205,7 +212,12 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1) {
  * @returns {object} Configuration with inputLevels, outputLevel, notation
  */
 export function assignLevelsToShape(shape, scene, options = {}) {
-  const { forceHigherTier = false, forceTrait = false } = options;
+  const {
+    forceHigherTier = false,
+    forceTrait = false,
+    suppressTrait = false,
+    forcedArithmeticOperation = null,
+  } = options;
 
   // Count blocks in shape
   const blockCount = countBlocks(shape);
@@ -213,24 +225,21 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   // Get the current era from scene (default to Era 1)
   const currentEra = scene?.currentEra || 1;
 
-  // Build configs array: include base Era 1 configs plus current era configs
-  let configs = getConfigsForBlockCount(blockCount);
+  // Build configs array. Recipes are operation-driven now; eras still matter
+  // through scoring/objectives, not through a deterministic recipe ladder.
+  let configs = getDraftConfigPool(scene, getConfigsForBlockCount(blockCount));
 
-  // Add era-specific configs if we're beyond Era 1
-  if (currentEra > 1) {
-    const eraConfigs = getPieceConfigsForEra(currentEra);
-    const eraFourBlock = eraConfigs.fourBlock || [];
-    const eraFiveBlock = eraConfigs.fiveBlock || [];
-
-    // Add era-specific configs based on block count
-    if (blockCount === 4) {
-      configs = [...configs, ...eraFourBlock, ...eraFiveBlock];
-    } else if (blockCount >= 5) {
-      configs = [...configs, ...eraFiveBlock];
-    } else {
-      configs = [...configs, ...eraFourBlock];
+  if (forcedArithmeticOperation) {
+    const forcedConfigs = configs.filter((config) =>
+      doesArithmeticOperationMatch(config.arithmeticOperation, forcedArithmeticOperation)
+    );
+    if (forcedConfigs.length > 0) {
+      configs = forcedConfigs;
     }
   }
+
+  // Get producible levels for smart selection
+  const producibleLevels = getProducibleLevels(scene);
 
   if (configs.length === 0) {
     // Fallback for unknown shapes
@@ -246,14 +255,13 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   // to count as "higher tier" relative to basic L2 production.
   const higherTierThreshold = 2;
   if (forceHigherTier) {
-    const higherTierConfigs = configs.filter((config) => config.output > higherTierThreshold);
+    const higherTierConfigs = configs.filter(
+      (config) => getDraftOutputLevel(config, producibleLevels) > higherTierThreshold
+    );
     if (higherTierConfigs.length > 0) {
       configs = higherTierConfigs;
     }
   }
-
-  // Get producible levels for smart selection
-  const producibleLevels = getProducibleLevels(scene);
 
   // Filter to usable configs
   const usableConfigs = configs.filter((config) => isPieceUsable(config, producibleLevels));
@@ -262,7 +270,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   const pool = usableConfigs.length > 0 ? usableConfigs : configs;
 
   // Select a config
-  const config = selectWeightedConfig(pool, producibleLevels, currentEra) || {
+  const config = selectWeightedConfig(pool, producibleLevels, currentEra, scene) || {
     inputs: [1],
     output: 2,
     notation: '1/2',
@@ -273,14 +281,28 @@ export function assignLevelsToShape(shape, scene, options = {}) {
       ? config.inputLevels
       : [1];
   const outputLevel = config?.output || config?.outputLevel || Math.max(...inputLevels, 1) + 1;
+  const previewOutputLevel = getDraftOutputLevel(config, producibleLevels) || outputLevel;
 
-  return {
-    inputLevels: [...inputLevels],
-    outputLevel,
+  const result = {
+    inputLevels: isArithmeticConfig(config) ? [] : [...inputLevels],
+    outputLevel: isArithmeticConfig(config) ? null : outputLevel,
+    previewOutputLevel,
     notation: config?.notation || `${inputLevels.join('+')}/${outputLevel}`,
     isUsable: isPieceUsable(config, producibleLevels),
-    trait: outputLevel >= 3 ? (forceTrait ? rollBuildAroundTrait() : rollTrait()) : null,
+    trait:
+      !suppressTrait && previewOutputLevel >= 3
+        ? forceTrait
+          ? rollBuildAroundTrait()
+          : rollTrait()
+        : null,
   };
+
+  if (isArithmeticConfig(config)) {
+    result.arithmeticOperation = { ...config.arithmeticOperation };
+    result.arithmeticInputCount = config.inputCount;
+  }
+
+  return result;
 }
 
 /**
@@ -313,14 +335,7 @@ function countBlocks(shape) {
  */
 export function hasUsablePieces(scene) {
   const producibleLevels = getProducibleLevels(scene);
-  const currentEra = scene?.currentEra || 1;
-
-  // Get all configs including era-specific ones
-  let allConfigs = [...FOUR_BLOCK_CONFIGS, ...FIVE_BLOCK_CONFIGS];
-  if (currentEra > 1) {
-    const eraConfigs = getPieceConfigsForEra(currentEra);
-    allConfigs = [...allConfigs, ...(eraConfigs.fourBlock || []), ...(eraConfigs.fiveBlock || [])];
-  }
+  const allConfigs = [...ARITHMETIC_PIECE_CONFIGS];
 
   return allConfigs.some((config) => isPieceUsable(config, producibleLevels));
 }
@@ -332,16 +347,8 @@ export function hasUsablePieces(scene) {
  */
 export function getPieceUsabilityStats(scene) {
   const producibleLevels = getProducibleLevels(scene);
-  const currentEra = scene?.currentEra || 1;
-
-  // Get all configs including era-specific ones
-  let allFourBlock = [...FOUR_BLOCK_CONFIGS];
-  let allFiveBlock = [...FIVE_BLOCK_CONFIGS];
-  if (currentEra > 1) {
-    const eraConfigs = getPieceConfigsForEra(currentEra);
-    allFourBlock = [...allFourBlock, ...(eraConfigs.fourBlock || [])];
-    allFiveBlock = [...allFiveBlock, ...(eraConfigs.fiveBlock || [])];
-  }
+  const allFourBlock = getDraftConfigPool(scene);
+  const allFiveBlock = getDraftConfigPool(scene);
 
   const fourBlockUsable = allFourBlock.filter((c) => isPieceUsable(c, producibleLevels));
   const fiveBlockUsable = allFiveBlock.filter((c) => isPieceUsable(c, producibleLevels));
@@ -355,4 +362,51 @@ export function getPieceUsabilityStats(scene) {
     totalUsable: fourBlockUsable.length + fiveBlockUsable.length,
     hasUsablePieces: fourBlockUsable.length + fiveBlockUsable.length > 0,
   };
+}
+
+function getDraftOutputLevel(config, producibleLevels) {
+  if (isArithmeticConfig(config)) {
+    return estimateArithmeticOutput(config, producibleLevels) || 1;
+  }
+  return config?.output || 1;
+}
+
+function getDraftConfigPool(scene, baseConfigs = ARITHMETIC_PIECE_CONFIGS) {
+  const round = scene?.currentRound || 1;
+  const starterRounds = GAME_CONFIG.starterDraftRounds || 1;
+
+  if (round <= starterRounds) {
+    return baseConfigs.filter(
+      (config) =>
+        config.arithmeticOperation?.type === ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT &&
+        [1, 2].includes(config.arithmeticOperation?.value)
+    );
+  }
+
+  return [...baseConfigs];
+}
+
+function doesArithmeticOperationMatch(operation, forcedOperation) {
+  if (!operation || !forcedOperation) return false;
+  if (operation.type !== forcedOperation.type) return false;
+  if (operation.type === ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT) {
+    return operation.value === forcedOperation.value;
+  }
+  return true;
+}
+
+function getActiveContractOperationTags(scene) {
+  const tags = new Set();
+  if (!scene || scene.runState !== 'ROUND_ACTIVE' || !scene.contract) {
+    return tags;
+  }
+
+  for (const demand of scene.contract.demands || []) {
+    if (demand.delivered >= demand.quantity) continue;
+    if (demand.requiredLastOperationTag) {
+      tags.add(demand.requiredLastOperationTag);
+    }
+  }
+
+  return tags;
 }

@@ -91,7 +91,7 @@ export default class ResourceNode {
     this.container = this.scene.add.container(this.x, this.y);
 
     // Set color based on resource type
-    let nodeColor;
+    let nodeColor = getItemColorHex(this.itemColor, this.resourceType?.color || 0x00aa44);
     switch (this.resourceType.id) {
       case 'raw-resource':
         nodeColor = 0x00aa44; // Green for raw resources
@@ -106,7 +106,7 @@ export default class ResourceNode {
         nodeColor = 0x36454f; // Coal color
         break;
       default:
-        nodeColor = 0x00aa44; // Default green
+        nodeColor = getItemColorHex(this.itemColor, this.resourceType?.color || 0x00aa44);
     }
     nodeColor = getItemColorHex(this.itemColor, nodeColor);
 

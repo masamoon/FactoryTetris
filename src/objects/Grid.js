@@ -692,9 +692,12 @@ export default class Grid {
       }
     }
 
-    // Handle numeric rotation values (degrees)
+    // Handle numeric rotation values. Most placement code stores radians, while
+    // older callers sometimes pass degrees.
     if (typeof direction === 'number') {
-      const normalizedRotation = ((direction % 360) + 360) % 360; // Normalize to 0-359
+      const rotationDegrees =
+        Math.abs(direction) <= Math.PI * 2 + 0.01 ? (direction * 180) / Math.PI : direction;
+      const normalizedRotation = ((rotationDegrees % 360) + 360) % 360; // Normalize to 0-359
 
       // Convert rotation to direction string
       let directionStr = 'right'; // Default
