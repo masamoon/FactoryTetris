@@ -311,9 +311,6 @@ export default class ConveyorMachine extends BaseMachine {
       return;
     }
 
-    // NEW: Check for resources in BaseMachine inventory and transfer to conveyor belt
-    this.checkBaseMachineInventory();
-
     // Call base update
     super.update(time, delta);
 
@@ -358,6 +355,10 @@ export default class ConveyorMachine extends BaseMachine {
         base.fillColor = 0x888888; // Force gray color
       }
     }
+  }
+
+  tryPullFromInputNode() {
+    return false;
   }
 
   /**
