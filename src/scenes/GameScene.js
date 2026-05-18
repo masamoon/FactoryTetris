@@ -104,6 +104,13 @@ export default class GameScene extends Phaser.Scene {
     this.roundQuota = 0;
     this.roundSurvived = false;
     this.roundTimerEvent = null;
+    this.roundTimerBudgetMs = 0;
+    this.roundTimerWarningShown = false;
+    this.movingWaveTimerEvent = null;
+    this.missedOutputs = 0;
+    this.maxMissedOutputs = GAME_CONFIG.missedOutputLimit || 3;
+    this.roundHadMissedOutput = false;
+    this.waveShiftInProgress = false;
     this.highestDeliveredTierThisRound = 0;
     this.highestDeliveredTierThisEra = 0;
     this.contract = null; // legacy HUD/modifier shell; replaced by round quota loop
@@ -216,6 +223,9 @@ export default class GameScene extends Phaser.Scene {
     this.pendingUpgradeChoices = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
+    this.missedOutputs = 0;
+    this.roundHadMissedOutput = false;
+    this.waveShiftInProgress = false;
     this.deliveryStreak = 0;
     this.lastDeliveryScoreTime = 0;
     this.flowSurgeActive = false;
@@ -399,8 +409,8 @@ export default class GameScene extends Phaser.Scene {
       contentX + statWidth + statGap,
       22,
       statWidth,
-      'NODES',
-      '0/0',
+      'MISSES',
+      `0/${GAME_CONFIG.missedOutputLimit || 3}`,
       '#ffd166'
     );
     this.eraText = this.createStatChip(
@@ -435,9 +445,9 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     this.contractText.setDepth(3);
     this.contractTimerText = this.add
-      .text(contentX + contentWidth - 12, 190, '', {
+      .text(contentX + contentWidth - 12, 118, '', {
         fontFamily: 'Arial Black',
-        fontSize: 13,
+        fontSize: 11,
         color: '#88ccff',
         align: 'right',
       })
@@ -2090,24 +2100,21 @@ export default class GameScene extends Phaser.Scene {
       this.deliveryNodes = [];
     }
 
-    const starterLaneY = Math.floor(this.grid.height / 2);
+    const bottomY = this.grid.height - 1;
     const targetResourceNodeCount = Math.min(
       this.grid.height,
-      (GAME_CONFIG.initialNodeCount || 3) + Math.floor((this.currentRound - 1) / 2)
+      Math.max(
+        1,
+        Math.min(3, (GAME_CONFIG.initialNodeCount || 3) + Math.floor((this.currentRound - 1) / 3))
+      )
     );
 
-    // Resource sources persist between rounds. Add only enough new sources to
-    // reach the current round's target, so the factory grows around its old spine.
-    const existingResourceCount = (this.resourceNodes || []).filter(
-      (node) => node?.container
-    ).length;
     const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
       GAME_CONFIG.defaultItemColor || 'blue',
     ];
-    this.normalizeResourceNodeColors(sourceColorCycle);
-    for (let i = existingResourceCount; i < targetResourceNodeCount; i++) {
+    for (let i = 0; i < targetResourceNodeCount; i++) {
       this.spawnResourceNode(
-        i === 0 ? starterLaneY : null,
+        Math.max(0, bottomY - i),
         0,
         GAME_CONFIG.nodeLifespan,
         sourceColorCycle[i % sourceColorCycle.length]
@@ -2117,8 +2124,7 @@ export default class GameScene extends Phaser.Scene {
 
     const deliveryNodeCount = this.getDeliveryNodeCountForRound(this.currentRound);
     for (let i = 0; i < deliveryNodeCount; i++) {
-      const preferredY =
-        i === 0 ? starterLaneY : Math.floor(((i + 1) * this.grid.height) / (deliveryNodeCount + 1));
+      const preferredY = Math.max(0, bottomY - i);
       this.spawnDeliveryNode(this.createDeliveryCondition(this.currentRound, i), preferredY);
     }
   }
@@ -2225,6 +2231,234 @@ export default class GameScene extends Phaser.Scene {
             node.generateResource(); // This is handled by the node's internal timer now
         });
         */
+  }
+
+  advanceMovingWave() {
+    if (
+      this.gameOver ||
+      this.paused ||
+      this.isPausedForUpgrade ||
+      this.runState !== 'ROUND_ACTIVE' ||
+      this.roundClearing ||
+      this.waveShiftInProgress
+    ) {
+      return;
+    }
+
+    this.waveShiftInProgress = true;
+    const movingNodes = [
+      ...(this.resourceNodes || []).map((node) => ({ kind: 'source', node })),
+      ...(this.deliveryNodes || []).map((node) => ({ kind: 'output', node })),
+    ].filter(({ node }) => node && node.container);
+
+    for (const { node } of movingNodes) {
+      const cell = this.grid.getCell(node.gridX, node.gridY);
+      if (cell?.object === node) {
+        this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
+      }
+    }
+
+    for (const { kind, node } of movingNodes) {
+      if (!node.container) continue;
+
+      const nextY = node.gridY - 1;
+      if (nextY < 0) {
+        if (kind === 'output' && !node.completed) {
+          this.registerMissedOutput(node);
+        } else {
+          this.removeMovingNode(node);
+        }
+        continue;
+      }
+
+      const targetCell = this.grid.getCell(node.gridX, nextY);
+      if (targetCell && targetCell.type !== 'empty') {
+        if (kind === 'output' && !node.completed) {
+          this.registerMissedOutput(node);
+        } else {
+          this.removeMovingNode(node);
+        }
+        continue;
+      }
+
+      this.moveNodeToGrid(node, node.gridX, nextY, kind === 'output' ? 'delivery-node' : 'node');
+    }
+
+    this.spawnIncomingMovingRow();
+    this.waveShiftInProgress = false;
+    this.updateRoundUI();
+  }
+
+  moveNodeToGrid(node, gridX, gridY, cellType) {
+    if (!node || !node.container) return false;
+
+    node.gridX = gridX;
+    node.gridY = gridY;
+    const worldPos = this.grid.gridToWorld(gridX, gridY);
+    if (!worldPos) return false;
+
+    this.grid.setCell(gridX, gridY, { type: cellType, object: node });
+    this.tweens.add({
+      targets: node.container,
+      x: worldPos.x,
+      y: worldPos.y,
+      duration: 260,
+      ease: 'Cubic.easeOut',
+    });
+    return true;
+  }
+
+  removeMovingNode(node) {
+    if (!node) return;
+    const cell = this.grid?.getCell(node.gridX, node.gridY);
+    if (cell?.object === node) {
+      this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
+    }
+    if (typeof node.destroy === 'function') {
+      node.destroy();
+    }
+  }
+
+  spawnIncomingMovingRow() {
+    if (this.runState !== 'ROUND_ACTIVE' || this.roundClearing || this.gameOver) return;
+
+    const bottomY = this.grid.height - 1;
+    const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
+      GAME_CONFIG.defaultItemColor || 'blue',
+    ];
+    const sourceIndex = this.resourceNodes?.length || 0;
+    const sourceCell = this.grid.getCell(0, bottomY);
+    if (sourceCell?.type === 'empty') {
+      this.spawnResourceNode(
+        bottomY,
+        0,
+        GAME_CONFIG.nodeLifespan,
+        sourceColorCycle[sourceIndex % sourceColorCycle.length]
+      );
+    }
+
+    const deliveryCell = this.grid.getCell(this.grid.width - 1, bottomY);
+    if (deliveryCell?.type === 'empty') {
+      this.spawnDeliveryNode(
+        this.createDeliveryCondition(this.currentRound, this.deliveryNodes?.length || 0),
+        bottomY
+      );
+    }
+  }
+
+  registerMissedOutput(node) {
+    if (!node || node._missed) return;
+
+    node._missed = true;
+    this.roundHadMissedOutput = true;
+    this.missedOutputs = Math.min(this.maxMissedOutputs, (this.missedOutputs || 0) + 1);
+    this.currentMomentum = Math.max(
+      0,
+      this.currentMomentum - (GAME_CONFIG.missedOutputPenaltyMomentum || 18)
+    );
+    this.showMissedOutputFeedback(node);
+    this.removeMovingNode(node);
+    this.updateRoundUI();
+
+    if (this.missedOutputs >= this.maxMissedOutputs) {
+      this.runState = 'RUN_OVER';
+      this.stopMovingWaveTimer();
+      this.setProductionPaused(true);
+      this.time.delayedCall(650, () => this.endGame());
+      return;
+    }
+
+    this.checkMovingWaveResolved();
+  }
+
+  showMissedOutputFeedback(node) {
+    const x = node?.container?.x || this.scale.width / 2 - this.rightPanelWidth / 2;
+    const y = node?.container?.y || 96;
+    const text = this.add
+      .text(x, y - 22, 'MISSED', {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#ff8888',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5);
+    text.setDepth(1000);
+    this.addToWorld(text);
+    this.cameras.main.shake(140, 0.006);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 58,
+      alpha: 0,
+      scaleX: 1.25,
+      scaleY: 1.25,
+      duration: 800,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  checkMovingWaveResolved() {
+    if (this.gameOver || this.roundClearing || this.runState !== 'ROUND_ACTIVE') return;
+
+    const remainingOutputs = (this.deliveryNodes || []).filter((node) => node?.container);
+    if (remainingOutputs.length > 0) return;
+
+    if (this.roundHadMissedOutput) {
+      this.finishWaveAfterMiss();
+    } else {
+      this.clearRound();
+    }
+  }
+
+  finishWaveAfterMiss() {
+    if (this.roundClearing) return;
+
+    this.roundClearing = true;
+    this.runState = 'ROUND_CLEARED';
+    this.stopMovingWaveTimer();
+    this.stopRoundCountdown();
+    this.showWaveSurvivedFeedback();
+
+    this.time.delayedCall(650, () => {
+      this.clearPlacedItems({
+        salvage: false,
+        clearMachines: false,
+        clearResources: true,
+        clearUpgrade: false,
+      });
+      this.time.delayedCall(900, () => {
+        this.startRound(this.currentRound + 1, { buildPhase: true });
+      });
+    });
+  }
+
+  showWaveSurvivedFeedback() {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, 'WAVE SURVIVED', {
+        fontFamily: 'Arial Black',
+        fontSize: 32,
+        color: '#ffd166',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      scaleX: 1.15,
+      scaleY: 1.15,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
   }
 
   updateGameTime() {
@@ -2832,17 +3066,76 @@ export default class GameScene extends Phaser.Scene {
     this.startRoundTimer();
   }
 
+  startRoundCountdown() {
+    this.stopRoundCountdown();
+
+    const budgetSeconds = this.getRoundTimeBudget(this.currentRound);
+    this.roundTimerBudgetMs = Math.max(1, budgetSeconds) * 1000;
+    this.roundTimerWarningShown = false;
+    this.roundTimerEvent = this.time.delayedCall(
+      this.roundTimerBudgetMs,
+      this.onRoundTimeout,
+      [],
+      this
+    );
+    this.contractTimerEvent = this.roundTimerEvent;
+  }
+
+  stopRoundCountdown() {
+    if (this.roundTimerEvent) {
+      this.roundTimerEvent.remove();
+      this.roundTimerEvent = null;
+    }
+    this.contractTimerEvent = null;
+  }
+
+  getMovingWaveInterval(round = this.currentRound) {
+    const base = GAME_CONFIG.movingWaveInterval || 10000;
+    const minimum = GAME_CONFIG.movingWaveIntervalMin || 5500;
+    const reduction = GAME_CONFIG.movingWaveIntervalRoundReduction || 350;
+    return Math.max(minimum, base - Math.max(0, round - 1) * reduction);
+  }
+
+  startMovingWaveTimer() {
+    this.stopMovingWaveTimer();
+
+    const interval = this.getMovingWaveInterval();
+    this.movingWaveTimerEvent = this.time.addEvent({
+      delay: interval,
+      callback: this.advanceMovingWave,
+      callbackScope: this,
+      loop: true,
+    });
+  }
+
+  stopMovingWaveTimer() {
+    if (this.movingWaveTimerEvent) {
+      this.movingWaveTimerEvent.remove();
+      this.movingWaveTimerEvent = null;
+    }
+  }
+
+  getMovingWaveTimeRemaining() {
+    if (!this.movingWaveTimerEvent) return this.getMovingWaveInterval() / 1000;
+    return Math.max(0, this.movingWaveTimerEvent.getRemaining() / 1000);
+  }
+
   onRoundTimeout() {
     if (this.runState !== 'ROUND_ACTIVE') return;
 
-    if (!this.roundSurvived) {
-      this.runState = 'RUN_OVER';
-      console.log('[ROUND] Quota missed - run over');
-      this.endGame();
+    const allDeliveriesFilled =
+      this.deliveryNodes?.length > 0 && this.deliveryNodes.every((node) => node.completed);
+    if (allDeliveriesFilled) {
+      this.finishSurvivedRound();
       return;
     }
 
-    this.finishSurvivedRound();
+    this.runState = 'RUN_OVER';
+    this.stopRoundCountdown();
+    this.setProductionPaused(true);
+    console.log('[ROUND] Delivery timer expired - run over');
+    this.showRoundTimeoutFeedback();
+    this.time.delayedCall(650, () => this.endGame());
   }
 
   onContractTimeout() {
@@ -2935,9 +3228,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateScrapText() {
-    if (this.scrapText) {
-      this.scrapText.setText(`${this.scrap || 0}`);
-    }
+    this.updateRoundUI();
   }
 
   updateScoreText() {
@@ -3583,6 +3874,7 @@ export default class GameScene extends Phaser.Scene {
       this.roundTimerEvent = null;
       this.contractTimerEvent = null;
     }
+    this.stopMovingWaveTimer();
     if (this.nodeSpawnTimer) {
       console.log('[TIMER_DEBUG] Removing nodeSpawnTimer in endGame.');
       this.nodeSpawnTimer.remove();
@@ -5705,9 +5997,8 @@ export default class GameScene extends Phaser.Scene {
       this.eraText.setText(`${this.currentRound}`);
     }
     const activeNodes = (this.deliveryNodes || []).filter((node) => !node.completed);
-    const completedNodes = (this.deliveryNodes || []).filter((node) => node.completed);
     if (this.scrapText) {
-      this.scrapText.setText(`${completedNodes.length}/${this.deliveryNodes?.length || 0}`);
+      this.scrapText.setText(`${this.missedOutputs || 0}/${this.maxMissedOutputs || 3}`);
     }
     if (this.moneyText) {
       this.moneyText.setText(`$${this.money}`);
@@ -5729,41 +6020,39 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.nextDemandText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.nextDemandText.setText(
-          `PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
-        );
+        this.nextDemandText.setText(`INCOMING: ${this.getRoundPreviewText(this.currentRound, 3)}`);
         this.nextDemandText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         this.nextDemandText.setText(
-          `NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `NEXT ROW: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       } else {
         this.nextDemandText.setText(
-          `NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `NEXT ROW: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       }
     }
     if (this.contractTimerText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.contractTimerText.setText(`Build: ${activeNodes.length} nodes ready`);
+        this.contractTimerText.setText(`Build: ${activeNodes.length} outputs`);
         this.contractTimerText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
-        const elapsedSeconds = Math.max(
-          0,
-          ((this.time?.now || 0) - (this.roundStartedAt || 0)) / 1000
-        );
-        const hurryRemaining = Math.ceil((GAME_CONFIG.roundNodeParSeconds || 55) - elapsedSeconds);
-        if (hurryRemaining > 0) {
-          this.contractTimerText.setText(`Hurry +20%: ${hurryRemaining}s`);
-          this.contractTimerText.setColor(hurryRemaining <= 10 ? '#ffd166' : '#88ccff');
+        const remainingSeconds = Math.ceil(this.getMovingWaveTimeRemaining());
+        this.contractTimerText.setText(`Rise ${remainingSeconds}s`);
+        if (remainingSeconds <= 3) {
+          this.contractTimerText.setColor('#ff8888');
+          if (!this.roundTimerWarningShown) {
+            this.roundTimerWarningShown = true;
+            this.showRoundPressureFeedback('RISING');
+          }
         } else {
-          this.contractTimerText.setText(`Clear all nodes`);
+          this.roundTimerWarningShown = false;
           this.contractTimerText.setColor('#88ccff');
         }
       } else {
-        this.contractTimerText.setText(`Clear all nodes to advance`);
+        this.contractTimerText.setText(`Clear outputs to advance`);
         this.contractTimerText.setColor('#88ccff');
       }
     }
@@ -5837,6 +6126,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.contractTimerEvent) {
       this.contractTimerEvent.paused = paused;
     }
+    if (this.movingWaveTimerEvent) {
+      this.movingWaveTimerEvent.paused = paused;
+    }
     this.resourceNodes?.forEach((node) => {
       if (node?.resourceTimer) {
         node.resourceTimer.paused = paused;
@@ -5870,6 +6162,8 @@ export default class GameScene extends Phaser.Scene {
     this.roundClearing = false;
     this.roundStartedAt = this.time?.now || 0;
     this.setProductionPaused(false);
+    this.stopRoundCountdown();
+    this.startMovingWaveTimer();
     this.setBuildPhaseUIVisible(false);
     this.updateRoundUI();
     this.showRoundStartFeedback(this.currentRound);
@@ -5878,6 +6172,10 @@ export default class GameScene extends Phaser.Scene {
   startRound(round = this.currentRound, options = {}) {
     this.currentRound = round;
     this.roundClearing = false;
+    this.roundHadMissedOutput = false;
+    this.stopMovingWaveTimer();
+    this.stopRoundCountdown();
+    this.buildRound();
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
     this.createInitialResourceNodes();
     if (this.machineFactory) {
@@ -5949,6 +6247,33 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  showRoundPressureFeedback(label = '10 SECONDS') {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 98, label, {
+        fontFamily: 'Arial Black',
+        fontSize: 30,
+        color: '#ff8888',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.shake(140, 0.004);
+
+    this.tweens.add({
+      targets: text,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
   getDeliveryNodePayout(node) {
     const basePayout = node?.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
     const elapsedSeconds = Math.max(0, ((this.time?.now || 0) - (this.roundStartedAt || 0)) / 1000);
@@ -5969,17 +6294,42 @@ export default class GameScene extends Phaser.Scene {
     this.grantDeliveryNodeSurge();
     this.updateRoundUI();
 
-    if (this.deliveryNodes.length > 0 && this.deliveryNodes.every((n) => n.completed)) {
-      this.clearRound();
+    this.time.delayedCall(GAME_CONFIG.outputConsumeDelay || 520, () => {
+      this.consumeCompletedDeliveryNode(node);
+    });
+  }
+
+  consumeCompletedDeliveryNode(node) {
+    if (!node || !node.container || !node.completed) return;
+
+    const cell = this.grid?.getCell(node.gridX, node.gridY);
+    if (cell?.object === node) {
+      this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
     }
+
+    this.tweens.add({
+      targets: node.container,
+      scaleX: 0.15,
+      scaleY: 0.15,
+      alpha: 0,
+      duration: 220,
+      ease: 'Back.easeIn',
+      onComplete: () => {
+        this.removeMovingNode(node);
+        this.checkMovingWaveResolved();
+      },
+    });
   }
 
   clearRound() {
     if (this.roundClearing) return;
     this.roundClearing = true;
     this.runState = 'ROUND_CLEARED';
+    this.stopRoundCountdown();
+    this.stopMovingWaveTimer();
     const clearBonus = (GAME_CONFIG.roundClearBonus || 18) + this.currentRound * 4;
     this.addMoney(clearBonus, 'round clear');
+    this.awardMomentum(GAME_CONFIG.roundClearMomentumReward || 18, 'round clear');
     this.showRoundClearFeedback();
 
     const entitiesToClear = this.deliveryNodes?.length || 0;
@@ -5987,7 +6337,7 @@ export default class GameScene extends Phaser.Scene {
       this.clearPlacedItems({
         salvage: false,
         clearMachines: false,
-        clearResources: false,
+        clearResources: true,
         clearUpgrade: false,
       });
       const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
@@ -6019,6 +6369,33 @@ export default class GameScene extends Phaser.Scene {
       scaleY: 1.2,
       alpha: 0,
       duration: 1200,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  showRoundTimeoutFeedback() {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, 'ROUND FAILED', {
+        fontFamily: 'Arial Black',
+        fontSize: 36,
+        color: '#ff8888',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.flash(180, 255, 80, 80, true);
+
+    this.tweens.add({
+      targets: text,
+      scaleX: 1.15,
+      scaleY: 1.15,
+      alpha: 0,
+      duration: 900,
       ease: 'Power2',
       onComplete: () => text.destroy(),
     });

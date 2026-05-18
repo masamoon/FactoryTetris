@@ -306,6 +306,12 @@ export const GAME_CONFIG = {
   flowSurgeContractBonusCredit: 1,
   flowOnlineMomentumReward: 8,
   processorReplacementMomentumCost: 6,
+  movingWaveInterval: 10000,
+  movingWaveIntervalMin: 5500,
+  movingWaveIntervalRoundReduction: 350,
+  missedOutputLimit: 3,
+  missedOutputPenaltyMomentum: 18,
+  outputConsumeDelay: 520,
 
   // Round / economy loop
   startingMoney: 45,
