@@ -54,6 +54,7 @@ export default class GameScene extends Phaser.Scene {
     this.deliveryStreak = 0;
     this.flowSurgeActive = false;
     this.flowSurgeRemaining = 0;
+    this.flowSurgeGraceRemaining = 0;
     this.objectiveCompletionsSinceUpgrade = 0;
 
     // Skip mechanic state
@@ -219,6 +220,7 @@ export default class GameScene extends Phaser.Scene {
     this.lastDeliveryScoreTime = 0;
     this.flowSurgeActive = false;
     this.flowSurgeRemaining = 0;
+    this.flowSurgeGraceRemaining = 0;
     this.objectiveCompletionsSinceUpgrade = 0;
     this.objectiveIndex = 0;
 
@@ -442,6 +444,17 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(1, 0.5)
       .setScrollFactor(0);
     this.contractTimerText.setDepth(3);
+    this.nextDemandText = this.add
+      .text(contentX + 12, 198, '', {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        color: '#b9f7ff',
+        align: 'left',
+        wordWrap: { width: contentWidth - 24 },
+      })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.nextDemandText.setDepth(3);
 
     this.createHudPanel(contentX, 224, contentWidth, 66, 0x101722, 0x315f65);
     this.momentumLabel = this.add
@@ -2294,6 +2307,20 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  grantDeliveryNodeSurge(duration = GAME_CONFIG.deliveryNodeFlowSurgeDuration || 4200) {
+    if (!duration || duration <= 0) return;
+
+    const wasActive = this.flowSurgeActive;
+    this.flowSurgeActive = true;
+    this.flowSurgeRemaining = Math.max(this.flowSurgeRemaining || 0, duration);
+    this.flowSurgeGraceRemaining = Math.max(this.flowSurgeGraceRemaining || 0, duration);
+    this.updateFlowSurgeText();
+
+    if (!wasActive) {
+      this.showFlowSurgeFeedback('NODE SURGE');
+    }
+  }
+
   updateFlowSurge(delta) {
     if (!this.flowSurgeActive) {
       this.updateFlowSurgeText();
@@ -2301,9 +2328,14 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.flowSurgeRemaining -= delta;
-    if (this.flowSurgeRemaining <= 0 || this.currentMomentum < this.comboThreshold * 0.65) {
+    this.flowSurgeGraceRemaining = Math.max(0, (this.flowSurgeGraceRemaining || 0) - delta);
+    if (
+      this.flowSurgeRemaining <= 0 ||
+      (this.flowSurgeGraceRemaining <= 0 && this.currentMomentum < this.comboThreshold * 0.65)
+    ) {
       this.flowSurgeActive = false;
       this.flowSurgeRemaining = 0;
+      this.flowSurgeGraceRemaining = 0;
     }
     this.updateFlowSurgeText();
   }
@@ -2323,9 +2355,9 @@ export default class GameScene extends Phaser.Scene {
     return this.flowSurgeActive ? GAME_CONFIG.flowSurgeSpeedMultiplier || 1.35 : 1;
   }
 
-  showFlowSurgeFeedback() {
+  showFlowSurgeFeedback(label = 'FLOW SURGE') {
     const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 96, 'FLOW SURGE', {
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 96, label, {
         fontFamily: 'Arial Black',
         fontSize: 34,
         color: '#ffd966',
@@ -5603,23 +5635,26 @@ export default class GameScene extends Phaser.Scene {
 
   getDeliveryNodeCountForRound(round = this.currentRound) {
     const maxNodes = GAME_CONFIG.maxDeliveryNodesPerRound || 7;
-    return Math.min(maxNodes, round === 1 ? 1 : 1 + (round - 1) * 2);
+    if (round <= 1) return 1;
+    if (round === 2) return 2;
+    return Math.min(maxNodes, 3 + Math.floor(Math.max(0, round - 3) / 2));
   }
 
   createDeliveryCondition(round, index) {
-    const tier = round === 1 ? 2 : Math.min(6, 1 + Math.ceil((round + Math.max(0, index - 1)) / 2));
-    const exact = round <= 2 || index % 2 === 0;
-    const requiredCount = Math.max(2, 2 + round + (index % 3));
+    const tier = round <= 2 ? 2 : Math.min(6, 2 + Math.floor((round - 3 + Math.max(0, index)) / 2));
+    const exact = round >= 3 && index % 2 === 0;
+    const requiredCount = Math.min(8, round === 1 ? 3 : 2 + Math.ceil(round / 2) + (index % 2));
     const colorCycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
-    const itemColor = round >= 2 ? colorCycle[index % colorCycle.length] : null;
+    const itemColor = round >= 2 ? colorCycle[(round + index - 2) % colorCycle.length] : null;
     const colorConfig = itemColor ? GAME_CONFIG.itemColors?.[itemColor] : null;
     const operationCycle = [
       ARITHMETIC_OPERATION_TAGS.ADD_ONE,
       ARITHMETIC_OPERATION_TAGS.ADD_TWO,
       ARITHMETIC_OPERATION_TAGS.ADD,
     ];
+    const nodeCount = this.getDeliveryNodeCountForRound(round);
     const requiredLastOperationTag =
-      round >= 3 && index % 3 === 2
+      round >= 5 && (index === nodeCount - 1 || (round >= 7 && index % 3 === 2))
         ? operationCycle[(round + index) % operationCycle.length]
         : null;
     const operationLabel = this.getOperationDemandLabel(requiredLastOperationTag);
@@ -5641,6 +5676,18 @@ export default class GameScene extends Phaser.Scene {
       payout,
       label: `${colorConfig ? `${colorConfig.name} ` : ''}${operationLabel ? `${operationLabel} ` : ''}${tierLabel} x${requiredCount}`,
     };
+  }
+
+  getRoundPreviewText(round = this.currentRound, limit = 4) {
+    const count = this.getDeliveryNodeCountForRound(round);
+    const parts = [];
+    for (let i = 0; i < Math.min(count, limit); i++) {
+      parts.push(this.createDeliveryCondition(round, i).label);
+    }
+    if (count > limit) {
+      parts.push(`+${count - limit} more`);
+    }
+    return parts.join(' | ');
   }
 
   getOperationDemandLabel(operationTag) {
@@ -5666,7 +5713,7 @@ export default class GameScene extends Phaser.Scene {
       this.moneyText.setText(`$${this.money}`);
     }
     if (this.contractText) {
-      const visibleNodes = activeNodes.slice(0, 4);
+      const visibleNodes = activeNodes.slice(0, 3);
       const lines =
         activeNodes.length > 0
           ? [
@@ -5679,6 +5726,24 @@ export default class GameScene extends Phaser.Scene {
               .join('\n')
           : 'All deliveries filled';
       this.contractText.setText(lines);
+    }
+    if (this.nextDemandText) {
+      if (this.runState === 'BUILD_PHASE') {
+        this.nextDemandText.setText(
+          `PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
+        );
+        this.nextDemandText.setColor('#88ffcc');
+      } else if (this.runState === 'ROUND_ACTIVE') {
+        this.nextDemandText.setText(
+          `NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+        );
+        this.nextDemandText.setColor('#b9f7ff');
+      } else {
+        this.nextDemandText.setText(
+          `NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+        );
+        this.nextDemandText.setColor('#b9f7ff');
+      }
     }
     if (this.contractTimerText) {
       if (this.runState === 'BUILD_PHASE') {
@@ -5900,7 +5965,8 @@ export default class GameScene extends Phaser.Scene {
     const basePayout = node.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
     const totalPayout = this.getDeliveryNodePayout(node);
     this.addMoney(totalPayout, totalPayout > basePayout ? 'delivery hurry' : 'delivery');
-    this.awardMomentum(10, 'delivery filled');
+    this.awardMomentum(GAME_CONFIG.deliveryNodeMomentumReward || 14, 'node clear');
+    this.grantDeliveryNodeSurge();
     this.updateRoundUI();
 
     if (this.deliveryNodes.length > 0 && this.deliveryNodes.every((n) => n.completed)) {

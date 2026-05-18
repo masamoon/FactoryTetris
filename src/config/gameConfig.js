@@ -316,6 +316,8 @@ export const GAME_CONFIG = {
   deliveryNodeBasePayout: 18,
   deliveryNodePayoutPerTier: 7,
   deliveryNodePayoutPerItem: 3,
+  deliveryNodeMomentumReward: 14,
+  deliveryNodeFlowSurgeDuration: 4200,
   maxDeliveryNodesPerRound: 7,
   machinePlacementCosts: {
     conveyor: 1,
