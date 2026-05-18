@@ -4,6 +4,7 @@ import {
   calculateDeliveryScore,
   getChainMultiplier,
   getItemColorHex,
+  getItemColorKey,
   getItemColorName,
   getPurityColor,
   getPurityName,
@@ -197,7 +198,7 @@ export default class DeliveryNode {
   }
 
   getItemColorKey(itemData) {
-    return itemData?.itemColor || GAME_CONFIG.defaultItemColor || 'blue';
+    return getItemColorKey(itemData, GAME_CONFIG.defaultItemColor || 'blue');
   }
 
   matchesCondition(itemData) {
@@ -239,7 +240,8 @@ export default class DeliveryNode {
     const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
     const reg = this.scene && this.scene.traitRegistry;
     const labels = [];
-    const colorConfig = GAME_CONFIG.itemColors?.[itemData.itemColor];
+    const itemColor = this.getItemColorKey(itemData);
+    const colorConfig = GAME_CONFIG.itemColors?.[itemColor];
     // Beacon: each placed Beacon adds +0.1 to the base delivery modifier.
     const beaconBonus =
       reg && typeof reg.getBeaconChainBonus === 'function' ? reg.getBeaconChainBonus() : 0;
@@ -247,7 +249,7 @@ export default class DeliveryNode {
     let modifier = 1.0 + beaconBonus;
     if (colorConfig?.scoreMultiplier) {
       modifier *= colorConfig.scoreMultiplier;
-      labels.push(colorConfig.name || getItemColorName(itemData.itemColor));
+      labels.push(colorConfig.name || getItemColorName(itemColor));
     }
     if (beaconBonus > 0) labels.push('Beacon');
     if (tags.includes('tycoon')) {
@@ -289,7 +291,7 @@ export default class DeliveryNode {
       points: adjusted,
       multiplier: modifier,
       labels,
-      itemColor: itemData.itemColor,
+      itemColor,
     };
   }
 

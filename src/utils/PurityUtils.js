@@ -63,6 +63,11 @@ export function getItemColorName(itemColor) {
   return getItemColorConfig(itemColor)?.name || itemColor || 'Color';
 }
 
+export function getItemColorKey(itemData, fallbackColor = GAME_CONFIG.defaultItemColor || 'blue') {
+  if (typeof itemData === 'string') return itemData;
+  return itemData?.itemColor || itemData?.sourceColor || fallbackColor;
+}
+
 export function getSourceItemColor(resourceTypeId, fallbackIndex = 0) {
   const cycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
   if (cycle.length > 0) {

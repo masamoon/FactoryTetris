@@ -32,6 +32,7 @@ export default class ColorPainterMachine extends ConveyorMachine {
       'mega-resource',
       UPGRADE_PACKAGE_TYPE,
     ];
+    this.acceptsDirectSource = false;
   }
 
   getPaintColorKey(direction = this.direction) {
@@ -69,6 +70,10 @@ export default class ColorPainterMachine extends ConveyorMachine {
 
   addItemVisual(itemData) {
     return super.addItemVisual(this.paintItem(itemData));
+  }
+
+  tryExtractFromSource() {
+    return false;
   }
 
   createVisuals() {

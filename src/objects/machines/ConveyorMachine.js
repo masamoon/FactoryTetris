@@ -8,6 +8,7 @@ import {
   shouldShowGlow,
   getGlowIntensity,
   getItemColorHex,
+  getItemColorKey,
   getItemColorName,
   shouldShowTrail,
 } from '../../utils/PurityUtils';
@@ -644,7 +645,8 @@ export default class ConveyorMachine extends BaseMachine {
     } else if (itemType === 'purity-resource') {
       // --- PURITY RESOURCE VISUAL ---
       const purity = itemData.purity || 1;
-      const itemColor = getItemColorHex(itemData.itemColor, getPurityColor(purity));
+      const itemColorKey = getItemColorKey(itemData);
+      const itemColor = getItemColorHex(itemColorKey, getPurityColor(purity));
       const purityColor = getPurityColor(purity);
       const scale = getPurityScale(purity);
       const showGlow = shouldShowGlow(purity);
@@ -678,8 +680,8 @@ export default class ConveyorMachine extends BaseMachine {
 
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
-      container.itemColorKey = itemData.itemColor;
-      container.itemColorName = getItemColorName(itemData.itemColor);
+      container.itemColorKey = itemColorKey;
+      container.itemColorName = getItemColorName(itemColorKey);
 
       const tierBadge = this.scene.add
         .text(0, 0, `${purity}`, {

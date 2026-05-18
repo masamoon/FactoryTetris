@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { processResource } from '../../utils/PurityUtils';
+import { getItemColorKey, processResource } from '../../utils/PurityUtils';
 import {
   ARITHMETIC_OPERATION_TAGS,
   calculateArithmeticOutput,
@@ -2237,8 +2237,9 @@ export default class BaseMachine {
         const mergedVisitedMachines = new Set();
         const sourceColors = [];
         sourceItems.forEach((item) => {
-          if (item.itemColor && !sourceColors.includes(item.itemColor)) {
-            sourceColors.push(item.itemColor);
+          const itemColorKey = getItemColorKey(item, null);
+          if (itemColorKey && !sourceColors.includes(itemColorKey)) {
+            sourceColors.push(itemColorKey);
           }
           (Array.isArray(item.machineUids) ? item.machineUids : []).forEach((uid) => {
             if (!mergedMachineUids.includes(uid)) mergedMachineUids.push(uid);
@@ -2255,7 +2256,7 @@ export default class BaseMachine {
           const visited = item.visitedMachines || [];
           visited.forEach((machineUid) => mergedVisitedMachines.add(machineUid));
         });
-        const itemColor = processedItem.itemColor || sourceColors[0] || null;
+        const itemColor = getItemColorKey(processedItem, sourceColors[0] || null);
         const lastOperationTag =
           operationTags.find(
             (tag) =>
@@ -2276,6 +2277,7 @@ export default class BaseMachine {
           operationTags: mergedOperationTags,
           lastOperationTag,
           itemColor,
+          sourceColor: processedItem.sourceColor || sourceColors[0] || itemColor,
         };
         operationTags.forEach((tag) => {
           if (!nextItem.operationTags.includes(tag)) {
@@ -2306,6 +2308,8 @@ export default class BaseMachine {
           ...processedItem,
           type: 'purity-resource', // Explicitly set type to prevent undefined issues
           purity: this.outputLevel,
+          itemColor: getItemColorKey(processedItem, null),
+          sourceColor: processedItem.sourceColor || getItemColorKey(processedItem, null),
           visitedMachines: new Set(processedItem.visitedMachines || []),
           machineUids: Array.isArray(processedItem.machineUids)
             ? [...processedItem.machineUids]

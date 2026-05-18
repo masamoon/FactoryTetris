@@ -20,6 +20,7 @@ import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMach
 import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
 import TraitRegistry from '../objects/traits/TraitRegistry';
 import { TRAIT_CATEGORIES, getTraitBandColor, getTraitById } from '../config/traits';
+import { getItemColorKey } from '../utils/PurityUtils';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -4364,7 +4365,7 @@ export default class GameScene extends Phaser.Scene {
   recordDeliveryFlow(itemData, tier, reward) {
     if (!itemData || !this.recentFlowPlacements || reward?.countsForFlow === false) return;
 
-    if (itemData.itemColor === 'yellow') {
+    if (getItemColorKey(itemData) === 'yellow') {
       const threshold = GAME_CONFIG.yellowScorePerScrap || 120;
       this.yellowScrapProgress += Math.max(0, Math.floor(reward?.points || 0));
       while (this.yellowScrapProgress >= threshold) {

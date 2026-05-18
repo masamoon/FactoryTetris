@@ -300,6 +300,9 @@ export default class ResourceNode {
 
       const targetMachine = cell?.machine || cell?.object;
       const isConveyorLike = Boolean(targetMachine && Array.isArray(targetMachine.itemsOnBelt));
+      if (targetMachine?.acceptsDirectSource === false) {
+        continue;
+      }
 
       // --- Priority 1: Push directly to adjacent processing Machine (non-belt) ---
       if (cell && cell.type === 'machine' && targetMachine && !isConveyorLike) {
