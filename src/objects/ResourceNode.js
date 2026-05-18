@@ -163,6 +163,19 @@ export default class ResourceNode {
     }
   }
 
+  setItemColor(itemColor) {
+    if (!itemColor || itemColor === this.itemColor) return;
+
+    this.itemColor = itemColor;
+    const color = getItemColorHex(this.itemColor, this.resourceType?.color || 0x00aa44);
+    if (this.background) {
+      this.background.setFillStyle(color);
+    }
+    if (this.colorTag) {
+      this.colorTag.setText(getItemColorName(this.itemColor).charAt(0).toUpperCase());
+    }
+  }
+
   /**
    * Generate a new resource
    */

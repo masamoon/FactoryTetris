@@ -2091,6 +2091,7 @@ export default class GameScene extends Phaser.Scene {
     const sourceColorCycle = GAME_CONFIG.sourceColorCycle || [
       GAME_CONFIG.defaultItemColor || 'blue',
     ];
+    this.normalizeResourceNodeColors(sourceColorCycle);
     for (let i = existingResourceCount; i < targetResourceNodeCount; i++) {
       this.spawnResourceNode(
         i === 0 ? starterLaneY : null,
@@ -2099,6 +2100,7 @@ export default class GameScene extends Phaser.Scene {
         sourceColorCycle[i % sourceColorCycle.length]
       );
     }
+    this.normalizeResourceNodeColors(sourceColorCycle);
 
     const deliveryNodeCount = this.getDeliveryNodeCountForRound(this.currentRound);
     for (let i = 0; i < deliveryNodeCount; i++) {
@@ -2106,6 +2108,27 @@ export default class GameScene extends Phaser.Scene {
         i === 0 ? starterLaneY : Math.floor(((i + 1) * this.grid.height) / (deliveryNodeCount + 1));
       this.spawnDeliveryNode(this.createDeliveryCondition(this.currentRound, i), preferredY);
     }
+  }
+
+  normalizeResourceNodeColors(sourceColorCycle = GAME_CONFIG.sourceColorCycle || []) {
+    if (!Array.isArray(this.resourceNodes) || sourceColorCycle.length === 0) return;
+
+    const activeSources = this.resourceNodes
+      .filter((node) => node?.container)
+      .sort((a, b) => {
+        if ((a.gridX || 0) !== (b.gridX || 0)) return (a.gridX || 0) - (b.gridX || 0);
+        return (a.gridY || 0) - (b.gridY || 0);
+      });
+
+    activeSources.forEach((node, index) => {
+      const color = sourceColorCycle[index % sourceColorCycle.length];
+      if (typeof node.setItemColor === 'function') {
+        node.setItemColor(color);
+      } else {
+        node.itemColor = color;
+      }
+      node.sourceIndex = index;
+    });
   }
 
   // Modify spawnResourceNode to pass the current round
