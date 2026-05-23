@@ -307,6 +307,7 @@ export default class GameScene extends Phaser.Scene {
     this.resourceNodes.forEach((node) => node.update(time, delta)); // Pass time/delta just in case
     // Update delivery nodes
     this.deliveryNodes.forEach((node) => node.update(time, delta)); // Pass time/delta just in case
+    this.evaluateRoundResourceExhaustion();
 
     this._roundHudAccum = (this._roundHudAccum || 0) + delta;
     if (this._roundHudAccum >= 500) {
@@ -399,8 +400,8 @@ export default class GameScene extends Phaser.Scene {
       contentX + statWidth + statGap,
       22,
       statWidth,
-      'NODES',
-      '0/0',
+      'STOCK',
+      '0',
       '#ffd166'
     );
     this.eraText = this.createStatChip(
@@ -2105,12 +2106,27 @@ export default class GameScene extends Phaser.Scene {
       GAME_CONFIG.defaultItemColor || 'blue',
     ];
     this.normalizeResourceNodeColors(sourceColorCycle);
+    const sourceInventory = this.getRoundSourceInventory(this.currentRound);
+    for (const node of this.resourceNodes || []) {
+      if (!node?.container) continue;
+      node.isFiniteSource = GAME_CONFIG.finiteResourceRounds ?? true;
+      node.resources = sourceInventory;
+      node.maxResources = sourceInventory;
+      if (typeof node.updateResourceIndicator === 'function') {
+        node.updateResourceIndicator();
+      }
+    }
     for (let i = existingResourceCount; i < targetResourceNodeCount; i++) {
       this.spawnResourceNode(
         i === 0 ? starterLaneY : null,
         0,
         GAME_CONFIG.nodeLifespan,
-        sourceColorCycle[i % sourceColorCycle.length]
+        sourceColorCycle[i % sourceColorCycle.length],
+        {
+          finiteSource: GAME_CONFIG.finiteResourceRounds ?? true,
+          initialResources: sourceInventory,
+          maxResources: sourceInventory,
+        }
       );
     }
     this.normalizeResourceNodeColors(sourceColorCycle);
@@ -2149,7 +2165,8 @@ export default class GameScene extends Phaser.Scene {
     preferredY = null,
     resourceTypeIndex = 0,
     lifespan = GAME_CONFIG.nodeLifespan,
-    itemColorOverride = null
+    itemColorOverride = null,
+    options = {}
   ) {
     try {
       if (this.gameOver || this.paused) return null;
@@ -2198,6 +2215,7 @@ export default class GameScene extends Phaser.Scene {
           sourceIndex,
           itemColor,
           lifespan,
+          ...options,
         },
         this.currentRound,
         this.upgradeManager
@@ -2669,7 +2687,82 @@ export default class GameScene extends Phaser.Scene {
     if (this.runState !== 'ROUND_ACTIVE' || this.roundSurvived) return;
 
     this.roundScore += Math.max(0, Math.floor(points || 0));
+    if (this.contract) {
+      this.contract.delivered = this.roundScore;
+    }
     this.updateRoundUI();
+
+    if (this.roundScore >= this.roundQuota) {
+      this.roundSurvived = true;
+      this.clearRound();
+    }
+  }
+
+  getRemainingSourceResources() {
+    return (this.resourceNodes || []).reduce(
+      (sum, node) => sum + Math.max(0, Math.floor(node?.resources || 0)),
+      0
+    );
+  }
+
+  hasInFlightResources() {
+    for (const machine of this.machines || []) {
+      if (!machine) continue;
+      if (Array.isArray(machine.itemsOnBelt) && machine.itemsOnBelt.length > 0) return true;
+      if (Array.isArray(machine.inputQueue) && machine.inputQueue.length > 0) return true;
+      if (Array.isArray(machine.outputQueue) && machine.outputQueue.length > 0) return true;
+      if (
+        Array.isArray(machine.currentProcessingItems) &&
+        machine.currentProcessingItems.length > 0
+      ) {
+        return true;
+      }
+
+      const inventories = [machine.inputInventory, machine.outputInventory];
+      for (const inventory of inventories) {
+        if (!inventory || typeof inventory !== 'object') continue;
+        if (Object.values(inventory).some((count) => Number(count) > 0)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  evaluateRoundResourceExhaustion() {
+    if (
+      this.runState !== 'ROUND_ACTIVE' ||
+      this.roundClearing ||
+      this.roundSurvived ||
+      !GAME_CONFIG.finiteResourceRounds
+    ) {
+      this.roundExhaustionStartedAt = null;
+      return;
+    }
+
+    if (this.getRemainingSourceResources() > 0) {
+      this.roundExhaustionStartedAt = null;
+      return;
+    }
+
+    if (!this.roundExhaustionStartedAt) {
+      this.roundExhaustionStartedAt = this.time?.now || 0;
+    }
+
+    const graceMs = GAME_CONFIG.roundExhaustionGraceMs || 4500;
+    const graceElapsed = (this.time?.now || 0) - this.roundExhaustionStartedAt >= graceMs;
+    if (!this.hasInFlightResources() || graceElapsed) {
+      this.failRoundFromResourceExhaustion();
+    }
+  }
+
+  failRoundFromResourceExhaustion() {
+    if (this.gameOver || this.runState !== 'ROUND_ACTIVE') return;
+
+    this.runState = 'RUN_OVER';
+    this.setProductionPaused(true);
+    this.updateRoundUI();
+    this.showResourceExhaustedFeedback();
+    this.time.delayedCall(650, () => this.endGame());
   }
 
   // === ROUND QUOTA SYSTEM ===
@@ -5633,6 +5726,14 @@ export default class GameScene extends Phaser.Scene {
     return base + Math.max(0, round - 1) * growth;
   }
 
+  getRoundSourceInventory(round = this.currentRound) {
+    const base = GAME_CONFIG.roundSourceBaseInventory || 18;
+    const growth = GAME_CONFIG.roundSourceInventoryGrowth || 5;
+    const variance = GAME_CONFIG.roundSourceInventoryVariance || 0;
+    const wave = variance > 0 ? (round % 3) * variance : 0;
+    return Math.max(1, Math.floor(base + Math.max(0, round - 1) * growth + wave));
+  }
+
   getDeliveryNodeCountForRound(round = this.currentRound) {
     const maxNodes = GAME_CONFIG.maxDeliveryNodesPerRound || 7;
     if (round <= 1) return 1;
@@ -5669,6 +5770,7 @@ export default class GameScene extends Phaser.Scene {
     return {
       tier,
       exact,
+      scoreSink: true,
       itemColor,
       requiredLastOperationTag,
       operationLabel,
@@ -5705,26 +5807,30 @@ export default class GameScene extends Phaser.Scene {
       this.eraText.setText(`${this.currentRound}`);
     }
     const activeNodes = (this.deliveryNodes || []).filter((node) => !node.completed);
-    const completedNodes = (this.deliveryNodes || []).filter((node) => node.completed);
+    activeNodes.forEach((node) => {
+      if (typeof node.updateProgressVisuals === 'function') {
+        node.updateProgressVisuals();
+      }
+    });
     if (this.scrapText) {
-      this.scrapText.setText(`${completedNodes.length}/${this.deliveryNodes?.length || 0}`);
+      this.scrapText.setText(`${this.getRemainingSourceResources()}`);
     }
     if (this.moneyText) {
       this.moneyText.setText(`$${this.money}`);
     }
     if (this.contractText) {
       const visibleNodes = activeNodes.slice(0, 3);
-      const lines =
+      const quotaLine = `Quota ${Math.min(this.roundScore || 0, this.roundQuota || 0)}/${this.roundQuota || 0}`;
+      const outputLines =
         activeNodes.length > 0
           ? [
               ...visibleNodes.map((node) => node.getHudLabel()),
               activeNodes.length > visibleNodes.length
                 ? `+${activeNodes.length - visibleNodes.length} more`
                 : null,
-            ]
-              .filter(Boolean)
-              .join('\n')
-          : 'All deliveries filled';
+            ].filter(Boolean)
+          : ['No outputs'];
+      const lines = [quotaLine, ...outputLines].join('\n');
       this.contractText.setText(lines);
     }
     if (this.nextDemandText) {
@@ -5747,23 +5853,26 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.contractTimerText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.contractTimerText.setText(`Build: ${activeNodes.length} nodes ready`);
+        this.contractTimerText.setText(`Stock ${this.getRemainingSourceResources()}`);
         this.contractTimerText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
-        const elapsedSeconds = Math.max(
-          0,
-          ((this.time?.now || 0) - (this.roundStartedAt || 0)) / 1000
-        );
-        const hurryRemaining = Math.ceil((GAME_CONFIG.roundNodeParSeconds || 55) - elapsedSeconds);
-        if (hurryRemaining > 0) {
-          this.contractTimerText.setText(`Hurry +20%: ${hurryRemaining}s`);
-          this.contractTimerText.setColor(hurryRemaining <= 10 ? '#ffd166' : '#88ccff');
-        } else {
-          this.contractTimerText.setText(`Clear all nodes`);
+        if (this.getRemainingSourceResources() > 0) {
+          this.contractTimerText.setText(`Stock ${this.getRemainingSourceResources()}`);
           this.contractTimerText.setColor('#88ccff');
+        } else if (this.roundExhaustionStartedAt) {
+          const graceMs = GAME_CONFIG.roundExhaustionGraceMs || 4500;
+          const remaining = Math.max(
+            0,
+            graceMs - ((this.time?.now || 0) - this.roundExhaustionStartedAt)
+          );
+          this.contractTimerText.setText(`Dry ${Math.ceil(remaining / 1000)}s`);
+          this.contractTimerText.setColor('#ff8888');
+        } else {
+          this.contractTimerText.setText('Stock dry');
+          this.contractTimerText.setColor('#ff8888');
         }
       } else {
-        this.contractTimerText.setText(`Clear all nodes to advance`);
+        this.contractTimerText.setText(`Quota ${this.roundScore || 0}/${this.roundQuota || 0}`);
         this.contractTimerText.setColor('#88ccff');
       }
     }
@@ -5878,6 +5987,8 @@ export default class GameScene extends Phaser.Scene {
   startRound(round = this.currentRound, options = {}) {
     this.currentRound = round;
     this.roundClearing = false;
+    this.roundExhaustionStartedAt = null;
+    this.buildRound();
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
     this.createInitialResourceNodes();
     if (this.machineFactory) {
@@ -5982,12 +6093,16 @@ export default class GameScene extends Phaser.Scene {
     this.addMoney(clearBonus, 'round clear');
     this.showRoundClearFeedback();
 
-    const entitiesToClear = this.deliveryNodes?.length || 0;
+    const entitiesToClear =
+      (this.machines?.length || 0) +
+      (this.resourceNodes?.length || 0) +
+      (this.deliveryNodes?.length || 0);
     this.time.delayedCall(650, () => {
       this.clearPlacedItems({
         salvage: false,
-        clearMachines: false,
-        clearResources: false,
+        clearMachines: true,
+        clearResources: true,
+        clearDeliveries: true,
         clearUpgrade: false,
       });
       const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
@@ -6019,6 +6134,33 @@ export default class GameScene extends Phaser.Scene {
       scaleY: 1.2,
       alpha: 0,
       duration: 1200,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  showResourceExhaustedFeedback() {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, 'RESOURCES EXHAUSTED', {
+        fontFamily: 'Arial Black',
+        fontSize: 30,
+        color: '#ff8888',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.shake(220, 0.006);
+
+    this.tweens.add({
+      targets: text,
+      scaleX: 1.12,
+      scaleY: 1.12,
+      alpha: 0,
+      duration: 1300,
       ease: 'Power2',
       onComplete: () => text.destroy(),
     });

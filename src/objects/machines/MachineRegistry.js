@@ -1,13 +1,7 @@
 import ConveyorMachine from './ConveyorMachine';
 // import ExtractorMachine from './ExtractorMachine';
-import ProcessorAMachine from './ProcessorAMachine';
-import ProcessorBMachine from './ProcessorBMachine';
-import AdvancedProcessorMachine from './AdvancedProcessorMachine';
-import ProcessorCMachine from './ProcessorCMachine';
-import ProcessorDMachine from './ProcessorDMachine';
-import ProcessorEMachine from './ProcessorEMachine';
-import AdvancedProcessor1Machine from './AdvancedProcessor1Machine';
-import AdvancedProcessor2Machine from './AdvancedProcessor2Machine';
+import ProcessingPieceMachine from './ProcessingPieceMachine';
+import { getProcessingPieceBodies } from '../../config/pieceBodies';
 import SplitterMachine from './SplitterMachine';
 import MergerMachine from './MergerMachine';
 import UndergroundBeltMachine from './UndergroundBeltMachine';
@@ -28,14 +22,9 @@ export default class MachineRegistry {
     // Register built-in machine types
     this.registerMachineType('conveyor', ConveyorMachine);
     // this.registerMachineType('extractor', ExtractorMachine);
-    this.registerMachineType('processor-a', ProcessorAMachine);
-    this.registerMachineType('processor-b', ProcessorBMachine);
-    this.registerMachineType('advanced-processor', AdvancedProcessorMachine);
-    this.registerMachineType('processor-c', ProcessorCMachine);
-    this.registerMachineType('processor-d', ProcessorDMachine);
-    this.registerMachineType('processor-e', ProcessorEMachine);
-    this.registerMachineType('advanced-processor-1', AdvancedProcessor1Machine);
-    this.registerMachineType('advanced-processor-2', AdvancedProcessor2Machine);
+    for (const body of getProcessingPieceBodies()) {
+      this.registerMachineType(body.id, ProcessingPieceMachine.forBody(body.id));
+    }
     this.registerMachineType('splitter', SplitterMachine);
     this.registerMachineType('merger', MergerMachine);
     this.registerMachineType('underground-belt', UndergroundBeltMachine);
