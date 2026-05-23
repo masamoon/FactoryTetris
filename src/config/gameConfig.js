@@ -292,7 +292,6 @@ export const GAME_CONFIG = {
   shopRerollCost: 2,
   shopSourceLifespan: 180,
   yellowScorePerScrap: 120,
-  objectivesPerBonusUpgrade: 3,
 
   // Round / economy loop
   startingMoney: 45,
@@ -313,11 +312,6 @@ export const GAME_CONFIG = {
     advancedProcessor: 12,
   },
   machineRefundRate: 0.5,
-
-  // Milestone upgrade system (banked choices that the player can open when ready)
-  firstUpgradeScore: 300,
-  upgradeMilestoneInterval: 650,
-  upgradeMilestoneGrowth: 225,
 
   // --- REMOVED CLEAR FACTORY COOLDOWN CONFIG ---
   initialClearCooldown: 60000, // 1 minute

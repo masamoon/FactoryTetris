@@ -31,19 +31,11 @@ export default class GameScene extends Phaser.Scene {
     this.gameTime = 0; // in seconds
     this.gameOver = false;
     this.paused = false;
-    this.lastUpgradeMilestone = 0; // Track last milestone for upgrade triggers
-    this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
-    this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
-    this.pendingUpgradeChoices = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
-    this.currentObjective = null;
-    this.objectiveIndex = 0;
     this.currentRound = 1;
     this.money = GAME_CONFIG.startingMoney || 45;
     this.roundClearing = false;
-
-    this.objectiveCompletionsSinceUpgrade = 0;
 
     // Skip mechanic state
     this.skipCount = 3; // Maximum 3 skips per game
@@ -191,16 +183,9 @@ export default class GameScene extends Phaser.Scene {
     this.roundSurvived = false;
     this.highestDeliveredTierThisRound = 0;
     this.highestDeliveredTierThisEra = 0;
-    this.lastUpgradeMilestone = 0; // Reset milestone tracking
-    this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
-    this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
-    this.pendingUpgradeChoices = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
-    this.objectiveCompletionsSinceUpgrade = 0;
-    this.objectiveIndex = 0;
 
-    this.startNextObjective();
     this.startRound(1, { buildPhase: true });
 
     // Play background music
@@ -403,27 +388,12 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     this.nextDemandText.setDepth(3);
 
-    this.createHudPanel(contentX, 224, contentWidth, 58, 0x10191a, 0x2c5d4d);
-    this.createSectionLabel(contentX + 10, 234, 'GOAL');
-    this.objectiveText = this.add
-      .text(contentX + 12, 254, '', {
-        fontFamily: 'Arial',
-        fontSize: 12,
-        color: '#9dffdc',
-        align: 'left',
-        lineSpacing: 2,
-        wordWrap: { width: contentWidth - 24 },
-      })
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0);
-    this.objectiveText.setDepth(3);
-
     this.transcendButton = null;
 
-    this.createHudPanel(contentX, 294, contentWidth, 58, 0x15151b, 0x3f3d55);
-    this.createSectionLabel(contentX + 10, 304, 'UPGRADES');
+    this.createHudPanel(contentX, 224, contentWidth, 78, 0x15151b, 0x3f3d55);
+    this.createSectionLabel(contentX + 10, 234, 'UPGRADES');
     this.activeUpgradesText = this.add
-      .text(contentX + 12, 326, 'None', {
+      .text(contentX + 12, 268, 'None', {
         fontFamily: 'Arial',
         fontSize: 12,
         color: '#dfefff',
@@ -2190,148 +2160,6 @@ export default class GameScene extends Phaser.Scene {
     return 1;
   }
 
-  getObjectiveTemplates() {
-    return [
-      {
-        id: 'linkedPlacement',
-        label: 'Link 3 new placements',
-        target: 3,
-      },
-      {
-        id: 'deliverTier',
-        label: 'Deliver L3+ resource',
-        target: 3,
-        usesMaxValue: true,
-      },
-      {
-        id: 'roundScore',
-        label: 'Reach half quota',
-        target: Math.max(1, Math.floor((this.roundQuota || GAME_CONFIG.roundBaseQuota || 450) / 2)),
-        usesMaxValue: true,
-      },
-    ];
-  }
-
-  startNextObjective() {
-    const templates = this.getObjectiveTemplates();
-    if (templates.length === 0) return;
-
-    const template = templates[this.objectiveIndex % templates.length];
-    this.objectiveIndex++;
-    this.currentObjective = {
-      ...template,
-      progress: 0,
-    };
-    this.updateObjectiveText();
-  }
-
-  updateObjectiveText() {
-    if (!this.objectiveText || !this.currentObjective) return;
-
-    const objective = this.currentObjective;
-    const progress = Math.min(objective.progress, objective.target);
-    this.objectiveText.setText(`${objective.label}\n${progress}/${objective.target}`);
-  }
-
-  recordObjectiveProgress(type, amount = 1) {
-    const objective = this.currentObjective;
-    if (!objective || objective.id !== type) return;
-
-    if (objective.usesMaxValue) {
-      objective.progress = Math.max(objective.progress, amount);
-    } else {
-      objective.progress += amount;
-    }
-
-    if (objective.progress >= objective.target) {
-      this.completeObjective();
-    } else {
-      this.updateObjectiveText();
-    }
-  }
-
-  completeObjective() {
-    if (!this.currentObjective) return;
-
-    const completedLabel = this.currentObjective.label;
-    this.currentObjective = null;
-    this.objectiveCompletionsSinceUpgrade++;
-    if (this.objectiveCompletionsSinceUpgrade >= (GAME_CONFIG.objectivesPerBonusUpgrade || 3)) {
-      this.objectiveCompletionsSinceUpgrade = 0;
-      this.queueUpgradeChoice();
-    }
-    this.showObjectiveCompleteFeedback(completedLabel);
-    this.startNextObjective();
-  }
-
-  showObjectiveCompleteFeedback(label) {
-    const text = this.add
-      .text(this.scale.width - this.rightPanelWidth - 20, 110, `Goal complete\n${label}`, {
-        fontFamily: 'Arial Black',
-        fontSize: 16,
-        color: '#88ffcc',
-        align: 'right',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-    text.setDepth(1000);
-    this.addToUI(text);
-
-    this.tweens.add({
-      targets: text,
-      y: 82,
-      alpha: 0,
-      duration: 1100,
-      ease: 'Power2',
-      onComplete: () => text.destroy(),
-    });
-  }
-
-  queueUpgradeChoice() {
-    this.pendingUpgradeChoices++;
-    this.updateUpgradeReadyButton();
-    this.showUpgradeReadyFeedback();
-  }
-
-  advanceNextUpgradeMilestone() {
-    this.lastUpgradeMilestone = this.nextUpgradeScore;
-    this.nextUpgradeScore += this.upgradeMilestoneStep;
-    this.upgradeMilestoneStep += GAME_CONFIG.upgradeMilestoneGrowth || 225;
-  }
-
-  updateUpgradeReadyButton() {
-    // Banked/milestone upgrade UI removed (Task 6); safe no-op for any
-    // lingering callers. Boons are the sole reward cadence now.
-    return;
-  }
-
-  showUpgradeReadyFeedback() {
-    const text = this.add
-      .text(this.scale.width - this.rightPanelWidth - 20, 76, 'Upgrade ready', {
-        fontFamily: 'Arial Black',
-        fontSize: 18,
-        color: '#ffd966',
-        align: 'right',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-    text.setDepth(1000);
-    this.addToUI(text);
-
-    this.tweens.add({
-      targets: text,
-      y: 48,
-      alpha: 0,
-      duration: 900,
-      ease: 'Power2',
-      onComplete: () => text.destroy(),
-    });
-  }
-
   addScore(points, options = {}) {
     if (this.gameOver) return 0; // Don't add score if game is over
 
@@ -2356,7 +2184,6 @@ export default class GameScene extends Phaser.Scene {
     if (this.contract) {
       this.contract.delivered = this.roundScore;
     }
-    this.recordObjectiveProgress('roundScore', this.roundScore);
     this.updateRoundUI();
 
     if (this.roundScore >= this.roundQuota) {
@@ -4148,15 +3975,12 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    this.recordObjectiveProgress('deliverTier', tier);
-
     const machineUids = Array.isArray(itemData.machineUids) ? itemData.machineUids : [];
     for (const uid of machineUids) {
       const info = this.recentFlowPlacements.get(uid);
       if (!info || info.rewarded || info.expiresAt < this.time.now) continue;
 
       info.rewarded = true;
-      this.recordObjectiveProgress('linkedPlacement', 1);
       this.showProcessorReplacementFeedback(`Line online\nL${tier} shipped`);
       break;
     }
@@ -4455,12 +4279,6 @@ export default class GameScene extends Phaser.Scene {
       machineObj.placementCost = placementCost;
       this.addMoney(-placementCost, machineObj.id);
 
-      const connectionCount = this.countNewMachineConnections(machineObj, gridX, gridY, direction);
-      if (!isRepositionedMachine) {
-        if (connectionCount > 0) {
-          this.recordObjectiveProgress('linkedPlacement', 1);
-        }
-      }
       if (replacementInfo) {
         this.applyProcessorReplacementCost(replacementInfo);
       }
@@ -6114,7 +5932,7 @@ export default class GameScene extends Phaser.Scene {
 
     console.log('Showing Upgrade Screen for level up...');
     this.isPausedForUpgrade = true;
-    this.consumingBankedUpgrade = this.pendingUpgradeChoices > 0;
+    this.consumingBankedUpgrade = false;
 
     // Pause timers
     this.gameTimer.paused = true;

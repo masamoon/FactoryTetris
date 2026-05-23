@@ -226,7 +226,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   const currentEra = scene?.currentEra || 1;
 
   // Build configs array. Recipes are operation-driven now; eras still matter
-  // through scoring/objectives, not through a deterministic recipe ladder.
+  // through scoring and board demands, not through a deterministic recipe ladder.
   let configs = getDraftConfigPool(scene, getConfigsForBlockCount(blockCount));
 
   if (forcedArithmeticOperation) {
