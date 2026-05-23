@@ -43,24 +43,11 @@ export default class GameScene extends Phaser.Scene {
     this.money = GAME_CONFIG.startingMoney || 45;
     this.roundClearing = false;
 
-    // Momentum state
-    this.currentMomentum = 0;
-    this.maxMomentum = 100; // Example max value
-    this.baseMomentumDecayRate = 0.85; // Base decay rate per second
-    this.momentumGainFactor = 0.12;
-    this.comboThreshold = 90;
-    this.comboMultiplier = 2; // 2x score multiplier when in combo mode
-    this.lastDeliveryScoreTime = 0;
-    this.deliveryStreak = 0;
-    this.flowSurgeActive = false;
-    this.flowSurgeRemaining = 0;
-    this.flowSurgeGraceRemaining = 0;
     this.objectiveCompletionsSinceUpgrade = 0;
 
     // Skip mechanic state
     this.skipCount = 3; // Maximum 3 skips per game
     this.skipPointPenalty = 100; // Points deducted when skipping
-    this.skipMomentumPenalty = 10; // Percentage of momentum lost when skipping
 
     // Initialize collections
     this.resourceNodes = [];
@@ -115,7 +102,6 @@ export default class GameScene extends Phaser.Scene {
     this.deliveryHistoryWindow = 30000; // Track deliveries over last 30 seconds
     this.recentFlowPlacements = new Map();
     this.flowPlacementRewardWindow = 18000;
-    this.flowSurgeDeliveries = 0;
 
     // === CHIP PLACEMENT MODE ===
     this.isPlacingChip = false; // Flag for when player is choosing chip placement
@@ -192,14 +178,6 @@ export default class GameScene extends Phaser.Scene {
     // Delivery/resource nodes are now spawned by round setup, not a timer.
     this.nodeSpawnTimer = null;
 
-    // Setup difficulty timer
-    this.difficultyTimer = this.time.addEvent({
-      delay: 30000, // 30 seconds
-      callback: this.updateDifficulty,
-      callbackScope: this,
-      loop: true,
-    });
-
     // Initialize game state
     this.score = 0;
     this.gameTime = 0;
@@ -216,36 +194,14 @@ export default class GameScene extends Phaser.Scene {
     this.pendingUpgradeChoices = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
-    this.deliveryStreak = 0;
-    this.lastDeliveryScoreTime = 0;
-    this.flowSurgeActive = false;
-    this.flowSurgeRemaining = 0;
-    this.flowSurgeGraceRemaining = 0;
     this.objectiveCompletionsSinceUpgrade = 0;
     this.objectiveIndex = 0;
 
-    this.currentMomentum = GAME_CONFIG.startingMomentum || 40;
     this.startNextObjective();
     this.startRound(1, { buildPhase: true });
 
     // Play background music
     this.playBackgroundMusic();
-
-    // Momentum UI - MOVED TO updateMomentumUI optimization
-    this.momentumBarBg = this.add.graphics();
-    this.momentumBar = this.add.graphics();
-    // Labels created in createUI or here?
-    // Let's create them here but position them relative to right panel in updateMomentumUI
-    // actually better to init them here.
-
-    // Background for the bar
-    this.momentumBarBg.setScrollFactor(0);
-    this.momentumBar.setScrollFactor(0);
-    this.momentumBarBg.setDepth(2);
-    this.momentumBar.setDepth(2);
-
-    // Initial Momentus UI Update will handle positioning
-    this.updateMomentumUI();
 
     // Legacy upgrade-package trigger removed (Task 6): boons are the sole
     // reward cadence (1 Contract = 1 boon). No listener binds
@@ -280,23 +236,10 @@ export default class GameScene extends Phaser.Scene {
     if (this.runState === 'BUILD_PHASE') {
       this.machineFactory.update();
       this.deliveryNodes.forEach((node) => node.update(time, delta));
-      this.updateMomentumUI();
       this.cleanupRecentFlowPlacements();
       return;
     }
 
-    // --- Momentum Decay ---
-    const deltaTimeSeconds = delta / 1000;
-    // Score/time-based decay keeps the tempo rising as the run gets richer.
-    const scoreFactor = 1 + (this.score / 1000) * 0.08;
-    const timePressureFactor = 1 + Math.max(0, this.gameTime - 45) / 240;
-    const effectiveDecayRate = this.baseMomentumDecayRate * scoreFactor;
-    this.currentMomentum -= effectiveDecayRate * timePressureFactor * deltaTimeSeconds;
-    this.currentMomentum = Math.max(0, this.currentMomentum); // Clamp at 0
-
-    // --- Update Momentum UI ---
-    this.updateFlowSurge(delta);
-    this.updateMomentumUI();
     this.cleanupRecentFlowPlacements();
 
     // Update all game objects
@@ -457,53 +400,10 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     this.nextDemandText.setDepth(3);
 
-    this.createHudPanel(contentX, 224, contentWidth, 66, 0x101722, 0x315f65);
-    this.momentumLabel = this.add
-      .text(contentX + 10, 234, 'MOMENTUM', {
-        fontFamily: 'Arial Black',
-        fontSize: 11,
-        color: '#b7cbd6',
-        align: 'left',
-      })
-      .setOrigin(0, 0.5)
-      .setScrollFactor(0);
-    this.momentumLabel.setDepth(3);
-    this.momentumBarLayout = {
-      x: contentX + 12,
-      y: 252,
-      width: contentWidth - 24,
-      height: 18,
-    };
-    this.momentumValueText = this.add
-      .text(centerX, this.momentumBarLayout.y + this.momentumBarLayout.height / 2, '', {
-        fontFamily: 'Arial',
-        fontSize: 12,
-        color: '#ffffff',
-        align: 'center',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0);
-    this.momentumValueText.setDepth(10);
-
-    this.flowSurgeText = this.add
-      .text(contentX + contentWidth - 10, 234, '', {
-        fontFamily: 'Arial Black',
-        fontSize: 11,
-        color: '#ffd966',
-        align: 'right',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-    this.flowSurgeText.setDepth(3);
-
-    this.createHudPanel(contentX, 302, contentWidth, 58, 0x10191a, 0x2c5d4d);
-    this.createSectionLabel(contentX + 10, 312, 'GOAL');
+    this.createHudPanel(contentX, 224, contentWidth, 58, 0x10191a, 0x2c5d4d);
+    this.createSectionLabel(contentX + 10, 234, 'GOAL');
     this.objectiveText = this.add
-      .text(contentX + 12, 332, '', {
+      .text(contentX + 12, 254, '', {
         fontFamily: 'Arial',
         fontSize: 12,
         color: '#9dffdc',
@@ -517,10 +417,10 @@ export default class GameScene extends Phaser.Scene {
 
     this.transcendButton = null;
 
-    this.createHudPanel(contentX, 372, contentWidth, 58, 0x15151b, 0x3f3d55);
-    this.createSectionLabel(contentX + 10, 382, 'UPGRADES');
+    this.createHudPanel(contentX, 294, contentWidth, 58, 0x15151b, 0x3f3d55);
+    this.createSectionLabel(contentX + 10, 304, 'UPGRADES');
     this.activeUpgradesText = this.add
-      .text(contentX + 12, 404, 'None', {
+      .text(contentX + 12, 326, 'None', {
         fontFamily: 'Arial',
         fontSize: 12,
         color: '#dfefff',
@@ -2256,221 +2156,10 @@ export default class GameScene extends Phaser.Scene {
     if (this.timeText) {
       this.timeText.setText(`TIME: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`);
     }
-
-    // REMOVED: Game end condition based on time limit
-    // if (this.gameTime >= GAME_CONFIG.gameTimeLimit) {
-
-    // Keep difficulty update based on time for now? Or move to round advance?
-    // Let's keep the timer-based difficulty for now, can adjust later.
-    // this.updateDifficulty(); // Called by its own timer
-  }
-
-  updateDifficulty() {
-    // Score-based difficulty scaling (replaces level-based)
-    const scoreThousands = Math.floor(this.score / 1000);
-
-    let newNodeSpawnDelay = GAME_CONFIG.nodeSpawnRate; // Default
-
-    if (scoreThousands >= 2 && scoreThousands < 5) {
-      newNodeSpawnDelay *= 0.8; // Faster spawns after 2000 points
-    } else if (scoreThousands >= 5) {
-      newNodeSpawnDelay *= 0.6; // Even faster spawns after 5000 points
-    }
-
-    // Apply changes (only if different to avoid resetting timer unnecessarily)
-    if (this.nodeSpawnTimer && this.nodeSpawnTimer.delay !== newNodeSpawnDelay) {
-      // Add validity check before applying
-      if (!isNaN(newNodeSpawnDelay) && newNodeSpawnDelay > 0 && isFinite(newNodeSpawnDelay)) {
-        this.nodeSpawnTimer.delay = newNodeSpawnDelay;
-      }
-    }
-  }
-
-  awardMomentum(amount, reason = '') {
-    if (!amount || amount <= 0 || this.gameOver) return;
-
-    const wasBelowSurge = this.currentMomentum < this.comboThreshold;
-    this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum + amount, 0, this.maxMomentum);
-
-    if (reason && amount >= 3) {
-      this.showMomentumFeedback(amount, reason);
-    }
-
-    if (wasBelowSurge && this.currentMomentum >= this.comboThreshold) {
-      this.startFlowSurge();
-    }
-
-    if (this.currentMomentum >= this.comboThreshold) {
-      this.recordObjectiveProgress('combo', 1);
-    }
-  }
-
-  startFlowSurge() {
-    let duration = GAME_CONFIG.flowSurgeDuration || 12000;
-    if (
-      this.upgradeManager &&
-      this.upgradeManager.isProceduralUpgradeActive('boon_surge_foundry')
-    ) {
-      duration += 5000;
-    }
-    const wasActive = this.flowSurgeActive;
-    this.flowSurgeActive = true;
-    this.flowSurgeRemaining = duration;
-    this.flowSurgeDeliveries = 0;
-    this.updateFlowSurgeText();
-
-    if (!wasActive) {
-      this.showFlowSurgeFeedback();
-      this.cameras.main.flash(160, 255, 220, 80, true);
-    }
-  }
-
-  grantDeliveryNodeSurge(duration = GAME_CONFIG.deliveryNodeFlowSurgeDuration || 4200) {
-    if (!duration || duration <= 0) return;
-
-    const wasActive = this.flowSurgeActive;
-    this.flowSurgeActive = true;
-    this.flowSurgeRemaining = Math.max(this.flowSurgeRemaining || 0, duration);
-    this.flowSurgeGraceRemaining = Math.max(this.flowSurgeGraceRemaining || 0, duration);
-    this.updateFlowSurgeText();
-
-    if (!wasActive) {
-      this.showFlowSurgeFeedback('NODE SURGE');
-    }
-  }
-
-  updateFlowSurge(delta) {
-    if (!this.flowSurgeActive) {
-      this.updateFlowSurgeText();
-      return;
-    }
-
-    this.flowSurgeRemaining -= delta;
-    this.flowSurgeGraceRemaining = Math.max(0, (this.flowSurgeGraceRemaining || 0) - delta);
-    if (
-      this.flowSurgeRemaining <= 0 ||
-      (this.flowSurgeGraceRemaining <= 0 && this.currentMomentum < this.comboThreshold * 0.65)
-    ) {
-      this.flowSurgeActive = false;
-      this.flowSurgeRemaining = 0;
-      this.flowSurgeGraceRemaining = 0;
-    }
-    this.updateFlowSurgeText();
-  }
-
-  updateFlowSurgeText() {
-    if (!this.flowSurgeText) return;
-    if (!this.flowSurgeActive) {
-      this.flowSurgeText.setText('');
-      return;
-    }
-
-    const seconds = Math.ceil(this.flowSurgeRemaining / 1000);
-    this.flowSurgeText.setText(`FLOW SURGE ${seconds}s  SHIP ${this.flowSurgeDeliveries}`);
   }
 
   getFlowSpeedMultiplier() {
-    return this.flowSurgeActive ? GAME_CONFIG.flowSurgeSpeedMultiplier || 1.35 : 1;
-  }
-
-  showFlowSurgeFeedback(label = 'FLOW SURGE') {
-    const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 96, label, {
-        fontFamily: 'Arial Black',
-        fontSize: 34,
-        color: '#ffd966',
-        align: 'center',
-        stroke: '#000000',
-        strokeThickness: 6,
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0);
-    text.setDepth(1000);
-    this.addToUI(text);
-
-    this.tweens.add({
-      targets: text,
-      scaleX: 1.25,
-      scaleY: 1.25,
-      alpha: 0,
-      duration: 900,
-      ease: 'Power2',
-      onComplete: () => text.destroy(),
-    });
-  }
-
-  showMomentumFeedback(amount, reason) {
-    const signedAmount = amount > 0 ? `+${amount.toFixed(1)}` : amount.toFixed(1);
-    const text = this.add
-      .text(this.scale.width - this.rightPanelWidth - 20, 44, `+${amount.toFixed(1)} ${reason}`, {
-        fontFamily: 'Arial',
-        fontSize: 13,
-        color: amount >= 0 ? '#88ffcc' : '#ff8888',
-        align: 'right',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0);
-    text.setDepth(1000);
-    this.addToUI(text);
-
-    text.setText(`${signedAmount} ${reason}`);
-
-    this.tweens.add({
-      targets: text,
-      y: 20,
-      alpha: 0,
-      duration: 700,
-      ease: 'Power2',
-      onComplete: () => text.destroy(),
-    });
-  }
-
-  updateDeliveryStreak() {
-    const now = this.time.now;
-    const streakWindow = GAME_CONFIG.deliveryStreakWindow || 4000;
-
-    if (this.lastDeliveryScoreTime && now - this.lastDeliveryScoreTime <= streakWindow) {
-      this.deliveryStreak++;
-    } else {
-      this.deliveryStreak = 1;
-    }
-
-    this.lastDeliveryScoreTime = now;
-
-    const streakGain = Math.min(
-      GAME_CONFIG.maxDeliveryStreakMomentumGain || 8,
-      this.deliveryStreak * (GAME_CONFIG.deliveryStreakMomentumGain || 0.75)
-    );
-    this.awardMomentum(
-      streakGain,
-      this.deliveryStreak >= 3 ? `streak x${this.deliveryStreak}` : ''
-    );
-    this.recordObjectiveProgress('deliveryStreak', this.deliveryStreak);
-  }
-
-  registerSurgeDelivery() {
-    if (!this.flowSurgeActive) return 0;
-
-    this.flowSurgeDeliveries++;
-    this.flowSurgeRemaining = Math.min(
-      this.flowSurgeRemaining + (GAME_CONFIG.flowSurgeDeliveryExtension || 900),
-      (GAME_CONFIG.flowSurgeMaxDuration || 18000) +
-        (this.upgradeManager?.isProceduralUpgradeActive('boon_surge_foundry') ? 5000 : 0)
-    );
-    this.recordObjectiveProgress('surgeShipment', 1);
-    this.updateFlowSurgeText();
-
-    if (
-      this.upgradeManager &&
-      this.upgradeManager.isProceduralUpgradeActive('boon_surge_foundry') &&
-      this.flowSurgeDeliveries % 3 === 0
-    ) {
-      return (GAME_CONFIG.flowSurgeContractBonusCredit || 1) + 1;
-    }
-
-    return GAME_CONFIG.flowSurgeContractBonusCredit || 1;
+    return 1;
   }
 
   getObjectiveTemplates() {
@@ -2481,20 +2170,16 @@ export default class GameScene extends Phaser.Scene {
         target: 3,
       },
       {
-        id: 'deliveryStreak',
-        label: 'Hit delivery streak x4',
-        target: 4,
+        id: 'deliverTier',
+        label: 'Deliver L3+ resource',
+        target: 3,
         usesMaxValue: true,
       },
       {
-        id: 'combo',
-        label: 'Reach combo momentum',
-        target: 1,
-      },
-      {
-        id: 'surgeShipment',
-        label: 'Ship during Flow Surge x2',
-        target: 2,
+        id: 'roundScore',
+        label: 'Reach half quota',
+        target: Math.max(1, Math.floor((this.roundQuota || GAME_CONFIG.roundBaseQuota || 450) / 2)),
+        usesMaxValue: true,
       },
     ];
   }
@@ -2542,7 +2227,6 @@ export default class GameScene extends Phaser.Scene {
 
     const completedLabel = this.currentObjective.label;
     this.currentObjective = null;
-    this.awardMomentum(GAME_CONFIG.objectiveMomentumReward || 14, 'goal');
     this.objectiveCompletionsSinceUpgrade++;
     if (this.objectiveCompletionsSinceUpgrade >= (GAME_CONFIG.objectivesPerBonusUpgrade || 3)) {
       this.objectiveCompletionsSinceUpgrade = 0;
@@ -2625,58 +2309,12 @@ export default class GameScene extends Phaser.Scene {
 
     const countsForFlow = options.countsForFlow !== false;
 
-    if (countsForFlow) {
-      this.updateDeliveryStreak();
-    }
-
-    // Check for combo bonus (momentum > 90%)
-    let comboActive = countsForFlow && this.currentMomentum >= this.comboThreshold;
-    let effectivePoints = points;
-
-    if (comboActive) {
-      effectivePoints = points * this.comboMultiplier;
-      console.log(`COMBO x${this.comboMultiplier}! ${points} → ${effectivePoints} points`);
-    }
+    const effectivePoints = Math.max(0, Math.floor(points || 0));
 
     this.score += effectivePoints;
     this.updateScoreText();
     if (countsForFlow) {
       this.addRoundScore(effectivePoints);
-    }
-
-    // Increase Momentum only for deliveries that count toward the active scoring round.
-    if (countsForFlow) {
-      this.awardMomentum(points * this.momentumGainFactor);
-    }
-
-    // Show visual feedback for combo
-    if (comboActive) {
-      // Create a combo text effect
-      const comboText = this.add
-        .text(
-          this.cameras.main.width * 0.5,
-          this.cameras.main.height * 0.35,
-          `COMBO x${this.comboMultiplier}!`,
-          {
-            fontFamily: 'Arial Black',
-            fontSize: 32,
-            color: '#ffff00',
-            stroke: '#000000',
-            strokeThickness: 4,
-            align: 'center',
-          }
-        )
-        .setOrigin(0.5);
-
-      // Add an effect to the combo text
-      this.tweens.add({
-        targets: comboText,
-        scale: { from: 0.5, to: 1.5 },
-        alpha: { from: 1, to: 0 },
-        duration: 800,
-        ease: 'Power2',
-        onComplete: () => comboText.destroy(),
-      });
     }
 
     this.refreshRunWideHud();
@@ -2690,6 +2328,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.contract) {
       this.contract.delivered = this.roundScore;
     }
+    this.recordObjectiveProgress('roundScore', this.roundScore);
     this.updateRoundUI();
 
     if (this.roundScore >= this.roundQuota) {
@@ -2819,12 +2458,6 @@ export default class GameScene extends Phaser.Scene {
     return Math.round(base * Math.pow(growth, Math.max(0, round - 1)) + flatGrowth * (round - 1));
   }
 
-  getRoundTimeBudget(round = this.currentRound) {
-    const base = GAME_CONFIG.roundTimeBudget || 75;
-    const growth = GAME_CONFIG.roundTimeGrowth || 4;
-    return Math.round(base + growth * Math.max(0, round - 1));
-  }
-
   buildRound() {
     const round = this.currentRound;
     this.roundScore = 0;
@@ -2836,7 +2469,6 @@ export default class GameScene extends Phaser.Scene {
       title: 'Score Quota',
       requiredTier: null,
       quantity: this.roundQuota,
-      timeBudget: this.getRoundTimeBudget(round),
       delivered: 0,
       demands: [],
       requiredRouteTag: null,
@@ -2915,52 +2547,6 @@ export default class GameScene extends Phaser.Scene {
       title: 'Precision Shipment',
       demands: [{ tier: requiredTier, quantity, delivered: 0, exact: true }],
     };
-  }
-
-  startRoundTimer() {
-    this.beginActiveRound();
-  }
-
-  startContractTimer() {
-    this.startRoundTimer();
-  }
-
-  onRoundTimeout() {
-    if (this.runState !== 'ROUND_ACTIVE') return;
-
-    if (!this.roundSurvived) {
-      this.runState = 'RUN_OVER';
-      console.log('[ROUND] Quota missed - run over');
-      this.endGame();
-      return;
-    }
-
-    this.finishSurvivedRound();
-  }
-
-  onContractTimeout() {
-    if (this.runState !== 'ROUND_ACTIVE') return;
-    this.runState = 'RUN_OVER';
-    console.log('[CONTRACT] Time expired — run over');
-    this.endGame();
-  }
-
-  // Returns remaining seconds on the active contract (0 if none / paused done)
-  getContractTimeRemaining() {
-    if (!this.roundTimerEvent) return this.contract ? this.contract.timeBudget : 0;
-    const remMs = this.roundTimerEvent.getRemaining();
-    return Math.max(0, remMs / 1000);
-  }
-
-  // Called by DeliveryNode for every level/purity delivery.
-  onContractDelivery(tier, _itemData = null) {
-    if (this.runState !== 'ROUND_ACTIVE' || !this.contract) return;
-
-    this.contractDeliveryCount++;
-
-    if (this.flowSurgeActive) {
-      this.registerSurgeDelivery();
-    }
   }
 
   updateContractHud() {
@@ -3534,12 +3120,6 @@ export default class GameScene extends Phaser.Scene {
       this.machineFactory.displayCurrentProcessorPreview();
     }
 
-    const momentumRefill = Math.max(0, 65 - this.currentMomentum);
-    this.currentMomentum = Math.max(this.currentMomentum, 65);
-    if (momentumRefill > 0) {
-      this.showMomentumFeedback(momentumRefill, `Era ${this.currentEra} online`);
-    }
-
     console.log(`[TRANSCEND] Transcendence complete! Now in Era ${this.currentEra}`);
   }
 
@@ -3691,11 +3271,11 @@ export default class GameScene extends Phaser.Scene {
 
   /**
    * Skip the current piece selection and refresh with new pieces.
-   * Applies point and momentum penalties.
+   * Applies point penalties.
    */
   /**
    * Skip the current piece selection and refresh with new pieces.
-   * Applies point and momentum penalties.
+   * Applies point penalties.
    */
   skipCurrentPiece() {
     // Unlimited skips, just check if game is over
@@ -3706,11 +3286,6 @@ export default class GameScene extends Phaser.Scene {
     // Apply point penalty
     this.score = Math.max(0, this.score - this.skipPointPenalty);
     this.updateScoreText();
-
-    // Apply momentum penalty (as percentage)
-    const momentumLoss = this.maxMomentum * (this.skipMomentumPenalty / 100);
-    this.currentMomentum = Math.max(0, this.currentMomentum - momentumLoss);
-    this.updateMomentumUI();
 
     // Show penalty feedback
     this.showSkipPenaltyFeedback();
@@ -3734,19 +3309,14 @@ export default class GameScene extends Phaser.Scene {
 
     // Create penalty text
     const penaltyText = this.add
-      .text(
-        width * 0.5,
-        height * 0.3,
-        `-${this.skipPointPenalty} pts\n-${this.skipMomentumPenalty}% momentum`,
-        {
-          fontFamily: 'Arial',
-          fontSize: 24,
-          color: '#ff4444',
-          align: 'center',
-          stroke: '#000000',
-          strokeThickness: 3,
-        }
-      )
+      .text(width * 0.5, height * 0.3, `-${this.skipPointPenalty} pts`, {
+        fontFamily: 'Arial',
+        fontSize: 24,
+        color: '#ff4444',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
       .setOrigin(0.5);
     penaltyText.setDepth(100);
 
@@ -3768,7 +3338,7 @@ export default class GameScene extends Phaser.Scene {
     if (!this.skipButton) return;
 
     // Update text to show cost instead of count
-    this.skipButton.text.setText(`SKIP (-${this.skipMomentumPenalty}%)`);
+    this.skipButton.text.setText(`SKIP (-${this.skipPointPenalty} pts)`);
 
     // Button is always enabled unless game over
     this.skipButton.button.fillColor = 0x884400;
@@ -4451,12 +4021,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   applyProcessorReplacementCost(replacementInfo) {
-    const cost = GAME_CONFIG.processorReplacementMomentumCost || 0;
-    if (cost > 0) {
-      this.currentMomentum = Phaser.Math.Clamp(this.currentMomentum - cost, 0, this.maxMomentum);
-      this.showMomentumFeedback(-cost, 'rewire');
-    }
-
     const message = replacementInfo?.flushesInventory
       ? 'Processor replaced\nInventory flushed'
       : replacementInfo?.preservesTrait
@@ -4522,13 +4086,14 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    this.recordObjectiveProgress('deliverTier', tier);
+
     const machineUids = Array.isArray(itemData.machineUids) ? itemData.machineUids : [];
     for (const uid of machineUids) {
       const info = this.recentFlowPlacements.get(uid);
       if (!info || info.rewarded || info.expiresAt < this.time.now) continue;
 
       info.rewarded = true;
-      this.awardMomentum(GAME_CONFIG.flowOnlineMomentumReward || 8, 'line online');
       this.recordObjectiveProgress('linkedPlacement', 1);
       this.showProcessorReplacementFeedback(`Line online\nL${tier} shipped`);
       break;
@@ -4830,12 +4395,6 @@ export default class GameScene extends Phaser.Scene {
 
       const connectionCount = this.countNewMachineConnections(machineObj, gridX, gridY, direction);
       if (!isRepositionedMachine) {
-        const placementGain = GAME_CONFIG.placementMomentumGain || 2;
-        const connectionGain = (GAME_CONFIG.connectionMomentumGain || 3) * connectionCount;
-        this.awardMomentum(
-          placementGain + connectionGain,
-          connectionCount > 0 ? `link x${connectionCount}` : ''
-        );
         if (connectionCount > 0) {
           this.recordObjectiveProgress('linkedPlacement', 1);
         }
@@ -5627,74 +5186,6 @@ export default class GameScene extends Phaser.Scene {
     console.log('Factory clear initiated. Selected items will disintegrate.');
   }
 
-  updateMomentumUI() {
-    this.momentumBar.clear();
-    this.momentumBarBg.clear();
-
-    const percentage = Phaser.Math.Clamp(this.currentMomentum / this.maxMomentum, 0, 1);
-
-    const panelX = this.scale.width - this.rightPanelWidth;
-    const centerX = panelX + this.rightPanelWidth / 2;
-    const layout = this.momentumBarLayout || {
-      x: centerX - this.rightPanelWidth * 0.4,
-      y: 252,
-      width: this.rightPanelWidth * 0.8,
-      height: 18,
-    };
-    const barX = layout.x;
-    const barY = layout.y;
-    const barWidth = layout.width;
-    const barHeight = layout.height;
-
-    // Draw Background
-    this.momentumBarBg.fillStyle(0x25313c, 1);
-    this.momentumBarBg.fillRect(barX, barY, barWidth, barHeight);
-    this.momentumBarBg.lineStyle(1, 0x4a6575, 0.85);
-    this.momentumBarBg.strokeRect(barX, barY, barWidth, barHeight);
-
-    // Determine color based on percentage (Green -> Yellow -> Red)
-    let color;
-    if (percentage > 0.6) {
-      color = 0x00ff00; // Green
-    } else if (percentage > 0.25) {
-      color = 0xffff00; // Yellow
-    } else {
-      color = 0xff0000; // Red
-    }
-
-    // Special effect for combo threshold
-    if (percentage >= this.comboThreshold / 100) {
-      // Use a pulsing gold color for combo mode
-      const pulseValue = 0.7 + 0.3 * Math.sin(this.time.now / 100);
-      color = Phaser.Display.Color.GetColor(
-        255, // Red
-        215 * pulseValue, // Pulsing gold
-        0 // Blue
-      );
-
-      // Draw a golden glow around the bar
-      this.momentumBar.lineStyle(3, 0xffdd00, 0.7);
-      this.momentumBar.strokeRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4);
-    }
-
-    this.momentumBar.fillStyle(color, 1);
-    this.momentumBar.fillRect(barX, barY, barWidth * percentage, barHeight);
-    this.momentumBar.fillStyle(0xffffff, 0.18);
-    this.momentumBar.fillRect(barX, barY, barWidth * percentage, Math.max(2, barHeight * 0.35));
-
-    // Update the momentum value text
-    if (this.momentumValueText) {
-      // Reposition text to be centered on bar
-      this.momentumValueText.setPosition(centerX, barY + barHeight / 2);
-
-      let text = `${Math.round(this.currentMomentum)} / ${this.maxMomentum}`;
-      if (percentage >= this.comboThreshold / 100) {
-        text = `${text} COMBO!`;
-      }
-      this.momentumValueText.setText(text);
-    }
-  }
-
   refreshRunWideHud() {
     if (!this.traitRegistry) return;
 
@@ -6061,23 +5552,13 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getDeliveryNodePayout(node) {
-    const basePayout = node?.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
-    const elapsedSeconds = Math.max(0, ((this.time?.now || 0) - (this.roundStartedAt || 0)) / 1000);
-    const parSeconds = GAME_CONFIG.roundNodeParSeconds || 55;
-    const hurryBonus =
-      this.runState === 'ROUND_ACTIVE' && elapsedSeconds <= parSeconds
-        ? Math.max(2, Math.ceil(basePayout * 0.2))
-        : 0;
-    return basePayout + hurryBonus;
+    return node?.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
   }
 
   onDeliveryNodeCompleted(node) {
     if (!node || this.roundClearing) return;
-    const basePayout = node.condition?.payout || GAME_CONFIG.deliveryNodeBasePayout || 18;
     const totalPayout = this.getDeliveryNodePayout(node);
-    this.addMoney(totalPayout, totalPayout > basePayout ? 'delivery hurry' : 'delivery');
-    this.awardMomentum(GAME_CONFIG.deliveryNodeMomentumReward || 14, 'node clear');
-    this.grantDeliveryNodeSurge();
+    this.addMoney(totalPayout, 'delivery');
     this.updateRoundUI();
 
     if (this.deliveryNodes.length > 0 && this.deliveryNodes.every((n) => n.completed)) {

@@ -394,10 +394,7 @@ export default class DeliveryNode {
         basePoints: totalPoints,
         multiplier: awardedPoints / Math.max(1, totalPoints),
         itemColor: traitBreakdown.itemColor,
-        labels:
-          awardedPoints > reward.points
-            ? [...traitBreakdown.labels, 'Combo']
-            : traitBreakdown.labels,
+        labels: traitBreakdown.labels,
       });
 
       console.log(
@@ -441,14 +438,8 @@ export default class DeliveryNode {
         itemColor: traitBreakdown.itemColor,
         labels:
           chainMultiplier > 1
-            ? [
-                `Chain x${this.formatMultiplier(chainMultiplier)}`,
-                ...traitBreakdown.labels,
-                ...(awardedPoints > reward.points ? ['Combo'] : []),
-              ]
-            : awardedPoints > reward.points
-              ? [...traitBreakdown.labels, 'Combo']
-              : traitBreakdown.labels,
+            ? [`Chain x${this.formatMultiplier(chainMultiplier)}`, ...traitBreakdown.labels]
+            : traitBreakdown.labels,
       });
 
       console.log(

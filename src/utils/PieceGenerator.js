@@ -133,7 +133,7 @@ export function generatePieceOptions(scene, count = 3) {
  * @param {Array<object>} configs - Available configurations
  * @param {Set<number>} producibleLevels - Currently producible levels
  * @param {number} currentEra - The current game era (default 1)
- * @param {object} scene - The game scene, used for active contract pressure
+ * @param {object} scene - The game scene, used for active round context
  * @returns {object} Selected configuration
  */
 function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene = null) {

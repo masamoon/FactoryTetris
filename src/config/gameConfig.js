@@ -276,13 +276,7 @@ export const GAME_CONFIG = {
     'mega-resource': 300, // Corresponds to points in resourceTypes
   },
 
-  // Pacing / flow-state tuning
-  startingMomentum: 40,
-  placementMomentumGain: 2,
-  connectionMomentumGain: 3,
-  deliveryStreakWindow: 4000,
-  deliveryStreakMomentumGain: 0.75,
-  maxDeliveryStreakMomentumGain: 8,
+  // Round / resource pacing
   offContractScoreMultiplier: 0.25,
   roundBaseQuota: 450,
   roundQuotaGrowth: 1.55,
@@ -292,9 +286,6 @@ export const GAME_CONFIG = {
   roundSourceInventoryGrowth: 5,
   roundSourceInventoryVariance: 3,
   roundExhaustionGraceMs: 4500,
-  roundTimeBudget: 75,
-  roundTimeGrowth: 4,
-  roundClearMomentumReward: 18,
   roundsPerEraGate: 3,
   starterDraftRounds: 1,
   shopRoundClearScrap: 6,
@@ -302,27 +293,16 @@ export const GAME_CONFIG = {
   shopRerollCost: 2,
   shopSourceLifespan: 180,
   yellowScorePerScrap: 120,
-  objectiveMomentumReward: 14,
   objectivesPerBonusUpgrade: 3,
-  flowSurgeDuration: 12000,
-  flowSurgeSpeedMultiplier: 1.35,
-  flowSurgeDeliveryExtension: 900,
-  flowSurgeMaxDuration: 18000,
-  flowSurgeContractBonusCredit: 1,
-  flowOnlineMomentumReward: 8,
-  processorReplacementMomentumCost: 6,
 
   // Round / economy loop
   startingMoney: 45,
   roundBaseMoney: 28,
   roundMoneyGrowth: 8,
   roundClearBonus: 18,
-  roundNodeParSeconds: 55,
   deliveryNodeBasePayout: 18,
   deliveryNodePayoutPerTier: 7,
   deliveryNodePayoutPerItem: 3,
-  deliveryNodeMomentumReward: 14,
-  deliveryNodeFlowSurgeDuration: 4200,
   maxDeliveryNodesPerRound: 7,
   machinePlacementCosts: {
     conveyor: 1,

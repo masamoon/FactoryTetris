@@ -29,14 +29,9 @@ export const BOON_POOL = [
   {
     id: 'boon_bulk_contracts',
     name: 'Bulk Contracts',
-    description: 'Volume run: Contracts need 20% fewer units, but give 15% less time.',
+    description:
+      'Volume run: quota rounds have 20% lower score thresholds, but source stock is tighter.',
     rarity: 'rare',
-  },
-  {
-    id: 'boon_momentum_engine',
-    name: 'Momentum Engine',
-    description: 'Surge run: while momentum is at combo level, Contracts fill 20% faster.',
-    rarity: 'common',
   },
   {
     id: 'boon_junction_jubilee',
@@ -49,13 +44,6 @@ export const BOON_POOL = [
     id: 'boon_recipe_lattice',
     name: 'Recipe Lattice',
     description: 'Ratio run: mixed or duplicate-input processors work 25% faster.',
-    rarity: 'common',
-  },
-  {
-    id: 'boon_surge_foundry',
-    name: 'Surge Foundry',
-    description:
-      'Burst run: Flow Surge lasts longer and every 3rd surge shipment gets +1 Contract credit.',
     rarity: 'common',
   },
 ];
