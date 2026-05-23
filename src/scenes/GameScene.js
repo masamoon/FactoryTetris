@@ -102,6 +102,8 @@ export default class GameScene extends Phaser.Scene {
     this.deliveryHistoryWindow = 30000; // Track deliveries over last 30 seconds
     this.recentFlowPlacements = new Map();
     this.flowPlacementRewardWindow = 18000;
+    this.currentRoundBoard = null;
+    this.roundBoardBlockers = [];
 
     // === CHIP PLACEMENT MODE ===
     this.isPlacingChip = false; // Flag for when player is choosing chip placement
@@ -187,7 +189,6 @@ export default class GameScene extends Phaser.Scene {
     this.roundSurvived = false;
     this.highestDeliveredTierThisRound = 0;
     this.highestDeliveredTierThisEra = 0;
-    this.buildRound();
     this.lastUpgradeMilestone = 0; // Reset milestone tracking
     this.nextUpgradeScore = GAME_CONFIG.firstUpgradeScore || 300;
     this.upgradeMilestoneStep = GAME_CONFIG.upgradeMilestoneInterval || 650;
@@ -1992,6 +1993,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const starterLaneY = Math.floor(this.grid.height / 2);
+    const board = this.currentRoundBoard || this.createRoundBoard(this.currentRound);
     const targetResourceNodeCount = Math.min(
       this.grid.height,
       (GAME_CONFIG.initialNodeCount || 3) + Math.floor((this.currentRound - 1) / 2)
@@ -2017,8 +2019,9 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     for (let i = existingResourceCount; i < targetResourceNodeCount; i++) {
+      const preferredY = this.getPreferredRoundRow(board.sourceRows, i, targetResourceNodeCount);
       this.spawnResourceNode(
-        i === 0 ? starterLaneY : null,
+        i === 0 && !board.sourceRows?.length ? starterLaneY : preferredY,
         0,
         GAME_CONFIG.nodeLifespan,
         sourceColorCycle[i % sourceColorCycle.length],
@@ -2033,8 +2036,7 @@ export default class GameScene extends Phaser.Scene {
 
     const deliveryNodeCount = this.getDeliveryNodeCountForRound(this.currentRound);
     for (let i = 0; i < deliveryNodeCount; i++) {
-      const preferredY =
-        i === 0 ? starterLaneY : Math.floor(((i + 1) * this.grid.height) / (deliveryNodeCount + 1));
+      const preferredY = this.getPreferredRoundRow(board.deliveryRows, i, deliveryNodeCount);
       this.spawnDeliveryNode(this.createDeliveryCondition(this.currentRound, i), preferredY);
     }
   }
@@ -5232,6 +5234,135 @@ export default class GameScene extends Phaser.Scene {
     return Math.min(maxNodes, 3 + Math.floor(Math.max(0, round - 3) / 2));
   }
 
+  createRoundBoard(round = this.currentRound) {
+    const width = this.grid?.width || GRID_CONFIG.width;
+    const height = this.grid?.height || GRID_CONFIG.height;
+    const midX = Math.floor(width / 2);
+    const midY = Math.floor(height / 2);
+    const clampRow = (row) => Phaser.Math.Clamp(row, 0, height - 1);
+    const uniqueRows = (rows) => [...new Set(rows.map(clampRow))];
+    const blockers = [];
+    const addBlocker = (x, y) => {
+      if (x <= 0 || x >= width - 1 || y < 0 || y >= height) return;
+      const key = `${x},${y}`;
+      if (blockers.some((cell) => `${cell.x},${cell.y}` === key)) return;
+      blockers.push({ x, y });
+    };
+
+    if (round <= 1) {
+      return {
+        id: 'open-floor',
+        round,
+        name: 'Open Floor',
+        description: 'Starter layout with a direct center lane.',
+        sourceRows: [midY],
+        deliveryRows: [midY],
+        blockers,
+      };
+    }
+
+    const variant = (round - 2) % 3;
+    if (variant === 0) {
+      const gateX = midX;
+      for (let x = 2; x < width - 2; x++) {
+        if (Math.abs(x - gateX) <= 1) continue;
+        addBlocker(x, midY);
+      }
+      return {
+        id: 'split-lanes',
+        round,
+        name: 'Split Lanes',
+        description: 'A center divider leaves one gate between upper and lower lanes.',
+        sourceRows: uniqueRows([midY - 2, midY + 2]),
+        deliveryRows: uniqueRows([midY - 2, midY + 2]),
+        blockers,
+      };
+    }
+
+    if (variant === 1) {
+      const gateRows = new Set(uniqueRows([2, height - 3]));
+      for (let y = 1; y < height - 1; y++) {
+        if (gateRows.has(y)) continue;
+        addBlocker(midX, y);
+      }
+      return {
+        id: 'crossflow-gate',
+        round,
+        name: 'Crossflow Gate',
+        description: 'A vertical baffle forces routing through two offset gates.',
+        sourceRows: uniqueRows([2, height - 3]),
+        deliveryRows: uniqueRows([height - 3, 2]),
+        blockers,
+      };
+    }
+
+    for (const centerY of uniqueRows([midY - 2, midY + 2])) {
+      addBlocker(midX - 1, centerY);
+      addBlocker(midX, centerY);
+      addBlocker(midX - 1, centerY + 1);
+      addBlocker(midX, centerY + 1);
+    }
+    return {
+      id: 'factory-islands',
+      round,
+      name: 'Factory Islands',
+      description: 'Two dead zones break up the middle and reward edge routing.',
+      sourceRows: uniqueRows([1, height - 2, midY]),
+      deliveryRows: uniqueRows([midY, 1, height - 2]),
+      blockers,
+    };
+  }
+
+  clearRoundBoard() {
+    if (!this.grid || !Array.isArray(this.roundBoardBlockers)) return;
+
+    for (const blocker of this.roundBoardBlockers) {
+      const cell = this.grid.getCell(blocker.x, blocker.y);
+      if (cell?.type === 'board-blocker') {
+        this.grid.setCell(blocker.x, blocker.y, { type: 'empty' });
+      }
+    }
+    this.roundBoardBlockers = [];
+    this.currentRoundBoard = null;
+  }
+
+  applyRoundBoard(round = this.currentRound) {
+    this.clearRoundBoard();
+    const board = this.createRoundBoard(round);
+    this.currentRoundBoard = board;
+    this.roundBoardBlockers = board.blockers || [];
+
+    for (const blocker of this.roundBoardBlockers) {
+      const cell = this.grid.getCell(blocker.x, blocker.y);
+      if (cell?.type === 'empty') {
+        this.grid.setCell(blocker.x, blocker.y, {
+          type: 'board-blocker',
+          boardId: board.id,
+          color: 0x273847,
+          borderColor: 0x8fb7c9,
+        });
+      }
+    }
+
+    this.grid.drawGrid();
+    return board;
+  }
+
+  getRoundBoardSummary(round = this.currentRound) {
+    const board =
+      this.currentRoundBoard && this.currentRoundBoard.round === round
+        ? this.currentRoundBoard
+        : this.createRoundBoard(round);
+    return board.name;
+  }
+
+  getPreferredRoundRow(rows = [], index = 0, total = 1) {
+    if (Array.isArray(rows) && rows.length > 0) {
+      return rows[index % rows.length];
+    }
+    return Math.floor(((index + 1) * this.grid.height) / (total + 1));
+  }
+
   createDeliveryCondition(round, index) {
     const tier = round <= 2 ? 2 : Math.min(6, 2 + Math.floor((round - 3 + Math.max(0, index)) / 2));
     const exact = round >= 3 && index % 2 === 0;
@@ -5312,6 +5443,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.contractText) {
       const visibleNodes = activeNodes.slice(0, 3);
       const quotaLine = `Quota ${Math.min(this.roundScore || 0, this.roundQuota || 0)}/${this.roundQuota || 0}`;
+      const boardLine = this.currentRoundBoard ? `Board ${this.currentRoundBoard.name}` : null;
       const outputLines =
         activeNodes.length > 0
           ? [
@@ -5321,23 +5453,23 @@ export default class GameScene extends Phaser.Scene {
                 : null,
             ].filter(Boolean)
           : ['No outputs'];
-      const lines = [quotaLine, ...outputLines].join('\n');
+      const lines = [quotaLine, boardLine, ...outputLines].filter(Boolean).join('\n');
       this.contractText.setText(lines);
     }
     if (this.nextDemandText) {
       if (this.runState === 'BUILD_PHASE') {
         this.nextDemandText.setText(
-          `PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
+          `${this.getRoundBoardSummary(this.currentRound)} | PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
         );
         this.nextDemandText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         this.nextDemandText.setText(
-          `NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `${this.getRoundBoardSummary(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       } else {
         this.nextDemandText.setText(
-          `NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `${this.getRoundBoardSummary(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       }
@@ -5479,6 +5611,7 @@ export default class GameScene extends Phaser.Scene {
     this.currentRound = round;
     this.roundClearing = false;
     this.roundExhaustionStartedAt = null;
+    this.applyRoundBoard(round);
     this.buildRound();
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
     this.createInitialResourceNodes();
@@ -5503,14 +5636,19 @@ export default class GameScene extends Phaser.Scene {
 
   showBuildPhaseFeedback(round) {
     const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 78, `BUILD R${round}`, {
-        fontFamily: 'Arial Black',
-        fontSize: 32,
-        color: '#88ffcc',
-        align: 'center',
-        stroke: '#000000',
-        strokeThickness: 6,
-      })
+      .text(
+        this.scale.width / 2 - this.rightPanelWidth / 2,
+        78,
+        `BUILD R${round}\n${this.getRoundBoardSummary(round)}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 26,
+          color: '#88ffcc',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 6,
+        }
+      )
       .setOrigin(0.5)
       .setScrollFactor(0);
     text.setDepth(1000);
@@ -5528,14 +5666,19 @@ export default class GameScene extends Phaser.Scene {
 
   showRoundStartFeedback(round) {
     const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 78, `ROUND ${round}`, {
-        fontFamily: 'Arial Black',
-        fontSize: 32,
-        color: '#ffffff',
-        align: 'center',
-        stroke: '#000000',
-        strokeThickness: 6,
-      })
+      .text(
+        this.scale.width / 2 - this.rightPanelWidth / 2,
+        78,
+        `ROUND ${round}\n${this.getRoundBoardSummary(round)}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 26,
+          color: '#ffffff',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 6,
+        }
+      )
       .setOrigin(0.5)
       .setScrollFactor(0);
     text.setDepth(1000);

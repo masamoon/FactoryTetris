@@ -76,6 +76,13 @@ export default class Grid {
           // Machine cells are drawn by the machine objects
         } else if (cell && cell.type === 'node') {
           // Resource nodes are drawn by the node objects
+        } else if (cell && cell.type === 'board-blocker') {
+          const cellX = startX + x * this.cellSize + 1;
+          const cellY = startY + y * this.cellSize + 1;
+          this.graphics.fillStyle(cell.color || 0x263542, 0.95);
+          this.graphics.fillRect(cellX, cellY, this.cellSize - 2, this.cellSize - 2);
+          this.graphics.lineStyle(1, cell.borderColor || 0x88a6bb, 0.75);
+          this.graphics.strokeRect(cellX + 2, cellY + 2, this.cellSize - 6, this.cellSize - 6);
         } else {
           // Empty cell
           this.graphics.fillStyle(0x1a2e3b, 0.5);

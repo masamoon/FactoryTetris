@@ -43,6 +43,13 @@ cross the score threshold before the board runs dry.
 
 ## Board Features
 
+Current implementation starts with four deterministic board templates:
+
+- Open Floor: starter center lane with no blockers.
+- Split Lanes: horizontal divider with a center gate.
+- Crossflow Gate: vertical baffle with offset gates.
+- Factory Islands: central blocked islands that reward edge routing.
+
 Start with a small board feature set that creates meaningful decisions without
 requiring a full content system immediately:
 
