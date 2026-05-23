@@ -5,7 +5,7 @@ import { MACHINE_COLORS } from './machines/BaseMachine';
 import { assignLevelsToShape } from '../utils/PieceGenerator';
 import { getTraitById, getTraitBandColor } from '../config/traits';
 import { ARITHMETIC_OPERATION_TYPES } from '../config/resourceLevels';
-import { createPieceDeckForRound } from '../config/pieceDeck';
+import { createPieceDeckForRound, getPieceDeckEntryById } from '../config/pieceDeck';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -31,6 +31,7 @@ export default class MachineFactory {
     this.availableProcessors = []; // Array of currently available processor types (one per slot)
     this.processorDeck = [];
     this.processorDiscard = [];
+    this.bonusPieceCards = [];
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
@@ -210,10 +211,13 @@ export default class MachineFactory {
   }
 
   buildProcessorDeck() {
-    this.processorDeck = createPieceDeckForRound(
-      this.scene?.currentRound || 1,
-      GAME_CONFIG.starterDraftRounds || 1
-    );
+    this.processorDeck = [
+      ...createPieceDeckForRound(
+        this.scene?.currentRound || 1,
+        GAME_CONFIG.starterDraftRounds || 1
+      ),
+      ...this.bonusPieceCards,
+    ];
     this.shuffleProcessorDeck();
     this.processorDiscard = [];
   }
@@ -243,13 +247,22 @@ export default class MachineFactory {
   }
 
   // Populate all processor slots with named pieces from the deck.
-  refreshProcessorHand() {
+  refreshProcessorHand(options = {}) {
     if (this.processorTypes.length === 0) {
       this.availableProcessors = [];
       return;
     }
 
-    this.buildProcessorDeck();
+    const rebuildDeck = options.rebuildDeck !== false;
+    if (rebuildDeck) {
+      this.buildProcessorDeck();
+    } else if (options.discardCurrentHand) {
+      for (const processor of this.availableProcessors) {
+        if (processor?.pieceCard) {
+          this.processorDiscard.push(processor.pieceCard);
+        }
+      }
+    }
     this.availableProcessors = [];
 
     for (let i = 0; i < this.numProcessorSlots; i++) {
@@ -267,7 +280,7 @@ export default class MachineFactory {
   }
 
   refreshAvailableProcessors() {
-    this.refreshProcessorHand();
+    this.refreshProcessorHand({ rebuildDeck: true });
   }
 
   // Populate logistics slots
@@ -451,8 +464,31 @@ export default class MachineFactory {
   }
 
   rerollProcessorDrafts() {
-    this.refreshAvailableProcessors();
+    this.refreshProcessorHand({ rebuildDeck: false, discardCurrentHand: true });
     this.displayCurrentProcessorPreview();
+  }
+
+  addPieceCardToRunDeck(pieceId) {
+    const template = getPieceDeckEntryById(pieceId);
+    if (!template) return null;
+
+    const card = {
+      ...template,
+      copies: 1,
+      instanceId: `${template.id}-reward-${this.bonusPieceCards.length + 1}`,
+    };
+    this.bonusPieceCards.push(card);
+    this.processorDiscard.push(card);
+    this.displayCurrentProcessorPreview();
+    return card;
+  }
+
+  getDeckCounts() {
+    return {
+      deck: this.processorDeck.length,
+      discard: this.processorDiscard.length,
+      bonus: this.bonusPieceCards.length,
+    };
   }
 
   markTraitIntroducedIfVisible() {
@@ -521,6 +557,17 @@ export default class MachineFactory {
     if (this.conveyorMachineType) {
       this.addMachinePreviewToPanel(this.conveyorMachineType, conveyorX, conveyorY, -1, 'conveyor');
     }
+
+    const counts = this.getDeckCounts();
+    const deckText = this.scene.add
+      .text(0, this.height / 2 - 20, `Deck ${counts.deck}  Discard ${counts.discard}`, {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: '#b7cbd6',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    this.processorPreviewContainer.add(deckText);
   }
 
   /**

@@ -277,7 +277,6 @@ export const GAME_CONFIG = {
   },
 
   // Round / resource pacing
-  offContractScoreMultiplier: 0.25,
   roundBaseQuota: 450,
   roundQuotaGrowth: 1.55,
   roundQuotaFlatGrowth: 180,

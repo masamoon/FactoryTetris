@@ -11,7 +11,7 @@ export const BOON_POOL = [
   {
     id: 'boon_every_fifth',
     name: 'Every Fifth Counts',
-    description: 'Delivery-cadence run: every 5th delivery toward a Contract counts double.',
+    description: 'Delivery-cadence run: every 5th scoring delivery is worth double.',
     rarity: 'common',
   },
   {
@@ -28,7 +28,7 @@ export const BOON_POOL = [
   },
   {
     id: 'boon_bulk_contracts',
-    name: 'Bulk Contracts',
+    name: 'Lean Quotas',
     description:
       'Volume run: quota rounds have 20% lower score thresholds, but source stock is tighter.',
     rarity: 'rare',
@@ -37,7 +37,7 @@ export const BOON_POOL = [
     id: 'boon_junction_jubilee',
     name: 'Junction Jubilee',
     description:
-      'Junction run: deliveries routed through splitters, mergers, or underground belts get +1 Contract credit.',
+      'Junction run: deliveries routed through splitters, mergers, or underground belts score 25% more.',
     rarity: 'rare',
   },
   {

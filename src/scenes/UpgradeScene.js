@@ -36,7 +36,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Add title
     let titleText = this.isBoon
-      ? 'Choose a Boon'
+      ? 'Choose a Run Boon'
       : this.isShop
         ? 'Scrap Shop'
         : this.isLevelUp
@@ -95,10 +95,10 @@ export class UpgradeScene extends Phaser.Scene {
     }
 
     // Display choices
-    const buttonYStart = this.isShop ? 205 : 200;
-    const buttonYStep = this.isShop ? 92 : 120;
+    const buttonYStart = this.isShop ? 155 : 200;
+    const buttonYStep = this.isShop ? 72 : 120;
     const buttonWidth = 400;
-    const buttonHeight = this.isShop ? 76 : 100;
+    const buttonHeight = this.isShop ? 62 : 100;
 
     this.upgradeChoices.forEach((choice, index) => {
       const y = buttonYStart + index * buttonYStep;
@@ -119,7 +119,7 @@ export class UpgradeScene extends Phaser.Scene {
       : `${kindText}${choice.name}${costText}\n${choice.description}`;
     const text = this.add
       .text(x, y, textContent, {
-        fontSize: '18px',
+        fontSize: this.isShop ? '15px' : '18px',
         fill: '#ffffff',
         align: 'center',
         wordWrap: { width: width - 20 },

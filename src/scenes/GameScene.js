@@ -95,7 +95,8 @@ export default class GameScene extends Phaser.Scene {
     this.highestDeliveredTierThisEra = 0;
     this.contract = null; // legacy HUD/modifier shell; replaced by round quota loop
     this.contractTimerEvent = null; // legacy alias for older pause code paths
-    this.contractDeliveryCount = 0; // for "Every Fifth Counts" boon tally
+    this.roundDeliveryCount = 0;
+    this.contractDeliveryCount = 0; // legacy alias for older code paths
     this.canTranscend = false; // Flag when transcendence conditions are met
     this.transcendButtonPulse = null; // Tween reference for pulsing button
     this.deliveryHistory = []; // Track recent delivery timestamps for throughput calculation
@@ -104,6 +105,7 @@ export default class GameScene extends Phaser.Scene {
     this.flowPlacementRewardWindow = 18000;
     this.currentRoundBoard = null;
     this.roundBoardBlockers = [];
+    this.pendingBonusSourceColors = [];
 
     // === CHIP PLACEMENT MODE ===
     this.isPlacingChip = false; // Flag for when player is choosing chip placement
@@ -2039,6 +2041,30 @@ export default class GameScene extends Phaser.Scene {
       const preferredY = this.getPreferredRoundRow(board.deliveryRows, i, deliveryNodeCount);
       this.spawnDeliveryNode(this.createDeliveryCondition(this.currentRound, i), preferredY);
     }
+
+    const bonusSources = [...(this.pendingBonusSourceColors || [])];
+    this.pendingBonusSourceColors = [];
+    bonusSources.forEach((itemColor, index) => {
+      const preferredY = this.getPreferredRoundRow(
+        board.sourceRows,
+        targetResourceNodeCount + index,
+        targetResourceNodeCount + bonusSources.length
+      );
+      const resourceTypeIndex = GAME_CONFIG.resourceTypes.findIndex(
+        (resourceType) => resourceType.itemColor === itemColor
+      );
+      this.spawnResourceNode(
+        preferredY,
+        resourceTypeIndex === -1 ? 0 : resourceTypeIndex,
+        GAME_CONFIG.nodeLifespan,
+        itemColor,
+        {
+          finiteSource: GAME_CONFIG.finiteResourceRounds ?? true,
+          initialResources: sourceInventory,
+          maxResources: sourceInventory,
+        }
+      );
+    });
   }
 
   normalizeResourceNodeColors(sourceColorCycle = GAME_CONFIG.sourceColorCycle || []) {
@@ -2447,9 +2473,33 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getDeliveryReward(basePoints, tier, _itemData = null) {
+    const countsForFlow = this.runState === 'ROUND_ACTIVE';
+    let points = Math.floor(basePoints);
+
+    if (countsForFlow) {
+      this.roundDeliveryCount = (this.roundDeliveryCount || 0) + 1;
+      this.contractDeliveryCount = this.roundDeliveryCount;
+
+      if (
+        this.upgradeManager?.isProceduralUpgradeActive('boon_every_fifth') &&
+        this.roundDeliveryCount % 5 === 0
+      ) {
+        points *= 2;
+      }
+
+      if (
+        this.upgradeManager?.isProceduralUpgradeActive('boon_junction_jubilee') &&
+        ['splitter', 'merger', 'underground-belt'].some((tag) =>
+          this.getItemRouteTags(_itemData).includes(tag)
+        )
+      ) {
+        points = Math.floor(points * 1.25);
+      }
+    }
+
     return {
-      points: Math.floor(basePoints),
-      countsForFlow: this.runState === 'ROUND_ACTIVE',
+      points,
+      countsForFlow,
     };
   }
 
@@ -2457,7 +2507,16 @@ export default class GameScene extends Phaser.Scene {
     const base = GAME_CONFIG.roundBaseQuota || 450;
     const growth = GAME_CONFIG.roundQuotaGrowth || 1.55;
     const flatGrowth = GAME_CONFIG.roundQuotaFlatGrowth || 180;
-    return Math.round(base * Math.pow(growth, Math.max(0, round - 1)) + flatGrowth * (round - 1));
+    const board = this.currentRoundBoard?.round === round ? this.currentRoundBoard : null;
+    const boardMultiplier = board?.quotaMultiplier || 1;
+    const boonMultiplier = this.upgradeManager?.isProceduralUpgradeActive('boon_bulk_contracts')
+      ? 0.8
+      : 1;
+    return Math.round(
+      (base * Math.pow(growth, Math.max(0, round - 1)) + flatGrowth * (round - 1)) *
+        boardMultiplier *
+        boonMultiplier
+    );
   }
 
   buildRound() {
@@ -2475,6 +2534,7 @@ export default class GameScene extends Phaser.Scene {
       demands: [],
       requiredRouteTag: null,
     };
+    this.roundDeliveryCount = 0;
     this.contractDeliveryCount = 0;
     return this.contract;
   }
@@ -5224,7 +5284,15 @@ export default class GameScene extends Phaser.Scene {
     const growth = GAME_CONFIG.roundSourceInventoryGrowth || 5;
     const variance = GAME_CONFIG.roundSourceInventoryVariance || 0;
     const wave = variance > 0 ? (round % 3) * variance : 0;
-    return Math.max(1, Math.floor(base + Math.max(0, round - 1) * growth + wave));
+    const board = this.currentRoundBoard?.round === round ? this.currentRoundBoard : null;
+    const boardMultiplier = board?.sourceInventoryMultiplier || 1;
+    const boonMultiplier = this.upgradeManager?.isProceduralUpgradeActive('boon_bulk_contracts')
+      ? 0.82
+      : 1;
+    return Math.max(
+      1,
+      Math.floor((base + Math.max(0, round - 1) * growth + wave) * boardMultiplier * boonMultiplier)
+    );
   }
 
   getDeliveryNodeCountForRound(round = this.currentRound) {
@@ -5255,6 +5323,8 @@ export default class GameScene extends Phaser.Scene {
         round,
         name: 'Open Floor',
         description: 'Starter layout with a direct center lane.',
+        quotaMultiplier: 0.9,
+        sourceInventoryMultiplier: 1.1,
         sourceRows: [midY],
         deliveryRows: [midY],
         blockers,
@@ -5273,6 +5343,8 @@ export default class GameScene extends Phaser.Scene {
         round,
         name: 'Split Lanes',
         description: 'A center divider leaves one gate between upper and lower lanes.',
+        quotaMultiplier: 1,
+        sourceInventoryMultiplier: 1,
         sourceRows: uniqueRows([midY - 2, midY + 2]),
         deliveryRows: uniqueRows([midY - 2, midY + 2]),
         blockers,
@@ -5290,6 +5362,8 @@ export default class GameScene extends Phaser.Scene {
         round,
         name: 'Crossflow Gate',
         description: 'A vertical baffle forces routing through two offset gates.',
+        quotaMultiplier: 1.08,
+        sourceInventoryMultiplier: 1.12,
         sourceRows: uniqueRows([2, height - 3]),
         deliveryRows: uniqueRows([height - 3, 2]),
         blockers,
@@ -5307,6 +5381,8 @@ export default class GameScene extends Phaser.Scene {
       round,
       name: 'Factory Islands',
       description: 'Two dead zones break up the middle and reward edge routing.',
+      quotaMultiplier: 1.12,
+      sourceInventoryMultiplier: 1.18,
       sourceRows: uniqueRows([1, height - 2, midY]),
       deliveryRows: uniqueRows([midY, 1, height - 2]),
       blockers,
@@ -5731,7 +5807,9 @@ export default class GameScene extends Phaser.Scene {
       });
       const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
       this.time.delayedCall(nextRoundDelay, () => {
-        this.startRound(this.currentRound + 1, { buildPhase: true });
+        this.awardRoundScrap();
+        this.pendingRoundAdvanceAfterBoon = true;
+        this.showShopScreen();
       });
     });
   }
@@ -6078,20 +6156,29 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getShopChoices() {
-    const boonChoice = this.upgradeManager.getBoonChoices(1)[0];
+    const boonChoices = this.upgradeManager.getBoonChoices(2);
     const choices = [
       {
-        type: 'draft_add_2',
+        type: 'deck_add_2',
         kind: 'Machine',
-        name: '+2 Processor Draft',
-        description: 'Put a usable +2 processor into the first draft slot.',
+        pieceId: 'standard-booster-elbow',
+        name: 'Add Elbow Booster',
+        description: 'Add an Elbow +2 processor card to your piece deck.',
         cost: 5,
       },
       {
-        type: 'yellow_source',
+        type: 'deck_add_mix',
+        kind: 'Machine',
+        pieceId: 'standard-mixer-block',
+        name: 'Add Block Mixer',
+        description: 'Add a Mix processor card to your piece deck.',
+        cost: 6,
+      },
+      {
+        type: 'bonus_yellow_source',
         kind: 'Color',
-        name: 'Add Yellow Source',
-        description: 'Spawn a Yellow source on the left edge. Yellow deliveries earn extra score.',
+        name: 'Next Board Yellow Source',
+        description: 'Add one Yellow source to the next board. Yellow deliveries earn Scrap.',
         cost: 6,
       },
       {
@@ -6103,7 +6190,7 @@ export default class GameScene extends Phaser.Scene {
       },
     ];
 
-    if (boonChoice) {
+    boonChoices.forEach((boonChoice) => {
       choices.push({
         type: 'boon',
         kind: 'Sticker',
@@ -6112,7 +6199,7 @@ export default class GameScene extends Phaser.Scene {
         description: boonChoice.description,
         cost: 7,
       });
-    }
+    });
 
     choices.push({
       type: 'skip_shop',
@@ -6139,11 +6226,12 @@ export default class GameScene extends Phaser.Scene {
 
     let success = true;
     switch (choice.type) {
-      case 'draft_add_2':
-        success = this.machineFactory?.injectAddConstantDraft(2, 0) !== false;
+      case 'deck_add_2':
+      case 'deck_add_mix':
+        success = Boolean(this.machineFactory?.addPieceCardToRunDeck(choice.pieceId));
         break;
-      case 'yellow_source':
-        success = this.spawnShopSource('yellow');
+      case 'bonus_yellow_source':
+        this.pendingBonusSourceColors.push('yellow');
         break;
       case 'reroll_drafts':
         this.machineFactory?.rerollProcessorDrafts();
@@ -6164,16 +6252,6 @@ export default class GameScene extends Phaser.Scene {
 
     this.playSound('upgrade-select');
     return { success: true, closeShop: true };
-  }
-
-  spawnShopSource(itemColor = 'yellow') {
-    const resourceTypeIndex = GAME_CONFIG.resourceTypes.findIndex(
-      (resourceType) => resourceType.itemColor === itemColor
-    );
-    const index = resourceTypeIndex === -1 ? 0 : resourceTypeIndex;
-    return (
-      this.spawnResourceNode(null, index, GAME_CONFIG.shopSourceLifespan || 180, itemColor) !== null
-    );
   }
 
   resumeFromUpgrade() {

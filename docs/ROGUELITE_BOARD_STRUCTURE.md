@@ -21,18 +21,18 @@ Each round should be defined by three generated pieces of state:
 
 - Board: sources, outputs, blockers, bonus tiles, hazards, and preplaced
   fragments.
-- Contract: score threshold, accepted tiers/colors/operations, payout, and
+- Quota: score threshold, accepted tiers/colors/operations, payout, and
   resource-exhaustion fail condition.
 - Draft: available machine pieces, shop offers, rerolls, and optional board
   manipulation tools.
 
 The round flow should become:
 
-1. Generate a board layout and contract.
+1. Generate a board layout and quota.
 2. Enter build phase with production paused.
 3. Let the player place machines using money and draft options.
 4. Start production when the player is ready.
-5. Resolve the contract by turning finite source inventories into enough score.
+5. Resolve the quota by turning finite source inventories into enough score.
 6. Award money and long-term upgrades.
 7. Advance to the next generated board.
 
@@ -49,6 +49,11 @@ Current implementation starts with four deterministic board templates:
 - Split Lanes: horizontal divider with a center gate.
 - Crossflow Gate: vertical baffle with offset gates.
 - Factory Islands: central blocked islands that reward edge routing.
+
+Current between-round rewards now grant Scrap and pause at the shop before the
+next board. Shop purchases can add processor cards to the persistent piece deck,
+reroll the visible draft, add a bonus source to the next board, or buy a run
+boon.
 
 Start with a small board feature set that creates meaningful decisions without
 requiring a full content system immediately:

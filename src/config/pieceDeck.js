@@ -105,6 +105,10 @@ export function createPieceDeckForRound(round = 1, starterRounds = 1) {
   return expandPieceDeck(library);
 }
 
+export function getPieceDeckEntryById(pieceId) {
+  return [...STARTER_PIECE_DECK, ...STANDARD_PIECE_LIBRARY].find((entry) => entry.id === pieceId);
+}
+
 export function expandPieceDeck(library) {
   return library.flatMap((entry) => {
     const copies = Math.max(1, Math.floor(entry.copies || 1));
