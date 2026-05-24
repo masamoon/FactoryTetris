@@ -639,8 +639,8 @@ export default class GameScene extends Phaser.Scene {
 
     const panelX = 14;
     const panelY = 14;
-    const panelWidth = 184;
-    const panelHeight = 126;
+    const panelWidth = 190;
+    const panelHeight = 152;
     const panel = this.add.container(panelX, panelY).setScrollFactor(0);
     panel.setDepth(900);
 
@@ -649,7 +649,7 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0)
       .setStrokeStyle(1, 0x456274, 0.8);
     const accent = this.add.rectangle(0, 0, 5, panelHeight, 0x88ccff, 0.9).setOrigin(0);
-    const title = this.add.text(14, 10, 'TUTORIAL', {
+    const title = this.add.text(14, 10, 'FIRST DELIVERY', {
       fontFamily: 'Arial Black',
       fontSize: 10,
       color: '#88ccff',
@@ -672,13 +672,20 @@ export default class GameScene extends Phaser.Scene {
       fontFamily: 'Arial',
       fontSize: 11,
       color: '#dfefff',
-      lineSpacing: 5,
+      lineSpacing: 4,
       wordWrap: { width: panelWidth - 26 },
     });
-    this.tutorialHintText = this.add.text(14, 104, '', {
+    this.tutorialHintText = this.add.text(14, 82, '', {
+      fontFamily: 'Arial',
+      fontSize: 11,
+      color: '#ffd166',
+      lineSpacing: 3,
+      wordWrap: { width: panelWidth - 26 },
+    });
+    this.tutorialGoalText = this.add.text(14, 132, '', {
       fontFamily: 'Arial',
       fontSize: 10,
-      color: '#ffd166',
+      color: '#95aab5',
       wordWrap: { width: panelWidth - 26 },
     });
 
@@ -689,28 +696,97 @@ export default class GameScene extends Phaser.Scene {
       closeButton,
       this.tutorialStepsText,
       this.tutorialHintText,
+      this.tutorialGoalText,
     ]);
     this.tutorialPanel = panel;
     this.addToUI(panel);
     this.refreshTutorialPanel();
   }
 
+  getTutorialDeliveryTargetLabel() {
+    const deliveryNode =
+      (this.deliveryNodes || []).find((node) => !node.completed) || (this.deliveryNodes || [])[0];
+    if (deliveryNode) {
+      if (typeof deliveryNode.getHudLabel === 'function') return deliveryNode.getHudLabel();
+      if (typeof deliveryNode.getConditionShortLabel === 'function') {
+        return deliveryNode.getConditionShortLabel();
+      }
+      if (deliveryNode.label) return deliveryNode.label;
+    }
+
+    if (typeof this.getRoundPreviewText === 'function') {
+      return this.getRoundPreviewText(this.currentRound || 1, 1);
+    }
+
+    return 'delivery target';
+  }
+
+  isTutorialProcessorMachine(machine) {
+    const id = String(machine?.id || machine?.type || '').toLowerCase();
+    return id.includes('processor') || Boolean(machine?.arithmeticOperation);
+  }
+
+  isTutorialLogisticsMachine(machine) {
+    const id = String(machine?.id || machine?.type || '').toLowerCase();
+    return ['conveyor', 'splitter', 'merger', 'underground-belt', 'painter'].includes(id);
+  }
+
+  getFirstDeliveryTutorialState() {
+    const machines = this.machines || [];
+    const selectedId = String(this.selectedMachineType?.id || '').toLowerCase();
+    const processorPlaced = machines.some((machine) => this.isTutorialProcessorMachine(machine));
+    const logisticsPlaced = machines.some((machine) => this.isTutorialLogisticsMachine(machine));
+    const placed = machines.length > 0;
+    const started = this.runState !== 'BUILD_PHASE';
+    const scored =
+      (this.roundScore || 0) > 0 ||
+      (this.deliveryNodes || []).some((node) => node.completed || (node.deliveredCount || 0) > 0);
+
+    return {
+      picked:
+        Boolean(this.selectedMachineType) ||
+        processorPlaced ||
+        selectedId.includes('processor') ||
+        Boolean(this.selectedMachineType?.arithmeticOperation),
+      placed,
+      processorPlaced,
+      logisticsPlaced,
+      started,
+      scored,
+      target: this.getTutorialDeliveryTargetLabel(),
+    };
+  }
+
   refreshTutorialPanel() {
     if (this.tutorialDismissed || !this.tutorialPanel || !this.tutorialStepsText) return;
 
-    const selected = Boolean(this.selectedMachineType);
-    const placed = (this.machines?.length || 0) > 0;
-    const started = this.runState !== 'BUILD_PHASE';
+    const state = this.getFirstDeliveryTutorialState();
     const marker = (done) => (done ? '[x]' : '[ ]');
+    let hint = `Pick an Operator card from the bottom deck. You need it to raise source ore into ${state.target}.`;
+
+    if (state.scored) {
+      hint = 'First delivery scored. Keep adding operators and belts until the quota is full.';
+    } else if (state.started) {
+      hint = 'Watch the flow. If cargo stalls, use the next build phase to rotate or reroute.';
+    } else if (state.logisticsPlaced) {
+      hint = 'Press START R1 when the source, Operator, belts, and cargo all have a path.';
+    } else if (state.placed) {
+      hint = `Add BELT from source to Operator, then to ${state.target}. Direction arrows matter.`;
+    } else if (state.picked) {
+      hint = 'Place the Operator between a source and the highlighted cargo target.';
+    }
 
     this.tutorialStepsText.setText(
       [
-        `${marker(selected || placed)} Pick a card/tool`,
-        `${marker(placed)} Place it on board`,
-        `${marker(started)} Press START R1`,
+        `${marker(state.picked || state.placed)} Pick  ${marker(state.placed)} Place`,
+        `${marker(state.logisticsPlaced || state.started || state.scored)} Belt  ${marker(
+          state.started || state.scored
+        )} Start`,
+        `${marker(state.scored)} Score cargo`,
       ].join('\n')
     );
-    this.tutorialHintText.setText(placed ? 'Hover cards for details.' : 'Start with an Operator.');
+    this.tutorialHintText.setText(hint);
+    this.tutorialGoalText?.setText(`Target: ${state.target}`);
   }
 
   showPlacementCue(machineType) {
