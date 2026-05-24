@@ -116,6 +116,12 @@ export default class GameScene extends Phaser.Scene {
     this.pendingBonusSourceColors = [];
     this.pendingBoardBlockerRemovals = 0;
     this.pendingBoardBonusTiles = [];
+    this.tutorialDismissed = false;
+    this.tutorialPanel = null;
+    this.placementCue = null;
+    this.placementCueText = null;
+    this.placementHintText = null;
+    this.lastQuotaHudScore = 0;
 
     // === CHIP PLACEMENT MODE ===
     this.isPlacingChip = false; // Flag for when player is choosing chip placement
@@ -216,6 +222,8 @@ export default class GameScene extends Phaser.Scene {
     // DeliveryNode emit is a harmless no-op event with zero listeners.
     // ADD EVENT LISTENER FOR UPGRADE COMPLETION
     this.events.on('upgradeSelected', this.resumeFromUpgrade, this); // Listen for signal from UpgradeScene
+    this.events.on('machineSelected', this.showPlacementCue, this);
+    this.events.on('machineDeselected', this.hidePlacementCue, this);
 
     // Add a toggle button or key for switching input modes
     this.input.keyboard.on('keydown-M', () => {
@@ -241,6 +249,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (this.runState === 'BUILD_PHASE') {
+      this.refreshTutorialPanel();
       this.machineFactory.update();
       this.deliveryNodes.forEach((node) => node.update(time, delta));
       this.cleanupRecentFlowPlacements();
@@ -262,6 +271,7 @@ export default class GameScene extends Phaser.Scene {
     this._roundHudAccum = (this._roundHudAccum || 0) + delta;
     if (this._roundHudAccum >= 500) {
       this.updateRoundUI();
+      this.refreshTutorialPanel();
       this._roundHudAccum = 0;
     }
 
@@ -551,6 +561,7 @@ export default class GameScene extends Phaser.Scene {
     this.updateResetBoardButton();
     this.addToUI(this.draftCycleButton.button);
     this.addToUI(this.draftCycleButton.text);
+    this.createTutorialPanel();
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
@@ -623,6 +634,171 @@ export default class GameScene extends Phaser.Scene {
     return valueText;
   }
 
+  createTutorialPanel() {
+    if (this.tutorialDismissed || this.tutorialPanel) return;
+
+    const panelX = 14;
+    const panelY = 14;
+    const panelWidth = 184;
+    const panelHeight = 126;
+    const panel = this.add.container(panelX, panelY).setScrollFactor(0);
+    panel.setDepth(900);
+
+    const background = this.add
+      .rectangle(0, 0, panelWidth, panelHeight, 0x07111a, 0.86)
+      .setOrigin(0)
+      .setStrokeStyle(1, 0x456274, 0.8);
+    const accent = this.add.rectangle(0, 0, 5, panelHeight, 0x88ccff, 0.9).setOrigin(0);
+    const title = this.add.text(14, 10, 'TUTORIAL', {
+      fontFamily: 'Arial Black',
+      fontSize: 10,
+      color: '#88ccff',
+    });
+    const closeButton = this.add
+      .text(panelWidth - 13, 10, 'X', {
+        fontFamily: 'Arial Black',
+        fontSize: 11,
+        color: '#95aab5',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    closeButton.on('pointerdown', () => {
+      this.tutorialDismissed = true;
+      this.tutorialPanel?.destroy();
+      this.tutorialPanel = null;
+    });
+
+    this.tutorialStepsText = this.add.text(14, 34, '', {
+      fontFamily: 'Arial',
+      fontSize: 11,
+      color: '#dfefff',
+      lineSpacing: 5,
+      wordWrap: { width: panelWidth - 26 },
+    });
+    this.tutorialHintText = this.add.text(14, 104, '', {
+      fontFamily: 'Arial',
+      fontSize: 10,
+      color: '#ffd166',
+      wordWrap: { width: panelWidth - 26 },
+    });
+
+    panel.add([
+      background,
+      accent,
+      title,
+      closeButton,
+      this.tutorialStepsText,
+      this.tutorialHintText,
+    ]);
+    this.tutorialPanel = panel;
+    this.addToUI(panel);
+    this.refreshTutorialPanel();
+  }
+
+  refreshTutorialPanel() {
+    if (this.tutorialDismissed || !this.tutorialPanel || !this.tutorialStepsText) return;
+
+    const selected = Boolean(this.selectedMachineType);
+    const placed = (this.machines?.length || 0) > 0;
+    const started = this.runState !== 'BUILD_PHASE';
+    const marker = (done) => (done ? '[x]' : '[ ]');
+
+    this.tutorialStepsText.setText(
+      [
+        `${marker(selected || placed)} Pick a card/tool`,
+        `${marker(placed)} Place it on board`,
+        `${marker(started)} Press START R1`,
+      ].join('\n')
+    );
+    this.tutorialHintText.setText(placed ? 'Hover cards for details.' : 'Start with an Operator.');
+  }
+
+  showPlacementCue(machineType) {
+    if (!machineType) return;
+
+    if (!this.placementCue) {
+      this.placementCue = this.add.container(0, 0).setScrollFactor(0);
+      this.placementCue.setDepth(11000);
+      const background = this.add
+        .rectangle(0, 0, 178, 28, 0x07111a, 0.9)
+        .setOrigin(0)
+        .setStrokeStyle(1, 0x88ccff, 0.85);
+      this.placementCueText = this.add.text(10, 14, '', {
+        fontFamily: 'Arial Black',
+        fontSize: 11,
+        color: '#dfefff',
+      });
+      this.placementCueText.setOrigin(0, 0.5);
+      this.placementCue.add([background, this.placementCueText]);
+      this.addToUI(this.placementCue);
+    }
+
+    const label =
+      machineType.pieceShortName || machineType.pieceName || machineType.name || machineType.id;
+    this.placementCueText.setText(`PLACING: ${label}`);
+    this.placementCue.setVisible(true);
+    this.updatePlacementCuePosition(this.input?.activePointer);
+    this.refreshTutorialPanel();
+  }
+
+  updatePlacementCuePosition(pointer) {
+    if (!this.placementCue || !this.placementCue.visible || !pointer) return;
+
+    const width = 178;
+    const height = 28;
+    const margin = 8;
+    const x = Phaser.Math.Clamp(pointer.x + 16, margin, this.scale.width - width - margin);
+    const y = Phaser.Math.Clamp(pointer.y + 18, margin, this.scale.height - height - margin);
+    this.placementCue.setPosition(x, y);
+  }
+
+  hidePlacementCue() {
+    if (this.placementCue) {
+      this.placementCue.setVisible(false);
+    }
+    this.refreshTutorialPanel();
+  }
+
+  showPlacementHint(message, color = '#ffcc88') {
+    const now = this.time?.now || 0;
+    if (this.lastPlacementHintAt && now - this.lastPlacementHintAt < 450) return;
+    this.lastPlacementHintAt = now;
+
+    const pointer = this.input?.activePointer;
+    const x = pointer?.x ?? this.scale.width / 2 - this.rightPanelWidth / 2;
+    const y = pointer?.y ?? 140;
+
+    if (this.placementHintText) {
+      this.placementHintText.destroy();
+    }
+
+    this.placementHintText = this.add
+      .text(x, y - 24, message, {
+        fontFamily: 'Arial Black',
+        fontSize: 14,
+        color,
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    this.placementHintText.setDepth(11001);
+    this.addToUI(this.placementHintText);
+
+    this.tweens.add({
+      targets: this.placementHintText,
+      y: y - 48,
+      alpha: 0,
+      duration: 850,
+      ease: 'Power2',
+      onComplete: () => {
+        this.placementHintText?.destroy();
+        this.placementHintText = null;
+      },
+    });
+  }
+
   setupInput() {
     // Camera Drag Controls
     this.input.mouse.disableContextMenu();
@@ -656,6 +832,8 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer) => {
+      this.updatePlacementCuePosition(pointer);
+
       // Update chip ghost position during placement mode
       if (this.isPlacingChip) {
         const worldX = pointer.x + this.cameras.main.scrollX;
@@ -688,6 +866,7 @@ export default class GameScene extends Phaser.Scene {
     this.input.on('gameout', () => {
       this.hideBoardGimmickTooltip();
       this.clearUpgradeRowHover();
+      this.hidePlacementCue();
     });
     const canvas = this.game?.canvas;
     if (canvas) {
@@ -4710,6 +4889,7 @@ export default class GameScene extends Phaser.Scene {
         console.warn(
           `[GameScene.placeMachine] Exit P1: Initial bounds check failed for world pos derived from (${gridX}, ${gridY})`
         );
+        this.showPlacementHint('Outside board', '#ff8888');
         return null;
       }
 
@@ -4718,6 +4898,7 @@ export default class GameScene extends Phaser.Scene {
         console.warn(
           `[GameScene.placeMachine] Exit P2: Invalid machineType object passed (null/undefined).`
         );
+        this.showPlacementHint('Pick a piece first', '#ffcc88');
         return null;
       }
       // Check 3: Validate machineType format
@@ -4725,6 +4906,7 @@ export default class GameScene extends Phaser.Scene {
         console.warn(
           `[GameScene.placeMachine] Exit P3: Invalid machineType format (not object or no id). Type: ${typeof machineType}, ID: ${machineType ? machineType.id : 'N/A'}`
         );
+        this.showPlacementHint('Invalid piece', '#ff8888');
         return null;
       }
       const isRepositionedMachine = Boolean(machineType.fromPlacedMachine);
@@ -4742,6 +4924,7 @@ export default class GameScene extends Phaser.Scene {
           console.warn(
             `[GameScene.placeMachine] Exit P5a: machineType object is missing .shape property.`
           );
+          this.showPlacementHint('No shape data', '#ff8888');
           return null;
         }
         shape = this.grid.getRotatedShape(machineType.shape, rotation);
@@ -4809,6 +4992,7 @@ export default class GameScene extends Phaser.Scene {
         console.warn(
           `[GameScene.placeMachine] Exit P6b: Final canPlace check failed for ${machineType.id} at (${gridX}, ${gridY}), direction ${direction}`
         );
+        this.showPlacementHint('Blocked placement', '#ff8888');
         return null;
       }
       console.log(`[GameScene.placeMachine] Check P6 passed: Can place ${machineType.id}`); // LOG P6
@@ -4824,6 +5008,7 @@ export default class GameScene extends Phaser.Scene {
           `[GameScene.placeMachine] Exit P6c: Cannot afford ${machineType.id}. Cost ${placementCost}, money ${this.money}`
         );
         this.showMoneyFeedback(-placementCost, 'needed');
+        this.showPlacementHint(`Need $${placementCost}`, '#ff8888');
         return null;
       }
 
@@ -4928,6 +5113,8 @@ export default class GameScene extends Phaser.Scene {
       if (!isRepositionedMachine) {
         this.trackPlacementForFlowReward(machineObj);
       }
+      this.showPlacementHint('Placed', '#88ffcc');
+      this.refreshTutorialPanel();
       console.log(
         `[GameScene.placeMachine] Added ${machineObj.id} to machines array. Total machines: ${this.machines.length}`
       ); // LOG P11
@@ -6013,6 +6200,10 @@ export default class GameScene extends Phaser.Scene {
       this.deliveryProgressFill.width = this.deliveryProgressTrack.width * progress;
       this.deliveryProgressFill.fillColor =
         progress >= 1 ? 0x88ffcc : progress >= 0.65 ? 0xffd166 : 0x88ccff;
+      if (cappedScore > (this.lastQuotaHudScore || 0)) {
+        this.pulseDeliveryProgress();
+      }
+      this.lastQuotaHudScore = cappedScore;
     }
     if (this.deliveryBoardText) {
       this.deliveryBoardText.setText(
@@ -6130,6 +6321,22 @@ export default class GameScene extends Phaser.Scene {
       yoyo: true,
       repeat: options.repeat ?? 0,
       ease: options.ease || 'Sine.easeInOut',
+    });
+  }
+
+  pulseDeliveryProgress() {
+    const targets = [this.deliveryProgressFill, this.deliveryQuotaText].filter(Boolean);
+    if (targets.length === 0) return;
+
+    this.tweens.killTweensOf(targets);
+    targets.forEach((target) => target.setScale?.(1));
+    this.tweens.add({
+      targets,
+      scaleX: 1.04,
+      scaleY: 1.28,
+      duration: 120,
+      yoyo: true,
+      ease: 'Sine.easeOut',
     });
   }
 
@@ -6350,6 +6557,7 @@ export default class GameScene extends Phaser.Scene {
     this.currentRound = round;
     this.roundClearing = false;
     this.roundExhaustionStartedAt = null;
+    this.lastQuotaHudScore = 0;
     const board = this.applyRoundBoard(round);
     this.buildRound();
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));

@@ -32,6 +32,7 @@ export default class MachineFactory {
     this.processorDeck = [];
     this.processorDiscard = [];
     this.bonusPieceCards = [];
+    this.panelPreviewItems = [];
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
@@ -568,6 +569,7 @@ export default class MachineFactory {
   displayCurrentProcessorPreview() {
     // Clear any existing preview in the container
     this.processorPreviewContainer.removeAll(true); // Destroy children
+    this.panelPreviewItems = [];
 
     const processorY = -26;
     const logisticsY = 34;
@@ -578,7 +580,7 @@ export default class MachineFactory {
     const logisticsStartX = -((logisticsItems - 1) * logisticsSpacing) / 2;
 
     const processorLabel = this.scene.add
-      .text(-this.width / 2 + 32, -this.height / 2 + 14, 'PROCESSORS', {
+      .text(-this.width / 2 + 32, -this.height / 2 + 14, 'OPERATORS', {
         fontFamily: 'Arial Black',
         fontSize: 10,
         color: '#88ccff',
@@ -595,7 +597,7 @@ export default class MachineFactory {
       .setOrigin(0, 0.5);
     this.processorPreviewContainer.add([processorLabel, logisticsLabel]);
 
-    // --- Display Processors ---
+    // --- Display Operators ---
     for (let slotIndex = 0; slotIndex < this.numProcessorSlots; slotIndex++) {
       const machineType = this.availableProcessors[slotIndex];
       const itemX = processorStartX + slotIndex * processorSpacing;
@@ -633,6 +635,7 @@ export default class MachineFactory {
       })
       .setOrigin(1, 0.5);
     this.processorPreviewContainer.add(deckText);
+    this.updatePanelSelectionHighlights();
   }
 
   /**
@@ -682,6 +685,13 @@ export default class MachineFactory {
       machinePreview.slotIndex = slotIndex;
       machinePreview.category = category;
       machinePreview.slotFrame = slotFrame;
+      this.panelPreviewItems.push({
+        category,
+        slotIndex,
+        frame: slotFrame,
+        color: slotStyle.borderColor,
+        preview: machinePreview,
+      });
 
       // --- ADD NOTATION LABEL FOR PROCESSORS ---
       if (category === 'processor' && machineType.notation) {
@@ -793,8 +803,7 @@ export default class MachineFactory {
 
       machinePreview.on('pointerout', () => {
         machinePreview.setScale(1);
-        slotFrame.fillColor = 0x0f1820;
-        slotFrame.setStrokeStyle(1, slotStyle.borderColor, 0.72);
+        this.updatePanelSelectionHighlights();
         this.hideMachineTooltip();
       });
 
@@ -813,6 +822,21 @@ export default class MachineFactory {
         this.selectMachineType(machineType);
       });
     }
+  }
+
+  updatePanelSelectionHighlights() {
+    if (!Array.isArray(this.panelPreviewItems)) return;
+
+    this.panelPreviewItems.forEach((item) => {
+      const isSelected =
+        item.category === this.lastSelectedCategory &&
+        (item.category === 'conveyor' || item.slotIndex === this.lastSelectedSlotIndex);
+      item.frame.fillColor = isSelected ? 0x203b44 : 0x0f1820;
+      item.frame.setStrokeStyle(isSelected ? 2 : 1, item.color, isSelected ? 1 : 0.72);
+      if (item.preview?.nameLabel) {
+        item.preview.nameLabel.setAlpha(isSelected ? 1 : 0.9);
+      }
+    });
   }
 
   getPanelSlotStyle(machineType, category) {
@@ -950,6 +974,7 @@ export default class MachineFactory {
     // Notify any listeners (e.g., the scene)
     this.scene.events.emit('machineSelected', machineType);
     this.scene.updateDraftCycleButton?.();
+    this.updatePanelSelectionHighlights();
 
     // Create placement preview in the scene
     if (this.scene.createPlacementPreview) {
@@ -1009,6 +1034,7 @@ export default class MachineFactory {
     // Notify the scene about the deselection
     this.scene.events.emit('machineDeselected');
     this.scene.updateDraftCycleButton?.();
+    this.updatePanelSelectionHighlights();
   }
 
   /**
