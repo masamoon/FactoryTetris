@@ -371,32 +371,64 @@ export default class GameScene extends Phaser.Scene {
       '#88ffcc'
     );
 
-    this.createHudPanel(contentX, 108, contentWidth, 104, 0x12151d, 0x51472a);
+    this.createHudPanel(contentX, 108, contentWidth, 150, 0x12151d, 0x51472a);
     this.createSectionLabel(contentX + 10, 118, 'DELIVERIES');
-    this.contractText = this.add
-      .text(contentX + 12, 141, '', {
-        fontFamily: 'Arial',
-        fontSize: 13,
+    this.deliveryQuotaText = this.add
+      .text(contentX + 12, 142, 'Quota 0/0', {
+        fontFamily: 'Arial Black',
+        fontSize: 17,
         color: '#ffe28a',
         align: 'left',
-        lineSpacing: 2,
-        wordWrap: { width: contentWidth - 24 },
       })
-      .setOrigin(0, 0)
+      .setOrigin(0, 0.5)
       .setScrollFactor(0);
-    this.contractText.setDepth(3);
-    this.contractTimerText = this.add
-      .text(contentX + contentWidth - 12, 190, '', {
+    this.deliveryQuotaText.setDepth(3);
+    this.deliveryStatusText = this.add
+      .text(contentX + contentWidth - 12, 142, '', {
         fontFamily: 'Arial Black',
-        fontSize: 13,
+        fontSize: 14,
         color: '#88ccff',
         align: 'right',
       })
       .setOrigin(1, 0.5)
       .setScrollFactor(0);
-    this.contractTimerText.setDepth(3);
+    this.deliveryStatusText.setDepth(3);
+    this.deliveryProgressTrack = this.add
+      .rectangle(contentX + 12, 162, contentWidth - 24, 8, 0x27313a, 1)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.deliveryProgressTrack.setStrokeStyle(1, 0x455d6a, 0.85);
+    this.deliveryProgressTrack.setDepth(2);
+    this.deliveryProgressFill = this.add
+      .rectangle(contentX + 12, 162, 0, 8, 0x88ffcc, 0.95)
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.deliveryProgressFill.setDepth(3);
+    this.deliveryBoardText = this.add
+      .text(contentX + 12, 184, '', {
+        fontFamily: 'Arial Black',
+        fontSize: 12,
+        color: '#dfefff',
+        align: 'left',
+        wordWrap: { width: contentWidth - 24 },
+      })
+      .setOrigin(0, 0.5)
+      .setScrollFactor(0);
+    this.deliveryBoardText.setDepth(3);
+    this.deliveryDemandText = this.add
+      .text(contentX + 12, 209, '', {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        color: '#ffe28a',
+        align: 'left',
+        lineSpacing: 4,
+        wordWrap: { width: contentWidth - 24 },
+      })
+      .setOrigin(0, 0)
+      .setScrollFactor(0);
+    this.deliveryDemandText.setDepth(3);
     this.nextDemandText = this.add
-      .text(contentX + 12, 198, '', {
+      .text(contentX + 12, 243, '', {
         fontFamily: 'Arial',
         fontSize: 10,
         color: '#b9f7ff',
@@ -406,22 +438,24 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setScrollFactor(0);
     this.nextDemandText.setDepth(3);
+    [
+      this.deliveryQuotaText,
+      this.deliveryStatusText,
+      this.deliveryProgressTrack,
+      this.deliveryProgressFill,
+      this.deliveryBoardText,
+      this.deliveryDemandText,
+      this.nextDemandText,
+    ].forEach((obj) => this.addToUI(obj));
 
     this.transcendButton = null;
 
-    this.createHudPanel(contentX, 224, contentWidth, 78, 0x15151b, 0x3f3d55);
-    this.createSectionLabel(contentX + 10, 234, 'UPGRADES');
-    this.activeUpgradesText = this.add
-      .text(contentX + 12, 268, 'None', {
-        fontFamily: 'Arial',
-        fontSize: 12,
-        color: '#dfefff',
-        align: 'left',
-        lineSpacing: 2,
-        wordWrap: { width: contentWidth - 24 },
-      })
-      .setScrollFactor(0);
-    this.activeUpgradesText.setDepth(3);
+    this.createHudPanel(contentX, 272, contentWidth, 150, 0x15151b, 0x3f3d55);
+    this.createSectionLabel(contentX + 10, 282, 'UPGRADES');
+    this.upgradeRows = [];
+    this.upgradeRowContainer = this.add.container(0, 0).setScrollFactor(0);
+    this.upgradeRowContainer.setDepth(3);
+    this.addToUI(this.upgradeRowContainer);
     this.updateActiveUpgradesDisplay(); // Initial update
 
     // Active run-wide traits HUD
@@ -636,6 +670,10 @@ export default class GameScene extends Phaser.Scene {
         this.cameras.main.scrollX = this.cameraStartX - deltaX;
         this.cameras.main.scrollY = this.cameraStartY - deltaY;
       } else {
+        if (this.updateUpgradeHover(pointer)) {
+          this.hideBoardGimmickTooltip();
+          return;
+        }
         this.updateBoardGimmickHover(pointer);
       }
     });
@@ -649,10 +687,14 @@ export default class GameScene extends Phaser.Scene {
 
     this.input.on('gameout', () => {
       this.hideBoardGimmickTooltip();
+      this.clearUpgradeRowHover();
     });
     const canvas = this.game?.canvas;
     if (canvas) {
-      this.handleCanvasMouseLeave = () => this.hideBoardGimmickTooltip();
+      this.handleCanvasMouseLeave = () => {
+        this.hideBoardGimmickTooltip();
+        this.clearUpgradeRowHover();
+      };
       this.handleDocumentMouseMove = (event) => {
         const rect = canvas.getBoundingClientRect();
         const isOutsideCanvas =
@@ -662,6 +704,7 @@ export default class GameScene extends Phaser.Scene {
           event.clientY > rect.bottom;
         if (isOutsideCanvas) {
           this.hideBoardGimmickTooltip();
+          this.clearUpgradeRowHover();
         }
       };
       canvas.addEventListener('mouseleave', this.handleCanvasMouseLeave);
@@ -5959,10 +6002,24 @@ export default class GameScene extends Phaser.Scene {
     if (this.moneyText) {
       this.moneyText.setText(`$${this.money}`);
     }
-    if (this.contractText) {
-      const visibleNodes = activeNodes.slice(0, 3);
-      const quotaLine = `Quota ${Math.min(this.roundScore || 0, this.roundQuota || 0)}/${this.roundQuota || 0}`;
-      const boardLine = this.currentRoundBoard ? `Board ${this.currentRoundBoard.name}` : null;
+    const visibleNodes = activeNodes.slice(0, 3);
+    const cappedScore = Math.min(this.roundScore || 0, this.roundQuota || 0);
+    const quota = this.roundQuota || 0;
+    if (this.deliveryQuotaText) {
+      this.deliveryQuotaText.setText(`Quota ${cappedScore}/${quota}`);
+    }
+    if (this.deliveryProgressFill && this.deliveryProgressTrack) {
+      const progress = quota > 0 ? Phaser.Math.Clamp(cappedScore / quota, 0, 1) : 0;
+      this.deliveryProgressFill.width = this.deliveryProgressTrack.width * progress;
+      this.deliveryProgressFill.fillColor =
+        progress >= 1 ? 0x88ffcc : progress >= 0.65 ? 0xffd166 : 0x88ccff;
+    }
+    if (this.deliveryBoardText) {
+      this.deliveryBoardText.setText(
+        this.currentRoundBoard ? `Board: ${this.currentRoundBoard.name}` : 'Board: Standard'
+      );
+    }
+    if (this.deliveryDemandText) {
       const outputLines =
         activeNodes.length > 0
           ? [
@@ -5971,9 +6028,8 @@ export default class GameScene extends Phaser.Scene {
                 ? `+${activeNodes.length - visibleNodes.length} more`
                 : null,
             ].filter(Boolean)
-          : ['No outputs'];
-      const lines = [quotaLine, boardLine, ...outputLines].filter(Boolean).join('\n');
-      this.contractText.setText(lines);
+          : ['No active deliveries'];
+      this.deliveryDemandText.setText(outputLines.join('\n'));
     }
     if (this.nextDemandText) {
       if (this.runState === 'BUILD_PHASE') {
@@ -5993,29 +6049,29 @@ export default class GameScene extends Phaser.Scene {
         this.nextDemandText.setColor('#b9f7ff');
       }
     }
-    if (this.contractTimerText) {
+    if (this.deliveryStatusText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.contractTimerText.setText(`Supply ${this.getRemainingSourceResources()}`);
-        this.contractTimerText.setColor('#88ffcc');
+        this.deliveryStatusText.setText(`Supply ${this.getRemainingSourceResources()}`);
+        this.deliveryStatusText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         if (this.getRemainingSourceResources() > 0) {
-          this.contractTimerText.setText(`Supply ${this.getRemainingSourceResources()}`);
-          this.contractTimerText.setColor('#88ccff');
+          this.deliveryStatusText.setText(`Supply ${this.getRemainingSourceResources()}`);
+          this.deliveryStatusText.setColor('#88ccff');
         } else if (this.roundExhaustionStartedAt) {
           const graceMs = GAME_CONFIG.roundExhaustionGraceMs || 4500;
           const remaining = Math.max(
             0,
             graceMs - ((this.time?.now || 0) - this.roundExhaustionStartedAt)
           );
-          this.contractTimerText.setText(`Empty ${Math.ceil(remaining / 1000)}s`);
-          this.contractTimerText.setColor('#ff8888');
+          this.deliveryStatusText.setText(`Empty ${Math.ceil(remaining / 1000)}s`);
+          this.deliveryStatusText.setColor('#ff8888');
         } else {
-          this.contractTimerText.setText('Supply empty');
-          this.contractTimerText.setColor('#ff8888');
+          this.deliveryStatusText.setText('Supply empty');
+          this.deliveryStatusText.setColor('#ff8888');
         }
       } else {
-        this.contractTimerText.setText(`Quota ${this.roundScore || 0}/${this.roundQuota || 0}`);
-        this.contractTimerText.setColor('#88ccff');
+        this.deliveryStatusText.setText(`Score ${this.roundScore || 0}`);
+        this.deliveryStatusText.setColor('#88ccff');
       }
     }
     this.updateDraftCycleButton();
@@ -6946,14 +7002,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateActiveUpgradesDisplay() {
-    if (!this.upgradeManager || !this.activeUpgradesText) {
+    if (!this.upgradeManager || !this.upgradeRowContainer) {
       return;
     }
 
     const activeUpgrades = this.upgradeManager.currentUpgrades;
     const activeBoons = Array.from(this.upgradeManager.activeProceduralUpgrades || []);
     const runWideLines = Array.isArray(this.runWideHudLines) ? this.runWideHudLines : [];
-    const lines = [];
+    const entries = [];
 
     if (
       Object.keys(activeUpgrades).length === 0 &&
@@ -6961,30 +7017,263 @@ export default class GameScene extends Phaser.Scene {
       runWideLines.length === 0 &&
       this.runStability <= 0
     ) {
-      lines.push('None');
+      entries.push({
+        title: 'No upgrades yet',
+        value: '',
+        description: 'Earn and buy upgrades to shape this run.',
+        color: 0x6f8793,
+      });
     } else {
       if (this.runStability > 0) {
-        lines.push(`Stability x${this.runStability}`);
+        entries.push({
+          title: 'Stability',
+          value: `x${this.runStability}`,
+          description: 'Run protection. Higher stability gives the factory more room to recover.',
+          color: 0x88ffcc,
+        });
       }
       for (const upgradeType in activeUpgrades) {
         const level = activeUpgrades[upgradeType];
         const config = upgradesConfig[upgradeType];
         if (config) {
-          lines.push(`${config.name} L${level}`);
+          const tier = config.tiers?.find((entry) => entry.level === level);
+          entries.push({
+            title: config.name,
+            value: `L${level}`,
+            description: [config.description, tier?.description].filter(Boolean).join('\n'),
+            color: 0x88ccff,
+          });
         }
       }
       activeBoons.forEach((boonId) => {
         const boon = BOON_POOL.find((entry) => entry.id === boonId);
-        lines.push(boon?.name || boonId);
+        entries.push({
+          title: boon?.name || boonId,
+          value: boon?.rarity ? boon.rarity.toUpperCase() : 'BOON',
+          description: boon?.description || 'Run-defining boon.',
+          color: 0xffd166,
+        });
       });
     }
-    lines.push(...runWideLines);
 
-    const visibleLines = lines.slice(0, 4);
-    if (lines.length > visibleLines.length) {
-      visibleLines.push(`+${lines.length - visibleLines.length} more`);
+    runWideLines.forEach((line) => {
+      entries.push({
+        title: line,
+        value: '',
+        description: 'Active run-wide modifier.',
+        color: 0xb56cff,
+      });
+    });
+
+    this.renderUpgradeRows(entries);
+  }
+
+  renderUpgradeRows(entries) {
+    this.hideUpgradeTooltip();
+    this.hoveredUpgradeRow = null;
+    this.upgradeRowContainer.removeAll(true);
+    this.upgradeRows = [];
+
+    const panelX = this.scale.width - this.rightPanelWidth;
+    const contentX = panelX + 14;
+    const contentWidth = this.rightPanelWidth - 28;
+    const rowX = contentX + 10;
+    const rowY = 306;
+    const rowWidth = contentWidth - 20;
+    const rowHeight = 25;
+    const gap = 7;
+    const maxRows = 4;
+    const visibleEntries = entries.slice(0, maxRows);
+
+    visibleEntries.forEach((entry, index) => {
+      this.createUpgradeRow(entry, rowX, rowY + index * (rowHeight + gap), rowWidth, rowHeight);
+    });
+
+    if (entries.length > maxRows) {
+      this.createUpgradeRow(
+        {
+          title: `+${entries.length - maxRows} more upgrades`,
+          value: '',
+          description: entries
+            .slice(maxRows)
+            .map((entry) => `${entry.title}${entry.value ? ` ${entry.value}` : ''}`)
+            .join('\n'),
+          color: 0x95aab5,
+        },
+        rowX,
+        rowY + maxRows * (rowHeight + gap),
+        rowWidth,
+        rowHeight
+      );
     }
-    this.activeUpgradesText.setText(visibleLines.join('\n'));
+  }
+
+  createUpgradeRow(entry, x, y, width, height) {
+    const row = this.add.container(x, y).setScrollFactor(0);
+    row.setDepth(3);
+
+    const background = this.add
+      .rectangle(0, 0, width, height, 0x202a34, 0.96)
+      .setOrigin(0, 0.5)
+      .setStrokeStyle(1, entry.color || 0x88ccff, 0.35);
+    const accent = this.add
+      .rectangle(0, 0, 4, height, entry.color || 0x88ccff, 0.9)
+      .setOrigin(0, 0.5);
+    const title = this.add
+      .text(12, 0, entry.title, {
+        fontFamily: 'Arial',
+        fontSize: 12,
+        color: '#dfefff',
+        align: 'left',
+        wordWrap: { width: width - 64 },
+      })
+      .setOrigin(0, 0.5);
+    const value = this.add
+      .text(width - 10, 0, entry.value || '', {
+        fontFamily: 'Arial Black',
+        fontSize: 11,
+        color: this.toCssColor(entry.color || 0x88ccff),
+        align: 'right',
+      })
+      .setOrigin(1, 0.5);
+
+    row.add([background, accent, title, value]);
+    row.upgradeEntry = entry;
+    row.upgradeBackground = background;
+    row.upgradeColor = entry.color || 0x88ccff;
+    row.upgradeBounds = { x, y: y - height / 2, width, height };
+    row.setSize(width, height);
+    row.setInteractive(
+      new Phaser.Geom.Rectangle(0, -height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains
+    );
+    row.on('pointerover', (pointer) => {
+      background.fillColor = 0x293744;
+      background.setStrokeStyle(1, entry.color || 0x88ccff, 0.85);
+      this.showUpgradeTooltip(entry, pointer);
+    });
+    row.on('pointermove', (pointer) => this.positionUpgradeTooltip(pointer));
+    row.on('pointerout', () => {
+      background.fillColor = 0x202a34;
+      background.setStrokeStyle(1, entry.color || 0x88ccff, 0.35);
+      this.hideUpgradeTooltip();
+    });
+
+    this.upgradeRowContainer.add(row);
+    this.upgradeRows.push(row);
+  }
+
+  updateUpgradeHover(pointer) {
+    if (!pointer || !Array.isArray(this.upgradeRows) || this.upgradeRows.length === 0) {
+      this.clearUpgradeRowHover();
+      return false;
+    }
+
+    const hoveredRow = this.upgradeRows.find((row) => {
+      const bounds = row.upgradeBounds;
+      return (
+        bounds &&
+        pointer.x >= bounds.x &&
+        pointer.x <= bounds.x + bounds.width &&
+        pointer.y >= bounds.y &&
+        pointer.y <= bounds.y + bounds.height
+      );
+    });
+
+    if (!hoveredRow) {
+      this.clearUpgradeRowHover();
+      return false;
+    }
+
+    if (this.hoveredUpgradeRow !== hoveredRow) {
+      this.clearUpgradeRowHover();
+      this.hoveredUpgradeRow = hoveredRow;
+      hoveredRow.upgradeBackground.fillColor = 0x293744;
+      hoveredRow.upgradeBackground.setStrokeStyle(1, hoveredRow.upgradeColor, 0.85);
+      this.showUpgradeTooltip(hoveredRow.upgradeEntry, pointer);
+    } else {
+      this.positionUpgradeTooltip(pointer);
+    }
+
+    return true;
+  }
+
+  clearUpgradeRowHover() {
+    if (this.hoveredUpgradeRow?.upgradeBackground) {
+      this.hoveredUpgradeRow.upgradeBackground.fillColor = 0x202a34;
+      this.hoveredUpgradeRow.upgradeBackground.setStrokeStyle(
+        1,
+        this.hoveredUpgradeRow.upgradeColor,
+        0.35
+      );
+    }
+    this.hoveredUpgradeRow = null;
+    this.hideUpgradeTooltip();
+  }
+
+  showUpgradeTooltip(entry, pointer) {
+    this.hideUpgradeTooltip();
+
+    const width = 248;
+    const padding = 12;
+    const tooltip = this.add.container(0, 0).setScrollFactor(0);
+    tooltip.setDepth(12000);
+
+    const background = this.add
+      .rectangle(0, 0, width, 96, 0x07111a, 0.96)
+      .setOrigin(0)
+      .setStrokeStyle(1, entry.color || 0x88ccff, 0.9);
+    const title = this.add.text(padding, 10, entry.title, {
+      fontFamily: 'Arial Black',
+      fontSize: 13,
+      color: this.toCssColor(entry.color || 0x88ccff),
+      wordWrap: { width: width - padding * 2 },
+    });
+    const body = this.add.text(padding, 34, entry.description || 'No description available.', {
+      fontFamily: 'Arial',
+      fontSize: 12,
+      color: '#dbe8ef',
+      lineSpacing: 4,
+      wordWrap: { width: width - padding * 2 },
+    });
+
+    const height = Math.max(78, body.y + body.height + padding);
+    background.height = height;
+    tooltip.tooltipWidth = width;
+    tooltip.tooltipHeight = height;
+    tooltip.add([background, title, body]);
+    this.upgradeTooltip = tooltip;
+    this.addToUI(tooltip);
+    this.positionUpgradeTooltip(pointer);
+  }
+
+  positionUpgradeTooltip(pointer) {
+    if (!this.upgradeTooltip || !pointer) return;
+
+    const width = this.upgradeTooltip.tooltipWidth || 248;
+    const height = this.upgradeTooltip.tooltipHeight || 96;
+    const margin = 8;
+    let x = pointer.x - width - 18;
+    let y = pointer.y + 14;
+
+    if (x < margin) {
+      x = pointer.x + 18;
+    }
+    if (y + height + margin > this.scale.height) {
+      y = pointer.y - height - 14;
+    }
+
+    this.upgradeTooltip.setPosition(
+      Phaser.Math.Clamp(x, margin, this.scale.width - width - margin),
+      Phaser.Math.Clamp(y, margin, this.scale.height - height - margin)
+    );
+  }
+
+  hideUpgradeTooltip() {
+    if (this.upgradeTooltip) {
+      this.upgradeTooltip.destroy();
+      this.upgradeTooltip = null;
+    }
   }
 
   getRotationForPlacedMachine(machine) {

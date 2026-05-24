@@ -68,13 +68,13 @@ export default class MachineFactory {
     this.container.setScrollFactor(0);
 
     // Create factory background with a more modern look
-    this.background = this.scene.add.rectangle(0, 0, this.width, this.height, 0x2c3e50);
-    this.background.setStrokeStyle(3, 0x34495e);
+    this.background = this.scene.add.rectangle(0, 0, this.width, this.height, 0x111a22);
+    this.background.setStrokeStyle(2, 0x2f4657);
     this.container.add(this.background);
 
     // Create machine preview area with a cleaner look
-    this.previewArea = this.scene.add.rectangle(0, 0, this.width - 30, this.height - 30, 0x1c2833);
-    this.previewArea.setStrokeStyle(2, 0x2c3e50);
+    this.previewArea = this.scene.add.rectangle(0, 0, this.width - 34, this.height - 28, 0x17232d);
+    this.previewArea.setStrokeStyle(1, 0x355466);
     this.container.add(this.previewArea);
 
     // Create a dedicated container for the single rotating processor preview
@@ -569,51 +569,69 @@ export default class MachineFactory {
     // Clear any existing preview in the container
     this.processorPreviewContainer.removeAll(true); // Destroy children
 
-    // --- Define positions for processors, logistics, and conveyor ---
-    // Total items: 3 processors + 1 logistics + 1 conveyor = 5 items
-    const totalItems = this.numProcessorSlots + this.numLogisticsSlots + 1;
-    const itemSpacing = 50; // Slightly more spacing
-    const totalWidth = (totalItems - 1) * itemSpacing;
-    const startX = -totalWidth / 2;
-    // --- End Positions ---
+    const processorY = -26;
+    const logisticsY = 34;
+    const processorSpacing = 108;
+    const logisticsSpacing = 82;
+    const processorStartX = -((this.numProcessorSlots - 1) * processorSpacing) / 2;
+    const logisticsItems = this.numLogisticsSlots + 1;
+    const logisticsStartX = -((logisticsItems - 1) * logisticsSpacing) / 2;
+
+    const processorLabel = this.scene.add
+      .text(-this.width / 2 + 32, -this.height / 2 + 14, 'PROCESSORS', {
+        fontFamily: 'Arial Black',
+        fontSize: 10,
+        color: '#88ccff',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
+    const logisticsLabel = this.scene.add
+      .text(-this.width / 2 + 32, 2, 'LOGISTICS', {
+        fontFamily: 'Arial Black',
+        fontSize: 10,
+        color: '#ffd166',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
+    this.processorPreviewContainer.add([processorLabel, logisticsLabel]);
 
     // --- Display Processors ---
-    let currentItemIndex = 0;
     for (let slotIndex = 0; slotIndex < this.numProcessorSlots; slotIndex++) {
       const machineType = this.availableProcessors[slotIndex];
-      const itemX = startX + currentItemIndex * itemSpacing;
-      const itemY = 0;
-      currentItemIndex++;
+      const itemX = processorStartX + slotIndex * processorSpacing;
 
-      this.addMachinePreviewToPanel(machineType, itemX, itemY, slotIndex, 'processor');
+      this.addMachinePreviewToPanel(machineType, itemX, processorY, slotIndex, 'processor');
     }
 
     // --- Display Logistics ---
     for (let slotIndex = 0; slotIndex < this.numLogisticsSlots; slotIndex++) {
       const machineType = this.availableLogistics[slotIndex];
-      const itemX = startX + currentItemIndex * itemSpacing;
-      const itemY = 0;
-      currentItemIndex++;
+      const itemX = logisticsStartX + slotIndex * logisticsSpacing;
 
-      this.addMachinePreviewToPanel(machineType, itemX, itemY, slotIndex, 'logistics');
+      this.addMachinePreviewToPanel(machineType, itemX, logisticsY, slotIndex, 'logistics');
     }
 
     // --- Display Conveyor ---
-    const conveyorX = startX + currentItemIndex * itemSpacing;
-    const conveyorY = 0;
+    const conveyorX = logisticsStartX + this.numLogisticsSlots * logisticsSpacing;
     if (this.conveyorMachineType) {
-      this.addMachinePreviewToPanel(this.conveyorMachineType, conveyorX, conveyorY, -1, 'conveyor');
+      this.addMachinePreviewToPanel(
+        this.conveyorMachineType,
+        conveyorX,
+        logisticsY,
+        -1,
+        'conveyor'
+      );
     }
 
     const counts = this.getDeckCounts();
     const deckText = this.scene.add
-      .text(0, this.height / 2 - 20, `Deck ${counts.deck}  Discard ${counts.discard}`, {
+      .text(this.width / 2 - 34, -this.height / 2 + 14, `Deck ${counts.deck}`, {
         fontFamily: 'Arial',
         fontSize: 11,
         color: '#b7cbd6',
-        align: 'center',
+        align: 'right',
       })
-      .setOrigin(0.5);
+      .setOrigin(1, 0.5);
     this.processorPreviewContainer.add(deckText);
   }
 
@@ -628,6 +646,14 @@ export default class MachineFactory {
       this.processorPreviewContainer.add(emptyText);
       return;
     }
+
+    const slotStyle = this.getPanelSlotStyle(machineType, category);
+    const slotWidth = category === 'processor' ? 78 : 66;
+    const slotHeight = category === 'processor' ? 54 : 48;
+    const slotFrame = this.scene.add
+      .rectangle(itemX, itemY, slotWidth, slotHeight, 0x0f1820, 0.86)
+      .setStrokeStyle(1, slotStyle.borderColor, 0.72);
+    this.processorPreviewContainer.add(slotFrame);
 
     let machinePreview;
     try {
@@ -655,6 +681,7 @@ export default class MachineFactory {
       machinePreview.machineType = machineType;
       machinePreview.slotIndex = slotIndex;
       machinePreview.category = category;
+      machinePreview.slotFrame = slotFrame;
 
       // --- ADD NOTATION LABEL FOR PROCESSORS ---
       if (category === 'processor' && machineType.notation) {
@@ -713,23 +740,61 @@ export default class MachineFactory {
           }
         }
         // --- END TRAIT INFO ---
+      } else {
+        const logisticsLabel = this.scene.add
+          .text(itemX, itemY + 30, slotStyle.label, {
+            fontFamily: 'Arial Black',
+            fontSize: 9,
+            color: slotStyle.textColor,
+            align: 'center',
+            stroke: '#000000',
+            strokeThickness: 2,
+          })
+          .setOrigin(0.5);
+        this.processorPreviewContainer.add(logisticsLabel);
+        machinePreview.nameLabel = logisticsLabel;
+
+        if (machineType.id === 'painter') {
+          const swatchColors = [0x3f8cff, 0xffd166, 0xff5f57, 0x4dd47e];
+          swatchColors.forEach((color, index) => {
+            const swatch = this.scene.add.rectangle(
+              itemX - 15 + index * 10,
+              itemY - 26,
+              7,
+              7,
+              color
+            );
+            swatch.setStrokeStyle(1, 0x0b1117, 0.9);
+            this.processorPreviewContainer.add(swatch);
+          });
+        } else if (machineType.id === 'underground-belt') {
+          const tunnelLine = this.scene.add.graphics();
+          tunnelLine.lineStyle(2, 0xb56cff, 0.85);
+          tunnelLine.setLineDash?.([5, 4]);
+          tunnelLine.lineBetween(itemX - 24, itemY - 22, itemX + 24, itemY - 22);
+          this.processorPreviewContainer.add(tunnelLine);
+        }
       }
       // --- END NOTATION LABEL ---
 
       // Interactivity
-      const hitAreaSize = 50;
+      const hitAreaSize = category === 'processor' ? 78 : 66;
       machinePreview.setInteractive(
-        new Phaser.Geom.Rectangle(-hitAreaSize / 2, -hitAreaSize / 2, hitAreaSize, hitAreaSize),
+        new Phaser.Geom.Rectangle(-hitAreaSize / 2, -slotHeight / 2, hitAreaSize, slotHeight + 28),
         Phaser.Geom.Rectangle.Contains
       );
 
       machinePreview.on('pointerover', () => {
         machinePreview.setScale(1.1);
+        slotFrame.fillColor = 0x1f3240;
+        slotFrame.setStrokeStyle(2, slotStyle.borderColor, 1);
         this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
       });
 
       machinePreview.on('pointerout', () => {
         machinePreview.setScale(1);
+        slotFrame.fillColor = 0x0f1820;
+        slotFrame.setStrokeStyle(1, slotStyle.borderColor, 0.72);
         this.hideMachineTooltip();
       });
 
@@ -748,6 +813,22 @@ export default class MachineFactory {
         this.selectMachineType(machineType);
       });
     }
+  }
+
+  getPanelSlotStyle(machineType, category) {
+    if (category === 'processor') {
+      return { label: 'PROC', borderColor: 0x3f8cff, textColor: '#88ccff' };
+    }
+
+    const styles = {
+      splitter: { label: 'SPLIT', borderColor: 0xffd166, textColor: '#ffd166' },
+      merger: { label: 'MERGE', borderColor: 0x88ffcc, textColor: '#88ffcc' },
+      'underground-belt': { label: 'UNDER', borderColor: 0xb56cff, textColor: '#d9b6ff' },
+      painter: { label: 'PAINT', borderColor: 0xff5f57, textColor: '#ffaaa5' },
+      conveyor: { label: 'BELT', borderColor: 0x83f7ff, textColor: '#83f7ff' },
+    };
+
+    return styles[machineType.id] || { label: 'TOOL', borderColor: 0x95aab5, textColor: '#dfefff' };
   }
 
   // Select a processor from a specific slot
@@ -1838,6 +1919,14 @@ export default class MachineFactory {
 
     // Adjust background height based on content with increased margin
     tooltipBg.height = Math.max(100, 80 + tooltipContent.height);
+    this.tooltip.setPosition(
+      Phaser.Math.Clamp(x, 108, this.scene.scale.width - 108),
+      Phaser.Math.Clamp(
+        y,
+        tooltipBg.height / 2 + 8,
+        this.scene.scale.height - tooltipBg.height / 2 - 8
+      )
+    );
 
     // Log that we're creating a tooltip (for debugging)
     console.log(
