@@ -305,7 +305,7 @@ export default class MachineFactory {
       return;
     }
 
-    const [usedPiece] = this.availableProcessors.splice(removedSlotIndex, 1);
+    const usedPiece = this.availableProcessors[removedSlotIndex];
     if (usedPiece?.pieceCard) {
       this.processorDiscard.push(usedPiece.pieceCard);
     }
@@ -314,7 +314,7 @@ export default class MachineFactory {
       forceTrait: this.shouldForceEarlyTrait(),
     });
 
-    this.availableProcessors.push(newProcessor);
+    this.availableProcessors[removedSlotIndex] = newProcessor;
     this.ensureUsableDraft();
     this.ensureEarlyTraitDraft();
     this.markTraitIntroducedIfVisible();
@@ -466,6 +466,53 @@ export default class MachineFactory {
   rerollProcessorDrafts() {
     this.refreshProcessorHand({ rebuildDeck: false, discardCurrentHand: true });
     this.displayCurrentProcessorPreview();
+  }
+
+  canCycleProcessorSlot(slotIndex) {
+    return (
+      this.processorTypes.length > 0 &&
+      slotIndex >= 0 &&
+      slotIndex < this.availableProcessors.length &&
+      Boolean(this.availableProcessors[slotIndex])
+    );
+  }
+
+  cycleProcessorSlot(slotIndex) {
+    if (!this.canCycleProcessorSlot(slotIndex)) {
+      return false;
+    }
+
+    const oldProcessor = this.availableProcessors[slotIndex];
+    if (oldProcessor?.pieceCard) {
+      this.processorDiscard.push(oldProcessor.pieceCard);
+    }
+
+    const newProcessor = this.drawProcessorPiece({
+      forceTrait: this.shouldForceEarlyTrait(),
+    });
+    this.availableProcessors[slotIndex] = newProcessor;
+    this.ensureUsableDraft();
+    this.ensureEarlyTraitDraft();
+    this.markTraitIntroducedIfVisible();
+    this.displayCurrentProcessorPreview();
+
+    if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex === slotIndex) {
+      this.clearSelection();
+      this.lastSelectedCategory = null;
+      this.lastSelectedSlotIndex = -1;
+    }
+
+    return true;
+  }
+
+  redrawProcessorHand() {
+    this.rerollProcessorDrafts();
+    if (this.lastSelectedCategory === 'processor') {
+      this.clearSelection();
+      this.lastSelectedCategory = null;
+      this.lastSelectedSlotIndex = -1;
+    }
+    return this.availableProcessors.length > 0;
   }
 
   addPieceCardToRunDeck(pieceId) {
@@ -718,6 +765,7 @@ export default class MachineFactory {
 
     // Track which slot was selected (for refresh after placement)
     this.lastSelectedSlotIndex = slotIndex;
+    this.lastSelectedCategory = 'processor';
 
     // Select the machine type
     this.selectMachineType(machineType);
@@ -820,6 +868,7 @@ export default class MachineFactory {
 
     // Notify any listeners (e.g., the scene)
     this.scene.events.emit('machineSelected', machineType);
+    this.scene.updateDraftCycleButton?.();
 
     // Create placement preview in the scene
     if (this.scene.createPlacementPreview) {
@@ -878,6 +927,7 @@ export default class MachineFactory {
 
     // Notify the scene about the deselection
     this.scene.events.emit('machineDeselected');
+    this.scene.updateDraftCycleButton?.();
   }
 
   /**

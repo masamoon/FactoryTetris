@@ -292,6 +292,8 @@ export const GAME_CONFIG = {
   shopRerollCost: 2,
   shopSourceLifespan: 180,
   yellowScorePerScrap: 120,
+  draftCycleCost: 2,
+  draftRedrawCost: 4,
 
   // Round / economy loop
   startingMoney: 45,

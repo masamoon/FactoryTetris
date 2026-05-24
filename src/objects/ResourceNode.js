@@ -135,7 +135,7 @@ export default class ResourceNode {
     this.border.setStrokeStyle(2, 0x008833);
     this.container.add(this.border);
 
-    // Create resource stock indicator.
+    // Create resource supply indicator.
     this.resourceIndicator = this.scene.add
       .text(0, 0, `${this.resources}`, {
         fontFamily: 'Arial',

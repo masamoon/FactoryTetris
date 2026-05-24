@@ -30,7 +30,7 @@ export const BOON_POOL = [
     id: 'boon_bulk_contracts',
     name: 'Lean Quotas',
     description:
-      'Volume run: quota rounds have 20% lower score thresholds, but source stock is tighter.',
+      'Volume run: quota rounds have 20% lower score thresholds, but source supply is tighter.',
     rarity: 'rare',
   },
   {

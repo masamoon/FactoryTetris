@@ -37,10 +37,6 @@ export default class GameScene extends Phaser.Scene {
     this.money = GAME_CONFIG.startingMoney || 45;
     this.roundClearing = false;
 
-    // Skip mechanic state
-    this.skipCount = 3; // Maximum 3 skips per game
-    this.skipPointPenalty = 100; // Points deducted when skipping
-
     // Initialize collections
     this.resourceNodes = [];
     this.machines = [];
@@ -331,7 +327,7 @@ export default class GameScene extends Phaser.Scene {
       contentX + statWidth + statGap,
       22,
       statWidth,
-      'STOCK',
+      'SUPPLY',
       '0',
       '#ffd166'
     );
@@ -437,6 +433,8 @@ export default class GameScene extends Phaser.Scene {
       this.beginActiveRound();
     });
     this.startRoundButton.button.fillColor = 0x2c7a55;
+    this.startRoundButton.button.defaultFillColor = 0x2c7a55;
+    this.startRoundButton.button.hoverFillColor = 0x3f9f72;
     this.startRoundButton.button.setStrokeStyle(2, 0x88ffcc);
     this.startRoundButton.button.setScrollFactor(0);
     this.startRoundButton.text.setScrollFactor(0);
@@ -444,23 +442,18 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.startRoundButton.text);
     this.setBuildPhaseUIVisible(false);
 
-    // Skip Button
-    this.skipButton = this.createButton(
-      centerX,
-      buttonStartY + 40,
-      `SKIP (${this.skipCount})`,
-      () => {
-        this.skipCurrentPiece();
-      }
-    );
-    // Style the skip button
-    this.skipButton.button.fillColor = 0x884400;
-    this.skipButton.button.setStrokeStyle(2, 0xcc6600);
-    this.skipButton.button.setScrollFactor(0);
-    this.skipButton.text.setScrollFactor(0);
-    this.updateSkipButton();
-    this.addToUI(this.skipButton.button);
-    this.addToUI(this.skipButton.text);
+    this.draftCycleButton = this.createButton(centerX, buttonStartY + 40, 'REDRAW HAND', () => {
+      this.cycleDraftSelection();
+    });
+    this.draftCycleButton.button.fillColor = 0x884400;
+    this.draftCycleButton.button.defaultFillColor = 0x884400;
+    this.draftCycleButton.button.hoverFillColor = 0xaa6600;
+    this.draftCycleButton.button.setStrokeStyle(2, 0xcc6600);
+    this.draftCycleButton.button.setScrollFactor(0);
+    this.draftCycleButton.text.setScrollFactor(0);
+    this.updateDraftCycleButton();
+    this.addToUI(this.draftCycleButton.button);
+    this.addToUI(this.draftCycleButton.text);
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
@@ -2504,7 +2497,7 @@ export default class GameScene extends Phaser.Scene {
 
   updateScrapText() {
     if (this.scrapText) {
-      this.scrapText.setText(`${this.scrap || 0}`);
+      this.scrapText.setText(`${this.getRemainingSourceResources()}`);
     }
   }
 
@@ -3158,85 +3151,117 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Skip the current piece selection and refresh with new pieces.
-   * Applies point penalties.
-   */
-  /**
-   * Skip the current piece selection and refresh with new pieces.
-   * Applies point penalties.
-   */
-  skipCurrentPiece() {
-    // Unlimited skips, just check if game is over
-    if (this.gameOver) return;
+  getDraftCycleState() {
+    const selectedProcessorSlot =
+      this.machineFactory?.lastSelectedCategory === 'processor'
+        ? this.machineFactory.lastSelectedSlotIndex
+        : -1;
+    const canCycleSelectedSlot =
+      selectedProcessorSlot >= 0 &&
+      this.machineFactory?.canCycleProcessorSlot?.(selectedProcessorSlot) === true;
+    const cost = canCycleSelectedSlot
+      ? GAME_CONFIG.draftCycleCost || 2
+      : GAME_CONFIG.draftRedrawCost || 4;
+    const inBuildPhase =
+      this.runState === 'BUILD_PHASE' && !this.gameOver && !this.paused && !this.isPausedForUpgrade;
 
-    console.log(`[SKIP] Skipping piece.`);
-
-    // Apply point penalty
-    this.score = Math.max(0, this.score - this.skipPointPenalty);
-    this.updateScoreText();
-
-    // Show penalty feedback
-    this.showSkipPenaltyFeedback();
-
-    // Refresh the processor selection panel
-    if (this.machineFactory) {
-      this.machineFactory.refreshAvailableProcessors();
-      this.machineFactory.displayCurrentProcessorPreview();
-    }
-
-    // Update skip button UI (mainly for visual feedback if needed)
-    this.updateSkipButton();
+    return {
+      affordable: (this.money || 0) >= cost,
+      canCycleSelectedSlot,
+      cost,
+      enabled: inBuildPhase,
+      inBuildPhase,
+      label: canCycleSelectedSlot ? `CYCLE SLOT ($${cost})` : `REDRAW HAND ($${cost})`,
+      selectedProcessorSlot,
+    };
   }
 
-  /**
-   * Shows visual feedback for skip penalty
-   */
-  showSkipPenaltyFeedback() {
+  cycleDraftSelection() {
+    if (this.gameOver) return;
+
+    const state = this.getDraftCycleState();
+    if (!state.inBuildPhase) {
+      this.showDraftCycleFeedback('Build phase only', '#ffcc88');
+      return;
+    }
+
+    if ((this.money || 0) < state.cost) {
+      this.showDraftCycleFeedback(`Need $${state.cost}`, '#ff8888');
+      return;
+    }
+
+    const success = state.canCycleSelectedSlot
+      ? this.machineFactory?.cycleProcessorSlot?.(state.selectedProcessorSlot)
+      : this.machineFactory?.redrawProcessorHand?.();
+
+    if (!success) {
+      this.showDraftCycleFeedback('No cards to draw', '#ff8888');
+      return;
+    }
+
+    this.addMoney(-state.cost, state.canCycleSelectedSlot ? 'cycle slot' : 'redraw hand');
+    this.showDraftCycleFeedback(state.canCycleSelectedSlot ? 'Slot cycled' : 'Hand redrawn');
+    this.updateDraftCycleButton();
+  }
+
+  showDraftCycleFeedback(message, color = '#88ccff') {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
 
-    // Create penalty text
-    const penaltyText = this.add
-      .text(width * 0.5, height * 0.3, `-${this.skipPointPenalty} pts`, {
+    const feedbackText = this.add
+      .text(width * 0.5, height * 0.3, message, {
         fontFamily: 'Arial',
         fontSize: 24,
-        color: '#ff4444',
+        color,
         align: 'center',
         stroke: '#000000',
         strokeThickness: 3,
       })
       .setOrigin(0.5);
-    penaltyText.setDepth(100);
+    feedbackText.setDepth(100);
 
-    // Animate and destroy
     this.tweens.add({
-      targets: penaltyText,
+      targets: feedbackText,
       y: height * 0.2,
       alpha: 0,
       duration: 1500,
       ease: 'Power2',
-      onComplete: () => penaltyText.destroy(),
+      onComplete: () => feedbackText.destroy(),
     });
   }
 
-  /**
-   * Updates the skip button UI state
-   */
-  updateSkipButton() {
-    if (!this.skipButton) return;
+  updateDraftCycleButton() {
+    if (!this.draftCycleButton) return;
 
-    // Update text to show cost instead of count
-    this.skipButton.text.setText(`SKIP (-${this.skipPointPenalty} pts)`);
+    const state = this.getDraftCycleState();
+    const fillColor = state.enabled ? (state.affordable ? 0x884400 : 0x5a3924) : 0x3b3228;
+    const strokeColor = state.inBuildPhase ? 0xcc6600 : 0x6a5544;
 
-    // Button is always enabled unless game over
-    this.skipButton.button.fillColor = 0x884400;
-    this.skipButton.button.setInteractive();
-    this.skipButton.text.setColor('#ffffff');
+    this.draftCycleButton.text.setText(state.label);
+    this.draftCycleButton.button.fillColor = fillColor;
+    this.draftCycleButton.button.defaultFillColor = fillColor;
+    this.draftCycleButton.button.hoverFillColor =
+      state.enabled && state.affordable ? 0xaa6600 : fillColor;
+    this.draftCycleButton.button.setStrokeStyle(2, strokeColor);
+    this.draftCycleButton.text.setColor(
+      state.enabled ? (state.affordable ? '#ffffff' : '#ffbb88') : '#9a8f83'
+    );
+
+    if (state.enabled) {
+      this.draftCycleButton.button.setInteractive({ useHandCursor: true });
+      this.draftCycleButton.text.setAlpha(1);
+      this.draftCycleButton.button.setAlpha(1);
+    } else {
+      this.draftCycleButton.button.disableInteractive();
+      this.draftCycleButton.text.setAlpha(state.inBuildPhase ? 0.85 : 0.55);
+      this.draftCycleButton.button.setAlpha(state.inBuildPhase ? 0.85 : 0.55);
+    }
   }
 
   createButton(x, y, text, callback, width = 200, height = 36) {
     const button = this.add.rectangle(x, y, width, height, 0x4a6fb5).setInteractive();
+    button.defaultFillColor = 0x4a6fb5;
+    button.hoverFillColor = 0x5a8fd5;
     const buttonText = this.add
       .text(x, y, text, {
         fontFamily: 'Arial Black',
@@ -3247,11 +3272,11 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     button.on('pointerover', () => {
-      button.fillColor = 0x5a8fd5;
+      button.fillColor = button.hoverFillColor ?? 0x5a8fd5;
     });
 
     button.on('pointerout', () => {
-      button.fillColor = 0x4a6fb5;
+      button.fillColor = button.defaultFillColor ?? 0x4a6fb5;
     });
 
     button.on('pointerdown', () => {
@@ -5370,11 +5395,11 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.contractTimerText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.contractTimerText.setText(`Stock ${this.getRemainingSourceResources()}`);
+        this.contractTimerText.setText(`Supply ${this.getRemainingSourceResources()}`);
         this.contractTimerText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         if (this.getRemainingSourceResources() > 0) {
-          this.contractTimerText.setText(`Stock ${this.getRemainingSourceResources()}`);
+          this.contractTimerText.setText(`Supply ${this.getRemainingSourceResources()}`);
           this.contractTimerText.setColor('#88ccff');
         } else if (this.roundExhaustionStartedAt) {
           const graceMs = GAME_CONFIG.roundExhaustionGraceMs || 4500;
@@ -5382,10 +5407,10 @@ export default class GameScene extends Phaser.Scene {
             0,
             graceMs - ((this.time?.now || 0) - this.roundExhaustionStartedAt)
           );
-          this.contractTimerText.setText(`Dry ${Math.ceil(remaining / 1000)}s`);
+          this.contractTimerText.setText(`Empty ${Math.ceil(remaining / 1000)}s`);
           this.contractTimerText.setColor('#ff8888');
         } else {
-          this.contractTimerText.setText('Stock dry');
+          this.contractTimerText.setText('Supply empty');
           this.contractTimerText.setColor('#ff8888');
         }
       } else {
@@ -5393,6 +5418,7 @@ export default class GameScene extends Phaser.Scene {
         this.contractTimerText.setColor('#88ccff');
       }
     }
+    this.updateDraftCycleButton();
   }
 
   addMoney(amount, reason = '') {
@@ -5487,6 +5513,7 @@ export default class GameScene extends Phaser.Scene {
     } else {
       this.startRoundButton.button.disableInteractive();
     }
+    this.updateDraftCycleButton();
   }
 
   beginActiveRound() {
