@@ -1,0 +1,170 @@
+export const PROCESSING_PIECE_BODIES = {
+  'processor-a': {
+    id: 'processor-a',
+    name: 'Elbow Body',
+    label: 'E',
+    description: 'Elbow-shaped processing piece body',
+    shape: [
+      [1, 1],
+      [1, 0],
+      [1, 0],
+    ],
+    defaultDirection: 'right',
+    processingTime: 3000,
+    coreColor: 0x4e79a7,
+    coreShape: 'circle',
+    io: {
+      right: { inputPos: { x: 0, y: 0 }, outputPos: { x: 0, y: 2 } },
+      down: { inputPos: { x: 2, y: 1 }, outputPos: { x: 0, y: 0 } },
+      left: { inputPos: { x: 0, y: 2 }, outputPos: { x: 1, y: 0 } },
+      up: { inputPos: { x: 0, y: 0 }, outputPos: { x: 2, y: 1 } },
+    },
+  },
+  'processor-b': {
+    id: 'processor-b',
+    name: 'Tee Body',
+    label: 'T',
+    description: 'T-shaped processing piece body',
+    shape: [
+      [0, 1, 0],
+      [1, 1, 1],
+    ],
+    defaultDirection: 'right',
+    processingTime: 3000,
+    coreColor: 0x03fcfc,
+    coreShape: 'circle',
+    io: {
+      right: { inputPos: { x: 0, y: 1 }, outputPos: { x: 2, y: 1 } },
+      down: { inputPos: { x: 1, y: 0 }, outputPos: { x: 1, y: 2 } },
+      left: { inputPos: { x: 2, y: 1 }, outputPos: { x: 0, y: 1 } },
+      up: { inputPos: { x: 1, y: 2 }, outputPos: { x: 1, y: 0 } },
+    },
+  },
+  'processor-c': {
+    id: 'processor-c',
+    name: 'Block Body',
+    label: 'B',
+    description: 'Block-shaped processing piece body',
+    shape: [
+      [1, 1],
+      [1, 1],
+    ],
+    defaultDirection: 'right',
+    processingTime: 3000,
+    coreColor: 0xe15759,
+    coreShape: 'square',
+    io: {
+      right: { inputPos: { x: 0, y: 0 }, outputPos: { x: 1, y: 1 } },
+      down: { inputPos: { x: 1, y: 0 }, outputPos: { x: 0, y: 1 } },
+      left: { inputPos: { x: 1, y: 1 }, outputPos: { x: 0, y: 0 } },
+      up: { inputPos: { x: 0, y: 1 }, outputPos: { x: 1, y: 0 } },
+    },
+  },
+  'processor-d': {
+    id: 'processor-d',
+    name: 'Line Body',
+    label: 'L',
+    description: 'Line-shaped processing piece body',
+    shape: [[1, 1, 1]],
+    defaultDirection: 'right',
+    processingTime: 3000,
+    coreColor: 0x76b7b2,
+    coreShape: 'circle',
+    io: {
+      right: { inputPos: { x: 0, y: 0 }, outputPos: { x: 2, y: 0 } },
+      down: { inputPos: { x: 0, y: 0 }, outputPos: { x: 0, y: 2 } },
+      left: { inputPos: { x: 2, y: 0 }, outputPos: { x: 0, y: 0 } },
+      up: { inputPos: { x: 0, y: 2 }, outputPos: { x: 0, y: 0 } },
+    },
+  },
+  'processor-e': {
+    id: 'processor-e',
+    name: 'Hook Body',
+    label: 'H',
+    description: 'Hook-shaped processing piece body',
+    shape: [
+      [1, 1],
+      [0, 1],
+      [0, 1],
+    ],
+    defaultDirection: 'right',
+    processingTime: 4000,
+    coreColor: 0x59a14f,
+    coreShape: 'circle',
+    io: {
+      right: { inputPos: { x: 0, y: 0 }, outputPos: { x: 1, y: 2 } },
+      down: { inputPos: { x: 2, y: 0 }, outputPos: { x: 0, y: 1 } },
+      left: { inputPos: { x: 1, y: 2 }, outputPos: { x: 0, y: 0 } },
+      up: { inputPos: { x: 0, y: 1 }, outputPos: { x: 2, y: 0 } },
+    },
+  },
+  'advanced-processor': {
+    id: 'advanced-processor',
+    name: 'Cross Body',
+    label: 'X',
+    description: 'Cross-shaped processing piece body',
+    shape: [
+      [0, 1, 0],
+      [1, 1, 1],
+      [0, 1, 0],
+    ],
+    defaultDirection: 'right',
+    processingTime: 5000,
+    coreColor: 0xedc948,
+    coreShape: 'square',
+    io: {
+      right: { inputPos: { x: 0, y: 1 }, outputPos: { x: 2, y: 1 } },
+      down: { inputPos: { x: 1, y: 0 }, outputPos: { x: 1, y: 2 } },
+      left: { inputPos: { x: 2, y: 1 }, outputPos: { x: 0, y: 1 } },
+      up: { inputPos: { x: 1, y: 2 }, outputPos: { x: 1, y: 0 } },
+    },
+  },
+  'advanced-processor-1': {
+    id: 'advanced-processor-1',
+    name: 'U Body',
+    label: 'U',
+    description: 'U-shaped processing piece body',
+    shape: [
+      [1, 0, 1],
+      [1, 1, 1],
+    ],
+    defaultDirection: 'down',
+    processingTime: 5500,
+    coreColor: 0xaa44aa,
+    coreShape: 'circle',
+    io: {
+      right: { inputPos: { x: 0, y: 0 }, outputPos: { x: 2, y: 0 } },
+      down: { inputPos: { x: 2, y: 0 }, outputPos: { x: 1, y: 1 } },
+      left: { inputPos: { x: 2, y: 0 }, outputPos: { x: 0, y: 0 } },
+      up: { inputPos: { x: 1, y: 1 }, outputPos: { x: 2, y: 0 } },
+    },
+  },
+  'advanced-processor-2': {
+    id: 'advanced-processor-2',
+    name: 'Long Hook Body',
+    label: 'J',
+    description: 'Long hook-shaped processing piece body',
+    shape: [
+      [1, 1, 1, 1],
+      [1, 0, 0, 0],
+    ],
+    defaultDirection: 'down',
+    processingTime: 6000,
+    coreColor: 0xfc039d,
+    coreShape: 'circle',
+    io: {
+      right: { inputPos: { x: 0, y: 1 }, outputPos: { x: 3, y: 0 } },
+      down: { inputPos: { x: 0, y: 0 }, outputPos: { x: 1, y: 3 } },
+      left: { inputPos: { x: 3, y: 0 }, outputPos: { x: 0, y: 1 } },
+      up: { inputPos: { x: 1, y: 3 }, outputPos: { x: 0, y: 0 } },
+    },
+  },
+};
+
+export function getProcessingPieceBody(bodyId) {
+  return PROCESSING_PIECE_BODIES[bodyId] || PROCESSING_PIECE_BODIES['processor-c'];
+}
+
+export function getProcessingPieceBodies() {
+  return Object.values(PROCESSING_PIECE_BODIES);
+}

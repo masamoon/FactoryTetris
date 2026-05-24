@@ -36,7 +36,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Add title
     let titleText = this.isBoon
-      ? 'Choose a Boon'
+      ? 'Choose a Run Boon'
       : this.isShop
         ? 'Scrap Shop'
         : this.isLevelUp
@@ -59,17 +59,6 @@ export class UpgradeScene extends Phaser.Scene {
       : this.isBoon
         ? this.upgradeManager.getBoonChoices(3)
         : this.upgradeManager.getUpgradeChoices(3);
-
-    if (this.isShop) {
-      this.scrapText = this.add
-        .text(width / 2, height * 0.22, `Scrap: ${callingScene?.scrap || 0}`, {
-          fontFamily: 'Arial',
-          fontSize: 20,
-          color: '#ffd166',
-          align: 'center',
-        })
-        .setOrigin(0.5);
-    }
 
     // Create upgrade cards
     this.createUpgradeCards();
@@ -94,16 +83,227 @@ export class UpgradeScene extends Phaser.Scene {
       return;
     }
 
+    if (this.isShop) {
+      this.createShopCards();
+      return;
+    }
+
     // Display choices
-    const buttonYStart = this.isShop ? 205 : 200;
-    const buttonYStep = this.isShop ? 92 : 120;
+    const buttonYStart = 200;
+    const buttonYStep = 120;
     const buttonWidth = 400;
-    const buttonHeight = this.isShop ? 76 : 100;
+    const buttonHeight = 100;
 
     this.upgradeChoices.forEach((choice, index) => {
       const y = buttonYStart + index * buttonYStep;
       this.createUpgradeButton(this.cameras.main.width / 2, y, buttonWidth, buttonHeight, choice);
     });
+  }
+
+  createShopCards() {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+    const callingScene = this.scene.get(this.callingSceneKey);
+    const scrap = callingScene?.scrap || 0;
+    const offers = this.upgradeChoices.filter((choice) => choice.type !== 'skip_shop');
+    const saveChoice =
+      this.upgradeChoices.find((choice) => choice.type === 'skip_shop') ||
+      this.upgradeChoices[this.upgradeChoices.length - 1];
+
+    this.add
+      .rectangle(width / 2, height / 2 + 20, 700, 430, 0x09131d, 0.94)
+      .setStrokeStyle(2, 0x2f4d62, 0.95);
+
+    this.add
+      .text(width / 2, 138, `Available Scrap: ${scrap}`, {
+        fontFamily: 'Arial',
+        fontSize: 18,
+        color: '#ffd166',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    const cardWidth = 206;
+    const cardHeight = 224;
+    const gap = 18;
+    const totalWidth = offers.length * cardWidth + Math.max(0, offers.length - 1) * gap;
+    const startX = width / 2 - totalWidth / 2 + cardWidth / 2;
+
+    offers.forEach((choice, index) => {
+      this.createShopOfferButton(
+        startX + index * (cardWidth + gap),
+        314,
+        cardWidth,
+        cardHeight,
+        choice,
+        scrap
+      );
+    });
+
+    if (saveChoice) {
+      this.createShopSaveButton(width / 2, 506, 260, 52, saveChoice);
+    }
+  }
+
+  createShopOfferButton(x, y, width, height, choice, scrap) {
+    const canAfford = choice.isFree || scrap >= (choice.cost || 0);
+    const fillColor = canAfford ? 0x173244 : 0x171d25;
+    const hoverColor = canAfford ? 0x214b64 : 0x202633;
+    const strokeColor = canAfford ? 0x4aa3c7 : 0x4b5663;
+    const textColor = canAfford ? '#f4fbff' : '#8c98a3';
+    const accentColor = this.getShopKindColor(choice.kind);
+
+    const bg = this.add
+      .rectangle(x, y, width, height, fillColor, 0.98)
+      .setStrokeStyle(2, strokeColor, canAfford ? 0.95 : 0.55)
+      .setInteractive({ useHandCursor: true });
+
+    const kindBadge = this.add
+      .rectangle(x - width / 2 + 48, y - height / 2 + 25, 76, 26, accentColor, canAfford ? 1 : 0.45)
+      .setStrokeStyle(1, 0xffffff, 0.18);
+    this.add
+      .text(kindBadge.x, kindBadge.y, choice.kind || 'Offer', {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        fontStyle: 'bold',
+        color: canAfford ? '#061018' : '#a9b2bb',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    const costLabel = choice.isFree ? 'FREE' : `${choice.cost || 0} Scrap`;
+    const costBg = this.add
+      .rectangle(x + width / 2 - 50, y - height / 2 + 25, 84, 26, 0x0c151d, 0.95)
+      .setStrokeStyle(1, 0xffd166, canAfford ? 0.8 : 0.35);
+    this.add
+      .text(costBg.x, costBg.y, costLabel, {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        fontStyle: 'bold',
+        color: canAfford ? '#ffd166' : '#8a7a52',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    this.add
+      .text(x, y - 54, choice.name, {
+        fontFamily: 'Arial',
+        fontSize: 18,
+        fontStyle: 'bold',
+        color: textColor,
+        align: 'center',
+        wordWrap: { width: width - 28 },
+      })
+      .setOrigin(0.5);
+
+    this.add
+      .text(x, y + 18, choice.description || '', {
+        fontFamily: 'Arial',
+        fontSize: 13,
+        color: canAfford ? '#cfe1ea' : '#7f8a94',
+        align: 'center',
+        lineSpacing: 4,
+        wordWrap: { width: width - 30 },
+      })
+      .setOrigin(0.5);
+
+    if (choice.effect) {
+      this.add
+        .text(x, y + height / 2 - 39, choice.effect, {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          fontStyle: 'bold',
+          color: canAfford ? '#ffd166' : '#8a7a52',
+          align: 'center',
+          wordWrap: { width: width - 28 },
+        })
+        .setOrigin(0.5);
+    }
+
+    if (!canAfford) {
+      this.add
+        .text(x, y + height / 2 - 25, 'Need more Scrap', {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          color: '#ff8a8a',
+          align: 'center',
+        })
+        .setOrigin(0.5);
+    }
+
+    bg.on('pointerover', () => {
+      bg.fillColor = hoverColor;
+      bg.setStrokeStyle(2, canAfford ? 0x7ad7ff : 0x66717d, canAfford ? 1 : 0.65);
+    });
+    bg.on('pointerout', () => {
+      bg.fillColor = fillColor;
+      bg.setStrokeStyle(2, strokeColor, canAfford ? 0.95 : 0.55);
+    });
+    bg.on('pointerdown', () => {
+      this.handleShopChoice(choice);
+    });
+  }
+
+  createShopSaveButton(x, y, width, height, choice) {
+    const bg = this.add
+      .rectangle(x, y, width, height, 0x26313b, 0.98)
+      .setStrokeStyle(2, 0x6b7c8c, 0.9)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(x, y, 'Save Scrap', {
+        fontFamily: 'Arial',
+        fontSize: 18,
+        fontStyle: 'bold',
+        color: '#f4fbff',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    bg.on('pointerover', () => {
+      bg.fillColor = 0x334250;
+    });
+    bg.on('pointerout', () => {
+      bg.fillColor = 0x26313b;
+    });
+    bg.on('pointerdown', () => {
+      this.handleShopChoice(choice);
+    });
+  }
+
+  getShopKindColor(kind) {
+    switch (kind) {
+      case 'Machine':
+        return 0x70d6ff;
+      case 'Board':
+        return 0x88ffcc;
+      case 'Color':
+        return 0xffd166;
+      case 'Utility':
+        return 0xcdb4db;
+      case 'Funds':
+        return 0xffd166;
+      case 'Run':
+        return 0xff8fab;
+      case 'Sticker':
+        return 0xa7c957;
+      default:
+        return 0x9fb8c8;
+    }
+  }
+
+  handleShopChoice(choice) {
+    const callingScene = this.scene.get(this.callingSceneKey);
+    const result = callingScene?.buyShopChoice?.(choice) || {
+      success: false,
+      message: 'Shop unavailable.',
+    };
+    if (!result.success) {
+      this.showShopMessage(result.message || 'Cannot buy that.');
+      return;
+    }
+    if (result.closeShop !== false) {
+      this.closeScene();
+    }
   }
 
   createUpgradeButton(x, y, width, height, choice) {
@@ -119,7 +319,7 @@ export class UpgradeScene extends Phaser.Scene {
       : `${kindText}${choice.name}${costText}\n${choice.description}`;
     const text = this.add
       .text(x, y, textContent, {
-        fontSize: '18px',
+        fontSize: this.isShop ? '15px' : '18px',
         fill: '#ffffff',
         align: 'center',
         wordWrap: { width: width - 20 },
@@ -134,18 +334,7 @@ export class UpgradeScene extends Phaser.Scene {
     });
     bg.on('pointerdown', () => {
       if (this.isShop) {
-        const callingScene = this.scene.get(this.callingSceneKey);
-        const result = callingScene?.buyShopChoice?.(choice) || {
-          success: false,
-          message: 'Shop unavailable.',
-        };
-        if (!result.success) {
-          this.showShopMessage(result.message || 'Cannot buy that.');
-          return;
-        }
-        if (result.closeShop !== false) {
-          this.closeScene();
-        }
+        this.handleShopChoice(choice);
         return;
       } else if (this.isBoon) {
         this.upgradeManager.applyBoon(choice.type);

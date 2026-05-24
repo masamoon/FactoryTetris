@@ -133,7 +133,7 @@ export function generatePieceOptions(scene, count = 3) {
  * @param {Array<object>} configs - Available configurations
  * @param {Set<number>} producibleLevels - Currently producible levels
  * @param {number} currentEra - The current game era (default 1)
- * @param {object} scene - The game scene, used for active contract pressure
+ * @param {object} scene - The game scene, used for active round context
  * @returns {object} Selected configuration
  */
 function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene = null) {
@@ -226,7 +226,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   const currentEra = scene?.currentEra || 1;
 
   // Build configs array. Recipes are operation-driven now; eras still matter
-  // through scoring/objectives, not through a deterministic recipe ladder.
+  // through scoring and board demands, not through a deterministic recipe ladder.
   let configs = getDraftConfigPool(scene, getConfigsForBlockCount(blockCount));
 
   if (forcedArithmeticOperation) {

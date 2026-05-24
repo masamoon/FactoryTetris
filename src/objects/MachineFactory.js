@@ -5,6 +5,7 @@ import { MACHINE_COLORS } from './machines/BaseMachine';
 import { assignLevelsToShape } from '../utils/PieceGenerator';
 import { getTraitById, getTraitBandColor } from '../config/traits';
 import { ARITHMETIC_OPERATION_TYPES } from '../config/resourceLevels';
+import { createPieceDeckForRound, getPieceDeckEntryById } from '../config/pieceDeck';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -28,6 +29,9 @@ export default class MachineFactory {
     this.processorTypes = [];
     this.numProcessorSlots = 3; // Number of processor slots to display
     this.availableProcessors = []; // Array of currently available processor types (one per slot)
+    this.processorDeck = [];
+    this.processorDiscard = [];
+    this.bonusPieceCards = [];
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
@@ -195,8 +199,8 @@ export default class MachineFactory {
       console.warn('MachineFactory: Conveyor machine type not found.');
     }
 
-    // Initialize the available processors with random selections
-    this.refreshAvailableProcessors();
+    // Initialize the available processors with draws from the current piece deck
+    this.refreshProcessorHand();
     this.refreshAvailableLogistics();
 
     console.log('MachineFactory: Initialization complete.');
@@ -206,55 +210,63 @@ export default class MachineFactory {
     );
   }
 
-  // Populate all processor slots with random processors from the pool
-  // Each processor gets assigned dynamic input/output levels
-  // Guarantees at least one slot gets a higher tier piece (L3+ output)
-  refreshAvailableProcessors() {
+  buildProcessorDeck() {
+    this.processorDeck = [
+      ...createPieceDeckForRound(
+        this.scene?.currentRound || 1,
+        GAME_CONFIG.starterDraftRounds || 1
+      ),
+      ...this.bonusPieceCards,
+    ];
+    this.shuffleProcessorDeck();
+    this.processorDiscard = [];
+  }
+
+  shuffleProcessorDeck() {
+    for (let i = this.processorDeck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.processorDeck[i], this.processorDeck[j]] = [
+        this.processorDeck[j],
+        this.processorDeck[i],
+      ];
+    }
+  }
+
+  drawPieceCard() {
+    if (this.processorDeck.length === 0) {
+      this.processorDeck = [...this.processorDiscard];
+      this.processorDiscard = [];
+      this.shuffleProcessorDeck();
+    }
+
+    return this.processorDeck.pop() || null;
+  }
+
+  getProcessorTypeById(machineTypeId) {
+    return this.processorTypes.find((type) => type.id === machineTypeId) || null;
+  }
+
+  // Populate all processor slots with named pieces from the deck.
+  refreshProcessorHand(options = {}) {
     if (this.processorTypes.length === 0) {
       this.availableProcessors = [];
       return;
     }
 
+    const rebuildDeck = options.rebuildDeck !== false;
+    if (rebuildDeck) {
+      this.buildProcessorDeck();
+    } else if (options.discardCurrentHand) {
+      for (const processor of this.availableProcessors) {
+        if (processor?.pieceCard) {
+          this.processorDiscard.push(processor.pieceCard);
+        }
+      }
+    }
     this.availableProcessors = [];
 
-    if ((this.scene?.currentRound || 1) <= (GAME_CONFIG.starterDraftRounds || 1)) {
-      const starterOperations = [
-        { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
-        { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 2 },
-        { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
-      ];
-
-      for (let i = 0; i < this.numProcessorSlots; i++) {
-        this.availableProcessors.push(
-          this.createDraftProcessor({
-            forcedArithmeticOperation: starterOperations[i % starterOperations.length],
-            suppressTrait: true,
-          })
-        );
-      }
-
-      this.ensureUsableDraft();
-      console.log(
-        'Refreshed starter processors:',
-        this.availableProcessors.map((p) => `${p.id} (${p.notation})`)
-      );
-      return;
-    }
-
-    let hasHigherTier = false;
-
     for (let i = 0; i < this.numProcessorSlots; i++) {
-      // Force higher tier on second slot if first slot didn't get one,
-      // or on last slot as final guarantee
-      const forceHigherTier =
-        (!hasHigherTier && i === 1) || (!hasHigherTier && i === this.numProcessorSlots - 1);
-
-      const processorWithLevels = this.createDraftProcessor({ forceHigherTier });
-      if (this.getDraftOutputLevel(processorWithLevels) > 2) {
-        hasHigherTier = true;
-      }
-
-      this.availableProcessors.push(processorWithLevels);
+      this.availableProcessors.push(this.drawProcessorPiece());
     }
 
     this.ensureUsableDraft();
@@ -262,9 +274,13 @@ export default class MachineFactory {
     this.markTraitIntroducedIfVisible();
 
     console.log(
-      'Refreshed processors with levels:',
-      this.availableProcessors.map((p) => `${p.id} (${p.notation})`)
+      'Refreshed processor hand:',
+      this.availableProcessors.map((p) => `${p.pieceName || p.name} (${p.notation})`)
     );
+  }
+
+  refreshAvailableProcessors() {
+    this.refreshProcessorHand({ rebuildDeck: true });
   }
 
   // Populate logistics slots
@@ -279,10 +295,8 @@ export default class MachineFactory {
     this.availableLogistics = [...this.logisticsTypes];
   }
 
-  // Rotate the processor list: remove the selected one, shift others, add new one at end
-  // The new processor gets assigned dynamic levels
-  // Ensures at least one higher tier piece (L3+) remains in the rotation
-  rotateProcessors(removedSlotIndex) {
+  // Replace the used piece with the next card from the deck.
+  replaceUsedProcessorPiece(removedSlotIndex) {
     if (
       this.processorTypes.length === 0 ||
       removedSlotIndex < 0 ||
@@ -291,29 +305,68 @@ export default class MachineFactory {
       return;
     }
 
-    // Remove the used processor
-    // distinct from just replacing it, we want the others to shift filling the gap
-    this.availableProcessors.splice(removedSlotIndex, 1);
+    const usedPiece = this.availableProcessors[removedSlotIndex];
+    if (usedPiece?.pieceCard) {
+      this.processorDiscard.push(usedPiece.pieceCard);
+    }
 
-    // Check if remaining processors have a higher tier piece
-    const hasHigherTier = this.availableProcessors.some((p) => this.getDraftOutputLevel(p) > 2);
-
-    // Force higher tier if none remain after removing the used one
-    const forceHigherTier = !hasHigherTier;
-
-    const newProcessor = this.createDraftProcessor({
-      forceHigherTier,
+    const newProcessor = this.drawProcessorPiece({
       forceTrait: this.shouldForceEarlyTrait(),
     });
 
-    this.availableProcessors.push(newProcessor);
+    this.availableProcessors[removedSlotIndex] = newProcessor;
     this.ensureUsableDraft();
     this.ensureEarlyTraitDraft();
     this.markTraitIntroducedIfVisible();
 
     console.log(
-      `Rotated processors: removed index ${removedSlotIndex}, added ${newProcessor.id} (${newProcessor.notation}) at end`
+      `Replaced processor piece: removed index ${removedSlotIndex}, drew ${newProcessor.pieceName || newProcessor.name} (${newProcessor.notation})`
     );
+  }
+
+  rotateProcessors(removedSlotIndex) {
+    this.replaceUsedProcessorPiece(removedSlotIndex);
+  }
+
+  drawProcessorPiece(options = {}) {
+    const card = options.pieceCard || this.drawPieceCard();
+    if (!card) {
+      return this.createDraftProcessor(options);
+    }
+
+    const baseProcessor = this.getProcessorTypeById(card.bodyId || card.machineTypeId);
+    if (!baseProcessor) {
+      console.warn(`[piece-deck] Missing piece body for card ${card.id}: ${card.bodyId}`);
+      return this.createDraftProcessor(options);
+    }
+
+    return this.createProcessorPieceFromCard(card, baseProcessor, options);
+  }
+
+  createProcessorPieceFromCard(card, baseProcessor, options = {}) {
+    const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, {
+      ...options,
+      forcedArithmeticOperation: card.arithmeticOperation || options.forcedArithmeticOperation,
+      suppressTrait: card.suppressTrait ?? options.suppressTrait,
+    });
+    const inputLevels = Array.isArray(levelConfig.inputLevels) ? levelConfig.inputLevels : [1];
+
+    return {
+      ...baseProcessor,
+      inputLevels,
+      outputLevel: levelConfig.outputLevel,
+      previewOutputLevel: levelConfig.previewOutputLevel,
+      notation: levelConfig.notation,
+      arithmeticOperation: levelConfig.arithmeticOperation || null,
+      arithmeticInputCount: levelConfig.arithmeticInputCount || 0,
+      trait: levelConfig.trait || null,
+      isUsable: levelConfig.isUsable,
+      pieceCard: card,
+      pieceId: card.id,
+      pieceName: card.name,
+      pieceShortName: card.shortName || card.name,
+      bodyId: card.bodyId || baseProcessor.id,
+    };
   }
 
   createDraftProcessor(options = {}) {
@@ -411,8 +464,78 @@ export default class MachineFactory {
   }
 
   rerollProcessorDrafts() {
-    this.refreshAvailableProcessors();
+    this.refreshProcessorHand({ rebuildDeck: false, discardCurrentHand: true });
     this.displayCurrentProcessorPreview();
+  }
+
+  canCycleProcessorSlot(slotIndex) {
+    return (
+      this.processorTypes.length > 0 &&
+      slotIndex >= 0 &&
+      slotIndex < this.availableProcessors.length &&
+      Boolean(this.availableProcessors[slotIndex])
+    );
+  }
+
+  cycleProcessorSlot(slotIndex) {
+    if (!this.canCycleProcessorSlot(slotIndex)) {
+      return false;
+    }
+
+    const oldProcessor = this.availableProcessors[slotIndex];
+    if (oldProcessor?.pieceCard) {
+      this.processorDiscard.push(oldProcessor.pieceCard);
+    }
+
+    const newProcessor = this.drawProcessorPiece({
+      forceTrait: this.shouldForceEarlyTrait(),
+    });
+    this.availableProcessors[slotIndex] = newProcessor;
+    this.ensureUsableDraft();
+    this.ensureEarlyTraitDraft();
+    this.markTraitIntroducedIfVisible();
+    this.displayCurrentProcessorPreview();
+
+    if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex === slotIndex) {
+      this.clearSelection();
+      this.lastSelectedCategory = null;
+      this.lastSelectedSlotIndex = -1;
+    }
+
+    return true;
+  }
+
+  redrawProcessorHand() {
+    this.rerollProcessorDrafts();
+    if (this.lastSelectedCategory === 'processor') {
+      this.clearSelection();
+      this.lastSelectedCategory = null;
+      this.lastSelectedSlotIndex = -1;
+    }
+    return this.availableProcessors.length > 0;
+  }
+
+  addPieceCardToRunDeck(pieceId) {
+    const template = getPieceDeckEntryById(pieceId);
+    if (!template) return null;
+
+    const card = {
+      ...template,
+      copies: 1,
+      instanceId: `${template.id}-reward-${this.bonusPieceCards.length + 1}`,
+    };
+    this.bonusPieceCards.push(card);
+    this.processorDiscard.push(card);
+    this.displayCurrentProcessorPreview();
+    return card;
+  }
+
+  getDeckCounts() {
+    return {
+      deck: this.processorDeck.length,
+      discard: this.processorDiscard.length,
+      bonus: this.bonusPieceCards.length,
+    };
   }
 
   markTraitIntroducedIfVisible() {
@@ -481,6 +604,17 @@ export default class MachineFactory {
     if (this.conveyorMachineType) {
       this.addMachinePreviewToPanel(this.conveyorMachineType, conveyorX, conveyorY, -1, 'conveyor');
     }
+
+    const counts = this.getDeckCounts();
+    const deckText = this.scene.add
+      .text(0, this.height / 2 - 20, `Deck ${counts.deck}  Discard ${counts.discard}`, {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: '#b7cbd6',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    this.processorPreviewContainer.add(deckText);
   }
 
   /**
@@ -524,6 +658,23 @@ export default class MachineFactory {
 
       // --- ADD NOTATION LABEL FOR PROCESSORS ---
       if (category === 'processor' && machineType.notation) {
+        if (machineType.pieceShortName || machineType.pieceName) {
+          const nameLabel = this.scene.add
+            .text(itemX, itemY - 29, machineType.pieceShortName || machineType.pieceName, {
+              fontFamily: 'Arial',
+              fontSize: 8,
+              fontWeight: 'bold',
+              color: '#dfefff',
+              align: 'center',
+              stroke: '#000000',
+              strokeThickness: 2,
+              wordWrap: { width: 48 },
+            })
+            .setOrigin(0.5);
+          this.processorPreviewContainer.add(nameLabel);
+          machinePreview.nameLabel = nameLabel;
+        }
+
         // Determine label color based on usability
         const labelColor = machineType.isUsable !== false ? '#00ff00' : '#ff6666';
         const notationLabel = this.scene.add
@@ -614,6 +765,7 @@ export default class MachineFactory {
 
     // Track which slot was selected (for refresh after placement)
     this.lastSelectedSlotIndex = slotIndex;
+    this.lastSelectedCategory = 'processor';
 
     // Select the machine type
     this.selectMachineType(machineType);
@@ -716,6 +868,7 @@ export default class MachineFactory {
 
     // Notify any listeners (e.g., the scene)
     this.scene.events.emit('machineSelected', machineType);
+    this.scene.updateDraftCycleButton?.();
 
     // Create placement preview in the scene
     if (this.scene.createPlacementPreview) {
@@ -774,6 +927,7 @@ export default class MachineFactory {
 
     // Notify the scene about the deselection
     this.scene.events.emit('machineDeselected');
+    this.scene.updateDraftCycleButton?.();
   }
 
   /**
@@ -1510,6 +1664,12 @@ export default class MachineFactory {
         if (typeOrId.trait) {
           config.trait = typeOrId.trait;
         }
+        if (typeOrId.bodyId) {
+          config.bodyId = typeOrId.bodyId;
+        }
+        if (typeOrId.pieceName) {
+          config.pieceName = typeOrId.pieceName;
+        }
       }
       console.log(`[MachineFactory] Config prepared:`, config);
 
@@ -1576,7 +1736,7 @@ export default class MachineFactory {
       .text(
         0,
         -35, // Moved up to create more space
-        machineType.name || 'Unknown Machine',
+        machineType.pieceName || machineType.name || 'Unknown Machine',
         {
           fontFamily: 'Arial',
           fontSize: 14,

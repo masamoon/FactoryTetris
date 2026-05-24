@@ -176,10 +176,27 @@ export default class DeliveryNode {
   }
 
   getHudLabel() {
+    if (this.condition.scoreSink) {
+      return `${this.getConditionShortLabel()} SCORE`;
+    }
     return `${this.getConditionShortLabel()} ${this.deliveredCount}/${this.condition.requiredCount}  +$${this.condition.payout}`;
   }
 
   updateProgressVisuals() {
+    if (this.condition.scoreSink) {
+      const quota = Math.max(1, this.scene?.roundQuota || 1);
+      const score = Math.max(0, this.scene?.roundScore || 0);
+      const progress = Math.min(1, score / quota);
+      if (this.progressText) {
+        this.progressText.setText('SCORE');
+        this.progressText.setFontSize(7);
+      }
+      if (this.progressBar) {
+        this.progressBar.displayWidth = 24 * progress;
+      }
+      return;
+    }
+
     const required = Math.max(1, this.condition.requiredCount || 1);
     const progress = Math.min(1, this.deliveredCount / required);
     if (this.progressText) {
@@ -377,10 +394,7 @@ export default class DeliveryNode {
         basePoints: totalPoints,
         multiplier: awardedPoints / Math.max(1, totalPoints),
         itemColor: traitBreakdown.itemColor,
-        labels:
-          awardedPoints > reward.points
-            ? [...traitBreakdown.labels, 'Combo']
-            : traitBreakdown.labels,
+        labels: traitBreakdown.labels,
       });
 
       console.log(
@@ -424,14 +438,8 @@ export default class DeliveryNode {
         itemColor: traitBreakdown.itemColor,
         labels:
           chainMultiplier > 1
-            ? [
-                `Chain x${this.formatMultiplier(chainMultiplier)}`,
-                ...traitBreakdown.labels,
-                ...(awardedPoints > reward.points ? ['Combo'] : []),
-              ]
-            : awardedPoints > reward.points
-              ? [...traitBreakdown.labels, 'Combo']
-              : traitBreakdown.labels,
+            ? [`Chain x${this.formatMultiplier(chainMultiplier)}`, ...traitBreakdown.labels]
+            : traitBreakdown.labels,
       });
 
       console.log(
@@ -481,7 +489,7 @@ export default class DeliveryNode {
       this.scene.updateRoundUI();
     }
 
-    if (this.deliveredCount >= (this.condition.requiredCount || 1)) {
+    if (!this.condition.scoreSink && this.deliveredCount >= (this.condition.requiredCount || 1)) {
       this.completeDeliveryNode();
     }
   }

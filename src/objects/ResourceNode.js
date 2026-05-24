@@ -26,6 +26,7 @@ export default class ResourceNode {
     this.resourceLevel = 1; // Resource nodes always output Level 1 resources
     this.lifespan = config.lifespan;
     this.round = round || 1;
+    this.isFiniteSource = config.finiteSource ?? GAME_CONFIG.finiteResourceRounds ?? false;
 
     // Calculate properties based on round
     const baseInitialMin = 3;
@@ -38,8 +39,6 @@ export default class ResourceNode {
     const roundFactorMaxResources = 25;
     const roundFactorGenerationRate = 100; // ms reduction per round
 
-    // Initialize with resources based on round (using round-1 as factor starts from round 1)
-    // Initialize with resources based on round (using round-1 as factor starts from round 1)
     const bountyModifier = this.upgradeManager.getResourceBountyModifier();
     const initialMin = Math.floor(
       (baseInitialMin + (this.round - 1) * roundFactorInitialMin) * bountyModifier
@@ -47,13 +46,27 @@ export default class ResourceNode {
     const initialMax = Math.floor(
       (baseInitialMax + (this.round - 1) * roundFactorInitialMax) * bountyModifier
     );
-    this.resources = Phaser.Math.Between(initialMin, initialMax); // Start with resources based on round
+    const configuredInitialResources =
+      typeof config.initialResources === 'number'
+        ? Math.max(0, Math.floor(config.initialResources))
+        : null;
+    this.resources =
+      configuredInitialResources !== null
+        ? configuredInitialResources
+        : Phaser.Math.Between(initialMin, initialMax); // Start with resources based on round
 
     this.lifespan = Infinity;
-    console.log('[ResourceNode] Created as permanent resource source');
+    console.log(
+      `[ResourceNode] Created ${this.isFiniteSource ? 'finite' : 'permanent'} resource source`
+    );
 
     // Max resources based on round
-    this.maxResources = baseMaxResources + (this.round - 1) * roundFactorMaxResources;
+    this.maxResources =
+      typeof config.maxResources === 'number'
+        ? Math.max(this.resources, Math.floor(config.maxResources))
+        : this.isFiniteSource
+          ? this.resources
+          : baseMaxResources + (this.round - 1) * roundFactorMaxResources;
 
     // Calculate base generation delay based on round
     this.baseGenerationDelay = Math.max(
@@ -76,13 +89,16 @@ export default class ResourceNode {
 
     this.lifespanTimer = null;
 
-    // Set up resource generation timer using calculated delay
-    this.resourceTimer = scene.time.addEvent({
-      delay: generationDelay, // Use calculated delay
-      callback: this.generateResource,
-      callbackScope: this,
-      loop: true,
-    });
+    // Set up resource generation timer using calculated delay. Finite roguelite
+    // sources do not regenerate; their remaining inventory is the round budget.
+    this.resourceTimer = this.isFiniteSource
+      ? null
+      : scene.time.addEvent({
+          delay: generationDelay, // Use calculated delay
+          callback: this.generateResource,
+          callbackScope: this,
+          loop: true,
+        });
   }
 
   createVisuals() {
@@ -119,7 +135,7 @@ export default class ResourceNode {
     this.border.setStrokeStyle(2, 0x008833);
     this.container.add(this.border);
 
-    // Create resource stock indicator.
+    // Create resource supply indicator.
     this.resourceIndicator = this.scene.add
       .text(0, 0, `${this.resources}`, {
         fontFamily: 'Arial',
@@ -180,6 +196,8 @@ export default class ResourceNode {
    * Generate a new resource
    */
   generateResource() {
+    if (this.isFiniteSource) return;
+
     if (this.resources < this.maxResources) {
       this.resources++;
       //console.log(`Resource node at (${this.gridX}, ${this.gridY}) generated resource: ${this.resources}/${this.maxResources} ${this.resourceType.id}`);
@@ -243,6 +261,7 @@ export default class ResourceNode {
    * Updates properties based on current upgrade levels
    */
   updateFromUpgrades() {
+    if (this.isFiniteSource) return;
     if (!this.upgradeManager || !this.resourceTimer) return;
 
     // Update resource generation speed
