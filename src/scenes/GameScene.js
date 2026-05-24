@@ -8,7 +8,9 @@ import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
 import { getGridSizeForEra, CHIP_CONFIG } from '../config/eraConfig';
 // Note: TestUtils and MachineRegistry are used for development/debugging but may appear unused
 import { UpgradeManager } from '../managers/UpgradeManager.js';
+import BoardGenerator from '../managers/BoardGenerator.js';
 import { BOON_POOL } from '../config/boons.js';
+import { BOARD_BLOCKER_CELL_STYLE } from '../config/boardConfig.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
 import { UPGRADE_PACKAGE_TYPE, upgradesConfig } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig
 import {
@@ -93,6 +95,11 @@ export default class GameScene extends Phaser.Scene {
     this.flowPlacementRewardWindow = 18000;
     this.currentRoundBoard = null;
     this.roundBoardBlockers = [];
+    this.boardGenerator = null;
+    this.boardRevealGraphics = null;
+    this.startRoundButtonPulse = null;
+    this.juiceAudioContext = null;
+    this.lastJuiceSoundAt = {};
     this.pendingBonusSourceColors = [];
 
     // === CHIP PLACEMENT MODE ===
@@ -121,6 +128,7 @@ export default class GameScene extends Phaser.Scene {
     this.grid = new Grid(this, GRID_CONFIG);
     this.addToWorld(this.grid.graphics); // Ensure grid graphics are only in world view
     this.addToWorld(this.grid.highlightEffect); // Ensure grid highlight is only in world view
+    this.boardGenerator = new BoardGenerator({ gridConfig: GRID_CONFIG });
 
     // Add a reference to the grid as factoryGrid for compatibility with existing code
     this.factoryGrid = this.grid; // Revert to using the existing Grid instance
@@ -3200,6 +3208,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.addMoney(-state.cost, state.canCycleSelectedSlot ? 'cycle slot' : 'redraw hand');
+    this.playSound(state.canCycleSelectedSlot ? 'draft-cycle' : 'draft-redraw');
+    this.pulseUIButton(this.draftCycleButton, { scale: 1.06, duration: 120 });
     this.showDraftCycleFeedback(state.canCycleSelectedSlot ? 'Slot cycled' : 'Hand redrawn');
     this.updateDraftCycleButton();
   }
@@ -3273,21 +3283,31 @@ export default class GameScene extends Phaser.Scene {
 
     button.on('pointerover', () => {
       button.fillColor = button.hoverFillColor ?? 0x5a8fd5;
+      this.tweens.add({
+        targets: [button, buttonText],
+        scaleX: 1.03,
+        scaleY: 1.03,
+        duration: 90,
+        ease: 'Sine.easeOut',
+      });
     });
 
     button.on('pointerout', () => {
       button.fillColor = button.defaultFillColor ?? 0x4a6fb5;
+      if (button !== this.startRoundButton?.button || !this.startRoundButtonPulse) {
+        this.tweens.add({
+          targets: [button, buttonText],
+          scaleX: 1,
+          scaleY: 1,
+          duration: 100,
+          ease: 'Sine.easeOut',
+        });
+      }
     });
 
     button.on('pointerdown', () => {
-      if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
-        try {
-          this.sound.play('click');
-        } catch (_error) {
-          this.audioAvailable = false;
-          this.registry.set('audioAvailable', false);
-        }
-      }
+      this.playSound('click');
+      this.pulseUIButton({ button, text: buttonText }, { scale: 0.97, duration: 70 });
       callback();
     });
 
@@ -3323,14 +3343,8 @@ export default class GameScene extends Phaser.Scene {
       button.fillColor = color;
     });
     button.on('pointerdown', () => {
-      if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
-        try {
-          this.sound.play('click');
-        } catch (_error) {
-          this.audioAvailable = false;
-          this.registry.set('audioAvailable', false);
-        }
-      }
+      this.playSound('click');
+      this.pulseUIButton({ button, text: buttonText }, { scale: 0.97, duration: 70 });
       callback();
     });
 
@@ -3668,11 +3682,99 @@ export default class GameScene extends Phaser.Scene {
     if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
       try {
         this.sound.play(key);
+        return;
       } catch (_error) {
         this.audioAvailable = false;
         this.registry.set('audioAvailable', false);
       }
     }
+
+    this.playProceduralSound(key);
+  }
+
+  getJuiceAudioContext() {
+    if (this.juiceAudioContext) return this.juiceAudioContext;
+    const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    try {
+      this.juiceAudioContext = new AudioContextClass();
+    } catch (_error) {
+      this.juiceAudioContext = null;
+    }
+    return this.juiceAudioContext;
+  }
+
+  playProceduralSound(key) {
+    const now = this.time?.now || 0;
+    if (now - (this.lastJuiceSoundAt[key] || -Infinity) < 35) return;
+    this.lastJuiceSoundAt[key] = now;
+
+    const context = this.getJuiceAudioContext();
+    if (!context) return;
+    if (context.state === 'suspended' && typeof context.resume === 'function') {
+      context.resume().catch(() => {});
+    }
+
+    const patterns = {
+      click: [
+        { frequency: 440, duration: 0.045, type: 'triangle', volume: 0.018 },
+        { frequency: 660, duration: 0.035, delay: 0.035, type: 'triangle', volume: 0.014 },
+      ],
+      place: [{ frequency: 300, duration: 0.06, type: 'square', volume: 0.018 }],
+      delivery: [
+        { frequency: 620, duration: 0.055, type: 'sine', volume: 0.018 },
+        { frequency: 930, duration: 0.07, delay: 0.045, type: 'sine', volume: 0.014 },
+      ],
+      'draft-redraw': [
+        { frequency: 240, duration: 0.055, type: 'sawtooth', volume: 0.014 },
+        { frequency: 360, duration: 0.055, delay: 0.055, type: 'sawtooth', volume: 0.014 },
+        { frequency: 520, duration: 0.07, delay: 0.11, type: 'triangle', volume: 0.018 },
+      ],
+      'draft-cycle': [
+        { frequency: 380, duration: 0.055, type: 'triangle', volume: 0.016 },
+        { frequency: 560, duration: 0.06, delay: 0.045, type: 'triangle', volume: 0.016 },
+      ],
+      'build-phase': [{ frequency: 280, duration: 0.12, type: 'triangle', volume: 0.016 }],
+      'round-start': [
+        { frequency: 330, duration: 0.08, type: 'triangle', volume: 0.018 },
+        { frequency: 495, duration: 0.08, delay: 0.07, type: 'triangle', volume: 0.016 },
+        { frequency: 660, duration: 0.12, delay: 0.14, type: 'triangle', volume: 0.016 },
+      ],
+      'round-clear': [
+        { frequency: 523.25, duration: 0.09, type: 'sine', volume: 0.02 },
+        { frequency: 659.25, duration: 0.09, delay: 0.08, type: 'sine', volume: 0.018 },
+        { frequency: 783.99, duration: 0.14, delay: 0.16, type: 'sine', volume: 0.018 },
+      ],
+      'round-fail': [
+        { frequency: 220, duration: 0.12, type: 'sawtooth', volume: 0.018 },
+        { frequency: 146.83, duration: 0.18, delay: 0.09, type: 'sawtooth', volume: 0.014 },
+      ],
+      'shop-buy': [
+        { frequency: 700, duration: 0.05, type: 'triangle', volume: 0.016 },
+        { frequency: 1046.5, duration: 0.08, delay: 0.05, type: 'sine', volume: 0.014 },
+      ],
+      destroy: [{ frequency: 180, duration: 0.08, type: 'sawtooth', volume: 0.012 }],
+    };
+
+    (patterns[key] || patterns.click).forEach((tone) => this.playTone(context, tone));
+  }
+
+  playTone(context, tone) {
+    const startTime = context.currentTime + (tone.delay || 0);
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = tone.type || 'sine';
+    oscillator.frequency.setValueAtTime(tone.frequency, startTime);
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.exponentialRampToValueAtTime(tone.volume || 0.015, startTime + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + (tone.duration || 0.08));
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + (tone.duration || 0.08) + 0.02);
   }
 
   // Play background music if audio is available
@@ -5146,90 +5248,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   createRoundBoard(round = this.currentRound) {
-    const width = this.grid?.width || GRID_CONFIG.width;
-    const height = this.grid?.height || GRID_CONFIG.height;
-    const midX = Math.floor(width / 2);
-    const midY = Math.floor(height / 2);
-    const clampRow = (row) => Phaser.Math.Clamp(row, 0, height - 1);
-    const uniqueRows = (rows) => [...new Set(rows.map(clampRow))];
-    const blockers = [];
-    const addBlocker = (x, y) => {
-      if (x <= 0 || x >= width - 1 || y < 0 || y >= height) return;
-      const key = `${x},${y}`;
-      if (blockers.some((cell) => `${cell.x},${cell.y}` === key)) return;
-      blockers.push({ x, y });
-    };
-
-    if (round <= 1) {
-      return {
-        id: 'open-floor',
-        round,
-        name: 'Open Floor',
-        description: 'Starter layout with a direct center lane.',
-        quotaMultiplier: 0.9,
-        sourceInventoryMultiplier: 1.1,
-        sourceRows: [midY],
-        deliveryRows: [midY],
-        blockers,
-      };
-    }
-
-    const variant = (round - 2) % 3;
-    if (variant === 0) {
-      const gateX = midX;
-      for (let x = 2; x < width - 2; x++) {
-        if (Math.abs(x - gateX) <= 1) continue;
-        addBlocker(x, midY);
-      }
-      return {
-        id: 'split-lanes',
-        round,
-        name: 'Split Lanes',
-        description: 'A center divider leaves one gate between upper and lower lanes.',
-        quotaMultiplier: 1,
-        sourceInventoryMultiplier: 1,
-        sourceRows: uniqueRows([midY - 2, midY + 2]),
-        deliveryRows: uniqueRows([midY - 2, midY + 2]),
-        blockers,
-      };
-    }
-
-    if (variant === 1) {
-      const gateRows = new Set(uniqueRows([2, height - 3]));
-      for (let y = 1; y < height - 1; y++) {
-        if (gateRows.has(y)) continue;
-        addBlocker(midX, y);
-      }
-      return {
-        id: 'crossflow-gate',
-        round,
-        name: 'Crossflow Gate',
-        description: 'A vertical baffle forces routing through two offset gates.',
-        quotaMultiplier: 1.08,
-        sourceInventoryMultiplier: 1.12,
-        sourceRows: uniqueRows([2, height - 3]),
-        deliveryRows: uniqueRows([height - 3, 2]),
-        blockers,
-      };
-    }
-
-    for (const centerY of uniqueRows([midY - 2, midY + 2])) {
-      addBlocker(midX - 1, centerY);
-      addBlocker(midX, centerY);
-      addBlocker(midX - 1, centerY + 1);
-      addBlocker(midX, centerY + 1);
-    }
-    return {
-      id: 'factory-islands',
-      round,
-      name: 'Factory Islands',
-      description: 'Two dead zones break up the middle and reward edge routing.',
-      quotaMultiplier: 1.12,
-      sourceInventoryMultiplier: 1.18,
-      sourceRows: uniqueRows([1, height - 2, midY]),
-      deliveryRows: uniqueRows([midY, 1, height - 2]),
-      blockers,
-    };
+    const generator = this.boardGenerator || new BoardGenerator({ gridConfig: GRID_CONFIG });
+    return generator.createRoundBoard(round, {
+      width: this.grid?.width || GRID_CONFIG.width,
+      height: this.grid?.height || GRID_CONFIG.height,
+    });
   }
 
   clearRoundBoard() {
@@ -5257,13 +5280,14 @@ export default class GameScene extends Phaser.Scene {
         this.grid.setCell(blocker.x, blocker.y, {
           type: 'board-blocker',
           boardId: board.id,
-          color: 0x273847,
-          borderColor: 0x8fb7c9,
+          color: BOARD_BLOCKER_CELL_STYLE.color,
+          borderColor: BOARD_BLOCKER_CELL_STYLE.borderColor,
         });
       }
     }
 
     this.grid.drawGrid();
+    this.showBoardRevealJuice(board);
     return board;
   }
 
@@ -5460,6 +5484,89 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  pulseUIButton(buttonBundle, options = {}) {
+    if (!buttonBundle?.button || !buttonBundle?.text) return null;
+
+    const targets = [buttonBundle.button, buttonBundle.text];
+    this.tweens.killTweensOf(targets);
+    return this.tweens.add({
+      targets,
+      scaleX: options.scale || 1.05,
+      scaleY: options.scale || 1.05,
+      duration: options.duration || 460,
+      yoyo: true,
+      repeat: options.repeat ?? 0,
+      ease: options.ease || 'Sine.easeInOut',
+    });
+  }
+
+  startButtonReadyPulse() {
+    if (!this.startRoundButton || this.startRoundButtonPulse) return;
+
+    this.startRoundButtonPulse = this.pulseUIButton(this.startRoundButton, {
+      scale: 1.04,
+      duration: 760,
+      repeat: -1,
+    });
+  }
+
+  stopButtonReadyPulse() {
+    if (!this.startRoundButton) return;
+
+    if (this.startRoundButtonPulse) {
+      this.startRoundButtonPulse.stop();
+      this.startRoundButtonPulse = null;
+    }
+    this.tweens.killTweensOf([this.startRoundButton.button, this.startRoundButton.text]);
+    this.startRoundButton.button.setScale(1);
+    this.startRoundButton.text.setScale(1);
+  }
+
+  showBoardRevealJuice(board) {
+    if (!this.grid || !board) return;
+
+    if (this.boardRevealGraphics) {
+      this.boardRevealGraphics.destroy();
+    }
+
+    const graphics = this.add.graphics();
+    graphics.setDepth(6);
+    this.addToWorld(graphics);
+    const cellSize = this.grid.cellSize;
+
+    for (const blocker of board.blockers || []) {
+      const topLeft = this.grid.gridToWorldTopLeft(blocker.x, blocker.y);
+      if (!topLeft) continue;
+      graphics.lineStyle(2, 0xb9f7ff, 0.9);
+      graphics.strokeRect(topLeft.x + 2, topLeft.y + 2, cellSize - 4, cellSize - 4);
+    }
+
+    const markRows = (rows, color) => {
+      rows.forEach((row) => {
+        const left = this.grid.gridToWorldTopLeft(0, row);
+        if (!left) return;
+        graphics.lineStyle(2, color, 0.5);
+        graphics.strokeRect(left.x + 2, left.y + 2, this.grid.width * cellSize - 4, cellSize - 4);
+      });
+    };
+    markRows(board.sourceRows || [], 0x88ffcc);
+    markRows(board.deliveryRows || [], 0xffd166);
+
+    this.boardRevealGraphics = graphics;
+    this.tweens.add({
+      targets: graphics,
+      alpha: 0,
+      duration: 1100,
+      ease: 'Power2',
+      onComplete: () => {
+        graphics.destroy();
+        if (this.boardRevealGraphics === graphics) {
+          this.boardRevealGraphics = null;
+        }
+      },
+    });
+  }
+
   getMachinePlacementCost(machineType) {
     if (machineType?.isRelocation && typeof machineType.placementCost === 'number') {
       return machineType.placementCost;
@@ -5510,8 +5617,10 @@ export default class GameScene extends Phaser.Scene {
     if (visible) {
       this.startRoundButton.button.setInteractive({ useHandCursor: true });
       this.startRoundButton.text.setAlpha(1);
+      this.startButtonReadyPulse();
     } else {
       this.startRoundButton.button.disableInteractive();
+      this.stopButtonReadyPulse();
     }
     this.updateDraftCycleButton();
   }
@@ -5525,6 +5634,7 @@ export default class GameScene extends Phaser.Scene {
     this.setProductionPaused(false);
     this.setBuildPhaseUIVisible(false);
     this.updateRoundUI();
+    this.playSound('round-start');
     this.showRoundStartFeedback(this.currentRound);
   }
 
@@ -5546,6 +5656,7 @@ export default class GameScene extends Phaser.Scene {
       this.runState = 'BUILD_PHASE';
       this.setProductionPaused(true);
       this.setBuildPhaseUIVisible(true);
+      this.playSound('build-phase');
       this.showBuildPhaseFeedback(round);
       this.updateRoundUI();
       return;
@@ -5622,6 +5733,7 @@ export default class GameScene extends Phaser.Scene {
   onDeliveryNodeCompleted(node) {
     if (!node || this.roundClearing) return;
     const totalPayout = this.getDeliveryNodePayout(node);
+    this.playSound('delivery');
     this.addMoney(totalPayout, 'delivery');
     this.updateRoundUI();
 
@@ -5636,6 +5748,7 @@ export default class GameScene extends Phaser.Scene {
     this.runState = 'ROUND_CLEARED';
     const clearBonus = (GAME_CONFIG.roundClearBonus || 18) + this.currentRound * 4;
     this.addMoney(clearBonus, 'round clear');
+    this.playSound('round-clear');
     this.showRoundClearFeedback();
 
     const entitiesToClear =
@@ -5700,6 +5813,7 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     text.setDepth(1000);
     this.addToUI(text);
+    this.playSound('round-fail');
     this.cameras.main.shake(220, 0.006);
 
     this.tweens.add({
@@ -6095,7 +6209,7 @@ export default class GameScene extends Phaser.Scene {
       return { success: false, message: 'Could not apply shop item.' };
     }
 
-    this.playSound('upgrade-select');
+    this.playSound('shop-buy');
     return { success: true, closeShop: true };
   }
 
