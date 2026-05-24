@@ -30,21 +30,6 @@ export function getProducibleLevels(scene) {
     return producibleLevels;
   }
 
-  // Add chip output tiers - chips from previous eras provide resources
-  if (scene.chips && Array.isArray(scene.chips)) {
-    for (const chip of scene.chips) {
-      if (chip.outputTier && typeof chip.outputTier === 'number') {
-        producibleLevels.add(chip.outputTier);
-      }
-      // Also add all emittable tiers if the chip has multiple
-      if (chip.emittableTiers && Array.isArray(chip.emittableTiers)) {
-        for (const tier of chip.emittableTiers) {
-          producibleLevels.add(tier);
-        }
-      }
-    }
-  }
-
   // Scan all machines to find their output levels
   const machines = getAllMachines(scene);
 

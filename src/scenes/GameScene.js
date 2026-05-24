@@ -3,10 +3,7 @@ import Grid from '../objects/Grid';
 import MachineFactory from '../objects/MachineFactory';
 import ResourceNode from '../objects/ResourceNode';
 import DeliveryNode from '../objects/DeliveryNode'; // Add import
-import ChipNode from '../objects/ChipNode'; // Transcendence chip entity
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
-import { getGridSizeForEra, CHIP_CONFIG } from '../config/eraConfig';
-// Note: TestUtils and MachineRegistry are used for development/debugging but may appear unused
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import BoardGenerator from '../managers/BoardGenerator.js';
 import { BOON_POOL } from '../config/boons.js';
@@ -15,8 +12,7 @@ import {
   BOARD_TILE_STYLES,
   BOARD_TILE_TYPES,
 } from '../config/boardConfig.js';
-import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
-import { UPGRADE_PACKAGE_TYPE, UPGRADE_TYPES, upgradesConfig } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig
+import { UPGRADE_TYPES, upgradesConfig } from '../config/upgrades.js';
 import {
   ARITHMETIC_OPERATION_TAGS,
   getArithmeticOperationTagLabel,
@@ -27,6 +23,7 @@ import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
 import TraitRegistry from '../objects/traits/TraitRegistry';
 import { TRAIT_CATEGORIES, getTraitBandColor, getTraitById, rollTrait } from '../config/traits';
 import { STARTER_PIECE_DECK, STANDARD_PIECE_LIBRARY } from '../config/pieceDeck';
+import { getProcessingPieceBody, isProcessingPieceBodyId } from '../config/pieceBodies';
 import { getItemColorKey } from '../utils/PurityUtils';
 import { loadGameSettings, saveGameSettings } from '../utils/GameSettings';
 
@@ -50,12 +47,6 @@ export default class GameScene extends Phaser.Scene {
     this.machines = [];
     this.deliveryNodes = []; // Add deliveryNodes array
 
-    // NOTE: Upgrade nodes are no longer used - we now get upgrades when leveling up
-    // These properties can be removed in a future cleanup
-    this.upgradeNodes = [];
-    this.currentUpgradeNode = null;
-    this.upgradeNodeSpawnTimer = null;
-
     // Initialize Upgrade Manager
     this.upgradeManager = new UpgradeManager();
 
@@ -71,11 +62,7 @@ export default class GameScene extends Phaser.Scene {
     this.rightPanelWidth = 300; // Fixed width for right panel
     this.debugMode = false; // Toggle for debug features like "Clear Factory"
 
-    // === LEGACY ERA / TRANSCENDENCE SYSTEM ===
-    // Kept dormant while the active loop moves to round-based delivery nodes.
-    this.currentEra = 1; // Current era (starts at 1)
-    this.chips = []; // Array of ChipNode entities from previous eras
-    this.deliveredHighTierResources = 0; // Track deliveries of current era's highest tier
+    this.currentEra = 1;
     // === Round / quota system state ===
     // runState: 'BUILD_PHASE' | 'ROUND_ACTIVE' | 'ROUND_CLEARED' | 'GRACE' | 'RUN_OVER'
     this.runState = 'ROUND_ACTIVE';
@@ -85,16 +72,10 @@ export default class GameScene extends Phaser.Scene {
     this.roundSurvived = false;
     this.pendingDeliveryCompletionScore = 0;
     this.roundTimerEvent = null;
-    this.highestDeliveredTierThisRound = 0;
-    this.highestDeliveredTierThisEra = 0;
     this.contract = null; // legacy HUD/modifier shell; replaced by round quota loop
     this.contractTimerEvent = null; // legacy alias for older pause code paths
     this.roundDeliveryCount = 0;
     this.contractDeliveryCount = 0; // legacy alias for older code paths
-    this.canTranscend = false; // Flag when transcendence conditions are met
-    this.transcendButtonPulse = null; // Tween reference for pulsing button
-    this.deliveryHistory = []; // Track recent delivery timestamps for throughput calculation
-    this.deliveryHistoryWindow = 30000; // Track deliveries over last 30 seconds
     this.recentFlowPlacements = new Map();
     this.flowPlacementRewardWindow = 18000;
     this.currentRoundBoard = null;
@@ -132,18 +113,6 @@ export default class GameScene extends Phaser.Scene {
     this.placementCueText = null;
     this.placementHintText = null;
     this.lastQuotaHudScore = 0;
-
-    // === CHIP PLACEMENT MODE ===
-    this.isPlacingChip = false; // Flag for when player is choosing chip placement
-    this.pendingChipData = null; // Chip data waiting to be placed
-    this.chipGhost = null; // Visual ghost preview of chip during placement
-    this.chipPlacementText = null; // Instruction text during placement
-  }
-
-  preload() {
-    // ... existing preload ...
-    this.load.image('upgrade-node', 'assets/sprites/upgrade_node.png'); // Placeholder path
-    this.load.image('upgrade-package', 'assets/sprites/upgrade_package.png'); // Placeholder path
   }
 
   create() {
@@ -216,8 +185,6 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundSurvived = false;
     this.pendingDeliveryCompletionScore = 0;
-    this.highestDeliveredTierThisRound = 0;
-    this.highestDeliveredTierThisEra = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
 
@@ -226,12 +193,7 @@ export default class GameScene extends Phaser.Scene {
     // Play background music
     this.playBackgroundMusic();
 
-    // Legacy upgrade-package trigger removed (Task 6): boons are the sole
-    // reward cadence (1 Contract = 1 boon). No listener binds
-    // `triggerUpgradeSelection` -> showUpgradeScreen anymore, so the legacy
-    // DeliveryNode emit is a harmless no-op event with zero listeners.
-    // ADD EVENT LISTENER FOR UPGRADE COMPLETION
-    this.events.on('upgradeSelected', this.resumeFromUpgrade, this); // Listen for signal from UpgradeScene
+    this.events.on('upgradeSelected', this.resumeFromUpgrade, this);
     this.events.on('machineSelected', this.showPlacementCue, this);
     this.events.on('machineDeselected', this.hidePlacementCue, this);
 
@@ -289,11 +251,6 @@ export default class GameScene extends Phaser.Scene {
       this.updateRoundUI();
       this.refreshTutorialPanel();
       this._roundHudAccum = 0;
-    }
-
-    // Update chips (transcendence system)
-    if (this.chips) {
-      this.chips.forEach((chip) => chip.update());
     }
 
     // Trait HUD refresh
@@ -473,8 +430,6 @@ export default class GameScene extends Phaser.Scene {
       this.deliveryDemandText,
       this.nextDemandText,
     ].forEach((obj) => this.addToUI(obj));
-
-    this.transcendButton = null;
 
     this.createHudPanel(contentX, 272, contentWidth, 150, 0x15151b, 0x3f3d55);
     this.createSectionLabel(contentX + 10, 282, 'UPGRADES');
@@ -771,7 +726,12 @@ export default class GameScene extends Phaser.Scene {
 
   isTutorialProcessorMachine(machine) {
     const id = String(machine?.id || machine?.type || '').toLowerCase();
-    return id.includes('processor') || Boolean(machine?.arithmeticOperation);
+    return (
+      machine?.category === 'operator' ||
+      machine?.machineFamily === 'operator' ||
+      isProcessingPieceBodyId(id) ||
+      Boolean(machine?.arithmeticOperation)
+    );
   }
 
   isTutorialLogisticsMachine(machine) {
@@ -794,7 +754,7 @@ export default class GameScene extends Phaser.Scene {
       picked:
         Boolean(this.selectedMachineType) ||
         processorPlaced ||
-        selectedId.includes('processor') ||
+        isProcessingPieceBodyId(selectedId) ||
         Boolean(this.selectedMachineType?.arithmeticOperation),
       placed,
       processorPlaced,
@@ -1113,17 +1073,6 @@ export default class GameScene extends Phaser.Scene {
     this.input.mouse.disableContextMenu();
 
     this.input.on('pointerdown', (pointer) => {
-      // Handle chip placement mode first (highest priority)
-      if (this.isPlacingChip && this.isPrimaryPointer(pointer)) {
-        const worldX = pointer.x + this.cameras.main.scrollX;
-        const worldY = pointer.y + this.cameras.main.scrollY;
-        const gridPos = this.factoryGrid.worldToGrid(worldX, worldY);
-        if (this.canPlaceChipAt(gridPos.x, gridPos.y)) {
-          this.confirmChipPlacement(gridPos.x, gridPos.y);
-        }
-        return; // Don't process other click actions during chip placement
-      }
-
       // Drag camera with Right Mouse Button or Middle Mouse Button or Left if holding Shift
       if (
         pointer.rightButtonDown() ||
@@ -1142,13 +1091,6 @@ export default class GameScene extends Phaser.Scene {
 
     this.input.on('pointermove', (pointer) => {
       this.updatePlacementCuePosition(pointer);
-
-      // Update chip ghost position during placement mode
-      if (this.isPlacingChip) {
-        const worldX = pointer.x + this.cameras.main.scrollX;
-        const worldY = pointer.y + this.cameras.main.scrollY;
-        this.updateChipGhostPosition(worldX, worldY);
-      }
 
       if (this.isDraggingCamera) {
         this.hideBoardGimmickTooltip();
@@ -1203,289 +1145,12 @@ export default class GameScene extends Phaser.Scene {
       });
     }
 
-    // Set up drag and drop for machine placement
-    /*this.input.on('dragstart', (pointer, gameObject) => {
-            // Store original position for returning if placement fails
-            gameObject.input.dragStartX = gameObject.x;
-            gameObject.input.dragStartY = gameObject.y;
-            
-            // Store the parent container's position for reference
-            if (gameObject.parentFactory) {
-                gameObject.input.parentX = gameObject.parentFactory.x;
-                gameObject.input.parentY = gameObject.parentFactory.y;
-                gameObject.input.scrollX = gameObject.parentFactory.scrollContainer.x;
-                
-                // Temporarily move the object to the scene's root container for dragging
-                // This prevents issues with the scroll container's mask
-                
-                // Calculate the world position correctly
-                const worldX = gameObject.parentFactory.x + gameObject.parentFactory.scrollContainer.x + gameObject.x;
-                const worldY = gameObject.parentFactory.y + gameObject.y;
-                
-                // Store the scale before removing from container
-                const originalScaleX = gameObject.scaleX;
-                const originalScaleY = gameObject.scaleY;
-                
-                // Remove from scroll container and add to scene at the correct world position
-                gameObject.parentFactory.scrollContainer.remove(gameObject);
-                this.add.existing(gameObject);
-                
-                // Calculate the center of the machine
-                const machineWidth = gameObject.width * originalScaleX;
-                const machineHeight = gameObject.height * originalScaleY;
-                
-                // Position at the pointer location, centering the machine on the cursor
-                gameObject.x = pointer.x;
-                gameObject.y = pointer.y;
-                
-                // Restore original scale
-                gameObject.setScale(originalScaleX, originalScaleY);
-                
-                // Store that this object was moved from scroll container
-                gameObject.wasInScrollContainer = true;
-            }
-            
-            // Add visual feedback - tint all rectangle parts in the container
-            if (gameObject.list) {
-                gameObject.list.forEach(part => {
-                    if (part.type === 'Rectangle' && !part.isResourceIndicator) {
-                        // Don't change color of input/output squares
-                        if (part === gameObject.inputSquare || part === gameObject.outputSquare) {
-                            // Just make them slightly brighter
-                            part.fillColor = part === gameObject.inputSquare ? 0x4aa8eb : 0xffa520;
-                        } else {
-                            part.fillColor = 0x44ff44; // Green tint for regular parts
-                        }
-                    }
-                });
-            }
-            
-            // Create placement preview
-            this.createPlacementPreview(gameObject);
-        });*/
-
     // Add ESC key handler to clear selection
     this.input.keyboard.on('keydown-ESC', () => {
       if (this.machineFactory) {
         this.machineFactory.clearSelection();
       }
     });
-
-    /*this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
-            try {
-                // Validate the gameObject
-                if (!gameObject) {
-                    console.error('[DRAG] Invalid game object in drag event');
-                    return;
-                }
-                
-                // Ensure valid pointer position
-                if (!pointer || typeof pointer.x !== 'number' || typeof pointer.y !== 'number') {
-                    console.error('[DRAG] Invalid pointer in drag event');
-                    return;
-                }
-                
-                // Update the machine position to follow the cursor exactly
-                gameObject.x = pointer.x;
-                gameObject.y = pointer.y;
-                
-                // Update placement preview - handle errors within the method
-                if (gameObject.machineType || gameObject.isGhost) {
-                    try {
-                        this.updatePlacementPreview(gameObject);
-                    } catch (previewError) {
-                        console.error('[DRAG] Error updating preview:', previewError);
-                    }
-                }
-            } catch (error) {
-                console.error('[DRAG] Unhandled error in drag event:', error);
-            }
-        });*/
-
-    /*this.input.on('dragend', (pointer, gameObject) => {
-            try {
-                // Validate the gameObject and pointer
-                if (!gameObject) {
-                    console.error('[DRAGEND] Invalid game object in dragend event');
-                    return;
-                }
-                
-                if (!pointer || typeof pointer.x !== 'number' || typeof pointer.y !== 'number') {
-                    console.error('[DRAGEND] Invalid pointer in dragend event');
-                    // Try to return object to original position if available
-                    if (gameObject.input && typeof gameObject.input.dragStartX === 'number' && typeof gameObject.input.dragStartY === 'number') {
-                        gameObject.x = gameObject.input.dragStartX;
-                        gameObject.y = gameObject.input.dragStartY;
-                    }
-                    return;
-                }
-                
-                // Check if the machine is dropped on the factory grid
-                let isInBounds = false;
-                try {
-                    isInBounds = this.factoryGrid.isInBounds(gameObject.x, gameObject.y);
-                } catch (boundsError) {
-                    console.error('[DRAGEND] Error checking bounds:', boundsError);
-                    isInBounds = false;
-                }
-                
-                if (isInBounds) {
-                    let gridPosition;
-                    try {
-                        gridPosition = this.factoryGrid.worldToGrid(gameObject.x, gameObject.y);
-                    } catch (gridError) {
-                        console.error('[DRAGEND] Error converting to grid position:', gridError);
-                        this.returnMachineToOriginalPosition(gameObject);
-                        return;
-                    }
-                    
-                    // Store the current direction and rotation for consistency
-                    const currentRotation = gameObject.rotation !== undefined ? gameObject.rotation : 0;
-                    
-                    // Check if machine type exists
-                    if (!gameObject.machineType) {
-                        console.error('[DRAGEND] Machine object has no machineType');
-                        this.returnMachineToOriginalPosition(gameObject);
-                        return;
-                    }
-                    
-                    // Try to place the machine using the scene's placeMachine method
-                    let canPlace = false;
-                    try {
-                        const currentDirection = this.getDirectionFromRotation(currentRotation);
-                        canPlace = this.factoryGrid.canPlaceMachine(
-                            gameObject.machineType, 
-                            gridPosition.x, 
-                            gridPosition.y, 
-                            currentDirection
-                        );
-                        if (!canPlace) {
-                            canPlace = this.canReplaceProcessor(
-                                gameObject.machineType,
-                                gridPosition.x,
-                                gridPosition.y,
-                                currentDirection
-                            );
-                        }
-                    } catch (placementCheckError) {
-                        console.error('[DRAGEND] Error checking if can place:', placementCheckError);
-                        canPlace = false;
-                    }
-                    
-                    if (canPlace) {
-                        try {
-                            // Place machine is specifically designed to work with lastPreviewPosition
-                            //console.log(`[dragend] Placing machine at grid (${gridPosition.x}, ${gridPosition.y}) with rotation ${currentRotation}`);
-                            const placedMachine = this.placeMachine(gameObject.machineType, gridPosition.x, gridPosition.y, currentRotation);
-                            
-                            if (placedMachine) {
-                                // Successfully placed machine, now clean up and create a new one
-                                
-                                // Calculate the original position relative to the scroll container
-                                let originalX = 0;
-                                let originalY = 0;
-                                
-                                if (gameObject.wasInScrollContainer && gameObject.parentFactory) {
-                                    try {
-                                        // For machines from the selection panel, use the original index position
-                                        // Find the index of this machine type in the machine types array
-                                        const machineTypes = GAME_CONFIG.machineTypes;
-                                        const machineTypeIndex = machineTypes.findIndex(type => type.id === gameObject.machineType.id);
-                                        
-                                        // Calculate position based on index and fixed spacing
-                                        const fixedSpacing = 120; // Same as in MachineFactory.createMachineSelectionPanel
-                                        originalX = machineTypeIndex * fixedSpacing;
-                                        originalY = 0; // Vertical position is always 0 in the scroll container
-                                    } catch (positionError) {
-                                        console.error('[DRAGEND] Error calculating original position:', positionError);
-                                        originalX = 0;
-                                        originalY = 0;
-                                    }
-                                }
-                                
-                                // Remove the dragged machine
-                                try {
-                                    gameObject.destroy();
-                                } catch (destroyError) {
-                                    console.error('[DRAGEND] Error destroying gameObject:', destroyError);
-                                }
-                                
-                                // Create a new machine of the same type at the original position
-                                if (this.machineFactory) {
-                                    try {
-                                        const newMachine = this.machineFactory.createMachineOfType(gameObject.machineType, originalX, originalY);
-                                        
-                                        // Make the machine preview larger (same as in createMachineSelectionPanel)
-                                        if (newMachine) {
-                                            newMachine.setScale(1.1);
-                                            
-                                            // Apply consistent color scheme to the new machine
-                                            if (newMachine.list) {
-                                                newMachine.list.forEach(part => {
-                                                    if (part.type === 'Rectangle' && !part.isResourceIndicator) {
-                                                        // Apply the same color scheme as the placed machine
-                                                        if (part === newMachine.inputSquare) {
-                                                            part.fillColor = 0x4aa8eb; // Brighter blue for input
-                                                        } else if (part === newMachine.outputSquare) {
-                                                            part.fillColor = 0xffa520; // Brighter orange for output
-                                                        } else {
-                                                            part.fillColor = 0x44ff44; // Green for regular parts
-                                                        }
-                                                    }
-                                                });
-                                            }
-                                            
-                                            // Add other modifications to the new machine (label, animation, etc.)
-                                            // ...
-                                        }
-                                    } catch (createError) {
-                                        console.error('[DRAGEND] Error creating new machine:', createError);
-                                    }
-                                }
-                            } else {
-                                // Placement failed, return to original position
-                                console.error('[DRAGEND] Failed to place machine');
-                                this.returnMachineToOriginalPosition(gameObject);
-                            }
-                        } catch (placementError) {
-                            console.error('[DRAGEND] Error in machine placement:', placementError);
-                            this.returnMachineToOriginalPosition(gameObject);
-                        }
-                    } else {
-                        // Can't place, return to original position with animation
-                        this.returnMachineToOriginalPosition(gameObject);
-                    }
-                } else {
-                    // Outside bounds, return to original position with animation
-                    this.returnMachineToOriginalPosition(gameObject);
-                }
-                
-                // Remove placement preview AFTER placing the machine to ensure lastPreviewPosition is used
-                try {
-                    this.removePlacementPreview();
-                } catch (previewError) {
-                    console.error('[DRAGEND] Error removing placement preview:', previewError);
-                }
-                
-                // Clear the last preview position after it's been used
-                this.lastPreviewPosition = null;
-                
-            } catch (error) {
-                console.error('[DRAGEND] Unhandled error in dragend event:', error);
-                
-                // Try to clean up in case of errors
-                try {
-                    if (gameObject) {
-                        this.returnMachineToOriginalPosition(gameObject);
-                    }
-                    
-                    this.removePlacementPreview();
-                    this.lastPreviewPosition = null;
-                } catch (e) {
-                    // Ignore errors in cleanup
-                }
-            }
-        });*/
 
     // Handle rotation key press
     this.input.keyboard.on('keydown-R', () => {
@@ -1609,26 +1274,6 @@ export default class GameScene extends Phaser.Scene {
       } catch (error) {
         console.error('[ROTATION] Unhandled error in rotation handler:', error);
       }
-    });
-
-    // Add automated test key
-    this.input.keyboard.on('keydown-Y', () => {
-      this.testUtils.runAutomatedTests();
-    });
-
-    // Add auto-fix key
-    this.input.keyboard.on('keydown-U', () => {
-      this.testUtils.autoFixDirectionIndicators();
-    });
-
-    // Add help key for test instructions
-    this.input.keyboard.on('keydown-H', () => {
-      this.testUtils.showTestInstructions();
-    });
-
-    // Add back the test key for direction indicators
-    this.input.keyboard.on('keydown-T', () => {
-      this.testDirectionIndicators();
     });
 
     // Add mouse click handler for machine placement
@@ -2163,8 +1808,7 @@ export default class GameScene extends Phaser.Scene {
     let inputPos = { x: -1, y: -1 };
     let outputPos = { x: -1, y: -1 };
 
-    // Don't set input/output for cargo loaders
-    if (machine.id !== 'cargo-loader' && direction !== 'none') {
+    if (direction !== 'none') {
       // Get machine ID from the machine object
       const machineId = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
 
@@ -2256,10 +1900,6 @@ export default class GameScene extends Phaser.Scene {
 
           // Determine cell color based on position in the shape
           let cellColor = MACHINE_COLORS[machine.id] || 0x44ff44; // Unique color for this machine type
-
-          // Change color for input/output cells - REMOVED to match placed machine style
-          // if (machine.id === 'cargo-loader') { ... } else if (direction !== 'none') { ... }
-          // Kept uniform color logic only
 
           // Draw the cell directly at its world position
           if (replacementInfo) {
@@ -3322,7 +2962,6 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundQuota = this.getRoundQuota(round);
     this.roundSurvived = false;
-    this.highestDeliveredTierThisRound = 0;
     this.contract = {
       number: round,
       title: 'Score Quota',
@@ -3437,39 +3076,6 @@ export default class GameScene extends Phaser.Scene {
     this.clearRound();
   }
 
-  isEraGateRound(round = this.currentRound) {
-    const roundsPerEraGate = GAME_CONFIG.roundsPerEraGate || 3;
-    return round > 0 && round % roundsPerEraGate === 0;
-  }
-
-  getNextEraGateRound(round = this.currentRound) {
-    const roundsPerEraGate = GAME_CONFIG.roundsPerEraGate || 3;
-    return Math.ceil(round / roundsPerEraGate) * roundsPerEraGate;
-  }
-
-  updateTranscendButtonState() {
-    if (!this.transcendButton) return;
-
-    const isHiddenForPlacement = this.isPlacingChip || this.runState === 'GRACE';
-    const ready = this.canTranscend && !isHiddenForPlacement;
-    this.transcendButton.button.setVisible(!isHiddenForPlacement);
-    this.transcendButton.text.setVisible(!isHiddenForPlacement);
-
-    if (isHiddenForPlacement) return;
-
-    if (ready) {
-      this.transcendButton.button.fillColor = 0x7a55cc;
-      this.transcendButton.button.setAlpha(1);
-      this.transcendButton.text.setText('TRANSCEND');
-      this.transcendButton.text.setAlpha(1);
-    } else {
-      this.transcendButton.button.fillColor = 0x333344;
-      this.transcendButton.button.setAlpha(0.65);
-      this.transcendButton.text.setText(`ERA GATE R${this.getNextEraGateRound()}`);
-      this.transcendButton.text.setAlpha(0.8);
-    }
-  }
-
   finishSurvivedRound() {
     this.clearRound();
   }
@@ -3543,358 +3149,6 @@ export default class GameScene extends Phaser.Scene {
     this.clearRoundQuota();
   }
 
-  /**
-   * Show the transcend button with pulsing animation
-   */
-  showTranscendButton() {
-    if (this.transcendButton) {
-      this.updateTranscendButtonState();
-
-      // Pulsing animation
-      this.transcendButtonPulse = this.tweens.add({
-        targets: [this.transcendButton.button, this.transcendButton.text],
-        scaleX: 1.1,
-        scaleY: 1.1,
-        duration: 500,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
-      });
-    }
-  }
-
-  /**
-   * Hide the transcend button
-   */
-  hideTranscendButton() {
-    if (this.transcendButton) {
-      if (this.transcendButtonPulse) {
-        this.transcendButtonPulse.stop();
-        this.transcendButtonPulse = null;
-      }
-      this.updateTranscendButtonState();
-    }
-  }
-
-  /**
-   * Called when a scoring resource is delivered. This powers era-gate chip
-   * quality: faster engines create faster chips, while higher-tier engines
-   * archive a stronger output tier.
-   * @param {number} tier - The tier of the delivered resource
-   */
-  trackDelivery(tier) {
-    const deliveredTier = Math.max(1, Math.floor(Number(tier) || 1));
-    this.highestDeliveredTierThisRound = Math.max(
-      this.highestDeliveredTierThisRound || 0,
-      deliveredTier
-    );
-    this.highestDeliveredTierThisEra = Math.max(
-      this.highestDeliveredTierThisEra || 0,
-      deliveredTier
-    );
-
-    const now = this.time.now;
-    this.deliveryHistory.push(now);
-
-    // Clean up old entries outside the window
-    const cutoff = now - this.deliveryHistoryWindow;
-    this.deliveryHistory = this.deliveryHistory.filter((t) => t > cutoff);
-  }
-
-  /**
-   * Calculate factory throughput (deliveries per second) over recent history
-   * @returns {number} Deliveries per second
-   */
-  calculateThroughput() {
-    if (this.deliveryHistory.length < 2) {
-      return 0;
-    }
-
-    const now = this.time.now;
-    const cutoff = now - this.deliveryHistoryWindow;
-    const recentDeliveries = this.deliveryHistory.filter((t) => t > cutoff);
-
-    if (recentDeliveries.length === 0) {
-      return 0;
-    }
-
-    // Calculate deliveries per second over the window
-    const windowSeconds = this.deliveryHistoryWindow / 1000;
-    return recentDeliveries.length / windowSeconds;
-  }
-
-  /**
-   * Trigger transcendence - compress factory into chip and advance to next era
-   */
-  triggerTranscendence() {
-    if (!this.canTranscend) {
-      console.warn('[TRANSCEND] Cannot transcend - conditions not met');
-      return;
-    }
-
-    console.log(`[TRANSCEND] Beginning transcendence from Era ${this.currentEra}!`);
-    this.hideTranscendButton();
-    if (this.roundTimerEvent) {
-      this.roundTimerEvent.remove();
-      this.roundTimerEvent = null;
-      this.contractTimerEvent = null;
-    }
-
-    // Flash effect
-    this.cameras.main.flash(500, 100, 100, 255, true);
-    this.playSound('round-complete');
-
-    // 1. Calculate chip emission rate from factory throughput
-    // Higher throughput = faster chip (rewards efficient factories)
-    const throughput = this.calculateThroughput();
-
-    // Convert throughput to emission rate:
-    // - 2+ deliveries/sec -> 500ms (fastest)
-    // - 1 delivery/sec -> 1000ms
-    // - 0.33 deliveries/sec -> 3000ms (slowest)
-    // - 0 throughput -> 2500ms (default fallback)
-    const minEmissionRate = 500;
-    const maxEmissionRate = 3000;
-    const defaultEmissionRate = 2500;
-
-    let emissionRate = defaultEmissionRate;
-    if (throughput > 0) {
-      // emissionRate = 1000 / throughput, clamped to bounds
-      emissionRate = Math.round(1000 / throughput);
-      emissionRate = Math.max(minEmissionRate, Math.min(maxEmissionRate, emissionRate));
-    }
-
-    const chipGrade = this.getChipGrade(emissionRate);
-
-    console.log(
-      `[TRANSCEND] Factory throughput: ${throughput.toFixed(2)} deliveries/sec → Chip emission rate: ${emissionRate}ms`
-    );
-
-    const archivedTier = Math.max(
-      1,
-      this.highestDeliveredTierThisEra || this.highestDeliveredTierThisRound || 1
-    );
-
-    // 2. Create chip data from current era with throughput-based emission rate
-    const newChip = {
-      era: this.currentEra,
-      emissionRate: emissionRate,
-      throughput: throughput,
-      grade: chipGrade,
-      outputTier: archivedTier,
-    };
-
-    // 3. Clear the current factory
-    this.clearPlacedItems();
-
-    // 4. Advance era
-    this.currentEra++;
-    console.log(`[TRANSCEND] Advanced to Era ${this.currentEra}`);
-
-    // 5. Resize grid for new era
-    const newGridSize = getGridSizeForEra(this.currentEra);
-    console.log(`[TRANSCEND] Resizing grid to ${newGridSize}x${newGridSize}`);
-    this.grid.resize(newGridSize, newGridSize);
-
-    // 6. Boon pick first, chip placement after the player closes the boon modal.
-    this.pendingChipAfterBoon = newChip;
-    this.setRoundPhase('GRACE');
-    this.showBoonScreen();
-
-    // 7. Re-place existing chips from previous eras
-    // (Chips are preserved across transcendence, already on grid conceptually)
-
-    // Note: Steps 8-12 (spawning nodes, resetting counters, updating UI) are now
-    // deferred to confirmChipPlacement() after the player places the chip
-
-    console.log(`[TRANSCEND] Waiting for player to place chip...`);
-  }
-
-  getChipGrade(emissionRate) {
-    if (emissionRate <= 750) return 'S';
-    if (emissionRate <= 1100) return 'A';
-    if (emissionRate <= 1700) return 'B';
-    if (emissionRate <= 2400) return 'C';
-    return 'D';
-  }
-
-  /**
-   * Enter chip placement mode - show ghost and wait for player click
-   */
-  enterChipPlacementMode(chipData) {
-    this.isPlacingChip = true;
-    this.pendingChipData = chipData;
-
-    // Create ghost chip visual
-    this.createChipGhost();
-
-    // Show instruction text
-    this.showChipPlacementInstructions();
-
-    console.log('[TRANSCEND] Entered chip placement mode');
-  }
-
-  /**
-   * Create the ghost chip visual that follows the cursor
-   */
-  createChipGhost() {
-    const cellSize = this.factoryGrid.cellSize;
-    const chipSize = CHIP_CONFIG.size * cellSize;
-
-    // Container for ghost visuals
-    this.chipGhost = this.add.container(0, 0);
-
-    // Ghost body
-    const ghostBody = this.add.rectangle(0, 0, chipSize - 4, chipSize - 4, 0x4444aa, 0.5);
-    ghostBody.setStrokeStyle(3, 0x8888ff);
-    this.chipGhost.add(ghostBody);
-
-    // Label
-    const ghostLabel = this.add
-      .text(0, -20, `ERA ${this.pendingChipData.era} CHIP`, {
-        fontFamily: 'Arial',
-        fontSize: 12,
-        fontWeight: 'bold',
-        color: '#aaaaff',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5);
-    this.chipGhost.add(ghostLabel);
-
-    const rateLabel = this.add
-      .text(0, 14, `L${this.pendingChipData.outputTier} / ${this.pendingChipData.emissionRate}ms`, {
-        fontFamily: 'Arial',
-        fontSize: 11,
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5);
-    this.chipGhost.add(rateLabel);
-
-    // Store reference to body for color changes
-    this.chipGhost.ghostBody = ghostBody;
-
-    // Ensure ghost is visible on world camera
-    if (this.addToWorld) {
-      this.addToWorld(this.chipGhost);
-    }
-
-    // Set initial position to center of grid
-    const centerGridX = Math.floor(this.grid.width / 2);
-    const centerGridY = Math.floor(this.grid.height / 2);
-    const worldPos = this.factoryGrid.gridToWorld(centerGridX + 1, centerGridY + 1);
-    this.chipGhost.setPosition(worldPos.x, worldPos.y);
-  }
-
-  /**
-   * Show placement instructions to the player
-   */
-  showChipPlacementInstructions() {
-    const width = this.cameras.main.width;
-    const chipData = this.pendingChipData || {};
-    const instruction = `Place Era ${chipData.era} chip: Grade ${chipData.grade} | L${chipData.outputTier} every ${chipData.emissionRate}ms`;
-
-    this.chipPlacementText = this.add
-      .text(width / 2, 60, instruction, {
-        fontFamily: 'Arial Black',
-        fontSize: 24,
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 4,
-        align: 'center',
-        wordWrap: { width: width - this.rightPanelWidth - 40 },
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0);
-
-    // Add to UI layer
-    this.addToUI(this.chipPlacementText);
-
-    // Pulsing animation for visibility
-    this.tweens.add({
-      targets: this.chipPlacementText,
-      alpha: 0.6,
-      duration: 500,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-  }
-
-  /**
-   * Update chip ghost position based on world coordinates
-   */
-  updateChipGhostPosition(worldX, worldY) {
-    if (!this.chipGhost) return;
-
-    // Convert to grid position
-    const gridPos = this.factoryGrid.worldToGrid(worldX, worldY);
-
-    // Clamp to valid grid range (accounting for 3x3 chip size)
-    const maxX = this.grid.width - CHIP_CONFIG.size;
-    const maxY = this.grid.height - CHIP_CONFIG.size;
-    const clampedX = Math.max(0, Math.min(maxX, gridPos.x));
-    const clampedY = Math.max(0, Math.min(maxY, gridPos.y));
-
-    // Convert back to world position (center of 3x3)
-    const displayWorldPos = this.factoryGrid.gridToWorld(clampedX + 1, clampedY + 1);
-    this.chipGhost.setPosition(displayWorldPos.x, displayWorldPos.y);
-
-    // Update color based on validity
-    const canPlace = this.canPlaceChipAt(clampedX, clampedY);
-    if (this.chipGhost.ghostBody) {
-      this.chipGhost.ghostBody.fillColor = canPlace ? 0x44aa44 : 0xaa4444;
-      this.chipGhost.ghostBody.setStrokeStyle(3, canPlace ? 0x88ff88 : 0xff8888);
-    }
-  }
-
-  /**
-   * Check if a chip can be placed at the given grid position
-   */
-  canPlaceChipAt(gridX, gridY) {
-    // Check bounds
-    if (gridX < 0 || gridY < 0) return false;
-    if (gridX + CHIP_CONFIG.size > this.grid.width) return false;
-    if (gridY + CHIP_CONFIG.size > this.grid.height) return false;
-
-    // Check all cells the chip would occupy
-    for (let dx = 0; dx < CHIP_CONFIG.size; dx++) {
-      for (let dy = 0; dy < CHIP_CONFIG.size; dy++) {
-        const cell = this.factoryGrid.getCell(gridX + dx, gridY + dy);
-        if (cell && cell.type !== 'empty') {
-          // Cell is occupied by something
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Confirm chip placement at the specified position
-   */
-  confirmChipPlacement(gridX, gridY) {
-    if (!this.isPlacingChip || !this.pendingChipData) {
-      console.warn('[TRANSCEND] Not in chip placement mode');
-      return;
-    }
-
-    console.log(`[TRANSCEND] Confirming chip placement at (${gridX}, ${gridY})`);
-
-    // Place the chip at the player's chosen position
-    this.placeChipOnGrid(this.pendingChipData, gridX, gridY);
-
-    // Clean up placement mode
-    this.cleanupChipPlacementMode();
-
-    // Continue with remaining transcendence steps
-    this.finalizeTranscendence();
-    this.startNextRound();
-  }
-
   startNextRound() {
     this.startRound(this.currentRound + 1, { buildPhase: true });
   }
@@ -3933,102 +3187,6 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Clean up chip placement mode visuals
-   */
-  cleanupChipPlacementMode() {
-    if (this.chipGhost) {
-      this.chipGhost.destroy();
-      this.chipGhost = null;
-    }
-
-    if (this.chipPlacementText) {
-      this.chipPlacementText.destroy();
-      this.chipPlacementText = null;
-    }
-
-    this.isPlacingChip = false;
-    this.pendingChipData = null;
-  }
-
-  /**
-   * Complete remaining transcendence steps after chip is placed
-   */
-  finalizeTranscendence() {
-    // 8. Spawn new resource and delivery nodes
-    this.createInitialResourceNodes();
-
-    // 9. Reset transcendence-related counters
-    this.deliveryHistory = [];
-    this.highestDeliveredTierThisEra = 0;
-    this.canTranscend = false;
-    this.hideTranscendButton();
-
-    // 10. Update level display (level continues, doesn't reset)
-    this.updateEraUI();
-
-    // 11. Update camera bounds for larger grid
-    this.updateCameraBounds();
-
-    // 12. Refresh processor selection with new era configs
-    if (this.machineFactory) {
-      this.machineFactory.refreshAvailableProcessors();
-      this.machineFactory.displayCurrentProcessorPreview();
-    }
-
-    console.log(`[TRANSCEND] Transcendence complete! Now in Era ${this.currentEra}`);
-  }
-
-  /**
-   * Place a chip on the grid at the specified or auto-calculated position
-   * @param {object} chipData - Chip configuration (era, emissionRate)
-   * @param {number} [gridX] - Optional grid X position (if not provided, auto-calculated)
-   * @param {number} [gridY] - Optional grid Y position (if not provided, auto-calculated)
-   */
-  placeChipOnGrid(chipData, gridX, gridY) {
-    // If position not provided, auto-calculate (left side, stacked vertically)
-    if (gridX === undefined || gridY === undefined) {
-      gridX = 0;
-      gridY = 1 + this.chips.length * 4; // Stack chips vertically with spacing
-
-      // Ensure we don't go off grid
-      const maxY = this.grid.height - CHIP_CONFIG.size - 1;
-      if (gridY > maxY) {
-        gridY = maxY;
-      }
-    }
-
-    const chip = new ChipNode(this, {
-      gridX: gridX,
-      gridY: gridY,
-      chipEra: chipData.era,
-      emissionRate: chipData.emissionRate,
-      throughput: chipData.throughput,
-      grade: chipData.grade,
-      outputTier: chipData.outputTier,
-    });
-
-    this.chips.push(chip);
-
-    // Mark grid cells as occupied by chip
-    const occupiedCells = chip.getOccupiedCells();
-    for (const cell of occupiedCells) {
-      this.grid.setCell(cell.x, cell.y, { type: 'chip', chip: chip });
-    }
-
-    console.log(`[TRANSCEND] Placed chip from Era ${chipData.era} at (${gridX}, ${gridY})`);
-    return chip;
-  }
-
-  /**
-   * Update era display in UI
-   */
-  updateEraUI() {
-    if (this.eraText) {
-      this.eraText.setText(`E${this.currentEra}`);
-    }
-  }
-
   togglePause() {
     if (this.isPausedForUpgrade) return;
     this.paused = !this.paused;
@@ -4041,10 +3199,6 @@ export default class GameScene extends Phaser.Scene {
         this.nodeSpawnTimer.paused = true;
         console.log('[TIMER_DEBUG] Paused nodeSpawnTimer via togglePause.'); // Log pause
       }
-      if (this.upgradeNodeSpawnTimer) {
-        this.upgradeNodeSpawnTimer.paused = true;
-        console.log('[TIMER_DEBUG] Paused upgradeNodeSpawnTimer via togglePause.');
-      }
       this.showPauseScreen();
     } else {
       // Resume timers
@@ -4054,10 +3208,6 @@ export default class GameScene extends Phaser.Scene {
       if (this.nodeSpawnTimer) {
         this.nodeSpawnTimer.paused = false;
         console.log('[TIMER_DEBUG] Resumed nodeSpawnTimer via togglePause.'); // Log resume
-      }
-      if (this.upgradeNodeSpawnTimer) {
-        this.upgradeNodeSpawnTimer.paused = false;
-        console.log('[TIMER_DEBUG] Resumed upgradeNodeSpawnTimer via togglePause.');
       }
       this.hidePauseScreen();
     }
@@ -4129,7 +3279,7 @@ export default class GameScene extends Phaser.Scene {
 
   getDraftCycleState() {
     const selectedProcessorSlot =
-      this.machineFactory?.lastSelectedCategory === 'processor'
+      this.machineFactory?.lastSelectedCategory === 'operator'
         ? this.machineFactory.lastSelectedSlotIndex
         : -1;
     const canCycleSelectedSlot =
@@ -4273,7 +3423,6 @@ export default class GameScene extends Phaser.Scene {
       clearMachines: true,
       clearResources: false,
       clearDeliveries: false,
-      clearUpgrade: false,
     });
 
     if (refund > 0) {
@@ -4378,14 +3527,9 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
 
     button.on('pointerover', () => {
-      if (this.transcendButton?.button === button && !this.canTranscend) return;
       button.fillColor = 0x8f6bea;
     });
     button.on('pointerout', () => {
-      if (this.transcendButton?.button === button && !this.canTranscend) {
-        button.fillColor = 0x333344;
-        return;
-      }
       button.fillColor = color;
     });
     button.on('pointerdown', () => {
@@ -4601,158 +3745,6 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Helper method to return a machine to its original position
-  returnMachineToOriginalPosition(gameObject) {
-    // If the machine was in a scroll container, we need to return it there
-    if (gameObject.wasInScrollContainer && gameObject.parentFactory) {
-      // For machines from the selection panel, use the original index position
-      // Find the index of this machine type in the machine types array
-      const machineTypes = GAME_CONFIG.machineTypes;
-      const machineTypeIndex = machineTypes.findIndex(
-        (type) => type.id === gameObject.machineType.id
-      );
-
-      // Calculate position based on index and fixed spacing
-      const fixedSpacing = 120; // Same as in MachineFactory.createMachineSelectionPanel
-      const localX = machineTypeIndex * fixedSpacing;
-      const localY = 0; // Vertical position is always 0 in the scroll container
-
-      // Store the original rotation to preserve it
-      const originalRotation = gameObject.rotation;
-      const originalDirection = this.getDirectionFromRotation(originalRotation);
-
-      // Animate the return to a position just above the panel
-      this.tweens.add({
-        targets: gameObject,
-        x: gameObject.parentFactory.x + gameObject.parentFactory.scrollContainer.x + localX,
-        y: gameObject.parentFactory.y - 50, // Position above the panel
-        duration: 200,
-        ease: 'Cubic.easeOut',
-        onComplete: () => {
-          // Then animate down into the panel
-          this.tweens.add({
-            targets: gameObject,
-            y: gameObject.parentFactory.y + localY,
-            duration: 200,
-            ease: 'Bounce.easeOut',
-            onComplete: () => {
-              // Reset tint on all rectangle parts
-              if (gameObject.list) {
-                gameObject.list.forEach((part) => {
-                  if (part.type === 'Rectangle') {
-                    // Restore original colors
-                    if (part === gameObject.inputSquare) {
-                      part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                    } else if (part === gameObject.outputSquare) {
-                      if (gameObject.machineType && gameObject.machineType.id === 'extractor') {
-                        part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-                      } else {
-                        part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-                      }
-                    } else {
-                      part.fillColor = 0x44ff44; // Default green (same as when dragging)
-                    }
-                  }
-                });
-              }
-
-              // Remove from scene
-              this.children.remove(gameObject);
-
-              // Set the position within the scroll container
-              gameObject.x = localX;
-              gameObject.y = localY;
-
-              // Restore original scale if needed
-              gameObject.setScale(1.1);
-
-              // Add back to the scroll container
-              gameObject.parentFactory.scrollContainer.add(gameObject);
-
-              // Ensure the rotation and direction are preserved
-              gameObject.rotation = originalRotation;
-
-              // Update direction indicator if it exists
-              if (gameObject.directionIndicator) {
-                this.updateDirectionIndicator(gameObject, originalDirection);
-              }
-
-              // Restart the pulse animation
-              this.tweens.add({
-                targets: gameObject,
-                scaleX: gameObject.scaleX * 1.05,
-                scaleY: gameObject.scaleY * 1.05,
-                duration: 1500,
-                yoyo: true,
-                repeat: -1,
-                ease: 'Sine.easeInOut',
-              });
-            },
-          });
-        },
-      });
-    } else {
-      // Regular return animation for machines not from scroll container
-      this.tweens.add({
-        targets: gameObject,
-        x: gameObject.input.dragStartX,
-        y: gameObject.input.dragStartY,
-        duration: 300,
-        ease: 'Cubic.easeOut',
-        onComplete: () => {
-          // Reset tint on all rectangle parts
-          if (gameObject.list) {
-            gameObject.list.forEach((part) => {
-              if (part.type === 'Rectangle') {
-                // Restore original colors
-                if (part === gameObject.inputSquare) {
-                  part.fillColor = 0x4aa8eb; // Brighter blue for input (same as when dragging)
-                } else if (part === gameObject.outputSquare) {
-                  if (gameObject.machineType && gameObject.machineType.id === 'extractor') {
-                    part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-                  } else {
-                    part.fillColor = 0xffa520; // Brighter orange (same as when dragging)
-                  }
-                } else {
-                  part.fillColor = 0x44ff44; // Default green (same as when dragging)
-                }
-              }
-            });
-          }
-        },
-      });
-    }
-  }
-
-  // Test and diagnose direction indicators
-  testDirectionIndicators() {
-    // Test all machines in the factory grid
-    const gridMachines = this.factoryGrid.getAllMachines();
-
-    gridMachines.forEach((machine) => {
-      if (!machine || !machine.directionIndicator) return;
-
-      const actualRotation = machine.rotation;
-      const actualDirection = machine.direction || this.getDirectionFromRotation(actualRotation);
-
-      // Update the direction indicator to ensure it's correct
-      this.updateDirectionIndicator(machine, actualDirection);
-    });
-
-    // Test all machines in the selection panel
-    const selectionMachines = this.machineFactory.availableMachines;
-
-    selectionMachines.forEach((machine) => {
-      if (!machine || !machine.directionIndicator) return;
-
-      const actualRotation = machine.rotation;
-      const actualDirection = machine.direction || this.getDirectionFromRotation(actualRotation);
-
-      // Update the direction indicator to ensure it's correct
-      this.updateDirectionIndicator(machine, actualDirection);
-    });
-  }
-
   // Play a sound if audio is available
   playSound(key) {
     if (this.audioAvailable && this.sound && typeof this.sound.play === 'function') {
@@ -4889,7 +3881,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   isProcessorTypeId(id) {
-    return typeof id === 'string' && id.toLowerCase().includes('processor');
+    return isProcessingPieceBodyId(id);
   }
 
   isProcessorMachine(machine) {
@@ -6114,8 +5106,6 @@ export default class GameScene extends Phaser.Scene {
     const clearMachines = options.clearMachines !== false;
     const clearResources = options.clearResources !== false;
     const clearDeliveries = options.clearDeliveries !== false;
-    const clearUpgrade = options.clearUpgrade !== false;
-
     console.log(
       `Clearing placed items with effects. Machines:${clearMachines} Resources:${clearResources} Deliveries:${clearDeliveries}`
     );
@@ -6132,7 +5122,7 @@ export default class GameScene extends Phaser.Scene {
           if (machine instanceof ConveyorMachine && machine.itemsOnBelt) {
             machine.itemsOnBelt.forEach((itemOnBelt) => {
               const itemType = itemOnBelt.itemData.type;
-              if (itemType !== UPGRADE_PACKAGE_TYPE && resourceValue[itemType]) {
+              if (resourceValue[itemType]) {
                 salvagedScore += resourceValue[itemType];
               }
             });
@@ -6140,12 +5130,12 @@ export default class GameScene extends Phaser.Scene {
           // Score items in machine inventories (optional, might double count if belts feed machines)
           // Consider if needed based on how inventories work
           // for (const type in machine.inputInventory) {
-          //     if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+          //     if (resourceValue[type]) {
           //         salvagedScore += (machine.inputInventory[type] * resourceValue[type]);
           //     }
 
           // for (const type in machine.outputInventory) {
-          //      if (type !== UPGRADE_PACKAGE_TYPE && resourceValue[type]) {
+          //      if (resourceValue[type]) {
           //          salvagedScore += (machine.outputInventory[type] * resourceValue[type]);
           //      }
         });
@@ -6281,12 +5271,6 @@ export default class GameScene extends Phaser.Scene {
     if (clearDeliveries) {
       this.deliveryNodes = []; // Clear the main array
       deliveryNodesToClear.forEach((node) => disintegrate(node, clearIndex++, false));
-    }
-
-    // --- Clear Upgrade Node ---
-    if (clearUpgrade && this.currentUpgradeNode) {
-      disintegrate(this.currentUpgradeNode, clearIndex++, false);
-      this.currentUpgradeNode = null; // Clear the reference
     }
 
     // --- Grid visual clear (optional, can be removed if animation handles it) ---
@@ -6857,10 +5841,11 @@ export default class GameScene extends Phaser.Scene {
     if (id === 'underground-belt') return costs['underground-belt'] || 5;
     if (id === 'painter') return costs.painter || 3;
 
-    if (id.includes('processor')) {
+    if (isProcessingPieceBodyId(id)) {
       const operationKey = this.getOperatorCostKey(machineType);
       const operationCost = costs[operationKey] || costs.operator || 8;
-      const bodyPremium = id.includes('advanced-processor') ? costs.complexBodyPremium || 0 : 0;
+      const body = getProcessingPieceBody(machineType?.bodyId || id);
+      const bodyPremium = body?.isComplexBody ? costs.complexBodyPremium || 0 : 0;
       return operationCost + bodyPremium;
     }
     return 3;
@@ -6970,11 +5955,6 @@ export default class GameScene extends Phaser.Scene {
     this.resourceNodes?.forEach((node) => {
       if (node?.resourceTimer) {
         node.resourceTimer.paused = paused;
-      }
-    });
-    this.chips?.forEach((chip) => {
-      if (chip?.emissionTimer) {
-        chip.emissionTimer.paused = paused;
       }
     });
   }
@@ -7158,7 +6138,6 @@ export default class GameScene extends Phaser.Scene {
         clearMachines: true,
         clearResources: true,
         clearDeliveries: true,
-        clearUpgrade: false,
       });
       const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
       this.time.delayedCall(nextRoundDelay, () => {
@@ -7353,116 +6332,6 @@ export default class GameScene extends Phaser.Scene {
       // <-- Add catch here
       console.error('[SPAWN_ERROR] Uncaught error inside spawnNode:', error);
     }
-  }
-
-  /** Attempts to spawn an Upgrade Node if one doesn't exist */
-  trySpawnUpgradeNode() {
-    // ---> ADD LOG HERE <---
-    console.log(
-      `[UPGRADE_SPAWN_DEBUG] trySpawnUpgradeNode called at time ${this.time.now.toFixed(0)}`
-    );
-
-    // Only spawn if there isn't an active (non-depleted) upgrade node
-    if (this.currentUpgradeNode) {
-      // ---> ADD LOG HERE <---
-      console.log(
-        '[UPGRADE_SPAWN_DEBUG] Aborted: currentUpgradeNode already exists.',
-        this.currentUpgradeNode
-      );
-      return;
-    }
-
-    // ---> ADD LOG HERE <---
-    console.log('[UPGRADE_SPAWN_DEBUG] No existing upgrade node found, attempting spawn...');
-
-    try {
-      // Check grid existence first
-      if (!this.grid) {
-        console.error('[UPGRADE_SPAWN_DEBUG] Aborted spawn: Grid is not available.');
-        return;
-      }
-
-      const emptySpot = this.grid.findEmptyCell();
-      // ---> ADD LOG HERE <---
-      console.log(`[UPGRADE_SPAWN_DEBUG] findEmptyCell result:`, emptySpot);
-      if (!emptySpot) {
-        console.warn('[UPGRADE_SPAWN_DEBUG] No empty cells found for upgrade node placement');
-        return;
-      }
-
-      const worldPos = this.grid.gridToWorld(emptySpot.x, emptySpot.y);
-      // ---> ADD LOG HERE <---
-      console.log(`[UPGRADE_SPAWN_DEBUG] Calculated worldPos:`, worldPos);
-      if (!worldPos || typeof worldPos.x !== 'number' || typeof worldPos.y !== 'number') {
-        // Added validation
-        console.error('[UPGRADE_SPAWN_DEBUG] Invalid world position calculated:', worldPos);
-        return;
-      }
-
-      // ---> ADD LOG HERE <---
-      console.log(
-        `[UPGRADE_SPAWN_DEBUG] Spawning UpgradeNode at grid (${emptySpot.x}, ${emptySpot.y}), world (${worldPos.x}, ${worldPos.y})`
-      );
-      // Create the upgrade node
-      this.currentUpgradeNode = new UpgradeNode(
-        this,
-        worldPos.x,
-        worldPos.y,
-        emptySpot.x,
-        emptySpot.y
-      );
-
-      // Mark the grid
-      this.grid.setCell(emptySpot.x, emptySpot.y, {
-        type: 'upgrade-node',
-        object: this.currentUpgradeNode,
-      });
-
-      // Listen for when it's depleted
-      this.currentUpgradeNode.once('depleted', this.handleUpgradeNodeDepleted, this);
-
-      console.log(
-        `[UPGRADE_SPAWN_DEBUG] Successfully created upgrade node at grid (${emptySpot.x}, ${emptySpot.y})`
-      );
-    } catch (error) {
-      console.error('[UPGRADE_SPAWN_ERROR] Uncaught error inside trySpawnUpgradeNode:', error);
-      this.currentUpgradeNode = null; // Ensure tracker is clear on error
-    }
-  }
-
-  /** Handles the depletion of the current Upgrade Node */
-  handleUpgradeNodeDepleted(node) {
-    console.log(`[UPGRADE] Upgrade node at (${node.gridX}, ${node.gridY}) depleted.`);
-
-    // Double-check it's the current node we're tracking
-    if (this.currentUpgradeNode === node) {
-      // Clear the grid cell
-      if (this.grid) {
-        this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
-      }
-      // Clear the reference so a new one can spawn
-      this.currentUpgradeNode = null;
-
-      // ---> ADD DESTROY CALL HERE <---
-      console.log(`[UPGRADE] Destroying depleted node object.`);
-      node.destroy(); // Explicitly destroy the node object
-
-      // Optional: Restart or adjust the spawn timer if needed
-      // this.upgradeNodeSpawnTimer.reset({...});
-    } else {
-      console.warn('[UPGRADE] Depleted event received for an unknown/old upgrade node.');
-      // Still try to clear its grid cell just in case
-      if (this.grid) {
-        this.grid.setCell(node.gridX, node.gridY, { type: 'empty' });
-      }
-      // ---> ADD DESTROY CALL HERE TOO (Safety) <---
-      // If an old node somehow lingered, destroy it anyway
-      if (node && typeof node.destroy === 'function') {
-        console.log(`[UPGRADE] Destroying lingering unknown node object.`);
-        node.destroy();
-      }
-    }
-    // Node destruction is now handled here.
   }
 
   showUpgradeScreen() {
@@ -7723,12 +6592,6 @@ export default class GameScene extends Phaser.Scene {
     this.isPausedForUpgrade = false;
     if (this.gameTimer) this.gameTimer.paused = false;
     if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = false;
-    if (this.pendingChipAfterBoon) {
-      const chip = this.pendingChipAfterBoon;
-      this.pendingChipAfterBoon = null;
-      this.enterChipPlacementMode(chip);
-      return;
-    }
     if (this.pendingRoundAdvanceAfterBoon) {
       this.pendingRoundAdvanceAfterBoon = false;
       this.startNextRound();

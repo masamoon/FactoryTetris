@@ -1,7 +1,6 @@
 import BaseMachine from './BaseMachine';
 import ConveyorMachine from './ConveyorMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
-import { UPGRADE_PACKAGE_TYPE } from '../../config/upgrades.js';
 import { getItemColorHex, getItemColorName } from '../../utils/PurityUtils';
 
 const DIRECTION_PAINT_COLORS = {
@@ -18,20 +17,8 @@ export default class ColorPainterMachine extends ConveyorMachine {
     this.name = 'Color Painter';
     this.description = 'Recolors passing items based on facing direction';
     this.processingTime = 700;
-    this.inputTypes = [
-      'purity-resource',
-      'basic-resource',
-      'advanced-resource',
-      'mega-resource',
-      UPGRADE_PACKAGE_TYPE,
-    ];
-    this.outputTypes = [
-      'purity-resource',
-      'basic-resource',
-      'advanced-resource',
-      'mega-resource',
-      UPGRADE_PACKAGE_TYPE,
-    ];
+    this.inputTypes = ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
+    this.outputTypes = ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
     this.acceptsDirectSource = false;
   }
 
@@ -40,7 +27,7 @@ export default class ColorPainterMachine extends ConveyorMachine {
   }
 
   paintItem(itemData) {
-    if (!itemData || itemData.type === UPGRADE_PACKAGE_TYPE) {
+    if (!itemData) {
       return itemData;
     }
 
@@ -128,20 +115,8 @@ export default class ColorPainterMachine extends ConveyorMachine {
       name: 'Color Painter',
       description: 'Recolors passing items by direction',
       shape: [[1]],
-      inputTypes: [
-        'purity-resource',
-        'basic-resource',
-        'advanced-resource',
-        'mega-resource',
-        UPGRADE_PACKAGE_TYPE,
-      ],
-      outputTypes: [
-        'purity-resource',
-        'basic-resource',
-        'advanced-resource',
-        'mega-resource',
-        UPGRADE_PACKAGE_TYPE,
-      ],
+      inputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      outputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
       processingTime: 700,
       direction: 'right',
     };

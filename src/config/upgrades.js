@@ -74,8 +74,6 @@ export const upgradesConfig = {
   },
 };
 
-export const UPGRADE_PACKAGE_TYPE = 'upgrade_package';
-
 export const TIER_THRESHOLDS = {
   1: 0,
   2: 3,

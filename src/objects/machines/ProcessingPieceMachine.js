@@ -1,5 +1,5 @@
 import BaseMachine from './BaseMachine';
-import { getProcessingPieceBody } from '../../config/pieceBodies';
+import { getProcessingPieceBody, normalizeProcessingPieceBodyId } from '../../config/pieceBodies';
 
 const CARDINAL_DIRECTIONS = ['right', 'down', 'left', 'up'];
 
@@ -58,11 +58,12 @@ function areIOPositionsOnShape(ioPositions, shape) {
 }
 
 export default class ProcessingPieceMachine extends BaseMachine {
-  static bodyId = 'processor-c';
+  static bodyId = 'operator-block';
 
   static forBody(bodyId) {
+    const resolvedBodyId = normalizeProcessingPieceBodyId(bodyId);
     return class TypedProcessingPieceMachine extends ProcessingPieceMachine {
-      static bodyId = bodyId;
+      static bodyId = resolvedBodyId;
     };
   }
 
@@ -81,13 +82,16 @@ export default class ProcessingPieceMachine extends BaseMachine {
     this.id = body.id;
     this.bodyId = body.id;
     this.name = this.config?.pieceName || body.name;
-    this.description = body.description || 'Processing piece body';
+    this.description = body.description || 'Operator body';
     this.shape = body.shape;
     this.defaultDirection = body.defaultDirection || 'right';
     this.inputTypes = ['purity-resource'];
     this.outputTypes = ['purity-resource'];
     this.processingTime = body.processingTime || 3000;
     this.requiredInputs = { 'purity-resource': 1 };
+    this.category = 'operator';
+    this.machineFamily = 'operator';
+    this.isComplexBody = Boolean(body.isComplexBody);
 
     const ioPositions = ProcessingPieceMachine.getIOPositionsForBody(
       body.id,
@@ -182,6 +186,10 @@ export default class ProcessingPieceMachine extends BaseMachine {
       requiredInputs: { 'purity-resource': 1 },
       inputCoord: ioPositions.inputPos,
       outputCoord: ioPositions.outputPos,
+      bodyId: body.id,
+      category: 'operator',
+      machineFamily: 'operator',
+      isComplexBody: Boolean(body.isComplexBody),
     });
   }
 }

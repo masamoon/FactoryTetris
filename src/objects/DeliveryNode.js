@@ -1,5 +1,4 @@
 import { GAME_CONFIG } from '../config/gameConfig';
-import { UPGRADE_PACKAGE_TYPE } from '../config/upgrades.js';
 import {
   calculateDeliveryScore,
   getChainMultiplier,
@@ -418,27 +417,6 @@ export default class DeliveryNode {
     const itemType = itemData.type; // Get type from itemData
     const amount = itemData.amount || 1; // Get amount, default to 1 if missing
 
-    // Check if it's an upgrade package
-    if (itemType === UPGRADE_PACKAGE_TYPE) {
-      console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${amount} Upgrade Package(s)!`
-      );
-      // Increment upgrade counter for each package received
-      for (let i = 0; i < amount; i++) {
-        this.scene.upgradeManager.incrementUpgradesDelivered();
-        // Trigger UI once per batch for now, could change later
-        if (i === 0) {
-          this.scene.events.emit('triggerUpgradeSelection');
-          console.log('Triggering upgrade selection UI...');
-        }
-      }
-
-      // Create a distinct effect for upgrade packages?
-      this.createAcceptEffect('upgrade', 0); // Points aren't relevant for upgrades
-
-      return true; // Upgrade package accepted
-    }
-
     // --- Handle level-based resources (new dynamic level system) ---
     if (itemType === 'level-resource') {
       if (!this.matchesCondition(itemData)) {
@@ -715,16 +693,12 @@ export default class DeliveryNode {
 
   /**
    * Checks if the Delivery Node can accept a given item type.
-   * @param {string} itemType - The type ID of the item (e.g., 'basic-resource', 'upgrade_package').
+   * @param {string} itemType - The type ID of the item (e.g., 'basic-resource').
    * @returns {boolean} True if the type is acceptable, false otherwise.
    */
   canAcceptInput(itemType, itemData = null) {
     if (this.completed) {
       return false;
-    }
-    // Allow upgrade packages
-    if (itemType === UPGRADE_PACKAGE_TYPE) {
-      return true;
     }
     // Allow level-based resources (new dynamic level system)
     if (itemType === 'level-resource') {

@@ -1,7 +1,7 @@
 import ConveyorMachine from './ConveyorMachine';
 // import ExtractorMachine from './ExtractorMachine';
 import ProcessingPieceMachine from './ProcessingPieceMachine';
-import { getProcessingPieceBodies } from '../../config/pieceBodies';
+import { getProcessingPieceBodies, getProcessingPieceBodyAliases } from '../../config/pieceBodies';
 import SplitterMachine from './SplitterMachine';
 import MergerMachine from './MergerMachine';
 import UndergroundBeltMachine from './UndergroundBeltMachine';
@@ -18,12 +18,18 @@ export default class MachineRegistry {
   constructor() {
     // Map of machine type IDs to their constructor functions
     this.machineTypes = new Map();
+    this.aliasMachineTypeIds = new Set();
 
     // Register built-in machine types
     this.registerMachineType('conveyor', ConveyorMachine);
     // this.registerMachineType('extractor', ExtractorMachine);
     for (const body of getProcessingPieceBodies()) {
       this.registerMachineType(body.id, ProcessingPieceMachine.forBody(body.id));
+    }
+    for (const { aliasId, bodyId } of getProcessingPieceBodyAliases()) {
+      this.registerMachineType(aliasId, ProcessingPieceMachine.forBody(bodyId), {
+        aliasFor: bodyId,
+      });
     }
     this.registerMachineType('splitter', SplitterMachine);
     this.registerMachineType('merger', MergerMachine);
@@ -36,8 +42,11 @@ export default class MachineRegistry {
    * @param {string} id - The machine type ID
    * @param {Function} constructor - The machine class constructor
    */
-  registerMachineType(id, constructor) {
+  registerMachineType(id, constructor, options = {}) {
     this.machineTypes.set(id, constructor);
+    if (options.aliasFor) {
+      this.aliasMachineTypeIds.add(id);
+    }
   }
 
   /**
@@ -53,8 +62,11 @@ export default class MachineRegistry {
    * Get all registered machine type IDs
    * @returns {Array<string>} Array of machine type IDs
    */
-  getMachineTypeIds() {
-    return Array.from(this.machineTypes.keys());
+  getMachineTypeIds(options = {}) {
+    const includeAliases = options.includeAliases === true;
+    return Array.from(this.machineTypes.keys()).filter(
+      (id) => includeAliases || !this.aliasMachineTypeIds.has(id)
+    );
   }
 
   /**
@@ -238,21 +250,6 @@ export default class MachineRegistry {
               [1, 1],
               [1, 1],
             ]; // 2x2 shape for extractor
-          } else if (id === 'processor-a' || id === 'processor-b') {
-            config.shape = [
-              [1, 1],
-              [1, 1],
-            ]; // 2x2 shape for processors
-          } else if (id === 'advanced-processor') {
-            config.shape = [
-              [1, 1, 1],
-              [1, 1, 1],
-            ]; // 3x2 shape for advanced processor
-          } else if (id === 'processor-c') {
-            config.shape = [
-              [1, 1],
-              [1, 1],
-            ]; // 2x2 shape for cargo loader
           } else {
             config.shape = [[1]]; // Default 1x1 shape as fallback
           }

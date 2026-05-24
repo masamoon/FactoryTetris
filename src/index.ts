@@ -54,7 +54,7 @@ window.onload = function () {
         const gameScene = game.scene.scenes.find((scene) => scene.constructor.name === 'GameScene');
         if (gameScene) {
           console.log('[DEBUG UI] Attempting to place machine directly');
-          const machineType = { id: 'processor-a' };
+          const machineType = { id: 'operator-elbow' };
           const success = gameScene.placeMachine(machineType, 5, 5, 0);
           console.log('[DEBUG UI] Machine placement result:', success);
         } else {

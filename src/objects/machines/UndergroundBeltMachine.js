@@ -129,10 +129,7 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
     if (!sourceCell || !sourceCell.object) return;
 
     let extractedItem = null;
-    if (
-      (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') &&
-      typeof sourceCell.object.extractResource === 'function'
-    ) {
+    if (sourceCell.type === 'node' && typeof sourceCell.object.extractResource === 'function') {
       extractedItem = sourceCell.object.extractResource();
     }
 

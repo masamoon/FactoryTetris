@@ -10,28 +10,21 @@ import {
   getLevelName,
 } from '../../config/resourceLevels';
 import { getTraitById, getTraitBandColor } from '../../config/traits';
+import { getProcessingPieceBodyColorEntries } from '../../config/pieceBodies';
 
 // Unique colors for each machine type
 const MACHINE_COLORS = {
-  'processor-a': 0x4e79a7, // blue
-  'processor-b': 0x03fcfc, // light blue
-  'processor-c': 0xe15759, // red
-  'processor-d': 0x76b7b2, // teal
-  'processor-e': 0x59a14f, // green
-  'advanced-processor': 0xedc948, // yellow
-  'advanced-processor-1': 0xaa44aa, // purple
-  'advanced-processor-2': 0xfc039d, // pink
+  ...Object.fromEntries(getProcessingPieceBodyColorEntries()),
   conveyor: 0x888888, // gray
   painter: 0x3f8cff, // color painter
   splitter: 0xaa88ff, // light purple
   merger: 0xff88aa, // light pink
   'underground-belt': 0x444444, // dark gray
-  // Add more as needed
 };
 export { MACHINE_COLORS };
 
 // Monotonic per-instance machine uid. `this.id` is a machine TYPE string
-// (e.g. 'processor-a') shared by every instance of that type, so traits that
+// shared by every instance of that type, so traits that
 // need per-instance attribution (Hoarder counters, Conductor modifier keys)
 // must key off `this.uid`, not `this.id`.
 let _machineUidCounter = 0;
@@ -2314,8 +2307,8 @@ export default class BaseMachine {
         if (this.uid && !nextItem.machineUids.includes(this.uid)) {
           nextItem.machineUids.push(this.uid);
         }
-        if (!nextItem.routeTags.includes('processor')) {
-          nextItem.routeTags.push('processor');
+        if (!nextItem.routeTags.includes('operator')) {
+          nextItem.routeTags.push('operator');
         }
         if (!nextItem.visitedMachines.has(this.uid)) {
           nextItem.chainCount = Math.min(10, (processedItem.chainCount || 0) + 1);
@@ -2346,8 +2339,8 @@ export default class BaseMachine {
         if (this.uid && !nextItem.machineUids.includes(this.uid)) {
           nextItem.machineUids.push(this.uid);
         }
-        if (!nextItem.routeTags.includes('processor')) {
-          nextItem.routeTags.push('processor');
+        if (!nextItem.routeTags.includes('operator')) {
+          nextItem.routeTags.push('operator');
         }
         // Only increment chain if this is a new machine
         if (!nextItem.visitedMachines.has(this.id)) {
@@ -2590,16 +2583,6 @@ export default class BaseMachine {
         `[${this.id}] transferResources: Target type is 'machine'. Target: ${targetMachine.id} at (${targetMachine.gridX}, ${targetMachine.gridY})`
       );
 
-      // Check if the target machine is an Advanced Processor and we're transferring advanced-resource
-      const isAdvancedProcessor = targetMachine.id === 'advanced-processor';
-      const isAdvancedResource = resourceTypeToTransfer === 'advanced-resource';
-
-      if (isAdvancedProcessor && isAdvancedResource) {
-        console.log(
-          `[${this.id}] transferResources: Attempting to send advanced-resource to Advanced Processor`
-        );
-      }
-
       // --- MODIFIED: Check for acceptItem method ---
       if (
         targetMachine &&
@@ -2609,9 +2592,6 @@ export default class BaseMachine {
         console.log(
           `[${this.id}] transferResources: Target machine ${targetMachine.id} has canAcceptInput and acceptItem.`
         );
-
-        // Check if target machine can accept the resource type and has space
-        // Special handling for advanced processor to ensure it can accept advanced resources
 
         // Prepare the item to transfer BEFORE checking acceptance (needed for level validation)
         let itemToTransfer;
@@ -2665,15 +2645,6 @@ export default class BaseMachine {
 
           // Attempt transfer only if allowed (basic acceptance AND directional check passed)
           if (allowTransfer) {
-            // Special handling for advanced processor if needed
-            if (isAdvancedProcessor && isAdvancedResource) {
-              // Give bonus or special effect when advanced resources go to advanced processor
-              if (this.scene && this.scene.addScore) {
-                // Award bonus points when feeding advanced resources to advanced processor
-                this.scene.addScore(10, { countsForFlow: false });
-              }
-            }
-
             console.log(
               `[${this.id}] transferResources: Attempting to call acceptItem on ${targetMachine.id} with`,
               itemToTransfer
@@ -3664,7 +3635,7 @@ export default class BaseMachine {
       return false;
     }
 
-    const routedItem = this.tagItemRoute(itemData, 'processor');
+    const routedItem = this.tagItemRoute(itemData, 'operator');
     const itemType = routedItem.type;
     // NOTE: Currently ignoring itemData.amount for processors, assuming they take 1 unit.
 
@@ -3864,6 +3835,10 @@ export default class BaseMachine {
       requiredInputs: options.requiredInputs || { 'basic-resource': 1 },
       inputCoord: options.inputCoord || null,
       outputCoord: options.outputCoord || null,
+      bodyId: options.bodyId || null,
+      category: options.category || null,
+      machineFamily: options.machineFamily || null,
+      isComplexBody: Boolean(options.isComplexBody),
     };
   }
 

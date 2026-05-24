@@ -1,3 +1,5 @@
+import { getProcessingPieceMachineConfigs } from './pieceBodies';
+
 // Grid configuration
 export const GRID_CONFIG = {
   cellSize: 32,
@@ -102,51 +104,10 @@ export const GAME_CONFIG = {
   initialNodeCount: 3,
   nodeSpawnRate: 15000, // ms
   nodeLifespan: 60, // Seconds before a node despawns
-  upgradeNodeSpawnDelay: 30000, // How often to try spawning an upgrade node (Changed to 30 seconds)
 
   // Machine types
   machineTypes: [
-    {
-      id: 'processor-a',
-      name: 'Elbow Operator',
-      shape: [
-        [1, 1],
-        [1, 0],
-        [1, 0],
-      ],
-      inputTypes: ['basic-resource'],
-      outputTypes: ['advanced-resource'],
-      processingTime: 3000, // ms
-      direction: 'right', // Default output direction
-      description: 'Operator body for numeric transformations',
-    },
-    {
-      id: 'processor-b',
-      name: 'Tee Operator',
-      shape: [
-        [0, 1, 0],
-        [1, 1, 1],
-      ],
-      inputTypes: ['basic-resource'],
-      outputTypes: ['advanced-resource'],
-      processingTime: 3000, // ms
-      direction: 'right', // Default output direction
-      description: 'Operator body for numeric transformations',
-    },
-    {
-      id: 'advanced-processor',
-      name: 'Cross Operator',
-      shape: [
-        [0, 1, 0],
-        [1, 1, 1],
-        [0, 1, 0],
-      ],
-      inputTypes: ['basic-resource', 'advanced-resource'],
-      outputTypes: ['mega-resource'],
-      processingTime: 5000, // ms
-      direction: 'right', // Default output direction
-      description: 'Large Operator body for high-impact transformations',
-    },
+    ...getProcessingPieceMachineConfigs(),
     {
       id: 'conveyor',
       name: 'Conveyor Belt',
@@ -166,69 +127,6 @@ export const GAME_CONFIG = {
       processingTime: 700,
       direction: 'right',
       description: 'Recolors passing items based on facing direction',
-    },
-    {
-      id: 'processor-c',
-      name: 'Block Operator',
-      shape: [
-        [1, 1],
-        [1, 1],
-      ],
-      inputTypes: ['basic-resource'],
-      outputTypes: ['advanced-resource'],
-      processingTime: 3000,
-      direction: 'right',
-      description: 'Block Operator body for numeric transformations',
-    },
-    {
-      id: 'processor-d',
-      name: 'Line Operator',
-      shape: [[1, 1, 1]],
-      inputTypes: ['basic-resource'],
-      outputTypes: ['advanced-resource'],
-      processingTime: 3000,
-      direction: 'right',
-      description: 'Line Operator body for numeric transformations',
-    },
-    {
-      id: 'processor-e',
-      name: 'Hook Operator',
-      shape: [
-        [1, 1],
-        [0, 1],
-        [0, 1],
-      ],
-      inputTypes: ['basic-resource'],
-      outputTypes: ['advanced-resource'],
-      processingTime: 4000,
-      direction: 'right',
-      description: 'Hook Operator body for numeric transformations',
-    },
-    {
-      id: 'advanced-processor-1',
-      name: 'U Operator',
-      shape: [
-        [1, 0, 1],
-        [1, 1, 1],
-      ],
-      inputTypes: ['basic-resource', 'advanced-resource'],
-      outputTypes: ['mega-resource'],
-      processingTime: 5500,
-      direction: 'down',
-      description: 'Large U-shaped Operator body for high-impact transformations',
-    },
-    {
-      id: 'advanced-processor-2',
-      name: 'Long Hook Operator',
-      shape: [
-        [1, 1, 1, 1],
-        [1, 0, 0, 0],
-      ],
-      inputTypes: ['basic-resource', 'advanced-resource'],
-      outputTypes: ['mega-resource'],
-      processingTime: 6000,
-      direction: 'down',
-      description: 'Large hook Operator body for high-impact transformations',
     },
     {
       id: 'splitter',
@@ -285,7 +183,6 @@ export const GAME_CONFIG = {
   roundSourceInventoryGrowth: 4,
   roundSourceInventoryVariance: 3,
   roundExhaustionGraceMs: 4500,
-  roundsPerEraGate: 3,
   starterDraftRounds: 1,
   shopRoundClearScrap: 6,
   shopOverkillScorePerScrap: 250,

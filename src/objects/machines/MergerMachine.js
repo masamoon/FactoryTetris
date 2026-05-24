@@ -107,9 +107,9 @@ export default class MergerMachine extends ConveyorMachine {
 
           let extractedItem = null;
 
-          // Handle Nodes (ResourceNode, UpgradeNode)
+          // Handle ResourceNodes
           if (
-            (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') &&
+            sourceCell.type === 'node' &&
             typeof sourceCell.object.extractResource === 'function'
           ) {
             extractedItem = sourceCell.object.extractResource();

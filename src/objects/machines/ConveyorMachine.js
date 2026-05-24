@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import BaseMachine from './BaseMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
-import { UPGRADE_PACKAGE_TYPE } from '../../config/upgrades.js';
 import {
   getPurityColor,
   getPurityScale,
@@ -16,8 +15,6 @@ import {
   ARITHMETIC_OPERATION_TAGS,
   getArithmeticOperationTagLabel,
 } from '../../config/resourceLevels';
-// import ResourceNode from '../ResourceNode'; // Import ResourceNode
-// import UpgradeNode from '../UpgradeNode'; // Import UpgradeNode
 
 /**
  * Conveyor Belt Machine
@@ -115,18 +112,8 @@ export default class ConveyorMachine extends BaseMachine {
     this.name = 'Conveyor Belt';
     this.description = 'Transports resources between machines';
     this.shape = [[1]]; // 1x1 shape
-    this.inputTypes = [
-      'basic-resource',
-      'advanced-resource',
-      'mega-resource',
-      UPGRADE_PACKAGE_TYPE,
-    ];
-    this.outputTypes = [
-      'basic-resource',
-      'advanced-resource',
-      'mega-resource',
-      UPGRADE_PACKAGE_TYPE,
-    ];
+    this.inputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
+    this.outputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
     this.processingTime = 1000; // 1 second
     this.defaultDirection = 'right';
 
@@ -477,11 +464,8 @@ export default class ConveyorMachine extends BaseMachine {
     }
 
     let extractedItem = null;
-    // Check if it's a ResourceNode or UpgradeNode and try extracting
-    if (
-      (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') &&
-      typeof sourceCell.object.extractResource === 'function'
-    ) {
+    // Check if it's a ResourceNode and try extracting
+    if (sourceCell.type === 'node' && typeof sourceCell.object.extractResource === 'function') {
       console.log(
         `[CONVEYOR_EXTRACT] Attempting extraction from ${sourceCell.type} at (${sourceX}, ${sourceY})`
       );
@@ -524,7 +508,7 @@ export default class ConveyorMachine extends BaseMachine {
         );
       }
       // --- END ITEM VISUAL LOGIC ---
-    } else if (sourceCell.type === 'node' || sourceCell.type === 'upgrade-node') {
+    } else if (sourceCell.type === 'node') {
       // Only log this occasionally to avoid spam
       if (now % 3000 < 16) {
         console.log(
@@ -634,16 +618,7 @@ export default class ConveyorMachine extends BaseMachine {
     const size = this.grid.cellSize * 0.3; // Visual size relative to cell
     let visual = null;
 
-    if (itemType === UPGRADE_PACKAGE_TYPE) {
-      // Use the preloaded sprite if available
-      if (this.scene.textures.exists('upgrade-package')) {
-        visual = this.scene.add.sprite(0, 0, 'upgrade-package');
-        visual.setDisplaySize(size * 1.2, size * 1.2); // Make package slightly larger
-      } else {
-        // Fallback to square if sprite missing
-        visual = this.scene.add.rectangle(0, 0, size, size, 0xff00ff); // Magenta fallback
-      }
-    } else if (itemType === 'purity-resource') {
+    if (itemType === 'purity-resource') {
       // --- PURITY RESOURCE VISUAL ---
       const purity = itemData.purity || 1;
       const itemColorKey = getItemColorKey(itemData);
@@ -895,12 +870,8 @@ export default class ConveyorMachine extends BaseMachine {
       if (targetEntity instanceof BaseMachine) {
         // Check if it's a machine instance
         targetEntityType = 'machine';
-      } else if (
-        targetCell.type === 'delivery-node' ||
-        targetCell.type === 'upgrade-node' ||
-        targetCell.type === 'node'
-      ) {
-        targetEntityType = targetCell.type; // e.g., 'delivery-node', 'upgrade-node'
+      } else if (targetCell.type === 'delivery-node' || targetCell.type === 'node') {
+        targetEntityType = targetCell.type;
       } else {
         // Could be an unknown object, or a machine not inheriting BaseMachine but still having acceptItem
         // For now, if it has acceptItem, let's try to treat it as a generic target

@@ -6,6 +6,7 @@ import { assignLevelsToShape } from '../utils/PieceGenerator';
 import { getTraitById, getTraitBandColor } from '../config/traits';
 import { ARITHMETIC_OPERATION_TYPES } from '../config/resourceLevels';
 import { createPieceDeckForRound, getPieceDeckEntryById } from '../config/pieceDeck';
+import { isProcessingPieceBodyId, normalizeProcessingPieceBodyId } from '../config/pieceBodies';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -20,7 +21,6 @@ export default class MachineFactory {
     this.machineRegistry = new MachineRegistry();
 
     // Available machines
-    this.availableMachines = [];
     this.activeMachine = null;
     this.selectedMachineType = null;
     this.placementGhost = null;
@@ -99,48 +99,6 @@ export default class MachineFactory {
     // Create a container for the machine previews (No longer used for processors)
     // this.scrollContainer = this.scene.add.container(0, 0);
     // this.container.add(this.scrollContainer);
-
-    // Add some factory decorations
-    //this.addDecorations();
-  }
-
-  addDecorations() {
-    // Add some factory-themed decorations
-    const gearSize = 20;
-    const gear1 = this.scene.add.circle(
-      -this.width / 2 + gearSize,
-      -this.height / 2 + gearSize,
-      gearSize,
-      0x666666
-    );
-    gear1.setStrokeStyle(2, 0x444444);
-    this.container.add(gear1);
-
-    const gear2 = this.scene.add.circle(
-      this.width / 2 - gearSize,
-      -this.height / 2 + gearSize,
-      gearSize * 0.7,
-      0x666666
-    );
-    gear2.setStrokeStyle(2, 0x444444);
-    this.container.add(gear2);
-
-    // Add rotation animation
-    this.scene.tweens.add({
-      targets: gear1,
-      rotation: Math.PI * 2,
-      duration: 8000,
-      repeat: -1,
-      ease: 'Linear',
-    });
-
-    this.scene.tweens.add({
-      targets: gear2,
-      rotation: -Math.PI * 2,
-      duration: 5000,
-      repeat: -1,
-      ease: 'Linear',
-    });
   }
 
   update() {
@@ -180,9 +138,11 @@ export default class MachineFactory {
     const machineConfigs = this.machineRegistry.getAllMachineConfigs();
     const allMachineTypes = machineConfigs.length > 0 ? machineConfigs : GAME_CONFIG.machineTypes;
 
-    // Filter for machines whose ID includes 'processor' (case-insensitive)
-    this.processorTypes = allMachineTypes.filter((type) =>
-      type.id.toLowerCase().includes('processor')
+    this.processorTypes = allMachineTypes.filter(
+      (type) =>
+        type.category === 'operator' ||
+        type.machineFamily === 'operator' ||
+        isProcessingPieceBodyId(type.id)
     );
 
     // Filter for logistics machines
@@ -194,7 +154,7 @@ export default class MachineFactory {
     this.conveyorMachineType = allMachineTypes.find((type) => type.id.toLowerCase() === 'conveyor');
 
     if (this.processorTypes.length === 0) {
-      console.warn('MachineFactory: No processor types found for selection panel.');
+      console.warn('MachineFactory: No operator body types found for selection panel.');
     }
     if (!this.conveyorMachineType) {
       console.warn('MachineFactory: Conveyor machine type not found.');
@@ -244,7 +204,8 @@ export default class MachineFactory {
   }
 
   getProcessorTypeById(machineTypeId) {
-    return this.processorTypes.find((type) => type.id === machineTypeId) || null;
+    const normalizedId = normalizeProcessingPieceBodyId(machineTypeId);
+    return this.processorTypes.find((type) => type.id === normalizedId) || null;
   }
 
   // Populate all processor slots with named pieces from the deck.
@@ -359,7 +320,7 @@ export default class MachineFactory {
       pieceId: card.id,
       pieceName: card.name,
       pieceShortName: card.shortName || card.name,
-      bodyId: card.bodyId || baseProcessor.id,
+      bodyId: normalizeProcessingPieceBodyId(card.bodyId || baseProcessor.id),
     };
   }
 
@@ -460,7 +421,7 @@ export default class MachineFactory {
     this.ensureUsableDraft();
     this.displayCurrentProcessorPreview();
 
-    if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex === slotIndex) {
+    if (this.lastSelectedCategory === 'operator' && this.lastSelectedSlotIndex === slotIndex) {
       this.clearSelection();
       this.lastSelectedCategory = null;
       this.lastSelectedSlotIndex = -1;
@@ -471,7 +432,7 @@ export default class MachineFactory {
 
   redrawProcessorHand() {
     this.rerollProcessorDrafts();
-    if (this.lastSelectedCategory === 'processor') {
+    if (this.lastSelectedCategory === 'operator') {
       this.clearSelection();
       this.lastSelectedCategory = null;
       this.lastSelectedSlotIndex = -1;
@@ -564,7 +525,7 @@ export default class MachineFactory {
       const machineType = this.availableProcessors[slotIndex];
       const itemX = processorStartX + slotIndex * processorSpacing;
 
-      this.addMachinePreviewToPanel(machineType, itemX, processorY, slotIndex, 'processor');
+      this.addMachinePreviewToPanel(machineType, itemX, processorY, slotIndex, 'operator');
     }
 
     // --- Display Logistics ---
@@ -613,9 +574,10 @@ export default class MachineFactory {
     }
 
     const slotStyle = this.getPanelSlotStyle(machineType, category);
-    const slotWidth = category === 'processor' ? 84 : 66;
-    const slotHeight = category === 'processor' ? 58 : 48;
-    const previewY = category === 'processor' ? itemY + 8 : itemY;
+    const isOperator = category === 'operator';
+    const slotWidth = isOperator ? 84 : 66;
+    const slotHeight = isOperator ? 58 : 48;
+    const previewY = isOperator ? itemY + 8 : itemY;
     const slotFrame = this.scene.add
       .rectangle(itemX, itemY, slotWidth, slotHeight, 0x0f1820, 0.86)
       .setStrokeStyle(1, slotStyle.borderColor, 0.72);
@@ -648,7 +610,7 @@ export default class MachineFactory {
       machinePreview.slotIndex = slotIndex;
       machinePreview.category = category;
       machinePreview.slotFrame = slotFrame;
-      machinePreview.basePanelScale = category === 'processor' ? 0.86 : 1;
+      machinePreview.basePanelScale = isOperator ? 0.86 : 1;
       machinePreview.setScale(machinePreview.basePanelScale);
       this.hidePanelPreviewInternalLabels(machinePreview);
       this.panelPreviewItems.push({
@@ -659,8 +621,7 @@ export default class MachineFactory {
         preview: machinePreview,
       });
 
-      // --- ADD NOTATION LABEL FOR PROCESSORS ---
-      if (category === 'processor' && machineType.notation) {
+      if (isOperator && machineType.notation) {
         if (machineType.pieceShortName || machineType.pieceName) {
           const nameLabel = this.scene.add
             .text(itemX, itemY - 31, machineType.pieceShortName || machineType.pieceName, {
@@ -768,10 +729,9 @@ export default class MachineFactory {
       // --- END NOTATION LABEL ---
 
       // Interactivity
-      const hitAreaSize = category === 'processor' ? slotWidth : 66;
-      const hitAreaTop =
-        category === 'processor' ? itemY - previewY - slotHeight / 2 - 4 : -slotHeight / 2;
-      const hitAreaHeight = category === 'processor' ? slotHeight + 8 : slotHeight + 28;
+      const hitAreaSize = isOperator ? slotWidth : 66;
+      const hitAreaTop = isOperator ? itemY - previewY - slotHeight / 2 - 4 : -slotHeight / 2;
+      const hitAreaHeight = isOperator ? slotHeight + 8 : slotHeight + 28;
       machinePreview.setInteractive(
         new Phaser.Geom.Rectangle(-hitAreaSize / 2, hitAreaTop, hitAreaSize, hitAreaHeight),
         Phaser.Geom.Rectangle.Contains
@@ -792,9 +752,9 @@ export default class MachineFactory {
 
       machinePreview.on('pointerdown', (pointer) => {
         pointer.event.stopPropagation();
-        if (category === 'processor') {
+        if (category === 'operator') {
           this.lastSelectedSlotIndex = slotIndex;
-          this.lastSelectedCategory = 'processor';
+          this.lastSelectedCategory = 'operator';
         } else if (category === 'logistics') {
           this.lastSelectedSlotIndex = slotIndex;
           this.lastSelectedCategory = 'logistics';
@@ -841,8 +801,8 @@ export default class MachineFactory {
   }
 
   getPanelSlotStyle(machineType, category) {
-    if (category === 'processor') {
-      return { label: 'PROC', borderColor: 0x3f8cff, textColor: '#88ccff' };
+    if (category === 'operator') {
+      return { label: 'OP', borderColor: 0x3f8cff, textColor: '#88ccff' };
     }
 
     const styles = {
@@ -856,7 +816,7 @@ export default class MachineFactory {
     return styles[machineType.id] || { label: 'TOOL', borderColor: 0x95aab5, textColor: '#dfefff' };
   }
 
-  // Select a processor from a specific slot
+  // Select an operator from a specific slot
   selectProcessorFromSlot(slotIndex) {
     if (slotIndex < 0 || slotIndex >= this.availableProcessors.length) {
       console.warn(`Invalid slot index: ${slotIndex}`);
@@ -865,13 +825,13 @@ export default class MachineFactory {
 
     const machineType = this.availableProcessors[slotIndex];
     if (!machineType) {
-      console.warn(`No processor in slot ${slotIndex}`);
+      console.warn(`No operator in slot ${slotIndex}`);
       return;
     }
 
     // Track which slot was selected (for refresh after placement)
     this.lastSelectedSlotIndex = slotIndex;
-    this.lastSelectedCategory = 'processor';
+    this.lastSelectedCategory = 'operator';
 
     // Select the machine type
     this.selectMachineType(machineType);
@@ -917,46 +877,9 @@ export default class MachineFactory {
     }
 
     if (!machineType.shape || !Array.isArray(machineType.shape)) {
-      // Set appropriate default shapes based on machine type
       const id = machineType.id.toLowerCase();
-      switch (id) {
-        case 'processor-a':
-        case 'processor-b':
-        case 'processor-c':
-        case 'processor-d':
-        case 'processor-e':
-        case 'advanced-processor-1':
-        case 'advanced-processor-2':
-        case 'splitter':
-        case 'merger':
-        case 'underground-belt':
-          console.log(`[MachineFactory] Selecting machine type: ${id}`);
-          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === id)?.shape;
-          break;
-        case 'advanced-processor':
-          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === 'advanced-processor')
-            ?.shape || [
-            [0, 1, 0],
-            [1, 1, 1],
-            [0, 1, 0],
-          ];
-          break;
-        case 'conveyor':
-          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === 'conveyor')?.shape || [
-            [1, 1],
-          ];
-          break;
-        case 'cargo-loader':
-          machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === 'cargo-loader')
-            ?.shape || [
-            [1, 1],
-            [1, 1],
-          ];
-          break;
-        default:
-          console.warn(`No default shape found for ${machineType.id}, using 1x1.`);
-          machineType.shape = [[1]]; // 1x1 shape as fallback
-      }
+      const bodyId = isProcessingPieceBodyId(id) ? normalizeProcessingPieceBodyId(id) : id;
+      machineType.shape = GAME_CONFIG.machineTypes.find((m) => m.id === bodyId)?.shape || [[1]];
       console.log(`Assigned shape for ${machineType.id}:`, machineType.shape);
     }
 
@@ -1353,7 +1276,7 @@ export default class MachineFactory {
             }
 
             // If a processor or logistics was placed
-            if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex >= 0) {
+            if (this.lastSelectedCategory === 'operator' && this.lastSelectedSlotIndex >= 0) {
               this.rotateProcessors(this.lastSelectedSlotIndex);
               this.displayCurrentProcessorPreview();
               this.clearSelection();
@@ -2006,107 +1929,11 @@ export default class MachineFactory {
     }
   }
 
-  /**
-   * Create a machine of the specified type at the given position
-   * @param {Object} machineType - The machine type to create
-   * @param {number} x - X position for the machine
-   * @param {number} y - Y position for the machine
-   * @returns {Phaser.GameObjects.Container} The created machine
-   */
-  createMachineOfType(machineType, _x, _y) {
-    console.warn('createMachineOfType is potentially redundant. Consider using createMachine.');
-    // Create the machine using the registry/preview method - Needs review
-    // This implementation seems wrong - it's creating another *preview* not a machine instance.
-    // let machine = this.createMachinePreview(machineType, x, y);
-
-    // Correct approach: Use the registry to create an actual machine instance
-    let machineInstance = null;
-    if (this.machineRegistry.hasMachineType(machineType.id)) {
-      // This needs the actual grid config, not just x, y for a preview
-      // We probably shouldn't call this from here. Placement logic should handle creation.
-      console.error(
-        'createMachineOfType should likely not be called directly. Placement logic needed.'
-      );
-      // Example of how it *might* look if grid/config were available:
-      /*
-             const config = {
-                 grid: this.scene.factoryGrid, // Assuming scene has the grid
-                 gridX: x, // Needs conversion from world/UI coords to grid coords
-                 gridY: y,
-                 direction: machineType.defaultDirection || 'right'
-             };
-             machineInstance = this.machineRegistry.createMachine(machineType.id, this.scene, config);
-             */
-    } else {
-      console.error(`Machine type ${machineType.id} not found in registry for createMachineOfType`);
-    }
-
-    if (machineInstance) {
-      // Add to scene, etc. - This logic belongs elsewhere (e.g., GameScene placement)
-      console.log(
-        'Machine instance created (but not added/managed by this function):',
-        machineInstance
-      );
-    }
-
-    // Return the instance (or null)
-    return machineInstance;
-
-    /* Original problematic code:
-        if (machine) {
-            // Add to container (This adds a *preview* to the factory UI, not a game machine)
-             this.container.add(machine); // This seems wrong
-
-            // Make the preview interactive (Redundant with selection panel?)
-            machine.setInteractive(new Phaser.Geom.Rectangle(
-                -30, -30, 60, 60
-            ), Phaser.Geom.Rectangle.Contains);
-
-            // Add hover effect
-            machine.on('pointerover', () => {
-                machine.setScale(1.1);
-                this.showMachineTooltip(machineType, x, y + 40);
-            });
-
-            machine.on('pointerout', () => {
-                machine.setScale(1);
-                this.hideMachineTooltip();
-            });
-
-            // Add click handler
-            machine.on('pointerdown', () => {
-                 // This selects the type again, causing potential issues
-                this.selectMachineType(machineType);
-            });
-
-            // Store in available machines (Adds another preview reference)
-            this.availableMachines.push({
-                preview: machine,
-                type: machineType
-            });
-        }
-
-        return machine; // Returns the preview container
-        */
-  }
-
   getMachineTypeById(id) {
     try {
-      // Check if we have a machineRegistry
       if (this.machineRegistry && typeof this.machineRegistry.getMachineConfig === 'function') {
-        // Use the registry to get the machine configuration
         return this.machineRegistry.getMachineConfig(id);
       }
-
-      // Look in the availableMachines array as a fallback
-      if (this.availableMachines && Array.isArray(this.availableMachines)) {
-        for (const machineEntry of this.availableMachines) {
-          if (machineEntry.type && machineEntry.type.id === id) {
-            return machineEntry.type;
-          }
-        }
-      }
-
       return null;
     } catch (_error) {
       return null;
