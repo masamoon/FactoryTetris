@@ -10,7 +10,11 @@ import { getGridSizeForEra, CHIP_CONFIG } from '../config/eraConfig';
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import BoardGenerator from '../managers/BoardGenerator.js';
 import { BOON_POOL } from '../config/boons.js';
-import { BOARD_BLOCKER_CELL_STYLE } from '../config/boardConfig.js';
+import {
+  BOARD_BLOCKER_CELL_STYLE,
+  BOARD_TILE_STYLES,
+  BOARD_TILE_TYPES,
+} from '../config/boardConfig.js';
 import { UpgradeNode } from '../objects/UpgradeNode.js'; // Import UpgradeNode
 import { UPGRADE_PACKAGE_TYPE, upgradesConfig } from '../config/upgrades.js'; // Import package type for check in clear AND upgradesConfig
 import {
@@ -95,12 +99,17 @@ export default class GameScene extends Phaser.Scene {
     this.flowPlacementRewardWindow = 18000;
     this.currentRoundBoard = null;
     this.roundBoardBlockers = [];
+    this.roundBoardSpecialTiles = [];
+    this.roundState = null;
+    this.runStability = GAME_CONFIG.startingRunStability ?? 1;
     this.boardGenerator = null;
     this.boardRevealGraphics = null;
     this.startRoundButtonPulse = null;
     this.juiceAudioContext = null;
     this.lastJuiceSoundAt = {};
     this.pendingBonusSourceColors = [];
+    this.pendingBoardBlockerRemovals = 0;
+    this.pendingBoardBonusTiles = [];
 
     // === CHIP PLACEMENT MODE ===
     this.isPlacingChip = false; // Flag for when player is choosing chip placement
@@ -2157,6 +2166,43 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  createRoundState(round, board) {
+    return {
+      number: round,
+      phase: this.runState,
+      board,
+      contract: this.contract,
+      draft: this.machineFactory?.getDeckCounts?.() || null,
+      score: this.roundScore || 0,
+      quota: this.roundQuota || 0,
+      sourceSupply: this.getRemainingSourceResources(),
+      exhausted: false,
+      stability: this.runStability,
+    };
+  }
+
+  setRoundPhase(phase) {
+    this.runState = phase;
+    if (this.roundState) {
+      this.roundState.phase = phase;
+      this.roundState.stability = this.runStability;
+    }
+  }
+
+  updateRoundState(patch = {}) {
+    if (!this.roundState) return;
+
+    this.roundState = {
+      ...this.roundState,
+      ...patch,
+      phase: patch.phase || this.runState,
+      score: patch.score ?? this.roundScore,
+      quota: patch.quota ?? this.roundQuota,
+      sourceSupply: patch.sourceSupply ?? this.getRemainingSourceResources(),
+      stability: this.runStability,
+    };
+  }
+
   getFlowSpeedMultiplier() {
     return 1;
   }
@@ -2185,6 +2231,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.contract) {
       this.contract.delivered = this.roundScore;
     }
+    this.updateRoundState({ score: this.roundScore });
     this.updateRoundUI();
 
     if (this.roundScore >= this.roundQuota) {
@@ -2253,11 +2300,42 @@ export default class GameScene extends Phaser.Scene {
   failRoundFromResourceExhaustion() {
     if (this.gameOver || this.runState !== 'ROUND_ACTIVE') return;
 
-    this.runState = 'RUN_OVER';
+    if (this.runStability > 0) {
+      this.consumeRunStability();
+      return;
+    }
+
+    this.setRoundPhase('RUN_OVER');
     this.setProductionPaused(true);
+    this.updateRoundState({ exhausted: true });
     this.updateRoundUI();
     this.showResourceExhaustedFeedback();
     this.time.delayedCall(650, () => this.endGame());
+  }
+
+  consumeRunStability() {
+    this.runStability = Math.max(0, this.runStability - 1);
+    this.setRoundPhase('GRACE');
+    this.setProductionPaused(true);
+    this.updateRoundState({ exhausted: true });
+    this.updateRoundUI();
+    this.updateActiveUpgradesDisplay();
+    this.addMoney(GAME_CONFIG.failedRoundRecoveryMoney || 0, 'rebuild');
+    this.addScrap(GAME_CONFIG.failedRoundRecoveryScrap || 0, 'rebuild');
+    this.showResourceExhaustedFeedback('STABILITY SPENT');
+    this.time.delayedCall(650, () => {
+      this.clearPlacedItems({
+        salvage: false,
+        clearMachines: true,
+        clearResources: true,
+        clearDeliveries: true,
+        clearUpgrade: false,
+      });
+      this.time.delayedCall(900, () => {
+        this.pendingRoundAdvanceAfterBoon = true;
+        this.showShopScreen();
+      });
+    });
   }
 
   // === ROUND QUOTA SYSTEM ===
@@ -2323,12 +2401,27 @@ export default class GameScene extends Phaser.Scene {
       ) {
         points = Math.floor(points * 1.25);
       }
+
+      const qualityMultiplier = this.getBoardQualityDeliveryMultiplier(_itemData);
+      if (qualityMultiplier > 1) {
+        points = Math.floor(points * qualityMultiplier);
+      }
     }
 
     return {
       points,
       countsForFlow,
     };
+  }
+
+  getBoardQualityDeliveryMultiplier(itemData) {
+    const machineUids = Array.isArray(itemData?.machineUids) ? itemData.machineUids : [];
+    if (machineUids.length === 0) return 1;
+
+    const hasQualityMachine = (this.machines || []).some(
+      (machine) => machine?.boardQualityMultiplier > 1 && machineUids.includes(machine.uid)
+    );
+    return hasQualityMachine ? GAME_CONFIG.boardQualityScoreMultiplier || 1.15 : 1;
   }
 
   getRoundQuota(round = this.currentRound) {
@@ -2364,6 +2457,7 @@ export default class GameScene extends Phaser.Scene {
     };
     this.roundDeliveryCount = 0;
     this.contractDeliveryCount = 0;
+    this.updateRoundState({ contract: this.contract, quota: this.roundQuota, score: 0 });
     return this.contract;
   }
 
@@ -2732,7 +2826,7 @@ export default class GameScene extends Phaser.Scene {
 
     // 6. Boon pick first, chip placement after the player closes the boon modal.
     this.pendingChipAfterBoon = newChip;
-    this.runState = 'GRACE';
+    this.setRoundPhase('GRACE');
     this.showBoonScreen();
 
     // 7. Re-place existing chips from previous eras
@@ -3211,6 +3305,7 @@ export default class GameScene extends Phaser.Scene {
     this.playSound(state.canCycleSelectedSlot ? 'draft-cycle' : 'draft-redraw');
     this.pulseUIButton(this.draftCycleButton, { scale: 1.06, duration: 120 });
     this.showDraftCycleFeedback(state.canCycleSelectedSlot ? 'Slot cycled' : 'Hand redrawn');
+    this.updateRoundState({ draft: this.machineFactory?.getDeckCounts?.() || null });
     this.updateDraftCycleButton();
   }
 
@@ -4198,15 +4293,6 @@ export default class GameScene extends Phaser.Scene {
       }
       const isRepositionedMachine = Boolean(machineType.fromPlacedMachine);
 
-      const placementCost = isRepositionedMachine ? 0 : this.getMachinePlacementCost(machineType);
-      if (!isRepositionedMachine && !this.canAffordMachine(machineType)) {
-        console.warn(
-          `[GameScene.placeMachine] Exit P3b: Cannot afford ${machineType.id}. Cost ${placementCost}, money ${this.money}`
-        );
-        this.showMoneyFeedback(-placementCost, 'needed');
-        return null;
-      }
-
       // Get direction from rotation (assuming degrees for now)
       const direction = this.getDirectionFromRotation(rotation);
       console.log(
@@ -4290,6 +4376,20 @@ export default class GameScene extends Phaser.Scene {
         return null;
       }
       console.log(`[GameScene.placeMachine] Check P6 passed: Can place ${machineType.id}`); // LOG P6
+
+      const boardTileEffects = isRepositionedMachine
+        ? null
+        : this.getBoardTilePlacementEffects(machineType, gridX, gridY, direction);
+      const placementCost = isRepositionedMachine
+        ? 0
+        : this.getMachinePlacementCost(machineType, boardTileEffects);
+      if (!isRepositionedMachine && this.money < placementCost) {
+        console.warn(
+          `[GameScene.placeMachine] Exit P6c: Cannot afford ${machineType.id}. Cost ${placementCost}, money ${this.money}`
+        );
+        this.showMoneyFeedback(-placementCost, 'needed');
+        return null;
+      }
 
       // Create the machine using the factory
       let machineObj;
@@ -4404,6 +4504,7 @@ export default class GameScene extends Phaser.Scene {
       }
 
       machineObj.placementCost = placementCost;
+      this.applyBoardTileEffectsToMachine(machineObj, boardTileEffects);
       this.addMoney(-placementCost, machineObj.id);
 
       if (replacementInfo) {
@@ -5256,23 +5357,31 @@ export default class GameScene extends Phaser.Scene {
   }
 
   clearRoundBoard() {
-    if (!this.grid || !Array.isArray(this.roundBoardBlockers)) return;
+    if (!this.grid) return;
 
-    for (const blocker of this.roundBoardBlockers) {
+    for (const blocker of this.roundBoardBlockers || []) {
       const cell = this.grid.getCell(blocker.x, blocker.y);
       if (cell?.type === 'board-blocker') {
         this.grid.setCell(blocker.x, blocker.y, { type: 'empty' });
       }
     }
+    for (const tile of this.roundBoardSpecialTiles || []) {
+      const cell = this.grid.getCell(tile.x, tile.y);
+      if (cell?.type === 'board-tile') {
+        this.grid.setCell(tile.x, tile.y, { type: 'empty' });
+      }
+    }
     this.roundBoardBlockers = [];
+    this.roundBoardSpecialTiles = [];
     this.currentRoundBoard = null;
   }
 
   applyRoundBoard(round = this.currentRound) {
     this.clearRoundBoard();
-    const board = this.createRoundBoard(round);
+    const board = this.applyPendingBoardEdits(this.createRoundBoard(round));
     this.currentRoundBoard = board;
     this.roundBoardBlockers = board.blockers || [];
+    this.roundBoardSpecialTiles = board.specialTiles || [];
 
     for (const blocker of this.roundBoardBlockers) {
       const cell = this.grid.getCell(blocker.x, blocker.y);
@@ -5285,10 +5394,81 @@ export default class GameScene extends Phaser.Scene {
         });
       }
     }
+    for (const tile of this.roundBoardSpecialTiles) {
+      const style = BOARD_TILE_STYLES[tile.type] || {};
+      const cell = this.grid.getCell(tile.x, tile.y);
+      if (cell?.type === 'empty') {
+        this.grid.setCell(tile.x, tile.y, {
+          type: 'board-tile',
+          boardId: board.id,
+          tileType: tile.type,
+          label: style.label,
+          color: style.color,
+          borderColor: style.borderColor,
+          glowColor: style.glowColor,
+          description: style.description,
+        });
+      }
+    }
 
     this.grid.drawGrid();
     this.showBoardRevealJuice(board);
     return board;
+  }
+
+  applyPendingBoardEdits(board) {
+    const editedBoard = {
+      ...board,
+      blockers: [...(board.blockers || [])],
+      specialTiles: [...(board.specialTiles || [])],
+    };
+
+    const removeCount = Math.min(
+      this.pendingBoardBlockerRemovals || 0,
+      editedBoard.blockers.length
+    );
+    if (removeCount > 0) {
+      editedBoard.blockers.splice(0, removeCount);
+      this.pendingBoardBlockerRemovals -= removeCount;
+    }
+
+    const bonusTiles = [...(this.pendingBoardBonusTiles || [])];
+    this.pendingBoardBonusTiles = [];
+    bonusTiles.forEach((type, index) => {
+      const tile = this.findOpenBoardTileSlot(editedBoard, index);
+      if (tile) {
+        editedBoard.specialTiles.push({ ...tile, type });
+      }
+    });
+
+    return editedBoard;
+  }
+
+  findOpenBoardTileSlot(board, offset = 0) {
+    const width = this.grid?.width || GRID_CONFIG.width;
+    const height = this.grid?.height || GRID_CONFIG.height;
+    const midX = Math.floor(width / 2);
+    const midY = Math.floor(height / 2);
+    const blocked = new Set([
+      ...(board.blockers || []).map((cell) => `${cell.x},${cell.y}`),
+      ...(board.specialTiles || []).map((cell) => `${cell.x},${cell.y}`),
+    ]);
+    const candidates = [
+      { x: midX - 2 - offset, y: midY },
+      { x: midX + 2 + offset, y: midY },
+      { x: midX, y: midY - 2 - offset },
+      { x: midX, y: midY + 2 + offset },
+      { x: midX - 1, y: midY + 1 + offset },
+    ];
+
+    return candidates.find(
+      (cell) =>
+        cell.x > 0 &&
+        cell.x < width - 1 &&
+        cell.y >= 0 &&
+        cell.y < height &&
+        !blocked.has(`${cell.x},${cell.y}`)
+    );
   }
 
   getRoundBoardSummary(round = this.currentRound) {
@@ -5368,6 +5548,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   updateRoundUI() {
+    this.updateRoundState();
     if (this.eraText) {
       this.eraText.setText(`${this.currentRound}`);
     }
@@ -5551,6 +5732,12 @@ export default class GameScene extends Phaser.Scene {
     };
     markRows(board.sourceRows || [], 0x88ffcc);
     markRows(board.deliveryRows || [], 0xffd166);
+    for (const tile of board.specialTiles || []) {
+      const center = this.grid.gridToWorld(tile.x, tile.y);
+      const style = BOARD_TILE_STYLES[tile.type] || {};
+      graphics.lineStyle(3, style.glowColor || style.borderColor || 0xffffff, 0.85);
+      graphics.strokeCircle(center.x, center.y, cellSize * 0.45);
+    }
 
     this.boardRevealGraphics = graphics;
     this.tweens.add({
@@ -5567,7 +5754,14 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  getMachinePlacementCost(machineType) {
+  getMachinePlacementCost(machineType, options = {}) {
+    if (typeof options.boardTaxSurcharge === 'number') {
+      return this.getMachinePlacementCostBase(machineType) + options.boardTaxSurcharge;
+    }
+    return this.getMachinePlacementCostBase(machineType);
+  }
+
+  getMachinePlacementCostBase(machineType) {
     if (machineType?.isRelocation && typeof machineType.placementCost === 'number') {
       return machineType.placementCost;
     }
@@ -5587,6 +5781,68 @@ export default class GameScene extends Phaser.Scene {
 
   canAffordMachine(machineType) {
     return this.money >= this.getMachinePlacementCost(machineType);
+  }
+
+  getMachineBoardFootprint(machineType, gridX, gridY, direction) {
+    if (!machineType?.shape || !this.grid) return [];
+
+    const shape = this.grid.getRotatedShape(machineType.shape, direction);
+    const cells = [];
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x] !== 1) continue;
+        cells.push({ x: gridX + x, y: gridY + y });
+      }
+    }
+    return cells;
+  }
+
+  getBoardTilePlacementEffects(machineType, gridX, gridY, direction) {
+    const effects = {
+      tiles: [],
+      hasPower: false,
+      hasQuality: false,
+      taxedCells: 0,
+      boardTaxSurcharge: 0,
+    };
+
+    for (const footprintCell of this.getMachineBoardFootprint(
+      machineType,
+      gridX,
+      gridY,
+      direction
+    )) {
+      const cell = this.grid.getCell(footprintCell.x, footprintCell.y);
+      if (cell?.type !== 'board-tile') continue;
+
+      const tile = { x: footprintCell.x, y: footprintCell.y, type: cell.tileType };
+      effects.tiles.push(tile);
+      if (cell.tileType === BOARD_TILE_TYPES.POWER) effects.hasPower = true;
+      if (cell.tileType === BOARD_TILE_TYPES.QUALITY) effects.hasQuality = true;
+      if (cell.tileType === BOARD_TILE_TYPES.TAXED) effects.taxedCells++;
+    }
+
+    effects.boardTaxSurcharge = effects.taxedCells * (GAME_CONFIG.boardTaxedCellSurcharge || 3);
+    return effects;
+  }
+
+  applyBoardTileEffectsToMachine(machine, effects) {
+    if (!machine || !effects) return;
+
+    machine.boardTileEffects = effects;
+    if (effects.hasPower && typeof machine.setProcessingTimeModifier === 'function') {
+      machine.setProcessingTimeModifier(
+        'board-power',
+        GAME_CONFIG.boardPowerProcessingMultiplier || 0.78
+      );
+      machine.boardPowerActive = true;
+      this.showProcessorReplacementFeedback('Power cell\nspeed boost');
+    }
+
+    if (effects.hasQuality) {
+      machine.boardQualityMultiplier = GAME_CONFIG.boardQualityScoreMultiplier || 1.15;
+      this.showProcessorReplacementFeedback('Quality cell\nscore boost');
+    }
   }
 
   setProductionPaused(paused) {
@@ -5628,7 +5884,7 @@ export default class GameScene extends Phaser.Scene {
   beginActiveRound() {
     if (this.gameOver || this.paused || this.runState === 'ROUND_ACTIVE') return;
 
-    this.runState = 'ROUND_ACTIVE';
+    this.setRoundPhase('ROUND_ACTIVE');
     this.roundClearing = false;
     this.roundStartedAt = this.time?.now || 0;
     this.setProductionPaused(false);
@@ -5642,7 +5898,7 @@ export default class GameScene extends Phaser.Scene {
     this.currentRound = round;
     this.roundClearing = false;
     this.roundExhaustionStartedAt = null;
-    this.applyRoundBoard(round);
+    const board = this.applyRoundBoard(round);
     this.buildRound();
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
     this.createInitialResourceNodes();
@@ -5650,10 +5906,11 @@ export default class GameScene extends Phaser.Scene {
       this.machineFactory.refreshAvailableProcessors();
       this.machineFactory.displayCurrentProcessorPreview();
     }
+    this.roundState = this.createRoundState(round, board);
     this.updateRoundUI();
 
     if (options.buildPhase) {
-      this.runState = 'BUILD_PHASE';
+      this.setRoundPhase('BUILD_PHASE');
       this.setProductionPaused(true);
       this.setBuildPhaseUIVisible(true);
       this.playSound('build-phase');
@@ -5662,7 +5919,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.runState = 'BUILD_PHASE';
+    this.setRoundPhase('BUILD_PHASE');
     this.beginActiveRound();
   }
 
@@ -5745,7 +6002,7 @@ export default class GameScene extends Phaser.Scene {
   clearRound() {
     if (this.roundClearing) return;
     this.roundClearing = true;
-    this.runState = 'ROUND_CLEARED';
+    this.setRoundPhase('ROUND_CLEARED');
     const clearBonus = (GAME_CONFIG.roundClearBonus || 18) + this.currentRound * 4;
     this.addMoney(clearBonus, 'round clear');
     this.playSound('round-clear');
@@ -5799,9 +6056,9 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  showResourceExhaustedFeedback() {
+  showResourceExhaustedFeedback(message = 'RESOURCES EXHAUSTED') {
     const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, 'RESOURCES EXHAUSTED', {
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, message, {
         fontFamily: 'Arial Black',
         fontSize: 30,
         color: '#ff8888',
@@ -6147,7 +6404,31 @@ export default class GameScene extends Phaser.Scene {
         description: 'Refresh the processor draft row immediately.',
         cost: 3,
       },
+      {
+        type: 'remove_next_blockers',
+        kind: 'Board',
+        name: 'Cut Next Blockers',
+        description: 'Remove two blocker cells from the next board.',
+        cost: GAME_CONFIG.shopRemoveBlockersCost || 4,
+      },
+      {
+        type: 'install_power_cell',
+        kind: 'Board',
+        name: 'Install Power Cell',
+        description: 'Add a power cell to the next board. Built machines process faster.',
+        cost: GAME_CONFIG.shopInstallPowerCellCost || 5,
+      },
     ];
+
+    if (this.runStability <= 0) {
+      choices.push({
+        type: 'repair_stability',
+        kind: 'Run',
+        name: 'Repair Stability',
+        description: 'Restore one Stability. The next failed round rebuilds instead of ending.',
+        cost: GAME_CONFIG.shopRepairStabilityCost || 8,
+      });
+    }
 
     boonChoices.forEach((boonChoice) => {
       choices.push({
@@ -6194,6 +6475,16 @@ export default class GameScene extends Phaser.Scene {
         break;
       case 'reroll_drafts':
         this.machineFactory?.rerollProcessorDrafts();
+        break;
+      case 'remove_next_blockers':
+        this.pendingBoardBlockerRemovals += 2;
+        break;
+      case 'install_power_cell':
+        this.pendingBoardBonusTiles.push(BOARD_TILE_TYPES.POWER);
+        break;
+      case 'repair_stability':
+        this.runStability = Math.max(this.runStability, 1);
+        this.updateActiveUpgradesDisplay();
         break;
       case 'boon':
         this.upgradeManager.applyBoon(choice.boonId);
@@ -6244,10 +6535,14 @@ export default class GameScene extends Phaser.Scene {
     if (
       Object.keys(activeUpgrades).length === 0 &&
       activeBoons.length === 0 &&
-      runWideLines.length === 0
+      runWideLines.length === 0 &&
+      this.runStability <= 0
     ) {
       lines.push('None');
     } else {
+      if (this.runStability > 0) {
+        lines.push(`Stability x${this.runStability}`);
+      }
       for (const upgradeType in activeUpgrades) {
         const level = activeUpgrades[upgradeType];
         const config = upgradesConfig[upgradeType];

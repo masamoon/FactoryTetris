@@ -3,6 +3,36 @@ export const BOARD_BLOCKER_CELL_STYLE = {
   borderColor: 0x8fb7c9,
 };
 
+export const BOARD_TILE_TYPES = {
+  POWER: 'power',
+  QUALITY: 'quality',
+  TAXED: 'taxed',
+};
+
+export const BOARD_TILE_STYLES = {
+  [BOARD_TILE_TYPES.POWER]: {
+    label: 'PWR',
+    color: 0x164d3a,
+    borderColor: 0x88ffcc,
+    glowColor: 0x88ffcc,
+    description: 'Machines built here process faster.',
+  },
+  [BOARD_TILE_TYPES.QUALITY]: {
+    label: 'QLT',
+    color: 0x4d4320,
+    borderColor: 0xffd166,
+    glowColor: 0xffd166,
+    description: 'Machines built here boost delivery score.',
+  },
+  [BOARD_TILE_TYPES.TAXED]: {
+    label: '$',
+    color: 0x4a2430,
+    borderColor: 0xff7a90,
+    glowColor: 0xff7a90,
+    description: 'Machines built here cost extra Funds.',
+  },
+};
+
 export const BOARD_TEMPLATES = {
   OPEN_FLOOR: {
     id: 'open-floor',

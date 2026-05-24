@@ -83,6 +83,21 @@ export default class Grid {
           this.graphics.fillRect(cellX, cellY, this.cellSize - 2, this.cellSize - 2);
           this.graphics.lineStyle(1, cell.borderColor || 0x88a6bb, 0.75);
           this.graphics.strokeRect(cellX + 2, cellY + 2, this.cellSize - 6, this.cellSize - 6);
+        } else if (cell && cell.type === 'board-tile') {
+          const cellX = startX + x * this.cellSize + 1;
+          const cellY = startY + y * this.cellSize + 1;
+          this.graphics.fillStyle(cell.color || 0x263542, 0.75);
+          this.graphics.fillRect(cellX, cellY, this.cellSize - 2, this.cellSize - 2);
+          this.graphics.lineStyle(2, cell.borderColor || 0x88a6bb, 0.75);
+          this.graphics.strokeRect(cellX + 3, cellY + 3, this.cellSize - 8, this.cellSize - 8);
+          if (cell.label) {
+            this.graphics.lineStyle(1, cell.glowColor || cell.borderColor || 0xffffff, 0.55);
+            this.graphics.strokeCircle(
+              cellX + this.cellSize / 2 - 1,
+              cellY + this.cellSize / 2 - 1,
+              Math.max(5, this.cellSize * 0.22)
+            );
+          }
         } else {
           // Empty cell
           this.graphics.fillStyle(0x1a2e3b, 0.5);
@@ -522,7 +537,7 @@ export default class Grid {
             // Don't allow conveyors on nodes anymore (removing this exception)
 
             // Check if cell is occupied by anything other than 'empty'
-            if (cell && cell.type !== 'empty') {
+            if (cell && cell.type !== 'empty' && cell.type !== 'board-tile') {
               return false;
             }
           } catch (_error) {
@@ -646,6 +661,14 @@ export default class Grid {
 
             const cell = this.getCell(cellX, cellY);
             if (cell) {
+              if (cell.type === 'board-tile') {
+                if (!machine.boardTileCells) machine.boardTileCells = [];
+                machine.boardTileCells.push({
+                  x: cellX,
+                  y: cellY,
+                  tile: { ...cell },
+                });
+              }
               // Update the cell with machine data
               cell.type = 'machine'; // Set the cell type to 'machine'
               cell.object = machine; // *** ADD THIS LINE: Store a direct reference to the machine object ***
@@ -944,8 +967,10 @@ export default class Grid {
             cell.type === 'machine' &&
             (cell.object === machine || cell.machine === machine)
           ) {
-            // Restore to empty cell
-            this.cells[y][x] = { type: 'empty' };
+            const boardTile = machine.boardTileCells?.find(
+              (entry) => entry.x === x && entry.y === y
+            );
+            this.cells[y][x] = boardTile ? { ...boardTile.tile } : { type: 'empty' };
           }
         }
       }
