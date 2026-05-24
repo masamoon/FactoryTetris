@@ -304,6 +304,9 @@ export const GAME_CONFIG = {
   boardTaxedCellSurcharge: 3,
   shopRemoveBlockersCost: 4,
   shopInstallPowerCellCost: 5,
+  shopInstallQualityCellCost: 5,
+  shopFundingGrantCost: 3,
+  shopFundingGrantAmount: 18,
   shopRepairStabilityCost: 8,
 
   // Round / economy loop

@@ -93,7 +93,7 @@ export function getArithmeticOperationTags(operation) {
 export function getArithmeticOperationTagLabel(tag) {
   switch (tag) {
     case ARITHMETIC_OPERATION_TAGS.ADD:
-      return 'mix';
+      return 'add';
     case ARITHMETIC_OPERATION_TAGS.ADD_TWO:
       return '+2';
     case ARITHMETIC_OPERATION_TAGS.ADD_ONE:

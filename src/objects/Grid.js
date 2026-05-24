@@ -841,7 +841,10 @@ export default class Grid {
         const cell = this.cells[y][x];
         // Check if the cell is of type 'machine' AND if its 'object' property matches the machine to remove
         if (cell && cell.type === 'machine' && cell.object === machineInstanceToRemove) {
-          this.cells[y][x] = { type: 'empty' }; // Reset the cell to empty
+          const boardTile = machineInstanceToRemove.boardTileCells?.find(
+            (entry) => entry.x === x && entry.y === y
+          );
+          this.cells[y][x] = boardTile ? { ...boardTile.tile } : { type: 'empty' };
           // console.log(`[Grid.removeMachine] Cleared cell (${x}, ${y}) that was occupied by ${machineInstanceToRemove.id}`);
         }
       }

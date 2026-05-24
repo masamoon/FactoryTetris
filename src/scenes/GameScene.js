@@ -109,6 +109,7 @@ export default class GameScene extends Phaser.Scene {
     this.fastForwardActive = false;
     this.fastForwardMultiplier = GAME_CONFIG.fastForwardSpeedMultiplier || 3;
     this.fastForwardButton = null;
+    this.resetBoardButton = null;
     this.startRoundButtonPulse = null;
     this.juiceAudioContext = null;
     this.lastJuiceSoundAt = {};
@@ -484,6 +485,24 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.startRoundButton.text);
     this.setBuildPhaseUIVisible(false);
 
+    this.resetBoardButton = this.createButton(
+      centerX,
+      buttonStartY - 84,
+      'RESET BOARD',
+      () => {
+        this.resetBuildBoard();
+      },
+      250
+    );
+    this.resetBoardButton.button.fillColor = 0x4f3b2c;
+    this.resetBoardButton.button.defaultFillColor = 0x4f3b2c;
+    this.resetBoardButton.button.hoverFillColor = 0x755438;
+    this.resetBoardButton.button.setStrokeStyle(2, 0xc58b5b);
+    this.resetBoardButton.button.setScrollFactor(0);
+    this.resetBoardButton.text.setScrollFactor(0);
+    this.addToUI(this.resetBoardButton.button);
+    this.addToUI(this.resetBoardButton.text);
+
     this.draftCycleButton = this.createButton(centerX, buttonStartY + 40, 'REDRAW HAND', () => {
       this.cycleDraftSelection();
     });
@@ -495,12 +514,13 @@ export default class GameScene extends Phaser.Scene {
     this.draftCycleButton.text.setScrollFactor(0);
     this.updateDraftCycleButton();
     this.updateFastForwardButton();
+    this.updateResetBoardButton();
     this.addToUI(this.draftCycleButton.button);
     this.addToUI(this.draftCycleButton.text);
 
     // Clear Factory Button (DEBUG ONLY)
     if (this.debugMode) {
-      this.clearButton = this.createButton(centerX, buttonStartY - 84, 'CLEAR (DEBUG)', () => {
+      this.clearButton = this.createButton(centerX, buttonStartY - 126, 'CLEAR (DEBUG)', () => {
         this.clearPlacedItems();
       });
       this.clearButton.button.setScrollFactor(0);
@@ -2418,6 +2438,7 @@ export default class GameScene extends Phaser.Scene {
     } else {
       this.updateFastForwardButton();
     }
+    this.updateResetBoardButton();
   }
 
   updateRoundState(patch = {}) {
@@ -2782,7 +2803,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (variant === 2) {
       return {
-        title: 'Junction Mix',
+        title: 'Junction Add',
         requiredRouteTag: 'junction',
         demands: [{ tier: requiredTier, quantity, delivered: 0, exact: false, ...mixFinish }],
       };
@@ -2815,7 +2836,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (era > 1) {
       return {
-        title: 'Precision Mix',
+        title: 'Precision Add',
         demands: [{ tier: requiredTier, quantity, delivered: 0, exact: true, ...mixFinish }],
       };
     }
@@ -3655,6 +3676,83 @@ export default class GameScene extends Phaser.Scene {
       this.draftCycleButton.button.disableInteractive();
       this.draftCycleButton.text.setAlpha(state.inBuildPhase ? 0.85 : 0.55);
       this.draftCycleButton.button.setAlpha(state.inBuildPhase ? 0.85 : 0.55);
+    }
+  }
+
+  canResetBuildBoard() {
+    return (
+      this.runState === 'BUILD_PHASE' &&
+      !this.paused &&
+      !this.gameOver &&
+      !this.roundClearing &&
+      (this.machines?.length || 0) > 0
+    );
+  }
+
+  getBuildBoardRefund() {
+    return (this.machines || []).reduce((total, machine) => {
+      const cost =
+        typeof machine?.placementCost === 'number'
+          ? machine.placementCost
+          : this.getMachinePlacementCost(machine);
+      return total + Math.max(0, Math.floor(cost || 0));
+    }, 0);
+  }
+
+  resetBuildBoard() {
+    if (this.runState !== 'BUILD_PHASE') {
+      this.showDraftCycleFeedback('Build phase only', '#ffcc88');
+      return;
+    }
+    if (!this.canResetBuildBoard()) {
+      this.showDraftCycleFeedback('Nothing to reset', '#ffcc88');
+      return;
+    }
+
+    const refund = this.getBuildBoardRefund();
+    this.clearPlacedItems({
+      salvage: false,
+      clearMachines: true,
+      clearResources: false,
+      clearDeliveries: false,
+      clearUpgrade: false,
+    });
+
+    if (refund > 0) {
+      this.addMoney(refund, 'board reset');
+    }
+    this.playSound('destroy');
+    this.showDraftCycleFeedback(refund > 0 ? `Refunded $${refund}` : 'Board reset', '#88ffcc');
+    this.updateResetBoardButton();
+  }
+
+  updateResetBoardButton() {
+    if (!this.resetBoardButton) return;
+
+    const inBuildPhase = this.runState === 'BUILD_PHASE';
+    const canReset = this.canResetBuildBoard();
+    const refund = this.getBuildBoardRefund();
+    const label = canReset && refund > 0 ? `RESET BOARD (+$${refund})` : 'RESET BOARD';
+    const fillColor = canReset ? 0x4f3b2c : 0x2e2824;
+    const strokeColor = canReset ? 0xc58b5b : 0x6a5544;
+
+    this.resetBoardButton.text.setText(label);
+    this.resetBoardButton.button.setVisible(inBuildPhase);
+    this.resetBoardButton.text.setVisible(inBuildPhase);
+    this.resetBoardButton.button.fillColor = fillColor;
+    this.resetBoardButton.button.defaultFillColor = fillColor;
+    this.resetBoardButton.button.hoverFillColor = canReset ? 0x755438 : fillColor;
+    this.resetBoardButton.button.setStrokeStyle(2, strokeColor, canReset ? 1 : 0.45);
+    this.resetBoardButton.text.setColor(canReset ? '#ffffff' : '#9a8f83');
+
+    if (canReset) {
+      this.resetBoardButton.button.setInteractive({ useHandCursor: true });
+      this.resetBoardButton.button.setAlpha(1);
+      this.resetBoardButton.text.setAlpha(1);
+    } else {
+      this.resetBoardButton.button.disableInteractive();
+      this.resetBoardButton.button.setAlpha(0.58);
+      this.resetBoardButton.text.setAlpha(0.58);
     }
   }
 
@@ -5921,6 +6019,7 @@ export default class GameScene extends Phaser.Scene {
       }
     }
     this.updateDraftCycleButton();
+    this.updateResetBoardButton();
   }
 
   addMoney(amount, reason = '') {
@@ -6669,22 +6768,23 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getShopChoices() {
-    const boonChoices = this.upgradeManager.getBoonChoices(2);
     const deckChoices = [
       {
         type: 'deck_add_2',
         kind: 'Machine',
         pieceId: 'standard-booster-elbow',
-        name: 'Add Elbow Booster',
-        description: 'Add an Elbow +2 processor card to your piece deck.',
+        name: 'Add Elbow +2 Processor',
+        description: 'Permanent deck card. Takes one input and raises its level by 2.',
+        effect: 'Example: L1 -> L3',
         cost: 5,
       },
       {
         type: 'deck_add_mix',
         kind: 'Machine',
         pieceId: 'standard-mixer-block',
-        name: 'Add Block Mixer',
-        description: 'Add a Mix processor card to your piece deck.',
+        name: 'Add Block Adder Processor',
+        description: 'Permanent deck card. Takes two inputs and adds their levels together.',
+        effect: 'Example: L2 + L3 -> L5',
         cost: 6,
       },
     ];
@@ -6693,31 +6793,43 @@ export default class GameScene extends Phaser.Scene {
         type: 'bonus_yellow_source',
         kind: 'Color',
         name: 'Next Board Yellow Source',
-        description: 'Add one Yellow source to the next board. Yellow deliveries earn Scrap.',
+        description: 'Add one Yellow source to the next board.',
+        effect: 'Yellow deliveries earn extra Scrap.',
         cost: 6,
       },
       {
         type: 'remove_next_blockers',
         kind: 'Board',
         name: 'Cut Next Blockers',
-        description: 'Remove two blocker cells from the next board.',
+        description: 'Remove two blocked cells from the next board before it starts.',
+        effect: 'More routing space.',
         cost: GAME_CONFIG.shopRemoveBlockersCost || 4,
       },
       {
         type: 'install_power_cell',
         kind: 'Board',
         name: 'Install Power Cell',
-        description: 'Add a power cell to the next board. Built machines process faster.',
+        description: 'Add a Power cell to the next board.',
+        effect: 'Machines built on it process faster.',
         cost: GAME_CONFIG.shopInstallPowerCellCost || 5,
+      },
+      {
+        type: 'install_quality_cell',
+        kind: 'Board',
+        name: 'Install Quality Cell',
+        description: 'Add a Quality cell to the next board.',
+        effect: 'Machines built on it boost delivery score.',
+        cost: GAME_CONFIG.shopInstallQualityCellCost || 5,
       },
     ];
     const supportChoices = [
       {
-        type: 'reroll_drafts',
-        kind: 'Utility',
-        name: 'Reroll Machine Drafts',
-        description: 'Refresh the processor draft row immediately.',
-        cost: 3,
+        type: 'funding_grant',
+        kind: 'Funds',
+        name: 'Buy Build Funds',
+        description: `Gain $${GAME_CONFIG.shopFundingGrantAmount || 18} immediately for the next build.`,
+        effect: 'Useful when the next board needs more machines.',
+        cost: GAME_CONFIG.shopFundingGrantCost || 3,
       },
     ];
 
@@ -6727,30 +6839,24 @@ export default class GameScene extends Phaser.Scene {
         kind: 'Run',
         name: 'Repair Stability',
         description: 'Restore one Stability. The next failed round rebuilds instead of ending.',
+        effect: 'One mistake will not end the run.',
         cost: GAME_CONFIG.shopRepairStabilityCost || 8,
       });
     }
-
-    boonChoices.forEach((boonChoice) => {
-      supportChoices.push({
-        type: 'boon',
-        kind: 'Sticker',
-        boonId: boonChoice.type,
-        name: boonChoice.name,
-        description: boonChoice.description,
-        cost: 7,
-      });
-    });
 
     const rotatePick = (choices, offset = 0) => {
       if (!choices.length) return null;
       const index = Math.abs((this.currentRound || 1) + offset) % choices.length;
       return choices[index];
     };
+    const supportPick =
+      this.runStability <= 0
+        ? supportChoices.find((choice) => choice.type === 'repair_stability')
+        : rotatePick(supportChoices, 2);
     const curatedChoices = [
       rotatePick(deckChoices, 0),
       rotatePick(boardChoices, 1),
-      rotatePick(supportChoices, 2),
+      supportPick,
     ].filter(Boolean);
     const offerCount = GAME_CONFIG.shopOfferCount || 3;
 
@@ -6759,6 +6865,7 @@ export default class GameScene extends Phaser.Scene {
       kind: 'Skip',
       name: 'Save Scrap',
       description: 'Buy nothing and keep Scrap for later.',
+      effect: 'Keeps your options open.',
       cost: 0,
       isFree: true,
     };
@@ -6786,14 +6893,17 @@ export default class GameScene extends Phaser.Scene {
       case 'bonus_yellow_source':
         this.pendingBonusSourceColors.push('yellow');
         break;
-      case 'reroll_drafts':
-        this.machineFactory?.rerollProcessorDrafts();
+      case 'funding_grant':
+        this.addMoney(GAME_CONFIG.shopFundingGrantAmount || 18, 'shop funds');
         break;
       case 'remove_next_blockers':
         this.pendingBoardBlockerRemovals += 2;
         break;
       case 'install_power_cell':
         this.pendingBoardBonusTiles.push(BOARD_TILE_TYPES.POWER);
+        break;
+      case 'install_quality_cell':
+        this.pendingBoardBonusTiles.push(BOARD_TILE_TYPES.QUALITY);
         break;
       case 'repair_stability':
         this.runStability = Math.max(this.runStability, 1);

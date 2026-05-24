@@ -207,6 +207,19 @@ export class UpgradeScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    if (choice.effect) {
+      this.add
+        .text(x, y + height / 2 - 39, choice.effect, {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          fontStyle: 'bold',
+          color: canAfford ? '#ffd166' : '#8a7a52',
+          align: 'center',
+          wordWrap: { width: width - 28 },
+        })
+        .setOrigin(0.5);
+    }
+
     if (!canAfford) {
       this.add
         .text(x, y + height / 2 - 25, 'Need more Scrap', {
@@ -267,6 +280,8 @@ export class UpgradeScene extends Phaser.Scene {
         return 0xffd166;
       case 'Utility':
         return 0xcdb4db;
+      case 'Funds':
+        return 0xffd166;
       case 'Run':
         return 0xff8fab;
       case 'Sticker':
