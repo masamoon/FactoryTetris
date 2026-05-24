@@ -11,6 +11,7 @@ export const BOARD_TILE_TYPES = {
 
 export const BOARD_TILE_STYLES = {
   [BOARD_TILE_TYPES.POWER]: {
+    name: 'Power Cell',
     label: 'PWR',
     color: 0x164d3a,
     borderColor: 0x88ffcc,
@@ -18,6 +19,7 @@ export const BOARD_TILE_STYLES = {
     description: 'Machines built here process faster.',
   },
   [BOARD_TILE_TYPES.QUALITY]: {
+    name: 'Quality Cell',
     label: 'QLT',
     color: 0x4d4320,
     borderColor: 0xffd166,
@@ -25,6 +27,7 @@ export const BOARD_TILE_STYLES = {
     description: 'Machines built here boost delivery score.',
   },
   [BOARD_TILE_TYPES.TAXED]: {
+    name: 'Taxed Cell',
     label: '$',
     color: 0x4a2430,
     borderColor: 0xff7a90,

@@ -104,6 +104,11 @@ export default class GameScene extends Phaser.Scene {
     this.runStability = GAME_CONFIG.startingRunStability ?? 1;
     this.boardGenerator = null;
     this.boardRevealGraphics = null;
+    this.boardGimmickTooltip = null;
+    this.hoveredBoardGimmickKey = null;
+    this.fastForwardActive = false;
+    this.fastForwardMultiplier = GAME_CONFIG.fastForwardSpeedMultiplier || 3;
+    this.fastForwardButton = null;
     this.startRoundButtonPulse = null;
     this.juiceAudioContext = null;
     this.lastJuiceSoundAt = {};
@@ -437,14 +442,34 @@ export default class GameScene extends Phaser.Scene {
 
     const buttonStartY = height - 78;
 
-    // Pause button
-    const pauseButton = this.createButton(centerX, buttonStartY, 'PAUSE', () => {
-      this.togglePause();
-    });
+    // Pause and speed controls
+    const pauseButton = this.createButton(
+      centerX - 54,
+      buttonStartY,
+      'PAUSE',
+      () => {
+        this.togglePause();
+      },
+      96
+    );
     pauseButton.button.setScrollFactor(0);
     pauseButton.text.setScrollFactor(0);
     this.addToUI(pauseButton.button);
     this.addToUI(pauseButton.text);
+
+    this.fastForwardButton = this.createButton(
+      centerX + 54,
+      buttonStartY,
+      `x${this.fastForwardMultiplier}`,
+      () => {
+        this.toggleFastForward();
+      },
+      96
+    );
+    this.fastForwardButton.button.setScrollFactor(0);
+    this.fastForwardButton.text.setScrollFactor(0);
+    this.addToUI(this.fastForwardButton.button);
+    this.addToUI(this.fastForwardButton.text);
 
     this.startRoundButton = this.createButton(centerX, buttonStartY - 42, 'START ROUND', () => {
       this.beginActiveRound();
@@ -469,6 +494,7 @@ export default class GameScene extends Phaser.Scene {
     this.draftCycleButton.button.setScrollFactor(0);
     this.draftCycleButton.text.setScrollFactor(0);
     this.updateDraftCycleButton();
+    this.updateFastForwardButton();
     this.addToUI(this.draftCycleButton.button);
     this.addToUI(this.draftCycleButton.text);
 
@@ -584,10 +610,13 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (this.isDraggingCamera) {
+        this.hideBoardGimmickTooltip();
         const deltaX = (pointer.x - this.dragStartX) * 1.0;
         const deltaY = (pointer.y - this.dragStartY) * 1.0;
         this.cameras.main.scrollX = this.cameraStartX - deltaX;
         this.cameras.main.scrollY = this.cameraStartY - deltaY;
+      } else {
+        this.updateBoardGimmickHover(pointer);
       }
     });
 
@@ -597,6 +626,31 @@ export default class GameScene extends Phaser.Scene {
         this.input.setDefaultCursor('default');
       }
     });
+
+    this.input.on('gameout', () => {
+      this.hideBoardGimmickTooltip();
+    });
+    const canvas = this.game?.canvas;
+    if (canvas) {
+      this.handleCanvasMouseLeave = () => this.hideBoardGimmickTooltip();
+      this.handleDocumentMouseMove = (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const isOutsideCanvas =
+          event.clientX < rect.left ||
+          event.clientX > rect.right ||
+          event.clientY < rect.top ||
+          event.clientY > rect.bottom;
+        if (isOutsideCanvas) {
+          this.hideBoardGimmickTooltip();
+        }
+      };
+      canvas.addEventListener('mouseleave', this.handleCanvasMouseLeave);
+      document.addEventListener('mousemove', this.handleDocumentMouseMove);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        canvas.removeEventListener('mouseleave', this.handleCanvasMouseLeave);
+        document.removeEventListener('mousemove', this.handleDocumentMouseMove);
+      });
+    }
 
     // Set up drag and drop for machine placement
     /*this.input.on('dragstart', (pointer, gameObject) => {
@@ -1146,6 +1200,178 @@ export default class GameScene extends Phaser.Scene {
       pointer?.button === 0 ||
       (pointer && typeof pointer.leftButtonDown === 'function' && pointer.leftButtonDown())
     );
+  }
+
+  isPointerInWorldViewport(pointer) {
+    const camera = this.cameras?.main;
+    if (!pointer || !camera) return false;
+    return (
+      pointer.x >= camera.x &&
+      pointer.x < camera.x + camera.width &&
+      pointer.y >= camera.y &&
+      pointer.y < camera.y + camera.height
+    );
+  }
+
+  getPointerWorldPoint(pointer) {
+    const camera = this.cameras?.main;
+    if (!pointer || !camera) return null;
+
+    if (typeof pointer.positionToCamera === 'function') {
+      const point = pointer.positionToCamera(camera);
+      return { x: point.x, y: point.y };
+    }
+
+    return {
+      x: pointer.x + camera.scrollX,
+      y: pointer.y + camera.scrollY,
+    };
+  }
+
+  getBoardGimmickAtPointer(pointer) {
+    if (!this.grid || !this.isPointerInWorldViewport(pointer)) return null;
+
+    const worldPoint = this.getPointerWorldPoint(pointer);
+    if (!worldPoint) return null;
+
+    const gridWidth = this.grid.width * this.grid.cellSize;
+    const gridHeight = this.grid.height * this.grid.cellSize;
+    const startX = this.grid.x - gridWidth / 2;
+    const startY = this.grid.y - gridHeight / 2;
+    const endX = startX + gridWidth;
+    const endY = startY + gridHeight;
+    if (
+      worldPoint.x < startX ||
+      worldPoint.x >= endX ||
+      worldPoint.y < startY ||
+      worldPoint.y >= endY
+    ) {
+      return null;
+    }
+
+    const gridPos = this.grid.worldToGrid(worldPoint.x, worldPoint.y);
+    const cell = this.grid.getCell(gridPos.x, gridPos.y);
+    return cell?.type === 'board-tile' ? { cell, gridPos } : null;
+  }
+
+  updateBoardGimmickHover(pointer) {
+    const hovered = this.getBoardGimmickAtPointer(pointer);
+    if (!hovered) {
+      this.hideBoardGimmickTooltip();
+      return;
+    }
+
+    const key = `${hovered.gridPos.x},${hovered.gridPos.y},${hovered.cell.tileType}`;
+    if (this.hoveredBoardGimmickKey !== key) {
+      this.showBoardGimmickTooltip(hovered.cell, hovered.gridPos, pointer);
+      this.hoveredBoardGimmickKey = key;
+    } else {
+      this.positionBoardGimmickTooltip(pointer);
+    }
+  }
+
+  showBoardGimmickTooltip(cell, gridPos, pointer) {
+    this.hideBoardGimmickTooltip();
+
+    const style = BOARD_TILE_STYLES[cell.tileType] || {};
+    const title = cell.name || style.name || cell.label || 'Board Cell';
+    const description = cell.description || style.description || '';
+    const effectLine = this.getBoardGimmickEffectLine(cell.tileType);
+    const body = [description, effectLine].filter(Boolean).join('\n');
+    const width = 270;
+    const padding = 12;
+    const accentColor = cell.borderColor || style.borderColor || 0xffffff;
+
+    const tooltip = this.add.container(0, 0);
+    tooltip.setDepth(12000);
+    tooltip.setScrollFactor(0);
+
+    const background = this.add
+      .rectangle(0, 0, width, 92, 0x07111a, 0.94)
+      .setOrigin(0)
+      .setStrokeStyle(1, accentColor, 0.9);
+    const accent = this.add.rectangle(0, 0, 5, 92, accentColor, 0.95).setOrigin(0);
+    const titleText = this.add.text(padding, 9, title, {
+      fontSize: '15px',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      color: this.toCssColor(accentColor),
+    });
+    const bodyText = this.add.text(padding, 32, body, {
+      fontSize: '12px',
+      fontFamily: 'Arial',
+      color: '#dbe8ef',
+      lineSpacing: 3,
+      wordWrap: { width: width - padding * 2 },
+    });
+    const coordText = this.add.text(width - padding, 10, `${gridPos.x},${gridPos.y}`, {
+      fontSize: '11px',
+      fontFamily: 'Arial',
+      color: '#7f9bad',
+    });
+    coordText.setOrigin(1, 0);
+
+    const height = Math.max(76, bodyText.y + bodyText.height + padding);
+    background.height = height;
+    accent.height = height;
+    tooltip.tooltipWidth = width;
+    tooltip.tooltipHeight = height;
+    tooltip.add([background, accent, titleText, bodyText, coordText]);
+
+    this.boardGimmickTooltip = tooltip;
+    this.addToUI(tooltip);
+    this.positionBoardGimmickTooltip(pointer);
+  }
+
+  positionBoardGimmickTooltip(pointer) {
+    if (!this.boardGimmickTooltip || !pointer) return;
+
+    const width = this.boardGimmickTooltip.tooltipWidth || 270;
+    const height = this.boardGimmickTooltip.tooltipHeight || 90;
+    const margin = 8;
+    let x = pointer.x + 18;
+    let y = pointer.y + 18;
+
+    if (x + width + margin > this.scale.width) {
+      x = pointer.x - width - 18;
+    }
+    if (y + height + margin > this.scale.height) {
+      y = pointer.y - height - 18;
+    }
+
+    this.boardGimmickTooltip.setPosition(
+      Phaser.Math.Clamp(x, margin, this.scale.width - width - margin),
+      Phaser.Math.Clamp(y, margin, this.scale.height - height - margin)
+    );
+  }
+
+  hideBoardGimmickTooltip() {
+    if (this.boardGimmickTooltip) {
+      this.boardGimmickTooltip.destroy();
+      this.boardGimmickTooltip = null;
+    }
+    this.hoveredBoardGimmickKey = null;
+  }
+
+  getBoardGimmickEffectLine(tileType) {
+    if (tileType === BOARD_TILE_TYPES.POWER) {
+      const multiplier = GAME_CONFIG.boardPowerProcessingMultiplier || 0.78;
+      return `Processing time x${multiplier.toFixed(2)}.`;
+    }
+    if (tileType === BOARD_TILE_TYPES.QUALITY) {
+      const multiplier = GAME_CONFIG.boardQualityScoreMultiplier || 1.15;
+      return `Delivered score x${multiplier.toFixed(2)}.`;
+    }
+    if (tileType === BOARD_TILE_TYPES.TAXED) {
+      const surcharge = GAME_CONFIG.boardTaxedCellSurcharge || 3;
+      return `Placement cost +${surcharge} Funds per covered cell.`;
+    }
+    return '';
+  }
+
+  toCssColor(color) {
+    if (typeof color !== 'number') return '#ffffff';
+    return `#${color.toString(16).padStart(6, '0')}`;
   }
 
   getRotationFromDirection(direction) {
@@ -2187,6 +2413,11 @@ export default class GameScene extends Phaser.Scene {
       this.roundState.phase = phase;
       this.roundState.stability = this.runStability;
     }
+    if (phase !== 'ROUND_ACTIVE' && this.fastForwardActive) {
+      this.setFastForwardActive(false);
+    } else {
+      this.updateFastForwardButton();
+    }
   }
 
   updateRoundState(patch = {}) {
@@ -2203,8 +2434,70 @@ export default class GameScene extends Phaser.Scene {
     };
   }
 
+  canFastForward() {
+    return this.runState === 'ROUND_ACTIVE' && !this.paused && !this.gameOver;
+  }
+
   getFlowSpeedMultiplier() {
-    return 1;
+    return this.fastForwardActive && this.canFastForward() ? this.fastForwardMultiplier : 1;
+  }
+
+  toggleFastForward() {
+    if (!this.canFastForward()) {
+      this.fastForwardActive = false;
+      this.updateFastForwardButton();
+      return;
+    }
+
+    this.fastForwardActive = !this.fastForwardActive;
+    this.playSound(this.fastForwardActive ? 'draft-cycle' : 'click');
+    this.refreshMachineFlowSpeed();
+    this.updateFastForwardButton();
+  }
+
+  setFastForwardActive(active) {
+    const nextActive = Boolean(active) && this.canFastForward();
+    if (this.fastForwardActive === nextActive) {
+      this.updateFastForwardButton();
+      return;
+    }
+
+    this.fastForwardActive = nextActive;
+    this.refreshMachineFlowSpeed();
+    this.updateFastForwardButton();
+  }
+
+  refreshMachineFlowSpeed() {
+    (this.machines || []).forEach((machine) => {
+      if (machine && typeof machine.updateFromUpgrades === 'function') {
+        machine.updateFromUpgrades();
+      }
+    });
+  }
+
+  updateFastForwardButton() {
+    if (!this.fastForwardButton) return;
+
+    const canFastForward = this.canFastForward();
+    const active = this.fastForwardActive && canFastForward;
+    const button = this.fastForwardButton.button;
+    const text = this.fastForwardButton.text;
+    text.setText(active ? `x${this.fastForwardMultiplier}` : 'x1');
+    button.fillColor = active ? 0x2c6f8f : 0x263746;
+    button.defaultFillColor = button.fillColor;
+    button.hoverFillColor = active ? 0x3f8fb5 : 0x345066;
+    button.setStrokeStyle(2, active ? 0x7ad7ff : 0x60788c, canFastForward ? 1 : 0.45);
+    text.setColor(canFastForward ? '#ffffff' : '#8c98a3');
+
+    if (canFastForward) {
+      button.setInteractive({ useHandCursor: true });
+      button.setAlpha(1);
+      text.setAlpha(1);
+    } else {
+      button.disableInteractive();
+      button.setAlpha(0.58);
+      text.setAlpha(0.58);
+    }
   }
 
   addScore(points, options = {}) {
@@ -3162,6 +3455,7 @@ export default class GameScene extends Phaser.Scene {
     this.paused = !this.paused;
 
     if (this.paused) {
+      this.setFastForwardActive(false);
       // Pause timers
       this.setProductionPaused(true);
       if (this.nodeSpawnTimer) {
@@ -3188,6 +3482,7 @@ export default class GameScene extends Phaser.Scene {
       }
       this.hidePauseScreen();
     }
+    this.updateFastForwardButton();
   }
 
   showPauseScreen() {
@@ -5358,6 +5653,7 @@ export default class GameScene extends Phaser.Scene {
 
   clearRoundBoard() {
     if (!this.grid) return;
+    this.hideBoardGimmickTooltip();
 
     for (const blocker of this.roundBoardBlockers || []) {
       const cell = this.grid.getCell(blocker.x, blocker.y);
@@ -5402,6 +5698,7 @@ export default class GameScene extends Phaser.Scene {
           type: 'board-tile',
           boardId: board.id,
           tileType: tile.type,
+          name: style.name,
           label: style.label,
           color: style.color,
           borderColor: style.borderColor,
@@ -6373,7 +6670,7 @@ export default class GameScene extends Phaser.Scene {
 
   getShopChoices() {
     const boonChoices = this.upgradeManager.getBoonChoices(2);
-    const choices = [
+    const deckChoices = [
       {
         type: 'deck_add_2',
         kind: 'Machine',
@@ -6390,19 +6687,14 @@ export default class GameScene extends Phaser.Scene {
         description: 'Add a Mix processor card to your piece deck.',
         cost: 6,
       },
+    ];
+    const boardChoices = [
       {
         type: 'bonus_yellow_source',
         kind: 'Color',
         name: 'Next Board Yellow Source',
         description: 'Add one Yellow source to the next board. Yellow deliveries earn Scrap.',
         cost: 6,
-      },
-      {
-        type: 'reroll_drafts',
-        kind: 'Utility',
-        name: 'Reroll Machine Drafts',
-        description: 'Refresh the processor draft row immediately.',
-        cost: 3,
       },
       {
         type: 'remove_next_blockers',
@@ -6419,9 +6711,18 @@ export default class GameScene extends Phaser.Scene {
         cost: GAME_CONFIG.shopInstallPowerCellCost || 5,
       },
     ];
+    const supportChoices = [
+      {
+        type: 'reroll_drafts',
+        kind: 'Utility',
+        name: 'Reroll Machine Drafts',
+        description: 'Refresh the processor draft row immediately.',
+        cost: 3,
+      },
+    ];
 
     if (this.runStability <= 0) {
-      choices.push({
+      supportChoices.unshift({
         type: 'repair_stability',
         kind: 'Run',
         name: 'Repair Stability',
@@ -6431,7 +6732,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     boonChoices.forEach((boonChoice) => {
-      choices.push({
+      supportChoices.push({
         type: 'boon',
         kind: 'Sticker',
         boonId: boonChoice.type,
@@ -6441,16 +6742,28 @@ export default class GameScene extends Phaser.Scene {
       });
     });
 
-    choices.push({
+    const rotatePick = (choices, offset = 0) => {
+      if (!choices.length) return null;
+      const index = Math.abs((this.currentRound || 1) + offset) % choices.length;
+      return choices[index];
+    };
+    const curatedChoices = [
+      rotatePick(deckChoices, 0),
+      rotatePick(boardChoices, 1),
+      rotatePick(supportChoices, 2),
+    ].filter(Boolean);
+    const offerCount = GAME_CONFIG.shopOfferCount || 3;
+
+    const saveChoice = {
       type: 'skip_shop',
       kind: 'Skip',
       name: 'Save Scrap',
       description: 'Buy nothing and keep Scrap for later.',
       cost: 0,
       isFree: true,
-    });
+    };
 
-    return choices;
+    return curatedChoices.slice(0, offerCount).concat(saveChoice);
   }
 
   buyShopChoice(choice) {
