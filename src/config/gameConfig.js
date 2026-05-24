@@ -108,7 +108,7 @@ export const GAME_CONFIG = {
   machineTypes: [
     {
       id: 'processor-a',
-      name: 'Processor A',
+      name: 'Elbow Operator',
       shape: [
         [1, 1],
         [1, 0],
@@ -118,11 +118,11 @@ export const GAME_CONFIG = {
       outputTypes: ['advanced-resource'],
       processingTime: 3000, // ms
       direction: 'right', // Default output direction
-      description: 'Processes basic resources into advanced resources',
+      description: 'Operator body for numeric transformations',
     },
     {
       id: 'processor-b',
-      name: 'Processor B',
+      name: 'Tee Operator',
       shape: [
         [0, 1, 0],
         [1, 1, 1],
@@ -131,11 +131,11 @@ export const GAME_CONFIG = {
       outputTypes: ['advanced-resource'],
       processingTime: 3000, // ms
       direction: 'right', // Default output direction
-      description: 'Processes basic resources into advanced resources',
+      description: 'Operator body for numeric transformations',
     },
     {
       id: 'advanced-processor',
-      name: 'Advanced Processor',
+      name: 'Cross Operator',
       shape: [
         [0, 1, 0],
         [1, 1, 1],
@@ -145,7 +145,7 @@ export const GAME_CONFIG = {
       outputTypes: ['mega-resource'],
       processingTime: 5000, // ms
       direction: 'right', // Default output direction
-      description: 'Combines basic and advanced resources',
+      description: 'Large Operator body for high-impact transformations',
     },
     {
       id: 'conveyor',
@@ -169,7 +169,7 @@ export const GAME_CONFIG = {
     },
     {
       id: 'processor-c',
-      name: 'Processor C',
+      name: 'Block Operator',
       shape: [
         [1, 1],
         [1, 1],
@@ -178,21 +178,21 @@ export const GAME_CONFIG = {
       outputTypes: ['advanced-resource'],
       processingTime: 3000,
       direction: 'right',
-      description: 'Processes basic resources into advanced resources (Square)',
+      description: 'Block Operator body for numeric transformations',
     },
     {
       id: 'processor-d',
-      name: 'Processor D',
+      name: 'Line Operator',
       shape: [[1, 1, 1]],
       inputTypes: ['basic-resource'],
       outputTypes: ['advanced-resource'],
       processingTime: 3000,
       direction: 'right',
-      description: 'Processes basic resources into advanced resources. (Line)',
+      description: 'Line Operator body for numeric transformations',
     },
     {
       id: 'processor-e',
-      name: 'Processor E',
+      name: 'Hook Operator',
       shape: [
         [1, 1],
         [0, 1],
@@ -202,11 +202,11 @@ export const GAME_CONFIG = {
       outputTypes: ['advanced-resource'],
       processingTime: 4000,
       direction: 'right',
-      description: 'Processes basic resources into advanced resources. (L-Shape)',
+      description: 'Hook Operator body for numeric transformations',
     },
     {
       id: 'advanced-processor-1',
-      name: 'Advanced Processor 1',
+      name: 'U Operator',
       shape: [
         [1, 0, 1],
         [1, 1, 1],
@@ -215,11 +215,11 @@ export const GAME_CONFIG = {
       outputTypes: ['mega-resource'],
       processingTime: 5500,
       direction: 'down',
-      description: 'Combines basic and advanced resources into mega resources. (U-Shape)',
+      description: 'Large U-shaped Operator body for high-impact transformations',
     },
     {
       id: 'advanced-processor-2',
-      name: 'Advanced Processor 2',
+      name: 'Long Hook Operator',
       shape: [
         [1, 1, 1, 1],
         [1, 0, 0, 0],
@@ -228,7 +228,7 @@ export const GAME_CONFIG = {
       outputTypes: ['mega-resource'],
       processingTime: 6000,
       direction: 'down',
-      description: 'Combines basic and advanced resources into mega resources. (Long L-Shape)',
+      description: 'Large hook Operator body for high-impact transformations',
     },
     {
       id: 'splitter',
@@ -286,14 +286,13 @@ export const GAME_CONFIG = {
   roundSourceInventoryVariance: 3,
   roundExhaustionGraceMs: 4500,
   roundsPerEraGate: 3,
-  startingRunStability: 1,
-  failedRoundRecoveryMoney: 10,
-  failedRoundRecoveryScrap: 2,
   starterDraftRounds: 1,
   shopRoundClearScrap: 6,
   shopOverkillScorePerScrap: 250,
   shopOfferCount: 3,
   shopRerollCost: 2,
+  shopPieceTraitChance: 0.3,
+  shopPieceTraitCost: 3,
   shopSourceLifespan: 180,
   yellowScorePerScrap: 120,
   draftCycleCost: 2,
@@ -307,16 +306,18 @@ export const GAME_CONFIG = {
   shopInstallQualityCellCost: 5,
   shopFundingGrantCost: 3,
   shopFundingGrantAmount: 18,
-  shopRepairStabilityCost: 8,
 
   // Round / economy loop
   startingMoney: 45,
   roundBaseMoney: 28,
   roundMoneyGrowth: 8,
   roundClearBonus: 18,
-  deliveryNodeBasePayout: 18,
-  deliveryNodePayoutPerTier: 7,
-  deliveryNodePayoutPerItem: 3,
+  deliveryNodeCompletionScoreBase: 420,
+  deliveryNodeCompletionScorePerTier: 160,
+  deliveryNodeCompletionScorePerItem: 85,
+  deliveryNodeCompletionScrapBase: 2,
+  deliveryNodeCompletionScrapPerTier: 0.5,
+  deliveryNodeCompletionScrapPerItem: 0.35,
   maxDeliveryNodesPerRound: 7,
   machinePlacementCosts: {
     conveyor: 1,
@@ -324,8 +325,14 @@ export const GAME_CONFIG = {
     merger: 4,
     'underground-belt': 5,
     painter: 3,
-    processor: 8,
-    advancedProcessor: 12,
+    operator: 8,
+    refiner: 8,
+    booster: 11,
+    adder: 15,
+    divider: 16,
+    multiplier: 26,
+    complexBodyPremium: 3,
+    expensiveOperatorThreshold: 20,
   },
   machineRefundRate: 0.5,
 

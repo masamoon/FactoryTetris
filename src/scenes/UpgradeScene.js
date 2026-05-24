@@ -105,17 +105,36 @@ export class UpgradeScene extends Phaser.Scene {
     const height = this.cameras.main.height;
     const callingScene = this.scene.get(this.callingSceneKey);
     const scrap = callingScene?.scrap || 0;
-    const offers = this.upgradeChoices.filter((choice) => choice.type !== 'skip_shop');
-    const saveChoice =
-      this.upgradeChoices.find((choice) => choice.type === 'skip_shop') ||
-      this.upgradeChoices[this.upgradeChoices.length - 1];
+    const offers = this.upgradeChoices.filter(
+      (choice) => !['reroll_shop', 'continue_run'].includes(choice.type)
+    );
+    const rerollChoice = this.upgradeChoices.find((choice) => choice.type === 'reroll_shop');
+    const continueChoice = this.upgradeChoices.find((choice) => choice.type === 'continue_run');
+
+    const panelMargin = 28;
+    const panelWidth = Math.min(940, Math.max(280, width - panelMargin * 2));
+    const panelHeight = Math.min(470, Math.max(340, height - 100));
+    const panelY = Math.min(height / 2 + 20, height - panelHeight / 2 - 20);
+    const panelTop = panelY - panelHeight / 2;
+    const panelBottom = panelY + panelHeight / 2;
+    const cardGap = panelWidth < 820 ? 14 : 20;
+    const columns = panelWidth < 640 ? 2 : Math.max(1, offers.length);
+    const rows = Math.ceil(offers.length / columns);
+    const cardAreaTop = panelTop + 82;
+    const controlY = panelBottom - 36;
+    const cardAreaBottom = controlY - 42;
+    const cardAreaHeight = Math.max(230, cardAreaBottom - cardAreaTop);
+    const cardWidth = Math.floor((panelWidth - 56 - (columns - 1) * cardGap) / columns);
+    const cardHeight = Math.floor((cardAreaHeight - (rows - 1) * cardGap) / rows);
+    const gridWidth = columns * cardWidth + (columns - 1) * cardGap;
+    const startX = width / 2 - gridWidth / 2 + cardWidth / 2;
 
     this.add
-      .rectangle(width / 2, height / 2 + 20, 700, 430, 0x09131d, 0.94)
+      .rectangle(width / 2, panelY, panelWidth, panelHeight, 0x09131d, 0.94)
       .setStrokeStyle(2, 0x2f4d62, 0.95);
 
     this.add
-      .text(width / 2, 138, `Available Scrap: ${scrap}`, {
+      .text(width / 2, panelTop + 34, `Available Scrap: ${scrap}`, {
         fontFamily: 'Arial',
         fontSize: 18,
         color: '#ffd166',
@@ -123,16 +142,12 @@ export class UpgradeScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    const cardWidth = 206;
-    const cardHeight = 224;
-    const gap = 18;
-    const totalWidth = offers.length * cardWidth + Math.max(0, offers.length - 1) * gap;
-    const startX = width / 2 - totalWidth / 2 + cardWidth / 2;
-
     offers.forEach((choice, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
       this.createShopOfferButton(
-        startX + index * (cardWidth + gap),
-        314,
+        startX + column * (cardWidth + cardGap),
+        cardAreaTop + row * (cardHeight + cardGap) + cardHeight / 2,
         cardWidth,
         cardHeight,
         choice,
@@ -140,18 +155,39 @@ export class UpgradeScene extends Phaser.Scene {
       );
     });
 
-    if (saveChoice) {
-      this.createShopSaveButton(width / 2, 506, 260, 52, saveChoice);
+    const controlWidth = Math.min(250, Math.floor(panelWidth / 2 - 42));
+    const controlGap = 28;
+    const leftControlX = width / 2 - controlWidth / 2 - controlGap / 2;
+    const rightControlX = width / 2 + controlWidth / 2 + controlGap / 2;
+    if (rerollChoice) {
+      this.createShopSaveButton(leftControlX, controlY, controlWidth, 52, rerollChoice, scrap);
+    }
+    if (continueChoice) {
+      this.createShopSaveButton(rightControlX, controlY, controlWidth, 52, continueChoice, scrap);
     }
   }
 
   createShopOfferButton(x, y, width, height, choice, scrap) {
-    const canAfford = choice.isFree || scrap >= (choice.cost || 0);
+    const canAfford = !choice.purchased && (choice.isFree || scrap >= (choice.cost || 0));
     const fillColor = canAfford ? 0x173244 : 0x171d25;
     const hoverColor = canAfford ? 0x214b64 : 0x202633;
     const strokeColor = canAfford ? 0x4aa3c7 : 0x4b5663;
     const textColor = canAfford ? '#f4fbff' : '#8c98a3';
     const accentColor = this.getShopKindColor(choice.kind);
+    const compact = height < 210;
+    const headerY = y - height / 2 + 25;
+    const headerPad = 10;
+    const headerGap = 8;
+    const costLabel = choice.purchased
+      ? 'SOLD'
+      : choice.isFree
+        ? 'FREE'
+        : `${choice.cost || 0} Scrap`;
+    const costWidth = Math.min(76, Math.max(54, costLabel.length * 6 + 18));
+    const kindWidth = Math.min(76, Math.max(54, width - headerPad * 2 - headerGap - costWidth));
+    const kindX = x - width / 2 + headerPad + kindWidth / 2;
+    const costX = x + width / 2 - headerPad - costWidth / 2;
+    const headerFontSize = width < 180 ? 10 : 11;
 
     const bg = this.add
       .rectangle(x, y, width, height, fillColor, 0.98)
@@ -159,36 +195,37 @@ export class UpgradeScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
 
     const kindBadge = this.add
-      .rectangle(x - width / 2 + 48, y - height / 2 + 25, 76, 26, accentColor, canAfford ? 1 : 0.45)
+      .rectangle(kindX, headerY, kindWidth, 26, accentColor, canAfford ? 1 : 0.45)
       .setStrokeStyle(1, 0xffffff, 0.18);
     this.add
       .text(kindBadge.x, kindBadge.y, choice.kind || 'Offer', {
         fontFamily: 'Arial',
-        fontSize: 11,
+        fontSize: headerFontSize,
         fontStyle: 'bold',
         color: canAfford ? '#061018' : '#a9b2bb',
         align: 'center',
+        wordWrap: { width: kindWidth - 8 },
       })
       .setOrigin(0.5);
 
-    const costLabel = choice.isFree ? 'FREE' : `${choice.cost || 0} Scrap`;
     const costBg = this.add
-      .rectangle(x + width / 2 - 50, y - height / 2 + 25, 84, 26, 0x0c151d, 0.95)
+      .rectangle(costX, headerY, costWidth, 26, 0x0c151d, 0.95)
       .setStrokeStyle(1, 0xffd166, canAfford ? 0.8 : 0.35);
     this.add
       .text(costBg.x, costBg.y, costLabel, {
         fontFamily: 'Arial',
-        fontSize: 11,
+        fontSize: headerFontSize,
         fontStyle: 'bold',
         color: canAfford ? '#ffd166' : '#8a7a52',
         align: 'center',
+        wordWrap: { width: costWidth - 8 },
       })
       .setOrigin(0.5);
 
     this.add
-      .text(x, y - 54, choice.name, {
+      .text(x, compact ? y - height / 2 + 62 : y - height * 0.26, choice.name, {
         fontFamily: 'Arial',
-        fontSize: 18,
+        fontSize: compact ? 15 : 18,
         fontStyle: 'bold',
         color: textColor,
         align: 'center',
@@ -197,12 +234,12 @@ export class UpgradeScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(x, y + 18, choice.description || '', {
+      .text(x, compact ? y + 20 : y + height * 0.08, choice.description || '', {
         fontFamily: 'Arial',
-        fontSize: 13,
+        fontSize: compact ? 10 : 13,
         color: canAfford ? '#cfe1ea' : '#7f8a94',
         align: 'center',
-        lineSpacing: 4,
+        lineSpacing: compact ? 1 : 4,
         wordWrap: { width: width - 30 },
       })
       .setOrigin(0.5);
@@ -220,7 +257,7 @@ export class UpgradeScene extends Phaser.Scene {
         .setOrigin(0.5);
     }
 
-    if (!canAfford) {
+    if (!canAfford && !choice.purchased) {
       this.add
         .text(x, y + height / 2 - 25, 'Need more Scrap', {
           fontFamily: 'Arial',
@@ -240,22 +277,25 @@ export class UpgradeScene extends Phaser.Scene {
       bg.setStrokeStyle(2, strokeColor, canAfford ? 0.95 : 0.55);
     });
     bg.on('pointerdown', () => {
+      if (choice.purchased) return;
       this.handleShopChoice(choice);
     });
   }
 
-  createShopSaveButton(x, y, width, height, choice) {
+  createShopSaveButton(x, y, width, height, choice, scrap = 0) {
+    const canAfford = choice.isFree || scrap >= (choice.cost || 0);
     const bg = this.add
-      .rectangle(x, y, width, height, 0x26313b, 0.98)
-      .setStrokeStyle(2, 0x6b7c8c, 0.9)
+      .rectangle(x, y, width, height, canAfford ? 0x26313b : 0x171d25, 0.98)
+      .setStrokeStyle(2, canAfford ? 0x6b7c8c : 0x4b5663, 0.9)
       .setInteractive({ useHandCursor: true });
     this.add
-      .text(x, y, 'Save Scrap', {
+      .text(x, y, choice.cost ? `${choice.name} (${choice.cost} Scrap)` : choice.name, {
         fontFamily: 'Arial',
-        fontSize: 18,
+        fontSize: width < 220 ? 15 : 18,
         fontStyle: 'bold',
-        color: '#f4fbff',
+        color: canAfford ? '#f4fbff' : '#8c98a3',
         align: 'center',
+        wordWrap: { width: width - 18 },
       })
       .setOrigin(0.5);
 
@@ -266,6 +306,10 @@ export class UpgradeScene extends Phaser.Scene {
       bg.fillColor = 0x26313b;
     });
     bg.on('pointerdown', () => {
+      if (!canAfford) {
+        this.showShopMessage('Not enough Scrap.');
+        return;
+      }
       this.handleShopChoice(choice);
     });
   }
@@ -273,15 +317,21 @@ export class UpgradeScene extends Phaser.Scene {
   getShopKindColor(kind) {
     switch (kind) {
       case 'Machine':
+      case 'Operator':
         return 0x70d6ff;
+      case 'Special':
+        return 0xb56cff;
       case 'Board':
         return 0x88ffcc;
       case 'Color':
         return 0xffd166;
       case 'Utility':
         return 0xcdb4db;
-      case 'Funds':
+      case 'Budget':
         return 0xffd166;
+      case 'Upgrade':
+      case 'Permanent':
+        return 0x88ccff;
       case 'Run':
         return 0xff8fab;
       case 'Sticker':
@@ -303,6 +353,17 @@ export class UpgradeScene extends Phaser.Scene {
     }
     if (result.closeShop !== false) {
       this.closeScene();
+      return;
+    }
+    if (result.refreshShop) {
+      this.scene.restart({
+        upgradeManager: this.upgradeManager,
+        callingSceneKey: this.callingSceneKey,
+        isShop: this.isShop,
+        isBoon: this.isBoon,
+        isLevelUp: this.isLevelUp,
+      });
+      return;
     }
   }
 

@@ -25,7 +25,7 @@ export class UpgradeManager {
   }
 
   getProcessorSpeedModifier() {
-    let modifier = this.getModifier(UPGRADE_TYPES.PROCESSOR_EFFICIENCY);
+    let modifier = this.getModifier(UPGRADE_TYPES.OPERATOR_EFFICIENCY);
     if (this.activeProceduralUpgrades.has('boon_heavy_haulers')) {
       modifier *= 0.85;
     }
@@ -33,11 +33,11 @@ export class UpgradeManager {
   }
 
   getResourceBountyModifier() {
-    return this.getModifier(UPGRADE_TYPES.RESOURCE_BOUNTY);
+    return this.getModifier(UPGRADE_TYPES.SUPPLY_BOUNTY);
   }
 
   getResourceRegenModifier() {
-    return this.getModifier(UPGRADE_TYPES.RESOURCE_REGEN);
+    return 1;
   }
 
   getConveyorSpeedModifier() {
@@ -49,7 +49,7 @@ export class UpgradeManager {
   }
 
   getNodeLongevityModifier() {
-    return this.getModifier(UPGRADE_TYPES.NODE_LONGEVITY);
+    return 1;
   }
 
   getInventoryCapacityModifier() {
@@ -57,7 +57,27 @@ export class UpgradeManager {
   }
 
   getExtractionSpeedModifier() {
-    return this.getModifier(UPGRADE_TYPES.EXTRACTION_SPEED);
+    return 1;
+  }
+
+  getBudgetBonus() {
+    const level = this.currentUpgrades[UPGRADE_TYPES.BUDGET] || 0;
+    if (level === 0) return 0;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.BUDGET]?.tiers.find((t) => t.level === level);
+    return tierInfo ? tierInfo.modifier : 0;
+  }
+
+  getProcurementRebate() {
+    const level = this.currentUpgrades[UPGRADE_TYPES.PROCUREMENT_REBATE] || 0;
+    if (level === 0) return 0;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.PROCUREMENT_REBATE]?.tiers.find(
+      (t) => t.level === level
+    );
+    return tierInfo ? tierInfo.modifier : 0;
+  }
+
+  getHighRollerMultiplier() {
+    return this.getModifier(UPGRADE_TYPES.HIGH_ROLLER);
   }
 
   // --- Boon-derived modifiers ---
@@ -72,6 +92,14 @@ export class UpgradeManager {
   getArchetypeProcessingModifier(machine) {
     if (!machine || !this.activeProceduralUpgrades.has('boon_recipe_lattice')) {
       return 1;
+    }
+
+    if (
+      machine.arithmeticOperation &&
+      typeof machine.getArithmeticRequiredInputCount === 'function' &&
+      machine.getArithmeticRequiredInputCount() > 1
+    ) {
+      return 1.25;
     }
 
     const levels = Array.isArray(machine.inputLevels) ? machine.inputLevels : [];

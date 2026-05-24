@@ -5,7 +5,7 @@ export const BOON_POOL = [
   {
     id: 'boon_heavy_haulers',
     name: 'Heavy Haulers',
-    description: 'Belt-buffer run: conveyors carry 2 extra items, but processors are 15% slower.',
+    description: 'Belt-buffer run: conveyors carry 2 extra items, but Operators are 15% slower.',
     rarity: 'rare',
   },
   {
@@ -43,7 +43,25 @@ export const BOON_POOL = [
   {
     id: 'boon_recipe_lattice',
     name: 'Recipe Lattice',
-    description: 'Ratio run: mixed or duplicate-input processors work 25% faster.',
+    description: 'Ratio run: mixed or duplicate-input Operators work 25% faster.',
     rarity: 'common',
+  },
+  {
+    id: 'boon_procurement_engine',
+    name: 'Procurement Engine',
+    description: 'Budget run: each completed delivery node refunds $3 Budget.',
+    rarity: 'common',
+  },
+  {
+    id: 'boon_reinvestment_loop',
+    name: 'Reinvestment Loop',
+    description: 'Overkill run: excess round score converts into next-round Budget.',
+    rarity: 'rare',
+  },
+  {
+    id: 'boon_high_roller',
+    name: 'High Roller',
+    description: 'Expensive Operators make deliveries score 35% more.',
+    rarity: 'rare',
   },
 ];

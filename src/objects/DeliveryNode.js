@@ -23,6 +23,9 @@ const DELIVERY_POPUP_STACK_SPACING = 22;
 const DELIVERY_POPUP_COLUMN_SPACING = 28;
 const DELIVERY_POPUP_ROWS = 5;
 const DELIVERY_POPUP_COLUMNS = [-1, 0, 1];
+const DELIVERY_NODE_PROGRESS_WIDTH = 24;
+const DELIVERY_NODE_TAG_WIDTH = 58;
+const DELIVERY_NODE_TAG_HEIGHT = 24;
 
 export default class DeliveryNode {
   constructor(scene, config) {
@@ -36,7 +39,8 @@ export default class DeliveryNode {
       tier: 1,
       exact: false,
       requiredCount: 3,
-      payout: GAME_CONFIG.deliveryNodeBasePayout || 18,
+      completionScoreReward: GAME_CONFIG.deliveryNodeCompletionScoreBase || 420,
+      completionScrapReward: GAME_CONFIG.deliveryNodeCompletionScrapBase || 2,
       label: 'L1+ x3',
     };
     this.deliveredCount = 0;
@@ -77,13 +81,18 @@ export default class DeliveryNode {
   createVisuals() {
     // Create container for node parts
     this.container = this.scene.add.container(this.x, this.y);
+    this.container.setDepth(40);
 
     // Delivery nodes are small contracts on the board.
     const nodeColor = this.getConditionColor();
     const borderColor = this.getConditionTierColor();
 
+    this.sinkPlate = this.scene.add.rectangle(0, 0, 32, 32, 0x07111a, 0.78);
+    this.sinkPlate.setStrokeStyle(1.5, borderColor, 0.8);
+    this.container.add(this.sinkPlate);
+
     // Create node background (square instead of circle)
-    this.background = this.scene.add.rectangle(0, 0, 24, 24, nodeColor);
+    this.background = this.scene.add.rectangle(0, 0, 24, 24, nodeColor, 0.86);
     this.container.add(this.background);
 
     // Create node border
@@ -91,42 +100,66 @@ export default class DeliveryNode {
     this.border.setStrokeStyle(2, borderColor);
     this.container.add(this.border);
 
+    this.inputChevronLeft = this.scene.add
+      .triangle(-12, 0, -5, -5, -5, 5, 4, 0, 0xffffff, 0.92)
+      .setOrigin(0.5);
+    this.inputChevronRight = this.scene.add
+      .triangle(12, 0, 5, -5, 5, 5, -4, 0, 0xffffff, 0.92)
+      .setOrigin(0.5);
+    this.container.add(this.inputChevronLeft);
+    this.container.add(this.inputChevronRight);
+
     this.conditionText = this.scene.add
-      .text(0, -20, this.getConditionShortLabel(), {
+      .text(0, -6, 'IN', {
         fontFamily: 'Arial Black',
-        fontSize: 9,
-        color: '#ffffff',
+        fontSize: 8,
+        color: '#ffd166',
         align: 'center',
         stroke: '#000000',
-        strokeThickness: 3,
+        strokeThickness: 2,
       })
       .setOrigin(0.5);
     this.container.add(this.conditionText);
 
     this.progressText = this.scene.add
-      .text(0, 0, `${this.deliveredCount}/${this.condition.requiredCount}`, {
+      .text(0, 5, this.getConditionBoardLabel(), {
         fontFamily: 'Arial Black',
-        fontSize: 9,
+        fontSize: 8,
         color: '#ffffff',
         align: 'center',
       })
       .setOrigin(0.5);
     this.container.add(this.progressText);
 
-    this.progressBarBg = this.scene.add.rectangle(0, 17, 24, 4, 0x111111, 0.85);
+    this.progressBarBg = this.scene.add.rectangle(
+      0,
+      13,
+      DELIVERY_NODE_PROGRESS_WIDTH,
+      3,
+      0x111111,
+      0.85
+    );
     this.progressBarBg.setOrigin(0.5);
     this.container.add(this.progressBarBg);
 
-    this.progressBar = this.scene.add.rectangle(-12, 17, 0, 4, nodeColor);
+    this.progressBar = this.scene.add.rectangle(
+      -DELIVERY_NODE_PROGRESS_WIDTH / 2,
+      13,
+      0,
+      3,
+      nodeColor
+    );
     this.progressBar.setOrigin(0, 0.5);
     this.container.add(this.progressBar);
 
     if (this.condition.itemColor) {
       const swatchColor = this.getConditionTierColor();
-      this.colorSwatch = this.scene.add.circle(10, -10, 5, swatchColor, 1);
-      this.colorSwatch.setStrokeStyle(1.5, 0xffffff, 0.95);
+      this.colorSwatch = this.scene.add.circle(11, -11, 3.5, swatchColor, 1);
+      this.colorSwatch.setStrokeStyle(1, 0xffffff, 0.95);
       this.container.add(this.colorSwatch);
     }
+
+    this.createContractTag(borderColor);
 
     // Lifespan bar removed - output nodes are permanent
 
@@ -142,6 +175,48 @@ export default class DeliveryNode {
     });
 
     this.updateProgressVisuals();
+  }
+
+  createContractTag(borderColor) {
+    // Delivery nodes live on the right edge, so keep the contract tag outside
+    // the playable grid instead of covering the routeable cells to the left.
+    this.contractTag = this.scene.add.container(48, 0);
+    this.contractTagBg = this.scene.add.rectangle(
+      0,
+      0,
+      DELIVERY_NODE_TAG_WIDTH,
+      DELIVERY_NODE_TAG_HEIGHT,
+      0x07111a,
+      0.9
+    );
+    this.contractTagBg.setStrokeStyle(1.5, borderColor, 0.9);
+    this.contractTag.add(this.contractTagBg);
+
+    this.contractTagText = this.scene.add
+      .text(0, -5, this.getConditionShortLabel(), {
+        fontFamily: 'Arial Black',
+        fontSize: 8,
+        color: '#ffffff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.contractTag.add(this.contractTagText);
+
+    this.contractProgressText = this.scene.add
+      .text(0, 7, '', {
+        fontFamily: 'Arial Black',
+        fontSize: 8,
+        color: '#ffd166',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.contractTag.add(this.contractProgressText);
+
+    this.container.add(this.contractTag);
   }
 
   getConditionColor() {
@@ -175,35 +250,35 @@ export default class DeliveryNode {
       .join(' ');
   }
 
+  getConditionBoardLabel() {
+    const tier = this.condition.tier || 1;
+    return `${this.condition.exact ? '=' : ''}L${tier}${this.condition.exact ? '' : '+'}`;
+  }
+
+  getCompactHudLabel() {
+    const required = Math.max(1, this.condition.requiredCount || 1);
+    return `${this.getConditionShortLabel()}  ${this.deliveredCount}/${required}`;
+  }
+
   getHudLabel() {
-    if (this.condition.scoreSink) {
-      return `${this.getConditionShortLabel()} SCORE`;
-    }
-    return `${this.getConditionShortLabel()} ${this.deliveredCount}/${this.condition.requiredCount}  +$${this.condition.payout}`;
+    const required = Math.max(1, this.condition.requiredCount || 1);
+    const scoreReward = this.condition.completionScoreReward || this.condition.payout || 0;
+    const scrapReward = this.condition.completionScrapReward || 0;
+    const rewardText = scrapReward > 0 ? `+${scoreReward}/+${scrapReward}S` : `+${scoreReward}`;
+    return `${this.getConditionShortLabel()} ${this.deliveredCount}/${required}  ${rewardText}`;
   }
 
   updateProgressVisuals() {
-    if (this.condition.scoreSink) {
-      const quota = Math.max(1, this.scene?.roundQuota || 1);
-      const score = Math.max(0, this.scene?.roundScore || 0);
-      const progress = Math.min(1, score / quota);
-      if (this.progressText) {
-        this.progressText.setText('SCORE');
-        this.progressText.setFontSize(7);
-      }
-      if (this.progressBar) {
-        this.progressBar.displayWidth = 24 * progress;
-      }
-      return;
-    }
-
     const required = Math.max(1, this.condition.requiredCount || 1);
     const progress = Math.min(1, this.deliveredCount / required);
     if (this.progressText) {
-      this.progressText.setText(`${this.deliveredCount}/${required}`);
+      this.progressText.setText(this.getConditionBoardLabel());
+    }
+    if (this.contractProgressText) {
+      this.contractProgressText.setText(`${this.deliveredCount}/${required}`);
     }
     if (this.progressBar) {
-      this.progressBar.displayWidth = 24 * progress;
+      this.progressBar.displayWidth = DELIVERY_NODE_PROGRESS_WIDTH * progress;
     }
   }
 
@@ -489,7 +564,7 @@ export default class DeliveryNode {
       this.scene.updateRoundUI();
     }
 
-    if (!this.condition.scoreSink && this.deliveredCount >= (this.condition.requiredCount || 1)) {
+    if (this.deliveredCount >= (this.condition.requiredCount || 1)) {
       this.completeDeliveryNode();
     }
   }
@@ -535,10 +610,14 @@ export default class DeliveryNode {
     if (this.completed) return;
     this.completed = true;
     this.deliveredCount = this.condition.requiredCount || this.deliveredCount;
-    this.completionPayout =
-      this.scene && typeof this.scene.getDeliveryNodePayout === 'function'
-        ? this.scene.getDeliveryNodePayout(this)
-        : this.condition.payout;
+    this.completionScoreReward =
+      this.scene && typeof this.scene.getDeliveryNodeCompletionScore === 'function'
+        ? this.scene.getDeliveryNodeCompletionScore(this)
+        : this.condition.completionScoreReward || this.condition.payout || 0;
+    this.completionScrapReward =
+      this.scene && typeof this.scene.getDeliveryNodeCompletionScrap === 'function'
+        ? this.scene.getDeliveryNodeCompletionScrap(this)
+        : this.condition.completionScrapReward || 0;
     this.updateProgressVisuals();
     this.createCompletionBurst();
 
@@ -565,7 +644,7 @@ export default class DeliveryNode {
       .text(
         this.container.x,
         this.container.y - 24,
-        `+$${this.completionPayout || this.condition.payout}`,
+        `+${this.completionScoreReward || 0}  +${this.completionScrapReward || 0}S`,
         {
           fontFamily: 'Arial Black',
           fontSize: 18,

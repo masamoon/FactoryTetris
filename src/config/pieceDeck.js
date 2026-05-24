@@ -97,12 +97,8 @@ export const STANDARD_PIECE_LIBRARY = [
   },
 ];
 
-export function createPieceDeckForRound(round = 1, starterRounds = 1) {
-  const library =
-    round <= starterRounds
-      ? STARTER_PIECE_DECK
-      : [...STARTER_PIECE_DECK, ...STANDARD_PIECE_LIBRARY];
-  return expandPieceDeck(library);
+export function createPieceDeckForRound() {
+  return expandPieceDeck(STARTER_PIECE_DECK);
 }
 
 export function getPieceDeckEntryById(pieceId) {

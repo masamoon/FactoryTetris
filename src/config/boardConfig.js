@@ -32,7 +32,7 @@ export const BOARD_TILE_STYLES = {
     color: 0x4a2430,
     borderColor: 0xff7a90,
     glowColor: 0xff7a90,
-    description: 'Machines built here cost extra Funds.',
+    description: 'Machines built here cost extra Budget.',
   },
 };
 

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { loadGameSettings } from '../utils/GameSettings';
 
 const COLORS = {
   backgroundTop: 0x070b10,
@@ -193,7 +194,7 @@ export default class MainMenuScene extends Phaser.Scene {
   }
 
   createMenuControls(width) {
-    const start = this.createButton(width / 2, 514, 'START RUN', () => this.startGame(), {
+    const start = this.createButton(width / 2, 504, 'START RUN', () => this.startGame(), {
       width: 246,
       fill: 0x1f7a5b,
       hover: 0x2fa875,
@@ -201,13 +202,22 @@ export default class MainMenuScene extends Phaser.Scene {
     });
 
     this.add
-      .text(width / 2, 558, 'ENTER / SPACE', {
+      .text(width / 2, 544, 'ENTER / SPACE', {
         fontFamily: 'Arial Black',
         fontSize: 11,
         color: '#6f8793',
         align: 'center',
       })
       .setOrigin(0.5);
+
+    this.createButton(width / 2, 574, 'SETTINGS', () => this.openSettings(), {
+      width: 176,
+      height: 36,
+      fill: 0x263746,
+      hover: 0x35546a,
+      stroke: 0x83f7ff,
+      fontSize: 14,
+    });
 
     this.tweens.add({
       targets: start.button,
@@ -328,7 +338,7 @@ export default class MainMenuScene extends Phaser.Scene {
     const label = this.add
       .text(x, y, text, {
         fontFamily: 'Arial Black',
-        fontSize: 20,
+        fontSize: options.fontSize || 20,
         color: '#ffffff',
         align: 'center',
       })
@@ -356,5 +366,18 @@ export default class MainMenuScene extends Phaser.Scene {
 
   startGame() {
     this.scene.start('GameScene');
+  }
+
+  openSettings() {
+    this.scene.launch('SettingsScene', {
+      sourceSceneKey: 'MainMenuScene',
+      resumeSourceOnClose: true,
+    });
+    this.scene.bringToTop('SettingsScene');
+    this.scene.pause();
+  }
+
+  applySettings(settings = loadGameSettings()) {
+    this.gameSettings = settings;
   }
 }

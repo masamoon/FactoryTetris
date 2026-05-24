@@ -126,18 +126,38 @@ export default class ResourceNode {
     }
     nodeColor = getItemColorHex(this.itemColor, nodeColor);
 
+    this.sourcePlate = this.scene.add.rectangle(0, 0, 30, 30, 0x07111a, 0.72);
+    this.sourcePlate.setStrokeStyle(1.5, 0x88ffcc, 0.75);
+    this.container.add(this.sourcePlate);
+
     // Create node background
-    this.background = this.scene.add.circle(0, 0, 12, nodeColor);
+    this.background = this.scene.add.circle(0, 0, 11, nodeColor);
     this.container.add(this.background);
 
     // Create node border
-    this.border = this.scene.add.circle(0, 0, 12);
-    this.border.setStrokeStyle(2, 0x008833);
+    this.border = this.scene.add.circle(0, 0, 13);
+    this.border.setStrokeStyle(2, 0x88ffcc);
     this.container.add(this.border);
+
+    this.outputArrow = this.scene.add
+      .triangle(16, 0, -4, -5, -4, 5, 5, 0, 0x88ffcc, 1)
+      .setOrigin(0.5);
+    this.container.add(this.outputArrow);
+
+    this.outputBadge = this.scene.add
+      .text(0, -9, 'OUT', {
+        fontFamily: 'Arial Black',
+        fontSize: 6,
+        color: '#88ffcc',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.container.add(this.outputBadge);
 
     // Create resource supply indicator.
     this.resourceIndicator = this.scene.add
-      .text(0, 0, `${this.resources}`, {
+      .text(0, 3, `${this.resources}`, {
         fontFamily: 'Arial',
         fontSize: 10,
         fontStyle: 'bold',
@@ -149,9 +169,9 @@ export default class ResourceNode {
     this.container.add(this.resourceIndicator);
 
     this.colorTag = this.scene.add
-      .text(0, -18, getItemColorName(this.itemColor).charAt(0).toUpperCase(), {
+      .text(-13, 13, getItemColorName(this.itemColor).charAt(0).toUpperCase(), {
         fontFamily: 'Arial Black',
-        fontSize: 9,
+        fontSize: 8,
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 3,
@@ -186,6 +206,15 @@ export default class ResourceNode {
     const color = getItemColorHex(this.itemColor, this.resourceType?.color || 0x00aa44);
     if (this.background) {
       this.background.setFillStyle(color);
+    }
+    if (this.sourcePlate) {
+      this.sourcePlate.setStrokeStyle(1.5, color, 0.9);
+    }
+    if (this.outputArrow) {
+      this.outputArrow.setFillStyle(color, 1);
+    }
+    if (this.outputBadge) {
+      this.outputBadge.setColor('#88ffcc');
     }
     if (this.colorTag) {
       this.colorTag.setText(getItemColorName(this.itemColor).charAt(0).toUpperCase());

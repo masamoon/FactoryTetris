@@ -1,6 +1,62 @@
 import BaseMachine from './BaseMachine';
 import { getProcessingPieceBody } from '../../config/pieceBodies';
 
+const CARDINAL_DIRECTIONS = ['right', 'down', 'left', 'up'];
+
+function clonePos(pos) {
+  return { x: pos?.x ?? 0, y: pos?.y ?? 0 };
+}
+
+function rotateShapeClockwise(shape) {
+  const height = shape.length;
+  const width = shape[0].length;
+  const rotated = Array.from({ length: width }, () => Array(height).fill(0));
+
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      rotated[col][height - 1 - row] = shape[row][col];
+    }
+  }
+
+  return rotated;
+}
+
+function getRotatedShape(shape, direction) {
+  let rotated = shape;
+  const turns = CARDINAL_DIRECTIONS.indexOf(direction);
+
+  for (let i = 0; i < turns; i++) {
+    rotated = rotateShapeClockwise(rotated);
+  }
+
+  return rotated;
+}
+
+function rotatePos(pos, shape, direction) {
+  const height = shape.length;
+  const width = shape[0].length;
+
+  switch (direction) {
+    case 'down':
+      return { x: height - 1 - pos.y, y: pos.x };
+    case 'left':
+      return { x: width - 1 - pos.x, y: height - 1 - pos.y };
+    case 'up':
+      return { x: pos.y, y: width - 1 - pos.x };
+    case 'right':
+    default:
+      return clonePos(pos);
+  }
+}
+
+function isPosOnShape(pos, shape) {
+  return Boolean(pos && shape[pos.y] && shape[pos.y][pos.x] === 1);
+}
+
+function areIOPositionsOnShape(ioPositions, shape) {
+  return isPosOnShape(ioPositions?.inputPos, shape) && isPosOnShape(ioPositions?.outputPos, shape);
+}
+
 export default class ProcessingPieceMachine extends BaseMachine {
   static bodyId = 'processor-c';
 
@@ -78,10 +134,33 @@ export default class ProcessingPieceMachine extends BaseMachine {
 
   static getIOPositionsForBody(bodyId, direction = 'right') {
     const body = getProcessingPieceBody(bodyId);
-    return (
-      body.io?.[direction] ||
-      body.io?.right || { inputPos: { x: 0, y: 0 }, outputPos: { x: 0, y: 0 } }
-    );
+    const normalizedDirection = CARDINAL_DIRECTIONS.includes(direction) ? direction : 'right';
+    const rotatedShape = getRotatedShape(body.shape, normalizedDirection);
+    const configuredPositions = body.io?.[normalizedDirection] ||
+      body.io?.right || { inputPos: { x: 0, y: 0 }, outputPos: { x: 0, y: 0 } };
+
+    if (areIOPositionsOnShape(configuredPositions, rotatedShape)) {
+      return {
+        inputPos: clonePos(configuredPositions.inputPos),
+        outputPos: clonePos(configuredPositions.outputPos),
+      };
+    }
+
+    if (body.io?.right) {
+      const rotatedPositions = {
+        inputPos: rotatePos(body.io.right.inputPos, body.shape, normalizedDirection),
+        outputPos: rotatePos(body.io.right.outputPos, body.shape, normalizedDirection),
+      };
+
+      if (areIOPositionsOnShape(rotatedPositions, rotatedShape)) {
+        return rotatedPositions;
+      }
+    }
+
+    return {
+      inputPos: clonePos(configuredPositions.inputPos),
+      outputPos: clonePos(configuredPositions.outputPos),
+    };
   }
 
   static getConfig() {

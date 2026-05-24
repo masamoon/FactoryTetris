@@ -378,7 +378,33 @@ export default class BaseMachine {
       this.outputLevel = null;
       this.outputTypes = ['purity-resource'];
       this.inputTypes = ['purity-resource'];
+      this.applyArithmeticProcessingCost();
     }
+  }
+
+  applyArithmeticProcessingCost() {
+    if (!this.arithmeticOperation || typeof this.processingTime !== 'number') return;
+
+    let multiplier = 1;
+    switch (this.arithmeticOperation.type) {
+      case 'add-constant':
+        multiplier = this.arithmeticOperation.value >= 2 ? 1.12 : 1;
+        break;
+      case 'add':
+        multiplier = 1.18;
+        break;
+      case 'divide':
+        multiplier = 1.35;
+        break;
+      case 'multiply':
+        multiplier = 1.75;
+        break;
+      default:
+        multiplier = 1;
+        break;
+    }
+
+    this.processingTime = Math.max(50, Math.floor(this.processingTime * multiplier));
   }
 
   /**

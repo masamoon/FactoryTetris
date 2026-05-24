@@ -15,7 +15,6 @@ import {
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
 import { getTranscendTier } from '../config/eraConfig';
-import { rollBuildAroundTrait, rollTrait } from '../config/traits';
 import { GAME_CONFIG } from '../config/gameConfig';
 
 // How much more likely a draft piece that outputs the era's transcend tier
@@ -91,37 +90,7 @@ export function generatePieceOptions(scene, count = 3) {
     options.push({
       ...selectedConfig,
       isUsable: isPieceUsable(selectedConfig, producibleLevels),
-      trait: getDraftOutputLevel(selectedConfig, producibleLevels) >= 3 ? rollTrait() : null,
     });
-  }
-
-  // Draft-2 trait guarantee:
-  // Once the player has placed their first L2 piece, ensure the very next
-  // draft contains at least one usable trait piece (fires once per run).
-  if (
-    scene &&
-    scene.hasIntroducedTrait === false &&
-    scene.firstL2Placed === true &&
-    !options.some((o) => o.isUsable && o.trait)
-  ) {
-    const usableL3Plus = allConfigs.filter(
-      (c) => getDraftOutputLevel(c, producibleLevels) >= 3 && isPieceUsable(c, producibleLevels)
-    );
-    if (usableL3Plus.length > 0) {
-      const forced = selectWeightedConfig(usableL3Plus, producibleLevels, currentEra, scene);
-      options[0] = {
-        ...forced,
-        isUsable: true,
-        trait: rollTrait(),
-      };
-      console.log('[traits] Forced trait piece into draft slot 0:', options[0]);
-    }
-  }
-
-  // Once a usable trait option is in the hand (naturally or forced), mark
-  // introduction done so the guarantee never re-fires this run.
-  if (scene && options.some((o) => o.isUsable && o.trait)) {
-    scene.hasIntroducedTrait = true;
   }
 
   return options;
@@ -212,12 +181,7 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene =
  * @returns {object} Configuration with inputLevels, outputLevel, notation
  */
 export function assignLevelsToShape(shape, scene, options = {}) {
-  const {
-    forceHigherTier = false,
-    forceTrait = false,
-    suppressTrait = false,
-    forcedArithmeticOperation = null,
-  } = options;
+  const { forceHigherTier = false, forcedArithmeticOperation = null } = options;
 
   // Count blocks in shape
   const blockCount = countBlocks(shape);
@@ -289,12 +253,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
     previewOutputLevel,
     notation: config?.notation || `${inputLevels.join('+')}/${outputLevel}`,
     isUsable: isPieceUsable(config, producibleLevels),
-    trait:
-      !suppressTrait && previewOutputLevel >= 3
-        ? forceTrait
-          ? rollBuildAroundTrait()
-          : rollTrait()
-        : null,
+    trait: null,
   };
 
   if (isArithmeticConfig(config)) {

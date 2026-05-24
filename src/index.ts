@@ -5,6 +5,7 @@ import PreloadScene from './scenes/PreloadScene';
 import MainMenuScene from './scenes/MainMenuScene';
 import GameScene from './scenes/GameScene';
 import GameOverScene from './scenes/GameOverScene';
+import SettingsScene from './scenes/SettingsScene';
 import { UpgradeScene } from './scenes/UpgradeScene.js';
 
 window.onload = function () {
@@ -100,7 +101,15 @@ window.onload = function () {
       height: GAME_CONFIG.height,
       parent: 'game-container',
       backgroundColor: '#000000',
-      scene: [BootScene, PreloadScene, MainMenuScene, GameScene, UpgradeScene, GameOverScene],
+      scene: [
+        BootScene,
+        PreloadScene,
+        MainMenuScene,
+        GameScene,
+        UpgradeScene,
+        GameOverScene,
+        SettingsScene,
+      ],
       physics: {
         default: 'arcade',
         arcade: {

@@ -271,8 +271,6 @@ export default class MachineFactory {
     }
 
     this.ensureUsableDraft();
-    this.ensureEarlyTraitDraft();
-    this.markTraitIntroducedIfVisible();
 
     console.log(
       'Refreshed processor hand:',
@@ -311,14 +309,10 @@ export default class MachineFactory {
       this.processorDiscard.push(usedPiece.pieceCard);
     }
 
-    const newProcessor = this.drawProcessorPiece({
-      forceTrait: this.shouldForceEarlyTrait(),
-    });
+    const newProcessor = this.drawProcessorPiece();
 
     this.availableProcessors[removedSlotIndex] = newProcessor;
     this.ensureUsableDraft();
-    this.ensureEarlyTraitDraft();
-    this.markTraitIntroducedIfVisible();
 
     console.log(
       `Replaced processor piece: removed index ${removedSlotIndex}, drew ${newProcessor.pieceName || newProcessor.name} (${newProcessor.notation})`
@@ -348,7 +342,6 @@ export default class MachineFactory {
     const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, {
       ...options,
       forcedArithmeticOperation: card.arithmeticOperation || options.forcedArithmeticOperation,
-      suppressTrait: card.suppressTrait ?? options.suppressTrait,
     });
     const inputLevels = Array.isArray(levelConfig.inputLevels) ? levelConfig.inputLevels : [1];
 
@@ -360,7 +353,7 @@ export default class MachineFactory {
       notation: levelConfig.notation,
       arithmeticOperation: levelConfig.arithmeticOperation || null,
       arithmeticInputCount: levelConfig.arithmeticInputCount || 0,
-      trait: levelConfig.trait || null,
+      trait: card.trait || null,
       isUsable: levelConfig.isUsable,
       pieceCard: card,
       pieceId: card.id,
@@ -387,7 +380,7 @@ export default class MachineFactory {
         notation: levelConfig.notation,
         arithmeticOperation: levelConfig.arithmeticOperation || null,
         arithmeticInputCount: levelConfig.arithmeticInputCount || 0,
-        trait: levelConfig.trait || null,
+        trait: options.trait || null,
         isUsable: levelConfig.isUsable,
       };
 
@@ -407,31 +400,6 @@ export default class MachineFactory {
     if (usableProcessor && usableProcessor.isUsable) {
       this.availableProcessors[0] = usableProcessor;
       console.log('[draft] Forced usable processor into slot 0');
-    }
-  }
-
-  shouldForceEarlyTrait() {
-    return (
-      this.scene && this.scene.firstL2Placed === true && this.scene.hasIntroducedTrait === false
-    );
-  }
-
-  ensureEarlyTraitDraft() {
-    if (!this.shouldForceEarlyTrait()) return;
-    if (this.availableProcessors.some((p) => p && p.isUsable && p.trait)) return;
-
-    const forcedProcessor = this.createDraftProcessor({
-      forceHigherTier: true,
-      forceTrait: true,
-    });
-
-    if (
-      this.getDraftOutputLevel(forcedProcessor) >= 3 &&
-      forcedProcessor.isUsable &&
-      forcedProcessor.trait
-    ) {
-      this.availableProcessors[0] = forcedProcessor;
-      console.log('[traits] Forced usable build-around trait into processor draft');
     }
   }
 
@@ -460,7 +428,6 @@ export default class MachineFactory {
         type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT,
         value,
       },
-      suppressTrait: value < 2,
     });
   }
 
@@ -488,13 +455,9 @@ export default class MachineFactory {
       this.processorDiscard.push(oldProcessor.pieceCard);
     }
 
-    const newProcessor = this.drawProcessorPiece({
-      forceTrait: this.shouldForceEarlyTrait(),
-    });
+    const newProcessor = this.drawProcessorPiece();
     this.availableProcessors[slotIndex] = newProcessor;
     this.ensureUsableDraft();
-    this.ensureEarlyTraitDraft();
-    this.markTraitIntroducedIfVisible();
     this.displayCurrentProcessorPreview();
 
     if (this.lastSelectedCategory === 'processor' && this.lastSelectedSlotIndex === slotIndex) {
@@ -520,10 +483,16 @@ export default class MachineFactory {
     const template = getPieceDeckEntryById(pieceId);
     if (!template) return null;
 
+    return this.addPieceCardToRunDeckFromCard(template);
+  }
+
+  addPieceCardToRunDeckFromCard(pieceCard) {
+    if (!pieceCard) return null;
+
     const card = {
-      ...template,
+      ...pieceCard,
       copies: 1,
-      instanceId: `${template.id}-reward-${this.bonusPieceCards.length + 1}`,
+      instanceId: `${pieceCard.id || 'operator'}-reward-${this.bonusPieceCards.length + 1}`,
     };
     this.bonusPieceCards.push(card);
     this.processorDiscard.push(card);
@@ -537,13 +506,6 @@ export default class MachineFactory {
       discard: this.processorDiscard.length,
       bonus: this.bonusPieceCards.length,
     };
-  }
-
-  markTraitIntroducedIfVisible() {
-    if (!this.scene || this.scene.hasIntroducedTrait) return;
-    if (this.availableProcessors.some((p) => p && p.isUsable && p.trait)) {
-      this.scene.hasIntroducedTrait = true;
-    }
   }
 
   // Rotate logistics roster
@@ -651,8 +613,9 @@ export default class MachineFactory {
     }
 
     const slotStyle = this.getPanelSlotStyle(machineType, category);
-    const slotWidth = category === 'processor' ? 78 : 66;
-    const slotHeight = category === 'processor' ? 54 : 48;
+    const slotWidth = category === 'processor' ? 84 : 66;
+    const slotHeight = category === 'processor' ? 58 : 48;
+    const previewY = category === 'processor' ? itemY + 8 : itemY;
     const slotFrame = this.scene.add
       .rectangle(itemX, itemY, slotWidth, slotHeight, 0x0f1820, 0.86)
       .setStrokeStyle(1, slotStyle.borderColor, 0.72);
@@ -665,10 +628,10 @@ export default class MachineFactory {
           machineType.id,
           this.scene,
           itemX,
-          itemY
+          previewY
         );
       } else {
-        machinePreview = this.createMachinePreview(machineType, itemX, itemY);
+        machinePreview = this.createMachinePreview(machineType, itemX, previewY);
       }
     } catch (error) {
       console.error(`Error creating preview for ${machineType.id}:`, error);
@@ -685,6 +648,9 @@ export default class MachineFactory {
       machinePreview.slotIndex = slotIndex;
       machinePreview.category = category;
       machinePreview.slotFrame = slotFrame;
+      machinePreview.basePanelScale = category === 'processor' ? 0.86 : 1;
+      machinePreview.setScale(machinePreview.basePanelScale);
+      this.hidePanelPreviewInternalLabels(machinePreview);
       this.panelPreviewItems.push({
         category,
         slotIndex,
@@ -697,7 +663,7 @@ export default class MachineFactory {
       if (category === 'processor' && machineType.notation) {
         if (machineType.pieceShortName || machineType.pieceName) {
           const nameLabel = this.scene.add
-            .text(itemX, itemY - 29, machineType.pieceShortName || machineType.pieceName, {
+            .text(itemX, itemY - 31, machineType.pieceShortName || machineType.pieceName, {
               fontFamily: 'Arial',
               fontSize: 8,
               fontWeight: 'bold',
@@ -715,7 +681,7 @@ export default class MachineFactory {
         // Determine label color based on usability
         const labelColor = machineType.isUsable !== false ? '#00ff00' : '#ff6666';
         const notationLabel = this.scene.add
-          .text(itemX, itemY + 25, machineType.notation, {
+          .text(itemX, itemY + 23, machineType.notation, {
             fontFamily: 'Arial',
             fontSize: 12,
             fontWeight: 'bold',
@@ -734,19 +700,33 @@ export default class MachineFactory {
           const traitDef = getTraitById(machineType.trait);
           const traitBandColor = getTraitBandColor(machineType.trait);
           if (traitDef) {
+            const badgeX = itemX + slotWidth / 2 - 18;
+            const badgeY = itemY - slotHeight / 2 + 9;
+            const traitBand = this.scene.add.rectangle(
+              itemX - slotWidth / 2 + 3,
+              itemY,
+              4,
+              slotHeight - 8,
+              traitBandColor,
+              0.95
+            );
+            const traitBadge = this.scene.add
+              .rectangle(badgeX, badgeY, 30, 12, traitBandColor, 0.95)
+              .setStrokeStyle(1, 0x07111a, 0.85);
             const traitNameLabel = this.scene.add
-              .text(itemX, itemY + 40, traitDef.name, {
-                fontFamily: 'Arial',
-                fontSize: 11,
-                color: '#ffffff',
-                fontStyle: 'bold',
+              .text(badgeX, badgeY, this.getTraitBadgeLabel(traitDef.name), {
+                fontFamily: 'Arial Black',
+                fontSize: 7,
+                color: '#07111a',
+                align: 'center',
               })
               .setOrigin(0.5);
-            const traitBand = this.scene.add.rectangle(itemX, itemY + 54, 44, 3, traitBandColor);
-            this.processorPreviewContainer.add(traitNameLabel);
             this.processorPreviewContainer.add(traitBand);
+            this.processorPreviewContainer.add(traitBadge);
+            this.processorPreviewContainer.add(traitNameLabel);
             machinePreview.traitNameLabel = traitNameLabel;
             machinePreview.traitBand = traitBand;
+            machinePreview.traitBadge = traitBadge;
           }
         }
         // --- END TRAIT INFO ---
@@ -788,21 +768,24 @@ export default class MachineFactory {
       // --- END NOTATION LABEL ---
 
       // Interactivity
-      const hitAreaSize = category === 'processor' ? 78 : 66;
+      const hitAreaSize = category === 'processor' ? slotWidth : 66;
+      const hitAreaTop =
+        category === 'processor' ? itemY - previewY - slotHeight / 2 - 4 : -slotHeight / 2;
+      const hitAreaHeight = category === 'processor' ? slotHeight + 8 : slotHeight + 28;
       machinePreview.setInteractive(
-        new Phaser.Geom.Rectangle(-hitAreaSize / 2, -slotHeight / 2, hitAreaSize, slotHeight + 28),
+        new Phaser.Geom.Rectangle(-hitAreaSize / 2, hitAreaTop, hitAreaSize, hitAreaHeight),
         Phaser.Geom.Rectangle.Contains
       );
 
       machinePreview.on('pointerover', () => {
-        machinePreview.setScale(1.1);
+        machinePreview.setScale(machinePreview.basePanelScale * 1.08);
         slotFrame.fillColor = 0x1f3240;
         slotFrame.setStrokeStyle(2, slotStyle.borderColor, 1);
         this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
       });
 
       machinePreview.on('pointerout', () => {
-        machinePreview.setScale(1);
+        machinePreview.setScale(machinePreview.basePanelScale);
         this.updatePanelSelectionHighlights();
         this.hideMachineTooltip();
       });
@@ -822,6 +805,24 @@ export default class MachineFactory {
         this.selectMachineType(machineType);
       });
     }
+  }
+
+  hidePanelPreviewInternalLabels(preview) {
+    if (!preview || typeof preview.iterate !== 'function') return;
+
+    preview.iterate((child) => {
+      if (child?.type === 'Text') {
+        child.setVisible(false);
+      }
+    });
+  }
+
+  getTraitBadgeLabel(name) {
+    if (!name) return 'SP';
+    const compact = String(name)
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase();
+    return compact.slice(0, 3) || 'SP';
   }
 
   updatePanelSelectionHighlights() {
@@ -1791,18 +1792,6 @@ export default class MachineFactory {
         machine ? 'Success' : 'Failed/Null'
       );
 
-      if (
-        this.scene &&
-        this.scene.firstL2Placed === false &&
-        machine &&
-        (machine.outputLevel === 2 ||
-          machine.previewOutputLevel === 2 ||
-          machine.arithmeticOperation?.type === 'add-constant')
-      ) {
-        this.scene.firstL2Placed = true;
-        console.log('[traits] firstL2Placed armed; next draft will guarantee a trait');
-      }
-
       return machine;
     } catch (error) {
       console.error('[MachineFactory] Error in createMachine:', error); // Log caught error
@@ -1884,7 +1873,10 @@ export default class MachineFactory {
       if (machineType.previewOutputLevel) {
         tooltipText += `Likely output now: L${machineType.previewOutputLevel}\n`;
       }
-      tooltipText += `Processing time: ${machineType.processingTime / 1000}s`;
+      if (typeof this.scene?.getMachinePlacementCost === 'function') {
+        tooltipText += `Budget cost: $${this.scene.getMachinePlacementCost(machineType)}\n`;
+      }
+      tooltipText += `Processing time: ${this.getOperatorProcessingTime(machineType) / 1000}s`;
     } else {
       // Regular machine tooltip for processors
 
@@ -1983,6 +1975,25 @@ export default class MachineFactory {
       .split('-')
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
+  }
+
+  getOperatorProcessingTime(machineType) {
+    const baseTime = machineType?.processingTime || 3000;
+    const operation = machineType?.arithmeticOperation;
+    if (!operation) return baseTime;
+
+    switch (operation.type) {
+      case 'add-constant':
+        return Math.floor(baseTime * (operation.value >= 2 ? 1.12 : 1));
+      case 'add':
+        return Math.floor(baseTime * 1.18);
+      case 'divide':
+        return Math.floor(baseTime * 1.35);
+      case 'multiply':
+        return Math.floor(baseTime * 1.75);
+      default:
+        return baseTime;
+    }
   }
 
   /**
