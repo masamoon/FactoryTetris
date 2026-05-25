@@ -14,17 +14,19 @@ import {
 } from '../config/boardConfig.js';
 import { UPGRADE_TYPES, upgradesConfig } from '../config/upgrades.js';
 import {
+  ARITHMETIC_OPERATION_TYPES,
   ARITHMETIC_OPERATION_TAGS,
   getArithmeticOperationTagLabel,
 } from '../config/resourceLevels';
 import ConveyorMachine from '../objects/machines/ConveyorMachine.js'; // *** ADDED IMPORT ***
+import { getPainterPaintColorKey } from '../objects/machines/ColorPainterMachine.js';
 import BaseMachine from '../objects/machines/BaseMachine.js'; // Import BaseMachine for getIOPositionsForDirection
 import { MACHINE_COLORS } from '../objects/machines/BaseMachine';
 import TraitRegistry from '../objects/traits/TraitRegistry';
 import { TRAIT_CATEGORIES, getTraitBandColor, getTraitById, rollTrait } from '../config/traits';
 import { STARTER_PIECE_DECK, STANDARD_PIECE_LIBRARY } from '../config/pieceDeck';
 import { getProcessingPieceBody, isProcessingPieceBodyId } from '../config/pieceBodies';
-import { getItemColorKey } from '../utils/PurityUtils';
+import { getItemColorHex, getItemColorKey } from '../utils/PurityUtils';
 import { loadGameSettings, saveGameSettings } from '../utils/GameSettings';
 
 export default class GameScene extends Phaser.Scene {
@@ -78,6 +80,11 @@ export default class GameScene extends Phaser.Scene {
     this.contractDeliveryCount = 0; // legacy alias for older code paths
     this.recentFlowPlacements = new Map();
     this.flowPlacementRewardWindow = 18000;
+    this.currentMomentum = 0;
+    this.flowStreak = 0;
+    this.bestFlowStreak = 0;
+    this.lastFlowDeliveryAt = 0;
+    this.lastFlowMilestone = 0;
     this.currentRoundBoard = null;
     this.roundBoardBlockers = [];
     this.roundBoardSpecialTiles = [];
@@ -113,6 +120,9 @@ export default class GameScene extends Phaser.Scene {
     this.placementCueText = null;
     this.placementHintText = null;
     this.lastQuotaHudScore = 0;
+    this.firstDeliveryCelebrated = false;
+    this.exactDemandExplained = false;
+    this.operationDemandExplained = false;
   }
 
   create() {
@@ -185,6 +195,11 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundSurvived = false;
     this.pendingDeliveryCompletionScore = 0;
+    this.currentMomentum = 0;
+    this.flowStreak = 0;
+    this.bestFlowStreak = 0;
+    this.lastFlowDeliveryAt = 0;
+    this.lastFlowMilestone = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
 
@@ -327,7 +342,7 @@ export default class GameScene extends Phaser.Scene {
     const statGap = 8;
     const statWidth = (contentWidth - statGap) / 2;
 
-    this.createHudPanel(contentX, 12, contentWidth, 86, 0x111820, 0x2f4d5f);
+    this.createHudPanel(contentX, 12, contentWidth, 90, 0x111820, 0x2f4d5f);
     this.scoreText = this.createStatChip(contentX, 22, statWidth, 'SCORE', '0', '#ffffff');
     this.scrapText = this.createStatChip(
       contentX + statWidth + statGap,
@@ -353,6 +368,17 @@ export default class GameScene extends Phaser.Scene {
       `$${this.money}`,
       '#88ffcc'
     );
+    this.flowText = this.add
+      .text(contentX + contentWidth / 2, 95, 'FLOW x1.00', {
+        fontFamily: 'Arial Black',
+        fontSize: 10,
+        color: '#88ccff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    this.flowText.setDepth(3);
+    this.addToUI(this.flowText);
 
     this.createHudPanel(contentX, 108, contentWidth, 150, 0x12151d, 0x51472a);
     this.createSectionLabel(contentX + 10, 118, 'DELIVERIES');
@@ -506,6 +532,10 @@ export default class GameScene extends Phaser.Scene {
     this.addToUI(this.settingsButton.text);
 
     this.startRoundButton = this.createButton(centerX, buttonStartY - 42, 'START ROUND', () => {
+      if (this.runState === 'ROUND_ACTIVE' && this.roundSurvived) {
+        this.finishSurvivedRound();
+        return;
+      }
       this.beginActiveRound();
     });
     this.startRoundButton.button.fillColor = 0x2c7a55;
@@ -1769,10 +1799,16 @@ export default class GameScene extends Phaser.Scene {
     // Get the direction from the selected orientation
     const direction = orientation.direction;
 
+    const machineId = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
+    const painterPreviewColor =
+      machineId === 'painter'
+        ? getItemColorHex(getPainterPaintColorKey(direction), 0x3f8cff)
+        : null;
+
     // Create a minimal machineType object for canPlaceMachine if it doesn't exist
     const machineTypeForCheck = {
       shape: machine.shape,
-      id: machine.id || (machine.machineType ? machine.machineType.id : 'unknown'),
+      id: machineId,
       direction: direction,
     };
     const replacementInfo = this.findProcessorReplacement(machine, gridPos.x, gridPos.y, direction);
@@ -1809,9 +1845,6 @@ export default class GameScene extends Phaser.Scene {
     let outputPos = { x: -1, y: -1 };
 
     if (direction !== 'none') {
-      // Get machine ID from the machine object
-      const machineId = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
-
       // Get the machine constructor from the registry
       let machineConstructor = null;
       if (
@@ -1900,6 +1933,9 @@ export default class GameScene extends Phaser.Scene {
 
           // Determine cell color based on position in the shape
           let cellColor = MACHINE_COLORS[machine.id] || 0x44ff44; // Unique color for this machine type
+          if (painterPreviewColor != null) {
+            cellColor = painterPreviewColor;
+          }
 
           // Draw the cell directly at its world position
           if (replacementInfo) {
@@ -1969,6 +2005,15 @@ export default class GameScene extends Phaser.Scene {
             this.placementPreview.closePath();
             this.placementPreview.fillPath();
             this.placementPreview.strokePath();
+          }
+
+          if (painterPreviewColor != null) {
+            this.drawPainterPlacementItemPreview(
+              cellWorldCenterPos,
+              direction,
+              painterPreviewColor,
+              canPlace
+            );
           }
         }
       }
@@ -2054,6 +2099,38 @@ export default class GameScene extends Phaser.Scene {
         this.placementPreview.strokePath();
       }
     }
+  }
+
+  drawPainterPlacementItemPreview(cellWorldCenterPos, direction, paintColor, canPlace) {
+    if (!this.placementPreview || !cellWorldCenterPos || paintColor == null) return;
+
+    const directionVectors = {
+      right: { x: 1, y: 0 },
+      down: { x: 0, y: 1 },
+      left: { x: -1, y: 0 },
+      up: { x: 0, y: -1 },
+    };
+    const vector = directionVectors[direction] || directionVectors.right;
+    const travelOffset = this.grid.cellSize * 0.24;
+    const radius = Math.max(4, this.grid.cellSize * 0.16);
+    const alpha = canPlace ? 0.95 : 0.45;
+
+    const inputX = cellWorldCenterPos.x - vector.x * travelOffset;
+    const inputY = cellWorldCenterPos.y - vector.y * travelOffset;
+    const outputX = cellWorldCenterPos.x + vector.x * travelOffset;
+    const outputY = cellWorldCenterPos.y + vector.y * travelOffset;
+
+    this.placementPreview.lineStyle(2, 0xffffff, alpha * 0.55);
+    this.placementPreview.lineBetween(inputX, inputY, outputX, outputY);
+
+    this.placementPreview.fillStyle(0x101820, alpha * 0.9);
+    this.placementPreview.fillCircle(inputX, inputY, radius * 0.78);
+    this.placementPreview.strokeCircle(inputX, inputY, radius * 0.78);
+
+    this.placementPreview.fillStyle(paintColor, alpha);
+    this.placementPreview.fillCircle(outputX, outputY, radius);
+    this.placementPreview.lineStyle(1.5, 0xffffff, alpha);
+    this.placementPreview.strokeCircle(outputX, outputY, radius);
   }
 
   getPreviewTraitId(machine) {
@@ -2718,10 +2795,89 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.roundScore >= this.roundQuota && !this.roundSurvived) {
       this.roundSurvived = true;
-      this.showRoundSurvivedFeedback('Quota met\nclear deliveries');
+      this.showRoundSurvivedFeedback('Quota met\nround clear');
+      this.updateRoundAdvanceButton();
     }
 
     this.tryCompleteRound();
+  }
+
+  getFlowMultiplier() {
+    const config = GAME_CONFIG.flowConfig || {};
+    const cappedStreak = Math.min(
+      Math.max(0, Math.floor(this.flowStreak || 0)),
+      config.maxStreak || 12
+    );
+    const multiplier = 1 + cappedStreak * (config.multiplierPerStep || 0.035);
+    return Math.min(config.maxMultiplier || 1.35, multiplier);
+  }
+
+  applyFlowDeliveryBonus(points) {
+    const config = GAME_CONFIG.flowConfig || {};
+    const now = this.time?.now || 0;
+    const windowMs = config.deliveryWindowMs || 5200;
+
+    this.flowStreak = now - (this.lastFlowDeliveryAt || 0) <= windowMs ? this.flowStreak + 1 : 1;
+    this.flowStreak = Math.min(this.flowStreak, config.maxStreak || 12);
+    this.bestFlowStreak = Math.max(this.bestFlowStreak || 0, this.flowStreak);
+    this.lastFlowDeliveryAt = now;
+    this.currentMomentum = Math.round(
+      Phaser.Math.Clamp((this.flowStreak / (config.maxStreak || 12)) * 100, 0, 100)
+    );
+
+    const multiplier = this.getFlowMultiplier();
+    const adjusted = Math.floor(Math.max(0, points || 0) * multiplier);
+    const milestones = config.milestoneStreaks || [3, 6, 10];
+    const hitMilestone =
+      milestones.includes(this.flowStreak) && this.flowStreak !== this.lastFlowMilestone;
+    if (hitMilestone) {
+      this.lastFlowMilestone = this.flowStreak;
+      this.showFlowStreakFeedback(this.flowStreak, multiplier);
+    }
+    this.updateFlowHud();
+    return adjusted;
+  }
+
+  updateFlowHud() {
+    if (!this.flowText) return;
+
+    const multiplier = this.getFlowMultiplier();
+    const streak = Math.max(0, Math.floor(this.flowStreak || 0));
+    this.flowText.setText(`FLOW x${multiplier.toFixed(2)}  ${streak}`);
+    this.flowText.setColor(streak >= 10 ? '#ffd166' : streak >= 6 ? '#88ffcc' : '#88ccff');
+  }
+
+  showFlowStreakFeedback(streak, multiplier) {
+    const text = this.add
+      .text(
+        this.scale.width / 2 - this.rightPanelWidth / 2,
+        150,
+        `FLOW ${streak}\nx${multiplier.toFixed(2)}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 24,
+          color: streak >= 10 ? '#ffd166' : '#88ffcc',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 6,
+        }
+      )
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.flash(90, 80, 220, 255, true);
+
+    this.tweens.add({
+      targets: text,
+      y: 112,
+      scaleX: 1.14,
+      scaleY: 1.14,
+      alpha: 0,
+      duration: 1050,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
   }
 
   areDeliveryNodesComplete() {
@@ -2756,6 +2912,7 @@ export default class GameScene extends Phaser.Scene {
     if (quotaMet && !this.roundSurvived) {
       this.roundSurvived = true;
       this.showRoundSurvivedFeedback();
+      this.updateRoundAdvanceButton();
     }
 
     if (quotaMet && deliveryMapComplete) {
@@ -2853,6 +3010,63 @@ export default class GameScene extends Phaser.Scene {
     return itemData?.lastOperationTag === demand.requiredLastOperationTag;
   }
 
+  getRoundPacing(round = this.currentRound) {
+    const config = GAME_CONFIG.pacingConfig || {};
+    const roundsPerAct = Math.max(1, config.roundsPerAct || 4);
+    const act = Math.floor((Math.max(1, round) - 1) / roundsPerAct) + 1;
+    const roundInAct = ((Math.max(1, round) - 1) % roundsPerAct) + 1;
+    const isBoss = roundInAct === (config.bossRoundInAct || roundsPerAct);
+    const isElite = !isBoss && roundInAct === (config.eliteRoundInAct || roundsPerAct - 1);
+    const stage = isBoss ? 'BOSS' : isElite ? 'SURGE' : 'BUILD';
+    const stageName = isBoss
+      ? this.getBossRoundName(act)
+      : isElite
+        ? 'Surge Shift'
+        : 'Factory Shift';
+
+    return {
+      act,
+      roundInAct,
+      roundsPerAct,
+      isBoss,
+      isElite,
+      stage,
+      stageName,
+      label: `Act ${act}-${roundInAct} ${stage}`,
+      quotaMultiplier: isBoss
+        ? config.bossQuotaMultiplier || 1.18
+        : isElite
+          ? config.eliteQuotaMultiplier || 1.08
+          : 1,
+      sourceMultiplier: isBoss
+        ? config.bossSourceMultiplier || 1.12
+        : isElite
+          ? config.eliteSourceMultiplier || 1.05
+          : 1,
+      requiredCountBonus: isBoss ? config.bossRequiredCountBonus || 1 : 0,
+      completionScoreMultiplier: isBoss
+        ? config.bossCompletionScoreMultiplier || 1.25
+        : isElite
+          ? config.eliteCompletionScoreMultiplier || 1.1
+          : 1,
+      completionScrapBonus: isBoss
+        ? config.bossCompletionScrapBonus || 3
+        : isElite
+          ? config.eliteCompletionScrapBonus || 1
+          : 0,
+    };
+  }
+
+  getBossRoundName(act) {
+    const names = ['Precision Audit', 'Routing Audit', 'Throughput Audit', 'Apex Audit'];
+    return names[(Math.max(1, act) - 1) % names.length];
+  }
+
+  getRoundPacingLabel(round = this.currentRound) {
+    const pacing = this.getRoundPacing(round);
+    return `${pacing.label}: ${pacing.stageName}`;
+  }
+
   getContractDemandMatch(tier, itemData, options = {}) {
     if (this.runState !== 'ROUND_ACTIVE' || !this.contract) return null;
     if (!this.hasContractRoute(itemData, this.contract)) return null;
@@ -2904,6 +3118,8 @@ export default class GameScene extends Phaser.Scene {
       if (highRollerMultiplier > 1) {
         points = Math.floor(points * highRollerMultiplier);
       }
+
+      points = this.applyFlowDeliveryBonus(points);
     }
 
     return {
@@ -2947,12 +3163,14 @@ export default class GameScene extends Phaser.Scene {
     const flatGrowth = GAME_CONFIG.roundQuotaFlatGrowth || 180;
     const board = this.currentRoundBoard?.round === round ? this.currentRoundBoard : null;
     const boardMultiplier = board?.quotaMultiplier || 1;
+    const pacingMultiplier = this.getRoundPacing(round).quotaMultiplier || 1;
     const boonMultiplier = this.upgradeManager?.isProceduralUpgradeActive('boon_bulk_contracts')
       ? 0.8
       : 1;
     return Math.round(
       (base * Math.pow(growth, Math.max(0, round - 1)) + flatGrowth * (round - 1)) *
         boardMultiplier *
+        pacingMultiplier *
         boonMultiplier
     );
   }
@@ -2962,6 +3180,10 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundQuota = this.getRoundQuota(round);
     this.roundSurvived = false;
+    this.flowStreak = 0;
+    this.currentMomentum = 0;
+    this.lastFlowDeliveryAt = 0;
+    this.lastFlowMilestone = 0;
     this.contract = {
       number: round,
       title: 'Score Quota',
@@ -3113,11 +3335,13 @@ export default class GameScene extends Phaser.Scene {
 
   awardRoundScrap() {
     const base = GAME_CONFIG.shopRoundClearScrap || 6;
+    const pacing = this.getRoundPacing(this.currentRound);
+    const bossBonus = pacing.isBoss ? GAME_CONFIG.pacingConfig?.bossRoundClearScrapBonus || 4 : 0;
     const overkillScore = Math.max(0, (this.roundScore || 0) - (this.roundQuota || 0));
     const overkillScrap = Math.floor(
       overkillScore / (GAME_CONFIG.shopOverkillScorePerScrap || 250)
     );
-    return this.addScrap(base + overkillScrap, `round ${this.currentRound} clear`);
+    return this.addScrap(base + bossBonus + overkillScrap, `round ${this.currentRound} clear`);
   }
 
   showRoundSurvivedFeedback(message = `Round ${this.currentRound} survived`) {
@@ -4173,6 +4397,15 @@ export default class GameScene extends Phaser.Scene {
   recordDeliveryFlow(itemData, tier, reward) {
     if (!itemData || !this.recentFlowPlacements || reward?.countsForFlow === false) return;
 
+    if (!this.firstDeliveryCelebrated) {
+      this.firstDeliveryCelebrated = true;
+      this.showFirstDeliveryFeedback(tier, reward?.points || 0);
+      if (this.currentRound === 1) {
+        this.tutorialDismissed = true;
+        this.destroyTutorialPanel();
+      }
+    }
+
     if (getItemColorKey(itemData) === 'yellow') {
       const threshold = GAME_CONFIG.yellowScorePerScrap || 120;
       this.yellowScrapProgress += Math.max(0, Math.floor(reward?.points || 0));
@@ -4191,6 +4424,40 @@ export default class GameScene extends Phaser.Scene {
       this.showProcessorReplacementFeedback(`Line online\nL${tier} shipped`);
       break;
     }
+  }
+
+  showFirstDeliveryFeedback(tier, points) {
+    const text = this.add
+      .text(
+        this.scale.width / 2 - this.rightPanelWidth / 2,
+        118,
+        `FIRST DELIVERY\nL${tier}  +${Math.floor(points || 0)}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 30,
+          color: '#88ffcc',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 6,
+        }
+      )
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.flash(140, 120, 255, 210, true);
+    this.playSound('delivery');
+
+    this.tweens.add({
+      targets: text,
+      y: 82,
+      scaleX: 1.12,
+      scaleY: 1.12,
+      alpha: 0,
+      duration: 1200,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
   }
 
   countNewMachineConnections(machine, gridX, gridY, direction) {
@@ -5321,20 +5588,35 @@ export default class GameScene extends Phaser.Scene {
     const wave = variance > 0 ? (round % 3) * variance : 0;
     const board = this.currentRoundBoard?.round === round ? this.currentRoundBoard : null;
     const boardMultiplier = board?.sourceInventoryMultiplier || 1;
+    const pacingMultiplier = this.getRoundPacing(round).sourceMultiplier || 1;
     const boonMultiplier = this.upgradeManager?.isProceduralUpgradeActive('boon_bulk_contracts')
       ? 0.82
       : 1;
     return Math.max(
       1,
-      Math.floor((base + Math.max(0, round - 1) * growth + wave) * boardMultiplier * boonMultiplier)
+      Math.floor(
+        (base + Math.max(0, round - 1) * growth + wave) *
+          boardMultiplier *
+          pacingMultiplier *
+          boonMultiplier
+      )
     );
   }
 
   getDeliveryNodeCountForRound(round = this.currentRound) {
     const maxNodes = GAME_CONFIG.maxDeliveryNodesPerRound || 7;
     if (round <= 1) return 1;
-    if (round === 2) return 2;
-    return Math.min(maxNodes, 3 + Math.floor(Math.max(0, round - 3) / 2));
+    if (round === 2) return 1;
+    if (round === 3) return 1;
+    if (round <= 6) return 2;
+    const pacing = this.getRoundPacing(round);
+    if (pacing.isElite) {
+      return Math.min(maxNodes, 1 + pacing.act);
+    }
+    if (pacing.isBoss) {
+      return Math.min(maxNodes, 1 + pacing.act);
+    }
+    return Math.min(maxNodes, 2 + Math.floor(Math.max(0, round - 5) / 3));
   }
 
   createRoundBoard(round = this.currentRound) {
@@ -5490,20 +5772,34 @@ export default class GameScene extends Phaser.Scene {
 
   createDeliveryCondition(round, index) {
     const rng = this.getRoundVariantRng(round, `delivery-${index}`);
-    const baseTier = 2 + Math.floor((round - 3 + Math.max(0, index)) / 2);
-    const tierJitter = round >= 4 && rng() < 0.4 ? (rng() < 0.5 ? -1 : 1) : 0;
+    const pacing = this.getRoundPacing(round);
+    const baseTier = 2 + Math.floor((round - 2 + Math.max(0, index)) / 3);
+    const tierJitter = round >= 5 && rng() < 0.35 ? (rng() < 0.55 ? -1 : 1) : 0;
     const tier = round <= 2 ? 2 : Math.max(2, Math.min(6, baseTier + tierJitter));
     const exactOffset = round >= 3 ? this.randomRoundInt(rng, 0, 1) : 0;
-    const exact = round >= 3 && (index + exactOffset) % 2 === 0;
-    const countJitter = round >= 3 ? this.randomRoundInt(rng, -1, 1) : 0;
-    const requiredCount = Math.max(
+    const exact =
+      (pacing.isBoss && (index === 0 || pacing.act >= 2)) ||
+      (round >= 4 && !pacing.isBoss && (index + exactOffset) % 2 === 0);
+    const countJitter = round >= 4 ? this.randomRoundInt(rng, -1, 1) : 0;
+    let requiredCount = Math.max(
       1,
-      Math.min(8, round === 1 ? 3 : 2 + Math.ceil(round / 2) + (index % 2) + countJitter)
+      Math.min(7, round === 1 ? 1 : 2 + Math.floor((round - 1) / 3) + (index % 2) + countJitter)
     );
+    if (round === 3) {
+      requiredCount = Math.min(requiredCount, 3);
+    }
+    if (pacing.isBoss) {
+      requiredCount = Math.min(8, requiredCount + (pacing.requiredCountBonus || 0));
+    }
     const colorCycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
     const colorOffset = this.randomRoundInt(rng, 0, colorCycle.length - 1);
-    const itemColor =
-      round >= 2 ? colorCycle[(round + index + colorOffset - 2) % colorCycle.length] : null;
+    let itemColor = null;
+    const wantsColorDemand =
+      (round === 3 && index === 1) ||
+      (round > 3 && (!pacing.isBoss || pacing.act > 1 || index % 2 === 1));
+    if (wantsColorDemand) {
+      itemColor = colorCycle[(round + index + colorOffset - 2) % colorCycle.length];
+    }
     const colorConfig = itemColor ? GAME_CONFIG.itemColors?.[itemColor] : null;
     const operationCycle = [
       ARITHMETIC_OPERATION_TAGS.ADD_ONE,
@@ -5512,19 +5808,24 @@ export default class GameScene extends Phaser.Scene {
     ];
     const nodeCount = this.getDeliveryNodeCountForRound(round);
     const requiredLastOperationTag =
-      round >= 5 && (index === nodeCount - 1 || (round >= 7 && index % 3 === 2))
+      round >= 8 &&
+      (index === nodeCount - 1 ||
+        (pacing.isBoss && pacing.act >= 2 && index % 2 === 0) ||
+        (round >= 9 && index % 3 === 2))
         ? operationCycle[
             (round + index + this.randomRoundInt(rng, 0, operationCycle.length - 1)) %
               operationCycle.length
           ]
         : null;
     const operationLabel = this.getOperationDemandLabel(requiredLastOperationTag);
-    const completionScoreReward =
-      (GAME_CONFIG.deliveryNodeCompletionScoreBase || 420) +
-      tier * (GAME_CONFIG.deliveryNodeCompletionScorePerTier || 160) +
-      requiredCount * (GAME_CONFIG.deliveryNodeCompletionScorePerItem || 85) +
-      (itemColor ? 180 : 0) +
-      (requiredLastOperationTag ? 260 : 0);
+    const completionScoreReward = Math.floor(
+      ((GAME_CONFIG.deliveryNodeCompletionScoreBase || 420) +
+        tier * (GAME_CONFIG.deliveryNodeCompletionScorePerTier || 160) +
+        requiredCount * (GAME_CONFIG.deliveryNodeCompletionScorePerItem || 85) +
+        (itemColor ? 180 : 0) +
+        (requiredLastOperationTag ? 260 : 0)) *
+        (pacing.completionScoreMultiplier || 1)
+    );
     const completionScrapReward =
       Math.ceil(
         (GAME_CONFIG.deliveryNodeCompletionScrapBase || 2) +
@@ -5532,12 +5833,15 @@ export default class GameScene extends Phaser.Scene {
           requiredCount * (GAME_CONFIG.deliveryNodeCompletionScrapPerItem || 0.35)
       ) +
       (itemColor ? 1 : 0) +
-      (requiredLastOperationTag ? 1 : 0);
+      (requiredLastOperationTag ? 1 : 0) +
+      (pacing.completionScrapBonus || 0);
     const tierLabel = `${exact ? '=' : ''}L${tier}${exact ? '' : '+'}`;
+    const pacingPrefix = pacing.isBoss ? 'BOSS ' : pacing.isElite ? 'SURGE ' : '';
 
     return {
       tier,
       exact,
+      pacingStage: pacing.stage,
       scoreSink: true,
       itemColor,
       requiredLastOperationTag,
@@ -5545,7 +5849,7 @@ export default class GameScene extends Phaser.Scene {
       requiredCount,
       completionScoreReward,
       completionScrapReward,
-      label: `${colorConfig ? `${colorConfig.name} ` : ''}${operationLabel ? `${operationLabel} ` : ''}${tierLabel} x${requiredCount}`,
+      label: `${pacingPrefix}${colorConfig ? `${colorConfig.name} ` : ''}${operationLabel ? `${operationLabel} ` : ''}${tierLabel} x${requiredCount}`,
     };
   }
 
@@ -5588,6 +5892,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.moneyText) {
       this.moneyText.setText(`$${this.money}`);
     }
+    this.updateFlowHud();
     const visibleNodes = activeNodes.slice(0, 3);
     const cappedScore = Math.min(this.roundScore || 0, this.roundQuota || 0);
     const quota = this.roundQuota || 0;
@@ -5606,7 +5911,7 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.deliveryBoardText) {
       this.deliveryBoardText.setText(
-        this.currentRoundBoard ? `Board: ${this.currentRoundBoard.name}` : 'Board: Standard'
+        `${this.getRoundPacingLabel(this.currentRound)}\nBoard: ${this.currentRoundBoard ? this.currentRoundBoard.name : 'Standard'}`
       );
     }
     if (this.deliveryDemandText) {
@@ -5628,17 +5933,17 @@ export default class GameScene extends Phaser.Scene {
     if (this.nextDemandText) {
       if (this.runState === 'BUILD_PHASE') {
         this.nextDemandText.setText(
-          `${this.getRoundBoardSummary(this.currentRound)} | PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
+          `${this.getRoundPacingLabel(this.currentRound)} | PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
         );
         this.nextDemandText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         this.nextDemandText.setText(
-          `${this.getRoundBoardSummary(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `${this.getRoundPacingLabel(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       } else {
         this.nextDemandText.setText(
-          `${this.getRoundBoardSummary(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `${this.getRoundPacingLabel(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       }
@@ -5651,7 +5956,7 @@ export default class GameScene extends Phaser.Scene {
         if (this.roundSurvived) {
           const remainingDeliveries = activeNodes.length;
           this.deliveryStatusText.setText(
-            remainingDeliveries > 0 ? `Clear ${remainingDeliveries} nodes` : 'Wrapping up'
+            remainingDeliveries > 0 ? `Cash out or +${remainingDeliveries}` : 'Stretch complete'
           );
           this.deliveryStatusText.setColor('#88ffcc');
         } else if (this.getRemainingSourceResources() > 0) {
@@ -5676,6 +5981,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.updateDraftCycleButton();
     this.updateResetBoardButton();
+    this.updateRoundAdvanceButton();
   }
 
   addMoney(amount, reason = '') {
@@ -5769,6 +6075,46 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.killTweensOf([this.startRoundButton.button, this.startRoundButton.text]);
     this.startRoundButton.button.setScale(1);
     this.startRoundButton.text.setScale(1);
+  }
+
+  updateRoundAdvanceButton() {
+    if (!this.startRoundButton) return;
+
+    const canCashOut =
+      this.runState === 'ROUND_ACTIVE' &&
+      this.roundSurvived &&
+      !this.roundClearing &&
+      !this.gameOver;
+    const canStartRound = this.runState === 'BUILD_PHASE' && !this.roundClearing && !this.gameOver;
+    const visible = canCashOut || canStartRound;
+
+    this.startRoundButton.text.setText(canCashOut ? 'CASH OUT' : `START R${this.currentRound}`);
+    this.startRoundButton.button.setVisible(visible);
+    this.startRoundButton.text.setVisible(visible);
+
+    if (canCashOut) {
+      this.startRoundButton.button.fillColor = 0x2c6f8f;
+      this.startRoundButton.button.defaultFillColor = 0x2c6f8f;
+      this.startRoundButton.button.hoverFillColor = 0x3f8fb5;
+      this.startRoundButton.button.setStrokeStyle(2, 0x7ad7ff);
+    } else {
+      this.startRoundButton.button.fillColor = 0x2c7a55;
+      this.startRoundButton.button.defaultFillColor = 0x2c7a55;
+      this.startRoundButton.button.hoverFillColor = 0x3f9f72;
+      this.startRoundButton.button.setStrokeStyle(2, 0x88ffcc);
+    }
+
+    if (visible) {
+      this.startRoundButton.button.setInteractive({ useHandCursor: true });
+      this.startRoundButton.button.setAlpha(1);
+      this.startRoundButton.text.setAlpha(1);
+      this.startButtonReadyPulse();
+    } else {
+      this.startRoundButton.button.disableInteractive();
+      this.startRoundButton.button.setAlpha(1);
+      this.startRoundButton.text.setAlpha(1);
+      this.stopButtonReadyPulse();
+    }
   }
 
   showBoardRevealJuice(board) {
@@ -5962,17 +6308,7 @@ export default class GameScene extends Phaser.Scene {
   setBuildPhaseUIVisible(visible) {
     if (!this.startRoundButton) return;
 
-    this.startRoundButton.text.setText(`START R${this.currentRound}`);
-    this.startRoundButton.button.setVisible(visible);
-    this.startRoundButton.text.setVisible(visible);
-    if (visible) {
-      this.startRoundButton.button.setInteractive({ useHandCursor: true });
-      this.startRoundButton.text.setAlpha(1);
-      this.startButtonReadyPulse();
-    } else {
-      this.startRoundButton.button.disableInteractive();
-      this.stopButtonReadyPulse();
-    }
+    this.updateRoundAdvanceButton();
     this.updateDraftCycleButton();
   }
 
@@ -6010,6 +6346,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.roundState = this.createRoundState(round, board);
     this.updateRoundUI();
+    this.maybeShowDemandMilestone();
 
     if (options.buildPhase) {
       this.setRoundPhase('BUILD_PHASE');
@@ -6030,10 +6367,10 @@ export default class GameScene extends Phaser.Scene {
       .text(
         this.scale.width / 2 - this.rightPanelWidth / 2,
         78,
-        `BUILD R${round}\n${this.getRoundBoardSummary(round)}`,
+        `BUILD R${round}\n${this.getRoundPacingLabel(round)}\n${this.getRoundBoardSummary(round)}`,
         {
           fontFamily: 'Arial Black',
-          fontSize: 26,
+          fontSize: 22,
           color: '#88ffcc',
           align: 'center',
           stroke: '#000000',
@@ -6055,15 +6392,67 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  maybeShowDemandMilestone() {
+    const activeDemands = (this.deliveryNodes || []).map((node) => node?.condition).filter(Boolean);
+    if (!this.exactDemandExplained && activeDemands.some((condition) => condition.exact)) {
+      this.exactDemandExplained = true;
+      const exactDemand = activeDemands.find((condition) => condition.exact);
+      this.showDemandMilestoneFeedback(
+        'EXACT DEMAND',
+        `Only L${exactDemand.tier} counts here`,
+        '#ffd166'
+      );
+      return;
+    }
+
+    if (
+      !this.operationDemandExplained &&
+      activeDemands.some((condition) => condition.requiredLastOperationTag)
+    ) {
+      this.operationDemandExplained = true;
+      const operationDemand = activeDemands.find((condition) => condition.requiredLastOperationTag);
+      this.showDemandMilestoneFeedback(
+        'OPERATION DEMAND',
+        `${operationDemand.operationLabel || 'Recipe'} must be the final step`,
+        '#b9f7ff'
+      );
+    }
+  }
+
+  showDemandMilestoneFeedback(title, subtitle, color = '#ffd166') {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 130, `${title}\n${subtitle}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 22,
+        color,
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+
+    this.tweens.add({
+      targets: text,
+      y: 96,
+      alpha: 0,
+      duration: 1600,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
   showRoundStartFeedback(round) {
     const text = this.add
       .text(
         this.scale.width / 2 - this.rightPanelWidth / 2,
         78,
-        `ROUND ${round}\n${this.getRoundBoardSummary(round)}`,
+        `ROUND ${round}\n${this.getRoundPacingLabel(round)}\n${this.getRoundBoardSummary(round)}`,
         {
           fontFamily: 'Arial Black',
-          fontSize: 26,
+          fontSize: 22,
           color: '#ffffff',
           align: 'center',
           stroke: '#000000',
@@ -6115,8 +6504,13 @@ export default class GameScene extends Phaser.Scene {
   clearRound() {
     if (this.roundClearing) return;
     this.roundClearing = true;
+    this.lastRoundClearWasStretchComplete = this.areDeliveryNodesComplete();
     this.setRoundPhase('ROUND_CLEARED');
-    const clearBonus = (GAME_CONFIG.roundClearBonus || 18) + this.currentRound * 4;
+    const pacing = this.getRoundPacing(this.currentRound);
+    const bossMoneyBonus = pacing.isBoss
+      ? GAME_CONFIG.pacingConfig?.bossRoundClearMoneyBonus || 14
+      : 0;
+    const clearBonus = (GAME_CONFIG.roundClearBonus || 18) + this.currentRound * 4 + bossMoneyBonus;
     this.addMoney(clearBonus, 'round clear');
     if (this.upgradeManager?.isProceduralUpgradeActive('boon_reinvestment_loop')) {
       const overkillScore = Math.max(0, (this.roundScore || 0) - (this.roundQuota || 0));
@@ -6149,11 +6543,20 @@ export default class GameScene extends Phaser.Scene {
   }
 
   showRoundClearFeedback() {
+    const pacing = this.getRoundPacing(this.currentRound);
+    const stretchComplete = Boolean(this.lastRoundClearWasStretchComplete);
+    const message = stretchComplete
+      ? 'ALL COMPLETE\nJACKPOT'
+      : pacing.isBoss
+        ? `BOSS CLEAR\n${pacing.stageName}`
+        : 'ROUND CLEAR';
+    const x = this.scale.width / 2 - this.rightPanelWidth / 2;
+    const y = 118;
     const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 118, 'ROUND CLEAR', {
+      .text(x, y, message, {
         fontFamily: 'Arial Black',
-        fontSize: 36,
-        color: '#88ffcc',
+        fontSize: stretchComplete ? 34 : pacing.isBoss ? 30 : 36,
+        color: stretchComplete ? '#ffd166' : '#88ffcc',
         align: 'center',
         stroke: '#000000',
         strokeThickness: 6,
@@ -6162,17 +6565,105 @@ export default class GameScene extends Phaser.Scene {
       .setScrollFactor(0);
     text.setDepth(1000);
     this.addToUI(text);
-    this.cameras.main.flash(180, 120, 255, 210, true);
+    this.cameras.main.flash(
+      stretchComplete ? 320 : 180,
+      120,
+      255,
+      stretchComplete ? 255 : 210,
+      true
+    );
+    if (stretchComplete) {
+      this.cameras.main.shake(260, 0.006);
+      this.showStretchJackpotBurst(x, y);
+      this.time.delayedCall(120, () => this.playSound('delivery'));
+      this.time.delayedCall(240, () => this.playSound('delivery'));
+    }
 
     this.tweens.add({
       targets: text,
-      scaleX: 1.2,
-      scaleY: 1.2,
+      scaleX: stretchComplete ? 1.34 : 1.2,
+      scaleY: stretchComplete ? 1.34 : 1.2,
       alpha: 0,
-      duration: 1200,
-      ease: 'Power2',
+      duration: stretchComplete ? 1550 : 1200,
+      ease: stretchComplete ? 'Back.easeOut' : 'Power2',
       onComplete: () => text.destroy(),
     });
+  }
+
+  showStretchJackpotBurst(x, y) {
+    const reelLabels = ['SCRAP', 'POINTS', 'FLOW'];
+    const reelContainer = this.add.container(x, y + 62).setScrollFactor(0);
+    reelContainer.setDepth(1001);
+
+    reelLabels.forEach((label, index) => {
+      const offsetX = (index - 1) * 86;
+      const box = this.add
+        .rectangle(offsetX, 0, 74, 34, 0x111820, 0.94)
+        .setStrokeStyle(2, 0xffd166, 0.95);
+      const reelText = this.add
+        .text(offsetX, 0, label, {
+          fontFamily: 'Arial Black',
+          fontSize: 11,
+          color: '#ffd166',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      reelContainer.add([box, reelText]);
+      this.tweens.add({
+        targets: reelText,
+        y: { from: -18, to: 0 },
+        scaleX: 1.16,
+        scaleY: 1.16,
+        duration: 180 + index * 90,
+        yoyo: true,
+        repeat: 2,
+        ease: 'Quad.easeOut',
+      });
+    });
+
+    this.addToUI(reelContainer);
+    this.tweens.add({
+      targets: reelContainer,
+      y: y + 36,
+      alpha: 0,
+      delay: 780,
+      duration: 820,
+      ease: 'Power2',
+      onComplete: () => reelContainer.destroy(),
+    });
+
+    const burstLabels = ['+$', '+S', 'x2', 'WIN', '+FLOW', 'BONUS'];
+    for (let index = 0; index < 24; index++) {
+      const angle = (Math.PI * 2 * index) / 24;
+      const distance = 58 + (index % 5) * 18;
+      const label = burstLabels[index % burstLabels.length];
+      const chip = this.add
+        .text(x, y + 16, label, {
+          fontFamily: 'Arial Black',
+          fontSize: 12,
+          color: index % 3 === 0 ? '#88ffcc' : index % 3 === 1 ? '#ffd166' : '#b9f7ff',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0);
+      chip.setDepth(1002);
+      this.addToUI(chip);
+      this.tweens.add({
+        targets: chip,
+        x: x + Math.cos(angle) * distance,
+        y: y + 16 + Math.sin(angle) * distance * 0.55,
+        scaleX: 1.4,
+        scaleY: 1.4,
+        alpha: 0,
+        duration: 760 + (index % 4) * 120,
+        ease: 'Cubic.easeOut',
+        onComplete: () => chip.destroy(),
+      });
+    }
   }
 
   showResourceExhaustedFeedback(message = 'RESOURCES EXHAUSTED') {
@@ -6410,7 +6901,80 @@ export default class GameScene extends Phaser.Scene {
   }
 
   createShopOffers() {
-    return [...this.createShopPieceOffers(3), this.createPermanentUpgradeOffer()].filter(Boolean);
+    const assistOffer = this.createNextRoundAssistOffer();
+    const randomPieceCount = assistOffer ? 2 : 3;
+    return [
+      assistOffer,
+      ...this.createShopPieceOffers(randomPieceCount),
+      this.createPermanentUpgradeOffer(),
+    ].filter(Boolean);
+  }
+
+  createNextRoundAssistOffer() {
+    const nextRound = (this.currentRound || 1) + 1;
+    const nextPacing = this.getRoundPacing(nextRound);
+    const nextDemands = Array.from(
+      { length: this.getDeliveryNodeCountForRound(nextRound) },
+      (_unused, index) => this.createDeliveryCondition(nextRound, index)
+    );
+    const operationDemand = nextDemands.find((demand) => demand.requiredLastOperationTag);
+    const highestTier = Math.max(...nextDemands.map((demand) => demand.tier || 1));
+    const exactDemand = nextDemands.find((demand) => demand.exact);
+    const template = this.findShopAssistTemplate({
+      operationTag: operationDemand?.requiredLastOperationTag || null,
+      highestTier,
+      exact: Boolean(exactDemand),
+      isBoss: nextPacing.isBoss,
+    });
+
+    if (!template) return null;
+
+    const offer = this.createShopPieceOffer(template, 99);
+    const scrap = this.scrap || 0;
+    if (scrap >= 4 && scrap < offer.cost) {
+      offer.cost = scrap;
+    }
+    offer.kind = nextPacing.isBoss ? 'Boss Prep' : 'Plan';
+    offer.name = `${nextPacing.isBoss ? 'Boss Prep' : 'Next Plan'}: ${offer.name}`;
+    offer.description = `${offer.description} Recommended for ${this.getRoundPacingLabel(nextRound)}.`;
+    offer.effect = `Next: ${this.getRoundPreviewText(nextRound, 2)}`;
+    offer.isRecommended = true;
+    return offer;
+  }
+
+  findShopAssistTemplate({ operationTag, highestTier, exact, isBoss }) {
+    const library = [...STARTER_PIECE_DECK, ...STANDARD_PIECE_LIBRARY];
+    const matchesOperation = (template, type, value = null) => {
+      const operation = template.arithmeticOperation;
+      if (operation?.type !== type) return false;
+      return value === null || operation.value === value;
+    };
+
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.ADD_ONE) {
+      return library.find((template) =>
+        matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, 1)
+      );
+    }
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.ADD_TWO) {
+      return library.find((template) =>
+        matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, 2)
+      );
+    }
+    if (operationTag === ARITHMETIC_OPERATION_TAGS.ADD) {
+      return library.find((template) => matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD));
+    }
+
+    if (isBoss || exact || highestTier >= 4) {
+      return (
+        library.find((template) =>
+          matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, 2)
+        ) || library.find((template) => matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD))
+      );
+    }
+
+    return library.find((template) =>
+      matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, 1)
+    );
   }
 
   createShopPieceOffers(count = 3) {

@@ -1227,9 +1227,9 @@ export default class ConveyorMachine extends BaseMachine {
     tooltipBg.setStrokeStyle(1, 0xffffff);
 
     // Simpler tooltip content for conveyor belts
-    let tooltipContent = `${this.name} (${this.direction})\n\n`;
-    tooltipContent += `Transports items along the ${this.direction} direction.\n`;
-    tooltipContent += `Capacity: ${this.itemsOnBelt.length}/${this.maxCapacity} items`;
+    let tooltipContent = `${this.name} (${this.direction})\n`;
+    tooltipContent += `Moves ${this.direction}.\n`;
+    tooltipContent += `Capacity: ${this.itemsOnBelt.length}/${this.maxCapacity}`;
 
     const tooltipText = this.scene.add
       .text(preferredX + 10, preferredY + 10, tooltipContent, {

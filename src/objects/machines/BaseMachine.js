@@ -1433,14 +1433,6 @@ export default class BaseMachine {
         tooltipContent += `\nInputs: ${inputNames}`;
       }
 
-      if (this.outputLevel) {
-        tooltipContent += `\nOutput: L${this.outputLevel} (${getLevelName(this.outputLevel)})`;
-      } else if (this.lastOutputLevel) {
-        tooltipContent += `\nLast Output: L${this.lastOutputLevel} (${getLevelName(this.lastOutputLevel)})`;
-      } else if (this.previewOutputLevel) {
-        tooltipContent += `\nLikely Output: L${this.previewOutputLevel} (${getLevelName(this.previewOutputLevel)})`;
-      }
-
       // Show notation if available
       if (this.notation) {
         tooltipContent += `\nNotation: ${this.notation}`;
@@ -1519,8 +1511,7 @@ export default class BaseMachine {
     if (this.trait) {
       const traitDef = getTraitById(this.trait);
       if (traitDef) {
-        tooltipContent += `\n\nTrait: ${traitDef.name}`;
-        tooltipContent += `\n${traitDef.description}`;
+        tooltipContent += `\nTrait: ${traitDef.name} - ${traitDef.description}`;
       }
     }
 
@@ -2359,17 +2350,17 @@ export default class BaseMachine {
       }
 
       // Fire trait onProcess hook. Hook may MUTATE nextItem or return a
-      // replacement value. Returning explicit null aborts the output (used
-      // by Polarized when it rejects a resource).
+      // replacement value. Returning explicit null aborts the output.
       if (this.trait) {
         const def = getTraitById(this.trait);
         if (def && def.hooks && def.hooks.onProcess) {
           try {
-            // 4th arg: processing context. inputPurity is the TRUE purity of
-            // the consumed input (nextItem.purity has already been overwritten
-            // to outputLevel by this point, so traits that gate on input
-            // purity — e.g. Polarized — must read it from here).
-            const ctx = { inputPurity: processedItem.purity };
+            // 4th arg: processing context. Consumed input purity is kept here
+            // because nextItem.purity may already be overwritten by the recipe.
+            const ctx = {
+              inputPurity: processedItem.purity,
+              consumedItems: consumedItems.length > 0 ? consumedItems : [processedItem],
+            };
             const result = def.hooks.onProcess(nextItem, this, this.scene, ctx);
             if (result === null) {
               console.log(`[${this.id}] trait ${this.trait} aborted output`);

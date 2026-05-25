@@ -293,7 +293,6 @@ export default class DeliveryNode {
   }
 
   matchesCondition(itemData) {
-    if (this.completed) return false;
     const tier = this.getItemTier(itemData);
     const requiredTier = this.condition.tier || 1;
     const tierMatches = this.condition.exact ? tier === requiredTier : tier >= requiredTier;
@@ -314,7 +313,8 @@ export default class DeliveryNode {
    * (machine output is purity-resource; level-resource is a legacy path).
    *
    * Downstream tasks add their tag checks here:
-   *   - Task 9: 'polarized' (x2), 'bypass' (x0.75)
+   *   - Task 9: 'polarized' (x2)
+   *   - Trait refresh: 'sequenced' (x1.75)
    *   - Task 10: 'resonant' (x1.5)
    *   - Task 11: 'hoarder@<id>' (x2 every 5th via scene.traitRegistry),
    *              Beacon additive via scene.traitRegistry.getBeaconChainBonus()
@@ -351,9 +351,9 @@ export default class DeliveryNode {
       modifier *= 2.0;
       labels.push('Polarized');
     }
-    if (tags.includes('bypass')) {
-      modifier *= 0.75;
-      labels.push('Bypass');
+    if (tags.includes('sequenced')) {
+      modifier *= 1.75;
+      labels.push('Sequenced');
     }
     if (tags.includes('resonant')) {
       modifier *= 1.5;
@@ -397,6 +397,25 @@ export default class DeliveryNode {
     return `${resourceLabel}  ${basePoints} x${multText}${tagText}`;
   }
 
+  getFilledRewardMultiplier() {
+    const multiplier = GAME_CONFIG.filledDeliveryNodeRewardMultiplier ?? 0.35;
+    return Math.max(0, Math.min(1, multiplier));
+  }
+
+  applyFilledRewardPenalty(reward, wasAlreadyFilled) {
+    if (!wasAlreadyFilled) return reward;
+
+    return {
+      ...reward,
+      points: Math.floor((reward?.points || 0) * this.getFilledRewardMultiplier()),
+      filledDelivery: true,
+    };
+  }
+
+  getDeliveryLabels(labels = [], wasAlreadyFilled = false) {
+    return wasAlreadyFilled ? ['Overflow', ...labels] : labels;
+  }
+
   /**
    * Accept an item delivered to this node.
    * Handles both regular resources and upgrade packages.
@@ -410,12 +429,10 @@ export default class DeliveryNode {
       console.warn('DeliveryNode received invalid itemData:', itemData);
       return false;
     }
-    if (this.completed) {
-      return false;
-    }
 
     const itemType = itemData.type; // Get type from itemData
     const amount = itemData.amount || 1; // Get amount, default to 1 if missing
+    const wasAlreadyFilled = this.completed;
 
     // --- Handle level-based resources (new dynamic level system) ---
     if (itemType === 'level-resource') {
@@ -425,10 +442,13 @@ export default class DeliveryNode {
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
       const traitBreakdown = this.getTraitDeliveryBreakdown(totalPoints, itemData);
-      const reward = this.scene.getDeliveryReward?.(traitBreakdown.points, level, itemData) || {
-        points: traitBreakdown.points,
-        countsForFlow: true,
-      };
+      const reward = this.applyFilledRewardPenalty(
+        this.scene.getDeliveryReward?.(traitBreakdown.points, level, itemData) || {
+          points: traitBreakdown.points,
+          countsForFlow: true,
+        },
+        wasAlreadyFilled
+      );
 
       // Add score
       const awardedPoints =
@@ -439,7 +459,11 @@ export default class DeliveryNode {
         this.scene.recordDeliveryFlow(itemData, level, reward);
       }
 
-      this.recordSatisfiedDelivery(level);
+      if (wasAlreadyFilled) {
+        this.recordOverflowDelivery(level);
+      } else {
+        this.recordSatisfiedDelivery(level);
+      }
 
       // Visual feedback for level resource
       const levelName = getLevelName(level);
@@ -447,11 +471,11 @@ export default class DeliveryNode {
         basePoints: totalPoints,
         multiplier: awardedPoints / Math.max(1, totalPoints),
         itemColor: traitBreakdown.itemColor,
-        labels: traitBreakdown.labels,
+        labels: this.getDeliveryLabels(traitBreakdown.labels, wasAlreadyFilled),
       });
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}${wasAlreadyFilled ? ' (filled-node overflow)' : ''}`
       );
       return true;
     }
@@ -467,10 +491,13 @@ export default class DeliveryNode {
       const chainMultiplier = getChainMultiplier(chainCount);
       const totalPoints = calculateDeliveryScore(purity, chainCount);
       const traitBreakdown = this.getTraitDeliveryBreakdown(totalPoints, itemData);
-      const reward = this.scene.getDeliveryReward?.(traitBreakdown.points, purity, itemData) || {
-        points: traitBreakdown.points,
-        countsForFlow: true,
-      };
+      const reward = this.applyFilledRewardPenalty(
+        this.scene.getDeliveryReward?.(traitBreakdown.points, purity, itemData) || {
+          points: traitBreakdown.points,
+          countsForFlow: true,
+        },
+        wasAlreadyFilled
+      );
 
       // Add score
       const awardedPoints =
@@ -481,7 +508,11 @@ export default class DeliveryNode {
         this.scene.recordDeliveryFlow(itemData, purity, reward);
       }
 
-      this.recordSatisfiedDelivery(purity);
+      if (wasAlreadyFilled) {
+        this.recordOverflowDelivery(purity);
+      } else {
+        this.recordSatisfiedDelivery(purity);
+      }
 
       // Visual feedback for purity resource
       const purityName = getPurityName(purity);
@@ -491,12 +522,15 @@ export default class DeliveryNode {
         itemColor: traitBreakdown.itemColor,
         labels:
           chainMultiplier > 1
-            ? [`Chain x${this.formatMultiplier(chainMultiplier)}`, ...traitBreakdown.labels]
-            : traitBreakdown.labels,
+            ? this.getDeliveryLabels(
+                [`Chain x${this.formatMultiplier(chainMultiplier)}`, ...traitBreakdown.labels],
+                wasAlreadyFilled
+              )
+            : this.getDeliveryLabels(traitBreakdown.labels, wasAlreadyFilled),
       });
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}${wasAlreadyFilled ? ' (filled-node overflow)' : ''}`
       );
       return true;
     }
@@ -510,7 +544,7 @@ export default class DeliveryNode {
     // Find the score for this resource type from the config
     const resourceConfig = GAME_CONFIG.resourceTypes.find((r) => r.id === resourceType);
     const pointsPerUnit = resourceConfig ? resourceConfig.points : 0; // Default to 0 if not found
-    const totalPoints = pointsPerUnit * amount; // Calculate total points based on amount
+    let totalPoints = pointsPerUnit * amount; // Calculate total points based on amount
 
     if (pointsPerUnit === 0) {
       // Check if it was a valid resource type
@@ -519,17 +553,32 @@ export default class DeliveryNode {
       return false; // Reject unknown resource types
     }
 
+    if (wasAlreadyFilled) {
+      totalPoints = Math.floor(totalPoints * this.getFilledRewardMultiplier());
+    }
+
     // Add score
     this.scene.addScore(totalPoints, { countsForFlow: false });
-    this.recordSatisfiedDelivery(1);
+    if (wasAlreadyFilled) {
+      this.recordOverflowDelivery(1);
+    } else {
+      this.recordSatisfiedDelivery(1);
+    }
 
     // Visual feedback for accepted resource
     this.createAcceptEffect(resourceType, totalPoints);
 
     console.log(
-      `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${amount}x ${resourceType}, +${totalPoints} points`
+      `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${amount}x ${resourceType}, +${totalPoints} points${wasAlreadyFilled ? ' (filled-node overflow)' : ''}`
     );
     return true;
+  }
+
+  recordOverflowDelivery(tier) {
+    this.createFillPulse(tier);
+    if (this.scene && typeof this.scene.updateRoundUI === 'function') {
+      this.scene.updateRoundUI();
+    }
   }
 
   recordSatisfiedDelivery(tier) {
@@ -697,9 +746,6 @@ export default class DeliveryNode {
    * @returns {boolean} True if the type is acceptable, false otherwise.
    */
   canAcceptInput(itemType, itemData = null) {
-    if (this.completed) {
-      return false;
-    }
     // Allow level-based resources (new dynamic level system)
     if (itemType === 'level-resource') {
       return itemData ? this.matchesCondition(itemData) : true;

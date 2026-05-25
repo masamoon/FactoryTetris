@@ -134,13 +134,31 @@ export class UpgradeScene extends Phaser.Scene {
       .setStrokeStyle(2, 0x2f4d62, 0.95);
 
     this.add
-      .text(width / 2, panelTop + 34, `Available Scrap: ${scrap}`, {
-        fontFamily: 'Arial',
+      .text(width / 2, panelTop + 24, 'LUCKY DRAW', {
+        fontFamily: 'Arial Black',
         fontSize: 18,
+        color: '#88ffcc',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    const reelText = this.add
+      .text(width / 2, panelTop + 48, `◆  Available Scrap: ${scrap}  ◆`, {
+        fontFamily: 'Arial',
+        fontSize: 16,
         color: '#ffd166',
         align: 'center',
       })
       .setOrigin(0.5);
+    this.tweens.add({
+      targets: reelText,
+      scaleX: 1.05,
+      scaleY: 1.05,
+      duration: 480,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
 
     offers.forEach((choice, index) => {
       const column = index % columns;
@@ -169,9 +187,10 @@ export class UpgradeScene extends Phaser.Scene {
 
   createShopOfferButton(x, y, width, height, choice, scrap) {
     const canAfford = !choice.purchased && (choice.isFree || scrap >= (choice.cost || 0));
-    const fillColor = canAfford ? 0x173244 : 0x171d25;
-    const hoverColor = canAfford ? 0x214b64 : 0x202633;
-    const strokeColor = canAfford ? 0x4aa3c7 : 0x4b5663;
+    const isJackpot = Boolean(choice.isRecommended);
+    const fillColor = canAfford ? (isJackpot ? 0x243616 : 0x173244) : 0x171d25;
+    const hoverColor = canAfford ? (isJackpot ? 0x39551f : 0x214b64) : 0x202633;
+    const strokeColor = canAfford ? (isJackpot ? 0xffd166 : 0x4aa3c7) : 0x4b5663;
     const textColor = canAfford ? '#f4fbff' : '#8c98a3';
     const accentColor = this.getShopKindColor(choice.kind);
     const compact = height < 210;
@@ -191,8 +210,40 @@ export class UpgradeScene extends Phaser.Scene {
 
     const bg = this.add
       .rectangle(x, y, width, height, fillColor, 0.98)
-      .setStrokeStyle(2, strokeColor, canAfford ? 0.95 : 0.55)
+      .setStrokeStyle(isJackpot ? 3 : 2, strokeColor, canAfford ? 0.95 : 0.55)
       .setInteractive({ useHandCursor: true });
+    bg.setAlpha(0);
+    bg.setScale(0.92);
+    this.tweens.add({
+      targets: bg,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 280 + Math.random() * 220,
+      ease: 'Back.easeOut',
+    });
+
+    if (isJackpot) {
+      this.tweens.add({
+        targets: bg,
+        scaleX: 1.025,
+        scaleY: 1.025,
+        duration: 620,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+      this.add
+        .text(x, y - height / 2 + 8, 'JACKPOT PICK', {
+          fontFamily: 'Arial Black',
+          fontSize: 10,
+          color: '#fff3bf',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+    }
 
     const kindBadge = this.add
       .rectangle(kindX, headerY, kindWidth, 26, accentColor, canAfford ? 1 : 0.45)
@@ -284,12 +335,13 @@ export class UpgradeScene extends Phaser.Scene {
 
   createShopSaveButton(x, y, width, height, choice, scrap = 0) {
     const canAfford = choice.isFree || scrap >= (choice.cost || 0);
+    const label = choice.type === 'reroll_shop' ? 'SPIN REROLL' : choice.name;
     const bg = this.add
       .rectangle(x, y, width, height, canAfford ? 0x26313b : 0x171d25, 0.98)
       .setStrokeStyle(2, canAfford ? 0x6b7c8c : 0x4b5663, 0.9)
       .setInteractive({ useHandCursor: true });
     this.add
-      .text(x, y, choice.cost ? `${choice.name} (${choice.cost} Scrap)` : choice.name, {
+      .text(x, y, choice.cost ? `${label} (${choice.cost} Scrap)` : label, {
         fontFamily: 'Arial',
         fontSize: width < 220 ? 15 : 18,
         fontStyle: 'bold',

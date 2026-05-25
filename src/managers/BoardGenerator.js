@@ -133,6 +133,10 @@ export default class BoardGenerator {
   }
 
   pickTemplateId(round, rng) {
+    if (round > 1 && round % 4 === 0) {
+      return BOARD_TEMPLATE_SEQUENCE[(Math.floor(round / 4) - 1) % BOARD_TEMPLATE_SEQUENCE.length];
+    }
+
     const unlockedTemplates =
       round <= 3
         ? [BOARD_TEMPLATES.SPLIT_LANES.id, BOARD_TEMPLATES.CROSSFLOW_GATE.id]

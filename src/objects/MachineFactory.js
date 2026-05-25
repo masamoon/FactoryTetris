@@ -610,7 +610,7 @@ export default class MachineFactory {
       machinePreview.slotIndex = slotIndex;
       machinePreview.category = category;
       machinePreview.slotFrame = slotFrame;
-      machinePreview.basePanelScale = isOperator ? 0.86 : 1;
+      machinePreview.basePanelScale = 1;
       machinePreview.setScale(machinePreview.basePanelScale);
       this.hidePanelPreviewInternalLabels(machinePreview);
       this.panelPreviewItems.push({
@@ -738,7 +738,7 @@ export default class MachineFactory {
       );
 
       machinePreview.on('pointerover', () => {
-        machinePreview.setScale(machinePreview.basePanelScale * 1.08);
+        machinePreview.setScale(machinePreview.basePanelScale);
         slotFrame.fillColor = 0x1f3240;
         slotFrame.setStrokeStyle(2, slotStyle.borderColor, 1);
         this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
@@ -783,6 +783,12 @@ export default class MachineFactory {
       .replace(/[^a-z0-9]/gi, '')
       .toUpperCase();
     return compact.slice(0, 3) || 'SP';
+  }
+
+  getTraitTooltipLine(traitId) {
+    const traitDef = getTraitById(traitId);
+    if (!traitDef) return null;
+    return `Trait: ${traitDef.name} - ${traitDef.description}`;
   }
 
   updatePanelSelectionHighlights() {
@@ -1767,68 +1773,63 @@ export default class MachineFactory {
     this.tooltip.add(nameText);
 
     // Format input/output information
-    let tooltipText = '';
+    const lines = [];
 
     // Simplified descriptions for logistics items
     if (machineType.id === 'conveyor') {
-      tooltipText = 'Transports items between machines and nodes.\n\n';
-      tooltipText += 'Place on resource nodes to extract resources.\n';
-      tooltipText += 'Connect to machines to transfer items.';
+      lines.push('Moves items along arrows.', 'Extracts from source nodes.');
     } else if (machineType.id === 'splitter') {
-      tooltipText = 'Splits incoming items between two outputs.\n\n';
-      tooltipText += 'Alternates items left and right.';
+      lines.push('Alternates one input to two outputs.');
     } else if (machineType.id === 'merger') {
-      tooltipText = 'Combines items from multiple inputs.\n\n';
-      tooltipText += 'Merges two input paths into one output.';
+      lines.push('Merges inputs into one output.');
     } else if (machineType.id === 'underground-belt') {
-      tooltipText = 'Transports items underground.\n\n';
-      tooltipText += 'Use to pass under machines or other belts.';
+      lines.push('Passes items under machines and belts.');
     } else if (machineType.id === 'painter') {
-      tooltipText = 'Recolors passing items.\n\n';
-      tooltipText += 'Rotate it to choose Blue, Yellow, Red, or Green.';
+      lines.push('Recolors by direction.', 'Rotate to choose color.');
     } else if (machineType.arithmeticOperation) {
       const inputCount = machineType.arithmeticInputCount || 1;
-      tooltipText = `Operation: ${machineType.notation}\n\n`;
-      tooltipText +=
-        inputCount > 1
-          ? `Combines ${inputCount} different numeric inputs.\n`
-          : `Accepts any numeric input.\n`;
-      if (machineType.previewOutputLevel) {
-        tooltipText += `Likely output now: L${machineType.previewOutputLevel}\n`;
-      }
+      lines.push(`Op: ${machineType.notation}`);
+      lines.push(inputCount > 1 ? `Input: ${inputCount} different levels` : 'Input: any level');
       if (typeof this.scene?.getMachinePlacementCost === 'function') {
-        tooltipText += `Budget cost: $${this.scene.getMachinePlacementCost(machineType)}\n`;
+        lines.push(`Cost: $${this.scene.getMachinePlacementCost(machineType)}`);
       }
-      tooltipText += `Processing time: ${this.getOperatorProcessingTime(machineType) / 1000}s`;
+      lines.push(`Time: ${this.getOperatorProcessingTime(machineType) / 1000}s`);
     } else {
       // Regular machine tooltip for processors
 
       // Add inputs with quantities if available
       if (machineType.requiredInputs && Object.keys(machineType.requiredInputs).length > 0) {
-        tooltipText += 'Inputs:\n';
-        for (const [type, amount] of Object.entries(machineType.requiredInputs)) {
-          tooltipText += `  • ${amount}× ${this.formatResourceName(type)}\n`;
-        }
+        const inputs = Object.entries(machineType.requiredInputs)
+          .map(([type, amount]) => `${amount}x ${this.formatResourceName(type)}`)
+          .join(', ');
+        lines.push(`In: ${inputs}`);
       } else if (machineType.inputTypes && machineType.inputTypes.length > 0) {
-        tooltipText += 'Inputs:\n';
-        machineType.inputTypes.forEach((type) => {
-          tooltipText += `  • ${this.formatResourceName(type)}\n`;
-        });
+        const inputs = machineType.inputTypes
+          .map((type) => this.formatResourceName(type))
+          .join(', ');
+        lines.push(`In: ${inputs}`);
       }
 
       // Add outputs
       if (machineType.outputTypes && machineType.outputTypes.length > 0) {
-        tooltipText += 'Outputs:\n';
-        machineType.outputTypes.forEach((type) => {
-          tooltipText += `  • ${this.formatResourceName(type)}\n`;
-        });
+        const outputs = machineType.outputTypes
+          .map((type) => this.formatResourceName(type))
+          .join(', ');
+        lines.push(`Out: ${outputs}`);
       }
 
       // Add processing time if available
       if (machineType.processingTime) {
-        tooltipText += `Processing time: ${machineType.processingTime / 1000}s`;
+        lines.push(`Time: ${machineType.processingTime / 1000}s`);
       }
     }
+
+    const traitLine = this.getTraitTooltipLine(machineType.trait);
+    if (traitLine) {
+      lines.push(traitLine);
+    }
+
+    let tooltipText = lines.join('\n');
 
     // Make sure we have at least some text in the tooltip
     if (!tooltipText) {

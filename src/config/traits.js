@@ -29,7 +29,7 @@ export const TRAITS = [
     id: 'catalyst',
     name: 'Catalyst',
     category: TRAIT_CATEGORIES.STAT,
-    description: 'Resources gain +2 purity through this machine instead of +1.',
+    description: '+2 purity instead of +1.',
     hooks: {
       // Catalyst adds +1 more on top of the machine's own arithmetic operation.
       onProcess: (resource) => {
@@ -42,7 +42,7 @@ export const TRAITS = [
     id: 'overclocked',
     name: 'Overclocked',
     category: TRAIT_CATEGORIES.STAT,
-    description: 'Processing time is halved.',
+    description: '50% faster processing.',
     hooks: {
       onAttach: (machine) => {
         if (
@@ -66,7 +66,7 @@ export const TRAITS = [
     id: 'tycoon',
     name: 'Tycoon',
     category: TRAIT_CATEGORIES.STAT,
-    description: 'Resources processed by this machine deliver for +50% score.',
+    description: '+50% delivery score.',
     hooks: {
       // The trait id is already appended to traitTags by processResource /
       // completeProcessing. Tycoon needs no onProcess body — DeliveryNode
@@ -77,17 +77,22 @@ export const TRAITS = [
     id: 'polarized',
     name: 'Polarized',
     category: TRAIT_CATEGORIES.RULE,
-    description: 'Refuses resources with purity below 3. Accepted resources output 2x value.',
+    description: 'x2 score if all inputs are L3+.',
     hooks: {
       onProcess: (resource, machine, scene, ctx) => {
-        // BaseMachine passes the true consumed-input purity in ctx.inputPurity.
-        // Fall back defensively if ctx is absent.
-        const inputPurity =
-          ctx && typeof ctx.inputPurity === 'number' ? ctx.inputPurity : (resource.purity || 1) - 1;
-        if (inputPurity < 3) {
-          return null; // reject: abort this machine's output
+        const consumedItems = Array.isArray(ctx?.consumedItems) ? ctx.consumedItems : [];
+        const inputPurities =
+          consumedItems.length > 0
+            ? consumedItems.map((item) => item?.purity || 1)
+            : [ctx && typeof ctx.inputPurity === 'number' ? ctx.inputPurity : resource.purity || 1];
+        const allInputsHighGrade = inputPurities.every((purity) => purity >= 3);
+
+        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
+        resource.traitTags = resource.traitTags.filter((t) => t !== 'polarized');
+        if (allInputsHighGrade) {
+          resource.traitTags.push('polarized');
         }
-        return resource; // accepted — 2x bonus applied at delivery via 'polarized' tag
+        return resource;
       },
     },
   },
@@ -95,7 +100,7 @@ export const TRAITS = [
     id: 'twin',
     name: 'Twin',
     category: TRAIT_CATEGORIES.RULE,
-    description: 'Emits a duplicate output resource on each successful process.',
+    description: 'Duplicates each output.',
     hooks: {
       onProcess: (resource, machine) => {
         // Prevent exponential compounding: a resource already marked twinned
@@ -118,23 +123,27 @@ export const TRAITS = [
     },
   },
   {
-    id: 'bypass',
-    name: 'Bypass',
+    id: 'sequenced',
+    name: 'Sequenced',
     category: TRAIT_CATEGORIES.RULE,
-    description: 'Accepts wrong-tier inputs at 75% delivered value.',
+    description: '+75% score after another operator.',
     hooks: {
-      // V1: tag-only. Delivery applies 0.75x via the 'bypass' tag (auto-added
-      // to traitTags by completeProcessing since this machine's trait is
-      // 'bypass'). A future plan can extend BaseMachine input acceptance to
-      // actually accept off-tier inputs; for now this models "takes anything
-      // but pays less" purely as a delivery-side penalty.
+      onProcess: (resource) => {
+        if (!resource) return resource;
+        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
+        resource.traitTags = resource.traitTags.filter((t) => t !== 'sequenced');
+        if ((resource.chainCount || 0) >= 2) {
+          resource.traitTags.push('sequenced');
+        }
+        return resource;
+      },
     },
   },
   {
     id: 'resonant',
     name: 'Resonant',
     category: TRAIT_CATEGORIES.ADJACENCY,
-    description: '+50% output if an orthogonally adjacent machine shares its output tier.',
+    description: '+50% score near same-tier output.',
     hooks: {
       onProcess: (resource, machine, scene) => {
         if (!resource) return resource;
@@ -163,7 +172,7 @@ export const TRAITS = [
     id: 'conductor',
     name: 'Conductor',
     category: TRAIT_CATEGORIES.ADJACENCY,
-    description: 'Adjacent orthogonal machines process 30% faster while this is placed.',
+    description: 'Adjacent machines process 30% faster.',
     hooks: {
       // KNOWN V1 LIMITATION: Conductor only speeds neighbors that exist at
       // its own placement time. A machine placed adjacent to an already-
@@ -201,7 +210,7 @@ export const TRAITS = [
     id: 'hoarder',
     name: 'Hoarder',
     category: TRAIT_CATEGORIES.RUN_WIDE,
-    description: 'Every 5th delivery touching this machine doubles in delivered score.',
+    description: 'Every 5th touched delivery scores x2.',
     hooks: {
       // completeProcessing already appended the plain 'hoarder' tag (informational).
       // We additionally tag with a per-instance 'hoarder@<uid>' tag so
@@ -224,7 +233,7 @@ export const TRAITS = [
     id: 'beacon',
     name: 'Beacon',
     category: TRAIT_CATEGORIES.RUN_WIDE,
-    description: 'Adds +0.1 to the global chain multiplier while placed. Stacks per Beacon.',
+    description: '+0.1 chain multiplier while placed.',
     hooks: {
       onAttach: (machine, scene) => {
         if (scene && scene.traitRegistry) {
@@ -248,6 +257,7 @@ const BUILD_AROUND_TRAIT_IDS = [
   'catalyst',
   'overclocked',
   'twin',
+  'sequenced',
   'resonant',
   'conductor',
   'hoarder',

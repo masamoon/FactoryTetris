@@ -3,12 +3,16 @@ import ConveyorMachine from './ConveyorMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
 import { getItemColorHex, getItemColorName } from '../../utils/PurityUtils';
 
-const DIRECTION_PAINT_COLORS = {
+export const DIRECTION_PAINT_COLORS = {
   right: 'blue',
   down: 'yellow',
   left: 'red',
   up: 'green',
 };
+
+export function getPainterPaintColorKey(direction = 'right') {
+  return DIRECTION_PAINT_COLORS[direction] || GAME_CONFIG.defaultItemColor || 'blue';
+}
 
 export default class ColorPainterMachine extends ConveyorMachine {
   initMachineProperties() {
@@ -23,7 +27,7 @@ export default class ColorPainterMachine extends ConveyorMachine {
   }
 
   getPaintColorKey(direction = this.direction) {
-    return DIRECTION_PAINT_COLORS[direction] || GAME_CONFIG.defaultItemColor || 'blue';
+    return getPainterPaintColorKey(direction);
   }
 
   paintItem(itemData) {
@@ -128,7 +132,7 @@ export default class ColorPainterMachine extends ConveyorMachine {
   }
 
   static getPreviewSprite(scene, x, y, direction = 'right') {
-    const paintColor = DIRECTION_PAINT_COLORS[direction] || GAME_CONFIG.defaultItemColor || 'blue';
+    const paintColor = getPainterPaintColorKey(direction);
     const preview = BaseMachine.getStandardPreviewSprite(scene, x, y, {
       machineId: 'painter',
       shape: [[1]],

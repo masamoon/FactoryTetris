@@ -120,6 +120,10 @@ window.onload = function () {
       scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
+        autoRound: true,
+      },
+      render: {
+        roundPixels: true,
       },
       disableContextMenu: true, // Prevent right-click menu
       callbacks: {
