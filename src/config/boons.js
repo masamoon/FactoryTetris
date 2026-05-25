@@ -65,3 +65,35 @@ export const BOON_POOL = [
     rarity: 'rare',
   },
 ];
+
+export const STARTER_SPARK_POOL = [
+  {
+    id: 'spark_surge_voucher',
+    name: 'Surge Voucher',
+    description: 'Skip the warm-up and open on Round 3 with baseline rewards already paid.',
+    effect: 'Start R3 with +$40 and +10 Scrap.',
+    rarity: 'volatile',
+    fixedOffer: true,
+  },
+  {
+    id: 'spark_hyperlane_key',
+    name: 'Hyperlane Key',
+    description: 'The first act runs hot: faster flow, bigger quotas, better perfect-clear payout.',
+    effect: 'R1-R4 speed x1.35, quotas x1.15, all-complete +4 Scrap.',
+    rarity: 'rare',
+  },
+  {
+    id: 'spark_prototype_crate',
+    name: 'Prototype Crate',
+    description: 'Start with an advanced Operator prototype already loaded into your draft.',
+    effect: 'Adds a strong Operator card and injects it into slot 1.',
+    rarity: 'rare',
+  },
+  {
+    id: 'spark_jackpot_primer',
+    name: 'Jackpot Primer',
+    description: 'Your first stretch clear is a huge early economy swing.',
+    effect: 'First all-complete doubles node bounties and adds +8 Scrap.',
+    rarity: 'volatile',
+  },
+];
