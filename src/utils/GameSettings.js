@@ -6,6 +6,11 @@ export const DEFAULT_GAME_SETTINGS = {
 };
 
 const STORAGE_KEY = 'gridforge.settings';
+const META_STORAGE_KEY = 'gridforge.metaUnlocks';
+
+export const DEFAULT_META_UNLOCKS = {
+  undergroundBelts: false,
+};
 
 function normalizeSettings(settings = {}) {
   const audioVolume = Number(settings.audioVolume);
@@ -63,4 +68,42 @@ export function resetGameSettings() {
   }
 
   return { ...DEFAULT_GAME_SETTINGS };
+}
+
+function normalizeMetaUnlocks(unlocks = {}) {
+  return {
+    ...DEFAULT_META_UNLOCKS,
+    ...unlocks,
+    undergroundBelts: Boolean(unlocks.undergroundBelts),
+  };
+}
+
+export function loadMetaUnlocks() {
+  if (typeof globalThis.localStorage === 'undefined') {
+    return { ...DEFAULT_META_UNLOCKS };
+  }
+
+  try {
+    const stored = globalThis.localStorage.getItem(META_STORAGE_KEY);
+    return normalizeMetaUnlocks(stored ? JSON.parse(stored) : DEFAULT_META_UNLOCKS);
+  } catch (_error) {
+    return { ...DEFAULT_META_UNLOCKS };
+  }
+}
+
+export function saveMetaUnlocks(patch) {
+  const unlocks = normalizeMetaUnlocks({
+    ...loadMetaUnlocks(),
+    ...patch,
+  });
+
+  if (typeof globalThis.localStorage !== 'undefined') {
+    try {
+      globalThis.localStorage.setItem(META_STORAGE_KEY, JSON.stringify(unlocks));
+    } catch (_error) {
+      // The current session can still use the unlock if persistence fails.
+    }
+  }
+
+  return unlocks;
 }

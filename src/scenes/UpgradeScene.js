@@ -17,6 +17,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.isLevelUp = data.isLevelUp || false;
     this.isBoon = data.isBoon || false;
     this.isShop = data.isShop || false;
+    this.isStarterSpark = data.isStarterSpark || false;
     this.upgradeChoices = [];
     this.selectedUpgrade = null;
   }
@@ -35,13 +36,15 @@ export class UpgradeScene extends Phaser.Scene {
     this.overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
 
     // Add title
-    let titleText = this.isBoon
-      ? 'Choose a Run Boon'
-      : this.isShop
-        ? 'Scrap Shop'
-        : this.isLevelUp
-          ? 'Upgrade Ready'
-          : 'Choose an Upgrade';
+    let titleText = this.isStarterSpark
+      ? 'Choose an Opening Spark'
+      : this.isBoon
+        ? 'Choose a Run Boon'
+        : this.isShop
+          ? 'Scrap Shop'
+          : this.isLevelUp
+            ? 'Upgrade Ready'
+            : 'Choose an Upgrade';
 
     this.title = this.add
       .text(width / 2, height * 0.15, titleText, {
@@ -56,9 +59,11 @@ export class UpgradeScene extends Phaser.Scene {
     const callingScene = this.scene.get(this.callingSceneKey);
     this.upgradeChoices = this.isShop
       ? callingScene?.getShopChoices?.() || []
-      : this.isBoon
-        ? this.upgradeManager.getBoonChoices(3)
-        : this.upgradeManager.getUpgradeChoices(3);
+      : this.isStarterSpark
+        ? callingScene?.getStarterSparkChoices?.() || []
+        : this.isBoon
+          ? this.upgradeManager.getBoonChoices(3)
+          : this.upgradeManager.getUpgradeChoices(3);
 
     // Create upgrade cards
     this.createUpgradeCards();
@@ -89,10 +94,10 @@ export class UpgradeScene extends Phaser.Scene {
     }
 
     // Display choices
-    const buttonYStart = 200;
-    const buttonYStep = 120;
-    const buttonWidth = 400;
-    const buttonHeight = 100;
+    const buttonYStart = this.isStarterSpark ? 185 : 200;
+    const buttonYStep = this.isStarterSpark ? 130 : 120;
+    const buttonWidth = this.isStarterSpark ? 460 : 400;
+    const buttonHeight = this.isStarterSpark ? 114 : 100;
 
     this.upgradeChoices.forEach((choice, index) => {
       const y = buttonYStart + index * buttonYStep;
@@ -413,6 +418,7 @@ export class UpgradeScene extends Phaser.Scene {
         callingSceneKey: this.callingSceneKey,
         isShop: this.isShop,
         isBoon: this.isBoon,
+        isStarterSpark: this.isStarterSpark,
         isLevelUp: this.isLevelUp,
       });
       return;
@@ -427,9 +433,10 @@ export class UpgradeScene extends Phaser.Scene {
 
     const costText = this.isShop ? ` [${choice.cost || 0} Scrap]` : '';
     const kindText = this.isShop && choice.kind ? `${choice.kind} - ` : '';
+    const effectText = this.isStarterSpark && choice.effect ? `\n${choice.effect}` : '';
     const textContent = choice.level
       ? `${choice.name} (Lvl ${choice.level})${costText}\n${choice.description}`
-      : `${kindText}${choice.name}${costText}\n${choice.description}`;
+      : `${kindText}${choice.name}${costText}\n${choice.description}${effectText}`;
     const text = this.add
       .text(x, y, textContent, {
         fontSize: this.isShop ? '15px' : '18px',
@@ -449,6 +456,12 @@ export class UpgradeScene extends Phaser.Scene {
       if (this.isShop) {
         this.handleShopChoice(choice);
         return;
+      } else if (this.isStarterSpark) {
+        const applied = this.scene.get(this.callingSceneKey)?.applyStarterSparkChoice?.(choice);
+        if (!applied) {
+          this.showShopMessage('Opening Spark unavailable.');
+          return;
+        }
       } else if (this.isBoon) {
         this.upgradeManager.applyBoon(choice.type);
       } else {

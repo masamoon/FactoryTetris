@@ -23,6 +23,11 @@ export const GAME_CONFIG = {
   // No time limit - infinite arcade mode
   gameTimeLimit: Infinity,
 
+  metaProgression: {
+    undergroundBeltsUnlockedByDefault: false,
+    advancedLogisticsUnlockRound: 4,
+  },
+
   // Resource generation
   resourceGenerationRate: 2000, // ms
   resourceTypes: [

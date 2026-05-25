@@ -24,6 +24,7 @@ export default class BoardGenerator {
     const mirrorCellX = (x) => (mirrorX ? width - 1 - x : x);
     const blockers = [];
     const specialTiles = [];
+    const loanerUndergrounds = [];
     const addBlocker = (x, y) => {
       x = mirrorCellX(x);
       if (x <= 0 || x >= width - 1 || y < 0 || y >= height) return;
@@ -39,6 +40,21 @@ export default class BoardGenerator {
       if (blockers.some((cell) => `${cell.x},${cell.y}` === key)) return;
       if (specialTiles.some((cell) => `${cell.x},${cell.y}` === key)) return;
       specialTiles.push({ x, y, type });
+    };
+    const addLoanerUnderground = (x, y, direction, label = 'Loaner tunnel') => {
+      if (direction === 'right') {
+        x = this.clamp(x, 1, width - 5);
+      } else if (direction === 'down') {
+        y = this.clamp(y, 0, height - 4);
+        x = this.clamp(x, 1, width - 2);
+      }
+      loanerUndergrounds.push({
+        id: `loaner-underground-${loanerUndergrounds.length + 1}`,
+        x,
+        y,
+        direction,
+        label,
+      });
     };
 
     if (round <= 1) {
@@ -64,10 +80,12 @@ export default class BoardGenerator {
       addSpecialTile(gateX - 1, laneY - 1, BOARD_TILE_TYPES.QUALITY);
       addSpecialTile(gateX + 1, laneY + 1, BOARD_TILE_TYPES.QUALITY);
       addSpecialTile(gateX, laneY, BOARD_TILE_TYPES.TAXED);
+      addLoanerUnderground(mirrorCellX(gateX), laneY - 1, 'down', 'Lane crossing');
       const laneOffset = rng() < 0.5 ? 2 : 3;
       return this.createBoardFromTemplate(TEMPLATE_BY_ID[templateId], round, {
         blockers,
         specialTiles,
+        loanerUndergrounds,
         sourceRows: this.shuffleRows(
           this.uniqueRows([laneY - laneOffset, laneY + laneOffset], height),
           rng
@@ -91,11 +109,13 @@ export default class BoardGenerator {
       addSpecialTile(baffleX - 1, upperGate, BOARD_TILE_TYPES.POWER);
       addSpecialTile(baffleX + 1, lowerGate, BOARD_TILE_TYPES.QUALITY);
       addSpecialTile(baffleX - 1, midY + this.randomInt(rng, -1, 1), BOARD_TILE_TYPES.TAXED);
+      addLoanerUnderground(mirrorCellX(baffleX) - 1, midY, 'right', 'Crossflow tunnel');
       const sourceRows = this.shuffleRows(this.uniqueRows([upperGate, lowerGate], height), rng);
       const deliveryRows = this.shuffleRows([...sourceRows], rng);
       return this.createBoardFromTemplate(TEMPLATE_BY_ID[templateId], round, {
         blockers,
         specialTiles,
+        loanerUndergrounds,
         sourceRows,
         deliveryRows,
       });
@@ -118,9 +138,11 @@ export default class BoardGenerator {
     addSpecialTile(midX + 1 + islandShiftX, midY - tileShiftY, BOARD_TILE_TYPES.QUALITY);
     addSpecialTile(midX + 2 + islandShiftX, midY - 1, BOARD_TILE_TYPES.TAXED);
     addSpecialTile(midX + 2 + islandShiftX, midY + 1, BOARD_TILE_TYPES.TAXED);
+    addLoanerUnderground(mirrorCellX(midX - 2 + islandShiftX), midY, 'right', 'Island bypass');
     return this.createBoardFromTemplate(TEMPLATE_BY_ID[templateId], round, {
       blockers,
       specialTiles,
+      loanerUndergrounds,
       sourceRows: this.shuffleRows(
         this.uniqueRows([1, height - 2, midY + tileShiftY], height),
         rng
@@ -151,6 +173,7 @@ export default class BoardGenerator {
       round,
       blockers: overrides.blockers || [],
       specialTiles: overrides.specialTiles || [],
+      loanerUndergrounds: overrides.loanerUndergrounds || [],
       sourceRows: overrides.sourceRows || [],
       deliveryRows: overrides.deliveryRows || [],
     };

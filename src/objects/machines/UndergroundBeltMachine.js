@@ -200,7 +200,10 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
     );
     this.itemVisualsGroup = this.scene.add.group();
 
-    const machineColor = 0x444444; // Matching MACHINE_COLORS['underground-belt']
+    const machineColor = this.isBoardLoaner ? 0x21445a : 0x444444;
+    const hatchColor = this.isBoardLoaner ? 0x83f7ff : 0x222222;
+    const pathColor = this.isBoardLoaner ? 0x83f7ff : 0x888888;
+    const labelText = this.isBoardLoaner ? 'FIXED' : 'U';
 
     for (let r = 0; r < shapeHeight; r++) {
       for (let c = 0; c < shapeWidth; c++) {
@@ -224,7 +227,7 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
             partCenterY,
             cellSize / 2,
             cellSize / 2,
-            0x222222
+            hatchColor
           );
           this.container.add(hatch);
         }
@@ -233,10 +236,10 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
 
     // Indicator (U for Underground)
     const label = this.scene.add
-      .text(0, 0, 'U', {
+      .text(0, 0, labelText, {
         fontFamily: 'Arial Black',
-        fontSize: '16px',
-        color: '#ffffff',
+        fontSize: this.isBoardLoaner ? '9px' : '16px',
+        color: this.isBoardLoaner ? '#b9f7ff' : '#ffffff',
         stroke: '#000000',
         strokeThickness: 2,
       })
@@ -245,7 +248,7 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
 
     // Add dashed line for underground path
     const graphics = this.scene.add.graphics();
-    graphics.lineStyle(2, 0x888888, 0.5);
+    graphics.lineStyle(this.isBoardLoaner ? 3 : 2, pathColor, this.isBoardLoaner ? 0.75 : 0.5);
 
     // Draw from start cell to end cell center relative to container center
     const start = this.getItemPosition(0);

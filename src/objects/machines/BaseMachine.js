@@ -49,6 +49,8 @@ export default class BaseMachine {
 
     // Check if this is a preview instance (no grid needed)
     this.isPreview = config.preview === true;
+    this.isBoardLoaner = config.isBoardLoaner === true;
+    this.isFixedInfrastructure = config.isFixedInfrastructure === true;
 
     // Store preset position if provided (for exact positioning)
     if (config.presetPosition) {

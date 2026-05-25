@@ -6,7 +6,7 @@ import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import BoardGenerator from '../managers/BoardGenerator.js';
-import { BOON_POOL } from '../config/boons.js';
+import { BOON_POOL, STARTER_SPARK_POOL } from '../config/boons.js';
 import {
   BOARD_BLOCKER_CELL_STYLE,
   BOARD_TILE_STYLES,
@@ -27,7 +27,12 @@ import { TRAIT_CATEGORIES, getTraitBandColor, getTraitById, rollTrait } from '..
 import { STARTER_PIECE_DECK, STANDARD_PIECE_LIBRARY } from '../config/pieceDeck';
 import { getProcessingPieceBody, isProcessingPieceBodyId } from '../config/pieceBodies';
 import { getItemColorHex, getItemColorKey } from '../utils/PurityUtils';
-import { loadGameSettings, saveGameSettings } from '../utils/GameSettings';
+import {
+  loadGameSettings,
+  loadMetaUnlocks,
+  saveGameSettings,
+  saveMetaUnlocks,
+} from '../utils/GameSettings';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -88,6 +93,7 @@ export default class GameScene extends Phaser.Scene {
     this.currentRoundBoard = null;
     this.roundBoardBlockers = [];
     this.roundBoardSpecialTiles = [];
+    this.roundBoardLoaners = [];
     this.roundState = null;
     this.boardGenerator = null;
     this.boardRevealGraphics = null;
@@ -123,11 +129,26 @@ export default class GameScene extends Phaser.Scene {
     this.firstDeliveryCelebrated = false;
     this.exactDemandExplained = false;
     this.operationDemandExplained = false;
+    this.starterSparkOffered = false;
+    this.pendingStarterSparkRound = null;
+    this.pendingStarterSparkGrant = null;
+    this.starterJackpotPrimerSpent = false;
+    this.metaUnlocks = {
+      undergroundBelts: GAME_CONFIG.metaProgression?.undergroundBeltsUnlockedByDefault === true,
+    };
   }
 
   create() {
     this.setupCameras();
     this.applySettings(loadGameSettings());
+    const savedMetaUnlocks = loadMetaUnlocks();
+    this.metaUnlocks = {
+      ...this.metaUnlocks,
+      ...savedMetaUnlocks,
+      undergroundBelts: Boolean(
+        this.metaUnlocks.undergroundBelts || savedMetaUnlocks.undergroundBelts
+      ),
+    };
 
     this.traitRegistry = new TraitRegistry();
     console.log('[GameScene] TraitRegistry initialized');
@@ -204,6 +225,7 @@ export default class GameScene extends Phaser.Scene {
     this.yellowScrapProgress = 0;
 
     this.startRound(1, { buildPhase: true });
+    this.time.delayedCall(180, () => this.showStarterSparkScreen());
 
     // Play background music
     this.playBackgroundMusic();
@@ -1365,6 +1387,10 @@ export default class GameScene extends Phaser.Scene {
                 if (cell && cell.type === 'machine' && cell.object) {
                   console.log(`[POINTERDOWN] Cell object type: ${cell.object.constructor.name}`);
                   if ((this.time?.now || 0) - (cell.object.placedAtTime || -Infinity) < 250) {
+                    return;
+                  }
+                  if (cell.object.isFixedInfrastructure) {
+                    this.showPlacementHint('Fixed board tunnel', '#83f7ff');
                     return;
                   }
                   this.pickUpPlacedMachine(cell.object);
@@ -2705,7 +2731,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getFlowSpeedMultiplier() {
-    return this.fastForwardActive && this.canFastForward() ? this.fastForwardMultiplier : 1;
+    const fastForward =
+      this.fastForwardActive && this.canFastForward() ? this.fastForwardMultiplier : 1;
+    const starterSpark =
+      this.upgradeManager?.isProceduralUpgradeActive('spark_hyperlane_key') &&
+      (this.currentRound || 1) <= 4
+        ? 1.35
+        : 1;
+    return fastForward * starterSpark;
   }
 
   toggleFastForward() {
@@ -3167,11 +3200,16 @@ export default class GameScene extends Phaser.Scene {
     const boonMultiplier = this.upgradeManager?.isProceduralUpgradeActive('boon_bulk_contracts')
       ? 0.8
       : 1;
+    const starterSparkMultiplier =
+      this.upgradeManager?.isProceduralUpgradeActive('spark_hyperlane_key') && round <= 4
+        ? 1.15
+        : 1;
     return Math.round(
       (base * Math.pow(growth, Math.max(0, round - 1)) + flatGrowth * (round - 1)) *
         boardMultiplier *
         pacingMultiplier *
-        boonMultiplier
+        boonMultiplier *
+        starterSparkMultiplier
     );
   }
 
@@ -3337,11 +3375,29 @@ export default class GameScene extends Phaser.Scene {
     const base = GAME_CONFIG.shopRoundClearScrap || 6;
     const pacing = this.getRoundPacing(this.currentRound);
     const bossBonus = pacing.isBoss ? GAME_CONFIG.pacingConfig?.bossRoundClearScrapBonus || 4 : 0;
+    const hyperlaneBonus =
+      this.lastRoundClearWasStretchComplete &&
+      this.upgradeManager?.isProceduralUpgradeActive('spark_hyperlane_key') &&
+      this.currentRound <= 4
+        ? 4
+        : 0;
+    const jackpotPrimerBonus =
+      this.lastRoundClearWasStretchComplete &&
+      this.upgradeManager?.isProceduralUpgradeActive('spark_jackpot_primer') &&
+      !this.starterJackpotPrimerSpent
+        ? 8
+        : 0;
+    if (jackpotPrimerBonus > 0) {
+      this.starterJackpotPrimerSpent = true;
+    }
     const overkillScore = Math.max(0, (this.roundScore || 0) - (this.roundQuota || 0));
     const overkillScrap = Math.floor(
       overkillScore / (GAME_CONFIG.shopOverkillScorePerScrap || 250)
     );
-    return this.addScrap(base + bossBonus + overkillScrap, `round ${this.currentRound} clear`);
+    return this.addScrap(
+      base + bossBonus + hyperlaneBonus + jackpotPrimerBonus + overkillScrap,
+      `round ${this.currentRound} clear`
+    );
   }
 
   showRoundSurvivedFeedback(message = `Round ${this.currentRound} survived`) {
@@ -3793,6 +3849,80 @@ export default class GameScene extends Phaser.Scene {
     if (this.sound) {
       this.sound.volume = this.musicVolume;
     }
+  }
+
+  isUndergroundBeltUnlocked() {
+    return Boolean(
+      this.metaUnlocks?.undergroundBelts ||
+      GAME_CONFIG.metaProgression?.undergroundBeltsUnlockedByDefault
+    );
+  }
+
+  isLogisticsMachineUnlocked(machineType) {
+    const machineId = String(machineType?.id || machineType || '').toLowerCase();
+    if (machineId === 'underground-belt') {
+      return this.isUndergroundBeltUnlocked();
+    }
+    return true;
+  }
+
+  getLogisticsUnlockHint(machineType) {
+    const machineId = String(machineType?.id || machineType || '').toLowerCase();
+    if (machineId === 'underground-belt') {
+      const unlockRound = GAME_CONFIG.metaProgression?.advancedLogisticsUnlockRound || 4;
+      return `Clear round ${unlockRound} to unlock Advanced Logistics. Board loaner tunnels stay free.`;
+    }
+    return 'Locked for now.';
+  }
+
+  unlockAdvancedLogistics(reason = 'advanced logistics') {
+    if (this.isUndergroundBeltUnlocked()) return false;
+
+    this.metaUnlocks = saveMetaUnlocks({
+      ...this.metaUnlocks,
+      undergroundBelts: true,
+    });
+    this.machineFactory?.refreshAvailableLogistics?.();
+    this.machineFactory?.displayCurrentProcessorPreview?.();
+    this.showMetaUnlockFeedback('ADVANCED LOGISTICS\nUNDERGROUND BELTS');
+    console.log(`[META] Unlocked underground belts (${reason})`);
+    return true;
+  }
+
+  maybeUnlockAdvancedLogistics(pacing = this.getRoundPacing(this.currentRound)) {
+    const unlockRound = GAME_CONFIG.metaProgression?.advancedLogisticsUnlockRound || 4;
+    if (this.currentRound >= unlockRound || pacing?.isBoss) {
+      return this.unlockAdvancedLogistics(`round ${this.currentRound} clear`);
+    }
+    return false;
+  }
+
+  showMetaUnlockFeedback(message) {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 164, message, {
+        fontFamily: 'Arial Black',
+        fontSize: 20,
+        color: '#83f7ff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1002);
+    this.addToUI(text);
+    this.playSound('delivery');
+
+    this.tweens.add({
+      targets: text,
+      y: 128,
+      scaleX: 1.12,
+      scaleY: 1.12,
+      alpha: 0,
+      duration: 1450,
+      ease: 'Back.easeOut',
+      onComplete: () => text.destroy(),
+    });
   }
 
   addDecorations() {
@@ -5523,6 +5653,7 @@ export default class GameScene extends Phaser.Scene {
     const machinesToClear = clearMachines ? [...this.machines] : [];
     if (clearMachines) {
       this.machines = []; // Clear the main array
+      this.roundBoardLoaners = [];
       machinesToClear.forEach((machine) => disintegrate(machine, clearIndex++, true));
     }
 
@@ -5631,6 +5762,15 @@ export default class GameScene extends Phaser.Scene {
     if (!this.grid) return;
     this.hideBoardGimmickTooltip();
 
+    for (const machine of this.roundBoardLoaners || []) {
+      const machineIndex = this.machines.indexOf(machine);
+      if (machineIndex > -1) {
+        this.machines.splice(machineIndex, 1);
+      }
+      if (machine?.container?.scene && typeof machine.destroy === 'function') {
+        machine.destroy();
+      }
+    }
     for (const blocker of this.roundBoardBlockers || []) {
       const cell = this.grid.getCell(blocker.x, blocker.y);
       if (cell?.type === 'board-blocker') {
@@ -5645,6 +5785,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.roundBoardBlockers = [];
     this.roundBoardSpecialTiles = [];
+    this.roundBoardLoaners = [];
     this.currentRoundBoard = null;
   }
 
@@ -5684,9 +5825,64 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    this.applyBoardLoanerUndergrounds(board);
     this.grid.drawGrid();
     this.showBoardRevealJuice(board);
     return board;
+  }
+
+  applyBoardLoanerUndergrounds(board) {
+    const loaners = board?.loanerUndergrounds || [];
+    if (!loaners.length || !this.grid || !this.machineFactory) return;
+
+    const loanerType = {
+      id: 'underground-belt',
+      shape: [[1, 0, 0, 1]],
+      isBoardLoaner: true,
+      isFixedInfrastructure: true,
+    };
+
+    for (const loaner of loaners) {
+      const direction = loaner.direction || 'right';
+      if (!this.grid.canPlaceMachine(loanerType, loaner.x, loaner.y, direction)) {
+        console.warn(
+          `[BOARD] Could not place loaner underground at (${loaner.x}, ${loaner.y}) ${direction}`
+        );
+        continue;
+      }
+
+      const machine = this.machineFactory.createMachine(
+        {
+          ...loanerType,
+          pieceName: loaner.label || 'Loaner Underground',
+        },
+        loaner.x,
+        loaner.y,
+        direction,
+        0,
+        this.grid
+      );
+      if (!machine) continue;
+
+      machine.isBoardLoaner = true;
+      machine.isFixedInfrastructure = true;
+      machine.placementCost = 0;
+      machine.boardLoanerId = loaner.id;
+      machine.displayName = loaner.label || 'Loaner Underground';
+
+      try {
+        this.grid.placeMachine(machine, loaner.x, loaner.y, direction);
+      } catch (error) {
+        console.warn('[BOARD] Loaner underground placement failed:', error);
+        machine.destroy?.();
+        continue;
+      }
+
+      this.machines.push(machine);
+      this.roundBoardLoaners.push(machine);
+      machine.placedAtTime = this.time?.now || 0;
+      this.addToWorld(machine);
+    }
   }
 
   applyPendingBoardEdits(board) {
@@ -5694,6 +5890,7 @@ export default class GameScene extends Phaser.Scene {
       ...board,
       blockers: [...(board.blockers || [])],
       specialTiles: [...(board.specialTiles || [])],
+      loanerUndergrounds: [...(board.loanerUndergrounds || [])],
     };
 
     const removeCount = Math.min(
@@ -5749,7 +5946,8 @@ export default class GameScene extends Phaser.Scene {
       this.currentRoundBoard && this.currentRoundBoard.round === round
         ? this.currentRoundBoard
         : this.createRoundBoard(round);
-    return board.name;
+    const loanerText = board.loanerUndergrounds?.length ? ' + fixed tunnel' : '';
+    return `${board.name}${loanerText}`;
   }
 
   getPreferredRoundRow(rows = [], index = 0, total = 1) {
@@ -5911,7 +6109,7 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.deliveryBoardText) {
       this.deliveryBoardText.setText(
-        `${this.getRoundPacingLabel(this.currentRound)}\nBoard: ${this.currentRoundBoard ? this.currentRoundBoard.name : 'Standard'}`
+        `${this.getRoundPacingLabel(this.currentRound)}\nBoard: ${this.getRoundBoardSummary(this.currentRound)}`
       );
     }
     if (this.deliveryDemandText) {
@@ -6151,6 +6349,47 @@ export default class GameScene extends Phaser.Scene {
       const style = BOARD_TILE_STYLES[tile.type] || {};
       graphics.lineStyle(3, style.glowColor || style.borderColor || 0xffffff, 0.85);
       graphics.strokeCircle(center.x, center.y, cellSize * 0.45);
+    }
+
+    for (const loaner of board.loanerUndergrounds || []) {
+      const start = this.grid.gridToWorld(loaner.x, loaner.y);
+      const endOffset =
+        loaner.direction === 'down'
+          ? { x: 0, y: 3 }
+          : loaner.direction === 'up'
+            ? { x: 0, y: -3 }
+            : loaner.direction === 'left'
+              ? { x: -3, y: 0 }
+              : { x: 3, y: 0 };
+      const end = this.grid.gridToWorld(loaner.x + endOffset.x, loaner.y + endOffset.y);
+      if (!start || !end) continue;
+
+      graphics.lineStyle(4, 0x83f7ff, 0.85);
+      graphics.strokeCircle(start.x, start.y, cellSize * 0.42);
+      graphics.strokeCircle(end.x, end.y, cellSize * 0.42);
+      graphics.lineStyle(3, 0x83f7ff, 0.65);
+      graphics.lineBetween(start.x, start.y, end.x, end.y);
+
+      const label = this.add
+        .text((start.x + end.x) / 2, (start.y + end.y) / 2 - 18, 'FREE TUNNEL', {
+          fontFamily: 'Arial Black',
+          fontSize: 10,
+          color: '#b9f7ff',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      label.setDepth(8);
+      this.addToWorld(label);
+      this.tweens.add({
+        targets: label,
+        y: label.y - 12,
+        alpha: 0,
+        duration: 1250,
+        ease: 'Power2',
+        onComplete: () => label.destroy(),
+      });
     }
 
     this.boardRevealGraphics = graphics;
@@ -6475,11 +6714,19 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getDeliveryNodeCompletionScore(node) {
-    return Math.max(0, Math.floor(node?.condition?.completionScoreReward || 0));
+    const base = Math.max(0, Math.floor(node?.condition?.completionScoreReward || 0));
+    const jackpotPrimerActive =
+      this.upgradeManager?.isProceduralUpgradeActive('spark_jackpot_primer') &&
+      !this.starterJackpotPrimerSpent;
+    return jackpotPrimerActive ? base * 2 : base;
   }
 
   getDeliveryNodeCompletionScrap(node) {
-    return Math.max(0, Math.floor(node?.condition?.completionScrapReward || 0));
+    const base = Math.max(0, Math.floor(node?.condition?.completionScrapReward || 0));
+    const jackpotPrimerActive =
+      this.upgradeManager?.isProceduralUpgradeActive('spark_jackpot_primer') &&
+      !this.starterJackpotPrimerSpent;
+    return jackpotPrimerActive ? base * 2 : base;
   }
 
   onDeliveryNodeCompleted(node) {
@@ -6521,6 +6768,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.playSound('round-clear');
     this.showRoundClearFeedback();
+    this.maybeUnlockAdvancedLogistics(pacing);
 
     const entitiesToClear =
       (this.machines?.length || 0) +
@@ -6859,6 +7107,140 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  showStarterSparkScreen() {
+    if (this.starterSparkOffered || this.gameOver) return;
+
+    this.starterSparkOffered = true;
+    this.isPausedForUpgrade = true;
+    if (this.gameTimer) this.gameTimer.paused = true;
+    if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
+    if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
+    this.scene.launch('UpgradeScene', {
+      upgradeManager: this.upgradeManager,
+      callingSceneKey: this.scene.key,
+      isLevelUp: false,
+      isStarterSpark: true,
+    });
+  }
+
+  getStarterSparkChoices() {
+    const fixedOffers = STARTER_SPARK_POOL.filter((choice) => choice.fixedOffer);
+    const randomOffers = STARTER_SPARK_POOL.filter((choice) => !choice.fixedOffer);
+    Phaser.Utils.Array.Shuffle(randomOffers);
+    return [...fixedOffers, ...randomOffers].slice(0, 3).map((choice) => ({
+      ...choice,
+      type: choice.id,
+      kind: 'Spark',
+    }));
+  }
+
+  applyStarterSparkChoice(choice) {
+    const sparkId = choice?.id || choice?.type;
+    if (!sparkId) return false;
+
+    this.upgradeManager?.applyBoon?.(sparkId);
+    switch (sparkId) {
+      case 'spark_surge_voucher':
+        this.pendingStarterSparkRound = 3;
+        this.pendingStarterSparkGrant = { money: 40, scrap: 10, label: 'Surge voucher' };
+        break;
+      case 'spark_prototype_crate':
+        this.applyPrototypeCrateSpark();
+        this.pendingStarterSparkGrant = { money: 12, scrap: 0, label: 'Prototype crate' };
+        break;
+      case 'spark_hyperlane_key':
+        this.refreshMachineFlowSpeed();
+        this.pendingStarterSparkGrant = { money: 8, scrap: 2, label: 'Hyperlane key' };
+        break;
+      case 'spark_jackpot_primer':
+        this.pendingStarterSparkGrant = { money: 10, scrap: 2, label: 'Jackpot primer' };
+        break;
+      default:
+        break;
+    }
+
+    this.updateActiveUpgradesDisplay();
+    return true;
+  }
+
+  applyPrototypeCrateSpark() {
+    if (!this.machineFactory) return false;
+
+    const prototype =
+      STANDARD_PIECE_LIBRARY.find((card) => card.id === 'standard-mixer-u') ||
+      STANDARD_PIECE_LIBRARY.find((card) => card.id === 'standard-multiplier-cross') ||
+      STANDARD_PIECE_LIBRARY[0];
+    if (!prototype) return false;
+
+    const card = {
+      ...prototype,
+      id: `${prototype.id}-spark-prototype`,
+      instanceId: `${prototype.id}-spark-prototype`,
+      name: `Prototype ${prototype.name}`,
+      shortName: prototype.shortName || prototype.name,
+      copies: 1,
+    };
+    this.machineFactory.addPieceCardToRunDeckFromCard(card);
+    const draftedPrototype = this.machineFactory.drawProcessorPiece({ pieceCard: card });
+    if (draftedPrototype) {
+      this.machineFactory.availableProcessors[0] = draftedPrototype;
+      this.machineFactory.displayCurrentProcessorPreview();
+    }
+    return true;
+  }
+
+  applyPendingStarterSparkResume() {
+    const grant = this.pendingStarterSparkGrant;
+    const targetRound = this.pendingStarterSparkRound;
+    this.pendingStarterSparkGrant = null;
+    this.pendingStarterSparkRound = null;
+
+    if (targetRound) {
+      this.startRound(targetRound, { buildPhase: true });
+    } else if (this.runState === 'BUILD_PHASE') {
+      this.setProductionPaused(true);
+    }
+
+    if (grant?.money) {
+      this.addMoney(grant.money, grant.label || 'opening spark');
+    }
+    if (grant?.scrap) {
+      this.addScrap(grant.scrap, grant.label || 'opening spark');
+    }
+    if (grant) {
+      this.showStarterSparkFeedback(grant.label || 'Opening spark');
+    }
+    this.updateRoundUI();
+  }
+
+  showStarterSparkFeedback(label) {
+    const text = this.add
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 104, `OPENING SPARK\n${label}`, {
+        fontFamily: 'Arial Black',
+        fontSize: 26,
+        color: '#ffd166',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0);
+    text.setDepth(1000);
+    this.addToUI(text);
+    this.cameras.main.flash(140, 255, 218, 120, true);
+
+    this.tweens.add({
+      targets: text,
+      y: 70,
+      scaleX: 1.16,
+      scaleY: 1.16,
+      alpha: 0,
+      duration: 1200,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+  }
+
   showShopScreen() {
     this.isPausedForUpgrade = true;
     if (this.gameTimer) this.gameTimer.paused = true;
@@ -7156,6 +7538,10 @@ export default class GameScene extends Phaser.Scene {
     this.isPausedForUpgrade = false;
     if (this.gameTimer) this.gameTimer.paused = false;
     if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = false;
+    if (this.pendingStarterSparkGrant || this.pendingStarterSparkRound) {
+      this.applyPendingStarterSparkResume();
+      return;
+    }
     if (this.pendingRoundAdvanceAfterBoon) {
       this.pendingRoundAdvanceAfterBoon = false;
       this.startNextRound();
@@ -7172,12 +7558,23 @@ export default class GameScene extends Phaser.Scene {
     const activeUpgrades = this.upgradeManager.currentUpgrades;
     const activeBoons = Array.from(this.upgradeManager.activeProceduralUpgrades || []);
     const runWideLines = Array.isArray(this.runWideHudLines) ? this.runWideHudLines : [];
+    const metaLines = [];
+    if (this.isUndergroundBeltUnlocked()) {
+      metaLines.push({
+        title: 'Advanced Logistics',
+        value: 'META',
+        description:
+          'Underground belts are now available in the logistics tray. Fixed board tunnels still stay free.',
+        color: 0x83f7ff,
+      });
+    }
     const entries = [];
 
     if (
       Object.keys(activeUpgrades).length === 0 &&
       activeBoons.length === 0 &&
-      runWideLines.length === 0
+      runWideLines.length === 0 &&
+      metaLines.length === 0
     ) {
       entries.push({
         title: 'No upgrades yet',
@@ -7200,15 +7597,19 @@ export default class GameScene extends Phaser.Scene {
         }
       }
       activeBoons.forEach((boonId) => {
-        const boon = BOON_POOL.find((entry) => entry.id === boonId);
+        const boon =
+          BOON_POOL.find((entry) => entry.id === boonId) ||
+          STARTER_SPARK_POOL.find((entry) => entry.id === boonId);
         entries.push({
           title: boon?.name || boonId,
           value: boon?.rarity ? boon.rarity.toUpperCase() : 'BOON',
           description: boon?.description || 'Run-defining boon.',
-          color: 0xffd166,
+          color: boonId.startsWith('spark_') ? 0xff8fab : 0xffd166,
         });
       });
     }
+
+    metaLines.forEach((line) => entries.push(line));
 
     runWideLines.forEach((line) => {
       entries.push({
@@ -7531,6 +7932,10 @@ export default class GameScene extends Phaser.Scene {
 
   pickUpPlacedMachine(machine) {
     if (this.paused || this.gameOver || !machine || !this.machineFactory) return;
+    if (machine.isFixedInfrastructure) {
+      this.showPlacementHint('Fixed board tunnel', '#83f7ff');
+      return;
+    }
 
     const machineType = this.createMachineTypeFromPlacedMachine(machine);
     if (!machineType) {
@@ -7565,6 +7970,10 @@ export default class GameScene extends Phaser.Scene {
 
   deleteLogisticsOnClick(machine) {
     if (this.paused || this.gameOver || !machine) return;
+    if (machine.isFixedInfrastructure) {
+      this.showPlacementHint('Fixed board tunnel', '#83f7ff');
+      return;
+    }
 
     console.log(`Attempting to delete logistics item at grid (${machine.gridX}, ${machine.gridY})`);
 

@@ -38,6 +38,7 @@ export default class MachineFactory {
     this.conveyorMachineType = null; // Store conveyor type separately
     this.numLogisticsSlots = 4; // Splitter, Merger, Underground, Painter
     this.availableLogistics = []; // Array of currently available logistics machines
+    this.lockedLogistics = []; // Logistics shown as future meta unlocks
     this.logisticsTypes = []; // Pool of logistics machine types
 
     // --- Conveyor Drag State ---
@@ -248,11 +249,30 @@ export default class MachineFactory {
   refreshAvailableLogistics() {
     if (this.logisticsTypes.length === 0) {
       this.availableLogistics = [];
+      this.numLogisticsSlots = 0;
       return;
     }
 
-    // Always include all logistics types in order
-    this.availableLogistics = [...this.logisticsTypes];
+    this.availableLogistics = this.logisticsTypes.filter((type) => {
+      if (typeof this.scene?.isLogisticsMachineUnlocked === 'function') {
+        return this.scene.isLogisticsMachineUnlocked(type);
+      }
+      return true;
+    });
+    this.lockedLogistics = this.logisticsTypes
+      .filter((type) => !this.availableLogistics.includes(type))
+      .map((type) => ({
+        ...type,
+        isLocked: true,
+        lockedReason:
+          this.scene?.getLogisticsUnlockHint?.(type) ||
+          'Unlock this tool through meta progression.',
+      }));
+    this.numLogisticsSlots = this.availableLogistics.length;
+  }
+
+  getDisplayedLogisticsTypes() {
+    return [...this.availableLogistics, ...this.lockedLogistics];
   }
 
   // Replace the used piece with the next card from the deck.
@@ -499,7 +519,9 @@ export default class MachineFactory {
     const processorSpacing = 108;
     const logisticsSpacing = 82;
     const processorStartX = -((this.numProcessorSlots - 1) * processorSpacing) / 2;
-    const logisticsItems = this.numLogisticsSlots + 1;
+    const logisticsDisplayTypes = this.getDisplayedLogisticsTypes();
+    const logisticsSlotCount = logisticsDisplayTypes.length;
+    const logisticsItems = logisticsSlotCount + 1;
     const logisticsStartX = -((logisticsItems - 1) * logisticsSpacing) / 2;
 
     const processorLabel = this.scene.add
@@ -529,15 +551,15 @@ export default class MachineFactory {
     }
 
     // --- Display Logistics ---
-    for (let slotIndex = 0; slotIndex < this.numLogisticsSlots; slotIndex++) {
-      const machineType = this.availableLogistics[slotIndex];
+    for (let slotIndex = 0; slotIndex < logisticsSlotCount; slotIndex++) {
+      const machineType = logisticsDisplayTypes[slotIndex];
       const itemX = logisticsStartX + slotIndex * logisticsSpacing;
 
       this.addMachinePreviewToPanel(machineType, itemX, logisticsY, slotIndex, 'logistics');
     }
 
     // --- Display Conveyor ---
-    const conveyorX = logisticsStartX + this.numLogisticsSlots * logisticsSpacing;
+    const conveyorX = logisticsStartX + logisticsSlotCount * logisticsSpacing;
     if (this.conveyorMachineType) {
       this.addMachinePreviewToPanel(
         this.conveyorMachineType,
@@ -580,7 +602,10 @@ export default class MachineFactory {
     const previewY = isOperator ? itemY + 8 : itemY;
     const slotFrame = this.scene.add
       .rectangle(itemX, itemY, slotWidth, slotHeight, 0x0f1820, 0.86)
-      .setStrokeStyle(1, slotStyle.borderColor, 0.72);
+      .setStrokeStyle(1, slotStyle.borderColor, machineType.isLocked ? 0.35 : 0.72);
+    if (machineType.isLocked) {
+      slotFrame.setAlpha(0.68);
+    }
     this.processorPreviewContainer.add(slotFrame);
 
     let machinePreview;
@@ -612,6 +637,9 @@ export default class MachineFactory {
       machinePreview.slotFrame = slotFrame;
       machinePreview.basePanelScale = 1;
       machinePreview.setScale(machinePreview.basePanelScale);
+      if (machineType.isLocked) {
+        machinePreview.setAlpha(0.45);
+      }
       this.hidePanelPreviewInternalLabels(machinePreview);
       this.panelPreviewItems.push({
         category,
@@ -704,6 +732,22 @@ export default class MachineFactory {
           .setOrigin(0.5);
         this.processorPreviewContainer.add(logisticsLabel);
         machinePreview.nameLabel = logisticsLabel;
+        if (machineType.isLocked) {
+          logisticsLabel.setText('LOCKED');
+          logisticsLabel.setColor('#95aab5');
+          const lockBadge = this.scene.add
+            .text(itemX, itemY - 25, 'R4', {
+              fontFamily: 'Arial Black',
+              fontSize: 9,
+              color: '#83f7ff',
+              align: 'center',
+              stroke: '#000000',
+              strokeThickness: 2,
+            })
+            .setOrigin(0.5);
+          this.processorPreviewContainer.add(lockBadge);
+          machinePreview.lockBadge = lockBadge;
+        }
 
         if (machineType.id === 'painter') {
           const swatchColors = [0x3f8cff, 0xffd166, 0xff5f57, 0x4dd47e];
@@ -740,7 +784,7 @@ export default class MachineFactory {
       machinePreview.on('pointerover', () => {
         machinePreview.setScale(machinePreview.basePanelScale);
         slotFrame.fillColor = 0x1f3240;
-        slotFrame.setStrokeStyle(2, slotStyle.borderColor, 1);
+        slotFrame.setStrokeStyle(2, slotStyle.borderColor, machineType.isLocked ? 0.55 : 1);
         this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
       });
 
@@ -752,6 +796,10 @@ export default class MachineFactory {
 
       machinePreview.on('pointerdown', (pointer) => {
         pointer.event.stopPropagation();
+        if (machineType.isLocked) {
+          this.scene?.showPlacementHint?.(machineType.lockedReason || 'Locked', '#83f7ff');
+          return;
+        }
         if (category === 'operator') {
           this.lastSelectedSlotIndex = slotIndex;
           this.lastSelectedCategory = 'operator';
@@ -1707,6 +1755,12 @@ export default class MachineFactory {
         if (typeOrId.pieceName) {
           config.pieceName = typeOrId.pieceName;
         }
+        if (typeOrId.isBoardLoaner) {
+          config.isBoardLoaner = true;
+        }
+        if (typeOrId.isFixedInfrastructure) {
+          config.isFixedInfrastructure = true;
+        }
       }
       console.log(`[MachineFactory] Config prepared:`, config);
 
@@ -1827,6 +1881,9 @@ export default class MachineFactory {
     const traitLine = this.getTraitTooltipLine(machineType.trait);
     if (traitLine) {
       lines.push(traitLine);
+    }
+    if (machineType.isLocked) {
+      lines.push(machineType.lockedReason || 'Locked for now.');
     }
 
     let tooltipText = lines.join('\n');
