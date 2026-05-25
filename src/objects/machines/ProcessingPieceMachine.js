@@ -93,8 +93,7 @@ export default class ProcessingPieceMachine extends BaseMachine {
     this.machineFamily = 'operator';
     this.isComplexBody = Boolean(body.isComplexBody);
 
-    const baseIO =
-      body.io?.right || ProcessingPieceMachine.getIOPositionsForBody(body.id, 'right');
+    const baseIO = body.io?.right || ProcessingPieceMachine.getIOPositionsForBody(body.id, 'right');
     this.inputCoord = clonePos(this.config?.inputCoord || baseIO.inputPos);
     this.outputCoord = clonePos(this.config?.outputCoord || baseIO.outputPos);
     this.ioByDirection = this.config?.ioByDirection || null;
@@ -110,11 +109,87 @@ export default class ProcessingPieceMachine extends BaseMachine {
 
     if (this.container) {
       const body = this.getBody();
-      this.createProcessorVisuals(body.label || 'P', {
+      this.createProcessorVisuals(this.getOperationVisualLabel() || body.label || 'P', {
         coreColor: body.coreColor || 0x00ccff,
         coreShape: body.coreShape || 'circle',
       });
+      this.renderOperationCellLabels();
     }
+  }
+
+  getOperationVisualLabel() {
+    const operation = this.arithmeticOperation;
+    if (!operation) return null;
+
+    switch (operation.type) {
+      case 'add-constant':
+        return `+${operation.value || 0}`;
+      case 'add':
+        return '+';
+      case 'multiply':
+        return 'x';
+      case 'divide':
+        return '/';
+      default:
+        return this.getOperationBadgeText();
+    }
+  }
+
+  renderOperationCellLabels() {
+    const operationLabel = this.getOperationVisualLabel();
+    if (!operationLabel || !this.container || !this.grid) return;
+
+    const direction = this.direction || this.defaultDirection || 'right';
+    const rotatedShape = getRotatedShape(this.shape, direction);
+    const shapeWidth = rotatedShape[0]?.length || 1;
+    const shapeHeight = rotatedShape.length || 1;
+    const cellSize = this.grid.cellSize;
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+    const outputPos = this.getIOPositionsForDirection(direction)?.outputPos;
+    const occupiedCells = [];
+
+    for (let y = 0; y < shapeHeight; y++) {
+      for (let x = 0; x < shapeWidth; x++) {
+        if (rotatedShape[y][x] === 1) {
+          occupiedCells.push({ x, y });
+        }
+      }
+    }
+
+    const labelCells = occupiedCells.filter(
+      (cell) => !(outputPos && cell.x === outputPos.x && cell.y === outputPos.y)
+    );
+    const cellsToMark = labelCells.length > 0 ? labelCells : occupiedCells;
+    const isCompactLabel = operationLabel.length > 1;
+    const badgeWidth = Math.min(cellSize - 7, isCompactLabel ? cellSize - 5 : cellSize * 0.7);
+    const badgeHeight = Math.min(cellSize - 10, isCompactLabel ? 18 : 20);
+    const fontSize = isCompactLabel ? Math.max(11, cellSize * 0.42) : Math.max(15, cellSize * 0.56);
+
+    cellsToMark.forEach((cell) => {
+      const x = cell.x * cellSize + cellSize / 2 - visualCenterX;
+      const y = cell.y * cellSize + cellSize / 2 - visualCenterY;
+      const badge = this.scene.add
+        .rectangle(x, y, badgeWidth, badgeHeight, 0x101820, 0.74)
+        .setOrigin(0.5)
+        .setStrokeStyle(1, 0xffd966, 0.85);
+      badge.setDepth(3);
+      badge.isOperationLabel = true;
+      this.container.add(badge);
+
+      const text = this.scene.add
+        .text(x, y, operationLabel, {
+          fontFamily: 'Arial Black, Arial, sans-serif',
+          fontSize,
+          color: '#ffd966',
+          stroke: '#05090d',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      text.setDepth(4);
+      text.isOperationLabel = true;
+      this.container.add(text);
+    });
   }
 
   static getPreviewSprite(scene, x, y, direction = 'right') {

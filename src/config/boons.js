@@ -15,12 +15,6 @@ export const BOON_POOL = [
     rarity: 'common',
   },
   {
-    id: 'boon_overclock_surge',
-    name: 'Overclock Surge',
-    description: 'Splitter run: the first splitter output each cycle is one tier higher.',
-    rarity: 'rare',
-  },
-  {
     id: 'boon_lean_lines',
     name: 'Lean Lines',
     description: 'Speed run: +25% conveyor speed, but -1 max inventory per machine.',

@@ -26,19 +26,6 @@ export const TRAIT_BAND_COLORS = {
 // Defined as an array so tests can iterate; lookup by id via getTraitById.
 export const TRAITS = [
   {
-    id: 'catalyst',
-    name: 'Catalyst',
-    category: TRAIT_CATEGORIES.STAT,
-    description: '+2 purity instead of +1.',
-    hooks: {
-      // Catalyst adds +1 more on top of the machine's own arithmetic operation.
-      onProcess: (resource) => {
-        resource.purity = (resource.purity || 1) + 1;
-        return resource;
-      },
-    },
-  },
-  {
     id: 'overclocked',
     name: 'Overclocked',
     category: TRAIT_CATEGORIES.STAT,
@@ -207,29 +194,6 @@ export const TRAITS = [
     },
   },
   {
-    id: 'hoarder',
-    name: 'Hoarder',
-    category: TRAIT_CATEGORIES.RUN_WIDE,
-    description: 'Every 5th touched delivery scores x2.',
-    hooks: {
-      // completeProcessing already appended the plain 'hoarder' tag (informational).
-      // We additionally tag with a per-instance 'hoarder@<uid>' tag so
-      // DeliveryNode attributes the delivery to THIS machine's counter.
-      // machine.uid (not machine.id, which is the shared type string) ensures
-      // each placed Hoarder machine has its own independent 5-delivery cadence.
-      // Only the LAST hoarder machine in a chain owns the delivery.
-      onProcess: (resource, machine) => {
-        if (!resource) return resource;
-        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
-        resource.traitTags = resource.traitTags.filter(
-          (t) => typeof t !== 'string' || !t.startsWith('hoarder@')
-        );
-        resource.traitTags.push(`hoarder@${machine.uid}`);
-        return resource;
-      },
-    },
-  },
-  {
     id: 'beacon',
     name: 'Beacon',
     category: TRAIT_CATEGORIES.RUN_WIDE,
@@ -254,13 +218,11 @@ export const TRAITS = [
 const TRAITS_BY_ID = new Map(TRAITS.map((t) => [t.id, t]));
 
 const BUILD_AROUND_TRAIT_IDS = [
-  'catalyst',
   'overclocked',
   'twin',
   'sequenced',
   'resonant',
   'conductor',
-  'hoarder',
   'beacon',
 ];
 

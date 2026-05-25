@@ -7,7 +7,6 @@
 export default class TraitRegistry {
   constructor() {
     this.beaconCount = 0;
-    this.hoarderCounters = new Map(); // machineId -> integer delivery count
   }
 
   // --- Beacon ---
@@ -29,26 +28,9 @@ export default class TraitRegistry {
     return 0.1 * this.beaconCount;
   }
 
-  // --- Hoarder ---
-
-  incrementHoarder(machineId) {
-    const next = (this.hoarderCounters.get(machineId) || 0) + 1;
-    this.hoarderCounters.set(machineId, next);
-    return next;
-  }
-
-  getHoarderCount(machineId) {
-    return this.hoarderCounters.get(machineId) || 0;
-  }
-
-  resetHoarder(machineId) {
-    this.hoarderCounters.delete(machineId);
-  }
-
   // --- Lifecycle ---
 
   resetAll() {
     this.beaconCount = 0;
-    this.hoarderCounters.clear();
   }
 }

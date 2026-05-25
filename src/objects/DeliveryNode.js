@@ -325,8 +325,7 @@ export default class DeliveryNode {
    *   - Task 9: 'polarized' (x2)
    *   - Trait refresh: 'sequenced' (x1.75)
    *   - Task 10: 'resonant' (x1.5)
-   *   - Task 11: 'hoarder@<id>' (x2 every 5th via scene.traitRegistry),
-   *              Beacon additive via scene.traitRegistry.getBeaconChainBonus()
+   *   - Beacon additive via scene.traitRegistry.getBeaconChainBonus()
    *
    * @param {number} basePoints - Pre-modifier score for this delivery.
    * @param {object} itemData - The delivered item (carries traitTags).
@@ -367,19 +366,6 @@ export default class DeliveryNode {
     if (tags.includes('resonant')) {
       modifier *= 1.5;
       labels.push('Resonant');
-    }
-    // Hoarder: per-machine running counter; every 5th delivery doubles.
-    const hoarderTag = tags.find((t) => typeof t === 'string' && t.startsWith('hoarder@'));
-    if (hoarderTag && reg && typeof reg.incrementHoarder === 'function') {
-      const machineId = hoarderTag.substring('hoarder@'.length);
-      const count = reg.incrementHoarder(machineId);
-      if (count % 5 === 0) {
-        modifier *= 2.0;
-        labels.push('Hoarder');
-        console.log(
-          `[trait:hoarder] ${machineId} hit ${count}-th delivery, doubling this delivery's score`
-        );
-      }
     }
     const adjusted = Math.floor(basePoints * modifier);
     if (modifier !== 1.0) {

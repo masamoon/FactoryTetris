@@ -6,6 +6,7 @@ import DeliveryNode from '../objects/DeliveryNode'; // Add import
 import { GRID_CONFIG, GAME_CONFIG } from '../config/gameConfig';
 import { UpgradeManager } from '../managers/UpgradeManager.js';
 import BoardGenerator from '../managers/BoardGenerator.js';
+import EconomyManager from '../managers/EconomyManager.js';
 import { BOON_POOL, STARTER_SPARK_POOL } from '../config/boons.js';
 import {
   BOARD_BLOCKER_CELL_STYLE,
@@ -56,6 +57,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Initialize Upgrade Manager
     this.upgradeManager = new UpgradeManager();
+    this.economyManager = new EconomyManager(GAME_CONFIG.economy || {});
 
     this.isPausedForUpgrade = false; // Flag for upgrade pause state
     this.consumingBankedUpgrade = false;
@@ -1861,6 +1863,8 @@ export default class GameScene extends Phaser.Scene {
     const direction = orientation.direction;
 
     const machineId = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
+    const isLogisticsBeltPiece =
+      machine.isLogisticsBeltPiece === true || machine.machineType?.isLogisticsBeltPiece === true;
     const painterPreviewColor =
       machineId === 'painter'
         ? getItemColorHex(getPainterPaintColorKey(direction), 0x3f8cff)
@@ -1970,6 +1974,10 @@ export default class GameScene extends Phaser.Scene {
             break;
         }
       }
+    }
+    if (isLogisticsBeltPiece) {
+      inputPos = { x: -1, y: -1 };
+      outputPos = { x: -1, y: -1 };
     }
 
     // Use direct positioning instead of offsets
@@ -2084,6 +2092,10 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    if (isLogisticsBeltPiece) {
+      this.drawLogisticsBeltPlacementPreview(machine, previewGridPos, direction, canPlace);
+    }
+
     this.drawPlacementTraitPreview(machine, previewGridPos, rotatedShape, canPlace);
 
     // Draw a marker at the center position
@@ -2091,7 +2103,7 @@ export default class GameScene extends Phaser.Scene {
     this.placementPreview.strokeCircle(centerWorldPos.x, centerWorldPos.y, 3);
 
     // Draw direction indicator if we have a direction
-    if (direction !== 'none') {
+    if (direction !== 'none' && !isLogisticsBeltPiece) {
       const indicatorColor = 0xff9500; // Orange
       const indicatorSize = this.grid.cellSize / 3;
 
@@ -2196,6 +2208,92 @@ export default class GameScene extends Phaser.Scene {
     this.placementPreview.fillCircle(outputX, outputY, radius);
     this.placementPreview.lineStyle(1.5, 0xffffff, alpha);
     this.placementPreview.strokeCircle(outputX, outputY, radius);
+  }
+
+  drawLogisticsBeltPlacementPreview(machine, gridPos, direction, canPlace) {
+    if (!this.placementPreview || !this.grid || !machine || !gridPos) return;
+
+    const machineType = machine.machineType || machine;
+    const beltCells = this.getRotatedLogisticsBeltCells(machineType, direction);
+    if (beltCells.length === 0) return;
+
+    const alpha = canPlace ? 0.95 : 0.45;
+    const cellSize = this.grid.cellSize;
+    const getCenter = (cell) => this.grid.gridToWorld(gridPos.x + cell.x, gridPos.y + cell.y);
+
+    this.placementPreview.lineStyle(Math.max(5, cellSize * 0.2), 0x07111a, alpha * 0.9);
+    for (let i = 0; i < beltCells.length - 1; i++) {
+      const from = getCenter(beltCells[i]);
+      const to = getCenter(beltCells[i + 1]);
+      this.placementPreview.lineBetween(from.x, from.y, to.x, to.y);
+    }
+
+    this.placementPreview.lineStyle(Math.max(3, cellSize * 0.12), 0x83f7ff, alpha);
+    for (let i = 0; i < beltCells.length - 1; i++) {
+      const from = getCenter(beltCells[i]);
+      const to = getCenter(beltCells[i + 1]);
+      this.placementPreview.lineBetween(from.x, from.y, to.x, to.y);
+    }
+
+    beltCells.forEach((cell, index) => {
+      const nextCell = beltCells[index + 1] || null;
+      const prevCell = beltCells[index - 1] || null;
+      const beltDirection = this.getDirectionBetweenCells(
+        cell,
+        nextCell,
+        nextCell ? null : prevCell
+      );
+      const center = getCenter(cell);
+      this.drawPlacementArrow(center.x, center.y, beltDirection, cellSize * 0.3, 0xfff3bf, alpha);
+    });
+
+    const start = getCenter(beltCells[0]);
+    const end = getCenter(beltCells[beltCells.length - 1]);
+    this.placementPreview.fillStyle(0x101820, alpha);
+    this.placementPreview.lineStyle(1.5, 0x83f7ff, alpha);
+    this.placementPreview.fillCircle(start.x, start.y, cellSize * 0.16);
+    this.placementPreview.strokeCircle(start.x, start.y, cellSize * 0.16);
+    this.placementPreview.lineStyle(2, 0xfff3bf, alpha);
+    this.placementPreview.strokeCircle(end.x, end.y, cellSize * 0.22);
+  }
+
+  drawPlacementArrow(x, y, direction, size, color = 0xffffff, alpha = 1) {
+    let angle = 0;
+    switch (direction) {
+      case 'down':
+        angle = Math.PI / 2;
+        break;
+      case 'left':
+        angle = Math.PI;
+        break;
+      case 'up':
+        angle = (3 * Math.PI) / 2;
+        break;
+      case 'right':
+      default:
+        angle = 0;
+        break;
+    }
+
+    const tip = { x: x + Math.cos(angle) * size, y: y + Math.sin(angle) * size };
+    const left = {
+      x: x + Math.cos(angle + 2.55) * size,
+      y: y + Math.sin(angle + 2.55) * size,
+    };
+    const right = {
+      x: x + Math.cos(angle - 2.55) * size,
+      y: y + Math.sin(angle - 2.55) * size,
+    };
+
+    this.placementPreview.lineStyle(1.5, 0x07111a, alpha);
+    this.placementPreview.fillStyle(color, alpha);
+    this.placementPreview.beginPath();
+    this.placementPreview.moveTo(tip.x, tip.y);
+    this.placementPreview.lineTo(left.x, left.y);
+    this.placementPreview.lineTo(right.x, right.y);
+    this.placementPreview.closePath();
+    this.placementPreview.fillPath();
+    this.placementPreview.strokePath();
   }
 
   getPreviewTraitId(machine) {
@@ -3593,9 +3691,7 @@ export default class GameScene extends Phaser.Scene {
     const canCycleSelectedSlot =
       selectedProcessorSlot >= 0 &&
       this.machineFactory?.canCycleProcessorSlot?.(selectedProcessorSlot) === true;
-    const cost = canCycleSelectedSlot
-      ? GAME_CONFIG.draftCycleCost || 2
-      : this.getDraftRedrawCost();
+    const cost = canCycleSelectedSlot ? GAME_CONFIG.draftCycleCost || 2 : this.getDraftRedrawCost();
     const inBuildPhase =
       this.runState === 'BUILD_PHASE' && !this.gameOver && !this.paused && !this.isPausedForUpgrade;
 
@@ -4833,6 +4929,9 @@ export default class GameScene extends Phaser.Scene {
         this.showPlacementHint('Invalid piece', '#ff8888');
         return null;
       }
+      if (machineType.isLogisticsBeltPiece) {
+        return this.placeLogisticsBeltPiece(machineType, gridX, gridY, rotation);
+      }
       const isRepositionedMachine = Boolean(machineType.fromPlacedMachine);
 
       // Get direction from rotation (assuming degrees for now)
@@ -5092,6 +5191,160 @@ export default class GameScene extends Phaser.Scene {
         error
       );
       return null;
+    }
+  }
+
+  placeLogisticsBeltPiece(machineType, gridX, gridY, rotation = 0) {
+    const direction = this.getDirectionFromRotation(rotation);
+    const boardTileEffects = this.getBoardTilePlacementEffects(
+      machineType,
+      gridX,
+      gridY,
+      direction
+    );
+    const placementCost = this.getMachinePlacementCost(machineType, boardTileEffects);
+
+    if (this.money < placementCost) {
+      this.showMoneyFeedback(-placementCost, 'needed');
+      this.showPlacementHint(`Need $${placementCost}`, '#ff8888');
+      return null;
+    }
+
+    if (!this.grid.canPlaceMachine(machineType, gridX, gridY, direction)) {
+      this.showPlacementHint('Blocked placement', '#ff8888');
+      return null;
+    }
+
+    const beltCells = this.getRotatedLogisticsBeltCells(machineType, direction);
+    if (beltCells.length === 0) {
+      this.showPlacementHint('Invalid belt piece', '#ff8888');
+      return null;
+    }
+
+    const placedBelts = [];
+    for (let index = 0; index < beltCells.length; index++) {
+      const cell = beltCells[index];
+      const nextCell = beltCells[index + 1] || null;
+      const prevCell = beltCells[index - 1] || null;
+      const beltDirection = this.getDirectionBetweenCells(
+        cell,
+        nextCell,
+        nextCell ? null : prevCell
+      );
+      const beltRotation = this.getRotationFromDirection(beltDirection);
+      const conveyorType = {
+        ...(this.machineFactory?.conveyorMachineType || { id: 'conveyor' }),
+        id: 'conveyor',
+        placementCost: 0,
+        isLogisticsBeltSegment: true,
+      };
+      const machineObj = this.machineFactory.createMachine(
+        conveyorType,
+        gridX + cell.x,
+        gridY + cell.y,
+        beltDirection,
+        beltRotation,
+        this.grid
+      );
+
+      if (!machineObj) {
+        placedBelts.forEach((belt) => {
+          this.grid.removeMachine(belt);
+          this.machines = this.machines.filter((machine) => machine !== belt);
+          belt.destroy?.();
+        });
+        this.showPlacementHint('Belt placement failed', '#ff8888');
+        return null;
+      }
+
+      const placedOnGrid = this.grid.placeMachine(
+        machineObj,
+        gridX + cell.x,
+        gridY + cell.y,
+        beltDirection
+      );
+      if (!placedOnGrid) {
+        machineObj.destroy?.();
+        placedBelts.forEach((belt) => {
+          this.grid.removeMachine(belt);
+          this.machines = this.machines.filter((machine) => machine !== belt);
+          belt.destroy?.();
+        });
+        this.showPlacementHint('Belt placement failed', '#ff8888');
+        return null;
+      }
+      this.machines.push(machineObj);
+      machineObj.placedAtTime = this.time?.now || 0;
+      machineObj.placementCost = 0;
+      machineObj.logisticsPieceId = machineType.logisticsPieceCard?.id || machineType.pieceName;
+      this.addToWorld(machineObj);
+      this.trackPlacementForFlowReward(machineObj);
+      placedBelts.push(machineObj);
+    }
+
+    if (placementCost > 0) {
+      this.addMoney(-placementCost, machineType.pieceName || 'belt piece');
+    } else {
+      this.updateRoundUI();
+    }
+    this.showPlacementHint('Belt piece placed', '#88ffcc');
+    this.refreshTutorialPanel();
+    this.playSound('place');
+    this.exitMachinePlacementMode();
+    return placedBelts[0] || null;
+  }
+
+  getRotatedLogisticsBeltCells(machineType, direction) {
+    const path = Array.isArray(machineType?.logisticsPath) ? machineType.logisticsPath : [];
+    const shape = machineType?.shape || [[1]];
+    return path.map((cell) => this.rotateLogisticsBeltCell(cell, shape, direction));
+  }
+
+  rotateLogisticsBeltCell(cell, shape, direction) {
+    const height = shape.length;
+    const width = shape[0]?.length || 1;
+
+    switch (direction) {
+      case 'down':
+        return { x: height - 1 - cell.y, y: cell.x };
+      case 'left':
+        return { x: width - 1 - cell.x, y: height - 1 - cell.y };
+      case 'up':
+        return { x: cell.y, y: width - 1 - cell.x };
+      case 'right':
+      default:
+        return { x: cell.x, y: cell.y };
+    }
+  }
+
+  getDirectionBetweenCells(cell, nextCell, previousCell = null) {
+    const target = nextCell || cell;
+    let dx = target.x - cell.x;
+    let dy = target.y - cell.y;
+
+    if (dx === 0 && dy === 0 && previousCell) {
+      dx = cell.x - previousCell.x;
+      dy = cell.y - previousCell.y;
+    }
+
+    if (dx > 0) return 'right';
+    if (dx < 0) return 'left';
+    if (dy > 0) return 'down';
+    if (dy < 0) return 'up';
+    return 'right';
+  }
+
+  getRotationFromDirection(direction) {
+    switch (direction) {
+      case 'down':
+        return Math.PI / 2;
+      case 'left':
+        return Math.PI;
+      case 'up':
+        return (3 * Math.PI) / 2;
+      case 'right':
+      default:
+        return 0;
     }
   }
 
@@ -5853,13 +6106,6 @@ export default class GameScene extends Phaser.Scene {
       lines.push(`Beacon x${beaconCount} (+${(beaconCount * 0.1).toFixed(1)} chain)`);
     }
 
-    for (const [id, count] of this.traitRegistry.hoarderCounters.entries()) {
-      if (count <= 0) continue;
-      const remainder = count % 5;
-      const next = remainder === 0 ? 5 : 5 - remainder;
-      lines.push(`Hoarder@${id}: next x2 in ${next}`);
-    }
-
     this.runWideHudLines = lines;
     if (this.runWideHudLabel) {
       this.runWideHudLabel.setVisible(false);
@@ -6238,9 +6484,7 @@ export default class GameScene extends Phaser.Scene {
       ? getItemColorName(condition.itemColor).charAt(0).toUpperCase()
       : null;
     const count = Math.max(1, condition.requiredCount || 1);
-    return [colorLabel, condition.operationLabel, tierLabel, `x${count}`]
-      .filter(Boolean)
-      .join(' ');
+    return [colorLabel, condition.operationLabel, tierLabel, `x${count}`].filter(Boolean).join(' ');
   }
 
   getOperationDemandLabel(operationTag) {
@@ -6268,7 +6512,8 @@ export default class GameScene extends Phaser.Scene {
       this.scrapText.setText(`${this.getRemainingSourceResources()}`);
     }
     if (this.moneyText) {
-      this.moneyText.setText(`$${this.money}`);
+      const interest = this.getProjectedInterest();
+      this.moneyText.setText(interest > 0 ? `$${this.money} +$${interest}` : `$${this.money}`);
     }
     this.updateFlowHud();
     const visibleNodes = activeNodes.slice(0, 3);
@@ -6318,9 +6563,7 @@ export default class GameScene extends Phaser.Scene {
         this.nextDemandText.setText('');
         this.nextDemandText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
-        this.nextDemandText.setText(
-          `Next: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
-        );
+        this.nextDemandText.setText(`Next: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`);
         this.nextDemandText.setColor('#b9f7ff');
       } else {
         this.nextDemandText.setText(
@@ -6372,6 +6615,18 @@ export default class GameScene extends Phaser.Scene {
     if (reason) {
       this.showMoneyFeedback(amount, reason);
     }
+  }
+
+  getProjectedInterest(money = this.money) {
+    return this.economyManager?.getInterestForMoney?.(money) || 0;
+  }
+
+  grantRoundInterest() {
+    const interest = this.getProjectedInterest(this.money);
+    if (interest <= 0) return 0;
+
+    this.addMoney(interest, 'interest');
+    return interest;
   }
 
   showMoneyFeedback(amount, reason) {
@@ -6603,6 +6858,9 @@ export default class GameScene extends Phaser.Scene {
     }
     if (typeof machineType?.placementCost === 'number' && machineType.specialLogisticsSource) {
       return machineType.placementCost;
+    }
+    if (machineType?.isLogisticsBeltPiece) {
+      return GAME_CONFIG.machinePlacementCosts?.logisticsBeltPiece || 0;
     }
     const costs = GAME_CONFIG.machinePlacementCosts || {};
     const id = machineType?.id || '';
@@ -6957,6 +7215,7 @@ export default class GameScene extends Phaser.Scene {
         this.addMoney(reinvestedBudget, 'reinvest');
       }
     }
+    this.lastRoundInterest = this.grantRoundInterest();
     this.playSound('round-clear');
     this.showRoundClearFeedback();
     this.maybeUnlockAdvancedLogistics(pacing);
@@ -6988,7 +7247,9 @@ export default class GameScene extends Phaser.Scene {
       ? 'ALL COMPLETE\nJACKPOT'
       : pacing.isBoss
         ? `BOSS CLEAR\n${pacing.stageName}`
-        : 'ROUND CLEAR';
+        : this.lastRoundInterest > 0
+          ? `ROUND CLEAR\n+$${this.lastRoundInterest} INTEREST`
+          : 'ROUND CLEAR';
     const x = this.scale.width / 2 - this.rightPanelWidth / 2;
     const y = 118;
     const text = this.add
@@ -8329,8 +8590,9 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const refund = Math.floor(
-      (machine.placementCost || this.getMachinePlacementCost(machine)) *
-        (GAME_CONFIG.machineRefundRate || 0.5)
+      (typeof machine.placementCost === 'number'
+        ? machine.placementCost
+        : this.getMachinePlacementCost(machine)) * (GAME_CONFIG.machineRefundRate || 0.5)
     );
     if (refund > 0) {
       this.addMoney(refund, 'refund');
@@ -8389,6 +8651,8 @@ export default class GameScene extends Phaser.Scene {
       trait: this.selectedMachineType.trait || null,
       outputLevel: this.selectedMachineType.outputLevel || null,
       previewOutputLevel: this.selectedMachineType.previewOutputLevel || null,
+      isLogisticsBeltPiece: this.selectedMachineType.isLogisticsBeltPiece === true,
+      logisticsPath: this.selectedMachineType.logisticsPath || null,
       machineType: this.selectedMachineType,
       gridX: gridPos.x,
       gridY: gridPos.y,

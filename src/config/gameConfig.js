@@ -263,6 +263,13 @@ export const GAME_CONFIG = {
   shopFundingGrantAmount: 18,
 
   // Round / economy loop
+  economy: {
+    interest: {
+      cashPerInterest: 5,
+      interestPerStep: 1,
+      maxInterest: 5,
+    },
+  },
   startingMoney: 45,
   roundBaseMoney: 28,
   roundMoneyGrowth: 8,
@@ -277,6 +284,7 @@ export const GAME_CONFIG = {
   maxDeliveryNodesPerRound: 7,
   machinePlacementCosts: {
     conveyor: 1,
+    logisticsBeltPiece: 0,
     splitter: 4,
     'filter-splitter': 42,
     merger: 4,
