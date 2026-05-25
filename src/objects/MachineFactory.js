@@ -148,7 +148,9 @@ export default class MachineFactory {
 
     // Filter for logistics machines
     this.logisticsTypes = allMachineTypes.filter((type) =>
-      ['splitter', 'merger', 'underground-belt', 'painter'].includes(type.id.toLowerCase())
+      ['splitter', 'merger', 'underground-belt', 'painter', 'filter-splitter'].includes(
+        type.id.toLowerCase()
+      )
     );
 
     // Get the conveyor type
@@ -253,14 +255,30 @@ export default class MachineFactory {
       return;
     }
 
-    this.availableLogistics = this.logisticsTypes.filter((type) => {
-      if (typeof this.scene?.isLogisticsMachineUnlocked === 'function') {
-        return this.scene.isLogisticsMachineUnlocked(type);
-      }
-      return true;
-    });
+    this.availableLogistics = this.logisticsTypes
+      .map((type) => {
+        if (typeof this.scene?.getLogisticsMachinePanelType === 'function') {
+          return this.scene.getLogisticsMachinePanelType(type);
+        }
+        if (typeof this.scene?.isLogisticsMachineUnlocked === 'function') {
+          return this.scene.isLogisticsMachineUnlocked(type) ? type : null;
+        }
+        return type;
+      })
+      .filter(Boolean);
+
+    const availableIds = new Set(this.availableLogistics.map((type) => type.id));
     this.lockedLogistics = this.logisticsTypes
-      .filter((type) => !this.availableLogistics.includes(type))
+      .filter((type) => {
+        if (availableIds.has(type.id)) return false;
+        if (typeof this.scene?.shouldShowLockedLogisticsMachine === 'function') {
+          return this.scene.shouldShowLockedLogisticsMachine(type);
+        }
+        if (typeof this.scene?.isLogisticsMachineUnlocked === 'function') {
+          return !this.scene.isLogisticsMachineUnlocked(type);
+        }
+        return false;
+      })
       .map((type) => ({
         ...type,
         isLocked: true,
@@ -516,8 +534,8 @@ export default class MachineFactory {
 
     const processorY = -26;
     const logisticsY = 34;
-    const processorSpacing = 108;
-    const logisticsSpacing = 82;
+    const processorSpacing = 112;
+    const logisticsSpacing = 80;
     const processorStartX = -((this.numProcessorSlots - 1) * processorSpacing) / 2;
     const logisticsDisplayTypes = this.getDisplayedLogisticsTypes();
     const logisticsSlotCount = logisticsDisplayTypes.length;
@@ -597,12 +615,21 @@ export default class MachineFactory {
 
     const slotStyle = this.getPanelSlotStyle(machineType, category);
     const isOperator = category === 'operator';
-    const slotWidth = isOperator ? 84 : 66;
-    const slotHeight = isOperator ? 58 : 48;
+    const slotWidth = isOperator ? 92 : 70;
+    const slotHeight = isOperator ? 62 : 50;
     const previewY = isOperator ? itemY + 8 : itemY;
+    const placementCost =
+      typeof this.scene?.getMachinePlacementCost === 'function'
+        ? this.scene.getMachinePlacementCost(machineType)
+        : machineType.placementCost || 0;
+    const canAfford = !placementCost || (this.scene?.money || 0) >= placementCost;
     const slotFrame = this.scene.add
-      .rectangle(itemX, itemY, slotWidth, slotHeight, 0x0f1820, 0.86)
-      .setStrokeStyle(1, slotStyle.borderColor, machineType.isLocked ? 0.35 : 0.72);
+      .rectangle(itemX, itemY, slotWidth, slotHeight, canAfford ? 0x0f1820 : 0x1e1518, 0.9)
+      .setStrokeStyle(
+        1,
+        canAfford ? slotStyle.borderColor : 0xff7777,
+        machineType.isLocked ? 0.35 : 0.78
+      );
     if (machineType.isLocked) {
       slotFrame.setAlpha(0.68);
     }
@@ -652,15 +679,15 @@ export default class MachineFactory {
       if (isOperator && machineType.notation) {
         if (machineType.pieceShortName || machineType.pieceName) {
           const nameLabel = this.scene.add
-            .text(itemX, itemY - 31, machineType.pieceShortName || machineType.pieceName, {
+            .text(itemX, itemY - 33, machineType.pieceShortName || machineType.pieceName, {
               fontFamily: 'Arial',
-              fontSize: 8,
+              fontSize: 9,
               fontWeight: 'bold',
               color: '#dfefff',
               align: 'center',
               stroke: '#000000',
               strokeThickness: 2,
-              wordWrap: { width: 48 },
+              wordWrap: { width: 62 },
             })
             .setOrigin(0.5);
           this.processorPreviewContainer.add(nameLabel);
@@ -668,7 +695,7 @@ export default class MachineFactory {
         }
 
         // Determine label color based on usability
-        const labelColor = machineType.isUsable !== false ? '#00ff00' : '#ff6666';
+        const labelColor = machineType.isUsable !== false && canAfford ? '#88ff66' : '#ff7777';
         const notationLabel = this.scene.add
           .text(itemX, itemY + 23, machineType.notation, {
             fontFamily: 'Arial',
@@ -697,6 +724,31 @@ export default class MachineFactory {
             .setOrigin(0.5);
           this.processorPreviewContainer.add(ruleBadge);
           machinePreview.ruleBadge = ruleBadge;
+        }
+
+        if (placementCost) {
+          const costBg = this.scene.add
+            .rectangle(
+              itemX - slotWidth / 2 + 19,
+              itemY - slotHeight / 2 + 10,
+              32,
+              14,
+              0x07111a,
+              0.95
+            )
+            .setStrokeStyle(1, canAfford ? 0x88ffcc : 0xff7777, 0.85);
+          const costLabel = this.scene.add
+            .text(costBg.x, costBg.y, `$${placementCost}`, {
+              fontFamily: 'Arial Black',
+              fontSize: 8,
+              color: canAfford ? '#88ffcc' : '#ff8888',
+              align: 'center',
+            })
+            .setOrigin(0.5);
+          this.processorPreviewContainer.add(costBg);
+          this.processorPreviewContainer.add(costLabel);
+          machinePreview.costBg = costBg;
+          machinePreview.costLabel = costLabel;
         }
 
         // --- ADD TRAIT INFO BENEATH NOTATION ---
@@ -747,6 +799,29 @@ export default class MachineFactory {
           .setOrigin(0.5);
         this.processorPreviewContainer.add(logisticsLabel);
         machinePreview.nameLabel = logisticsLabel;
+        if (machineType.specialLogisticsSource) {
+          const badgeText =
+            machineType.specialLogisticsSource === 'permanent'
+              ? 'PERM'
+              : `x${machineType.specialLogisticsCount || 1}`;
+          const badgeColor =
+            machineType.specialLogisticsSource === 'permanent' ? 0x83f7ff : 0xffd166;
+          const badge = this.scene.add
+            .rectangle(itemX + 23, itemY - 25, 34, 14, 0x07111a, 0.96)
+            .setStrokeStyle(1, badgeColor, 0.9);
+          const badgeLabel = this.scene.add
+            .text(badge.x, badge.y, badgeText, {
+              fontFamily: 'Arial Black',
+              fontSize: 8,
+              color: machineType.specialLogisticsSource === 'permanent' ? '#83f7ff' : '#ffd166',
+              align: 'center',
+            })
+            .setOrigin(0.5);
+          this.processorPreviewContainer.add(badge);
+          this.processorPreviewContainer.add(badgeLabel);
+          machinePreview.specialBadge = badge;
+          machinePreview.specialBadgeLabel = badgeLabel;
+        }
         if (machineType.isLocked) {
           logisticsLabel.setText('LOCKED');
           logisticsLabel.setColor('#95aab5');
@@ -777,12 +852,36 @@ export default class MachineFactory {
             swatch.setStrokeStyle(1, 0x0b1117, 0.9);
             this.processorPreviewContainer.add(swatch);
           });
+        } else if (machineType.id === 'filter-splitter') {
+          const filterLine = this.scene.add.graphics();
+          filterLine.lineStyle(2, 0xffd166, 0.9);
+          filterLine.lineBetween(itemX - 18, itemY - 26, itemX + 18, itemY - 18);
+          filterLine.lineBetween(itemX - 18, itemY - 18, itemX + 18, itemY - 26);
+          this.processorPreviewContainer.add(filterLine);
         } else if (machineType.id === 'underground-belt') {
           const tunnelLine = this.scene.add.graphics();
           tunnelLine.lineStyle(2, 0xb56cff, 0.85);
           tunnelLine.setLineDash?.([5, 4]);
           tunnelLine.lineBetween(itemX - 24, itemY - 22, itemX + 24, itemY - 22);
           this.processorPreviewContainer.add(tunnelLine);
+        }
+
+        if (placementCost) {
+          const costBg = this.scene.add
+            .rectangle(itemX - 22, itemY - 25, 34, 14, 0x07111a, 0.95)
+            .setStrokeStyle(1, canAfford ? 0x88ffcc : 0xff7777, 0.85);
+          const costLabel = this.scene.add
+            .text(costBg.x, costBg.y, `$${placementCost}`, {
+              fontFamily: 'Arial Black',
+              fontSize: 8,
+              color: canAfford ? '#88ffcc' : '#ff8888',
+              align: 'center',
+            })
+            .setOrigin(0.5);
+          this.processorPreviewContainer.add(costBg);
+          this.processorPreviewContainer.add(costLabel);
+          machinePreview.costBg = costBg;
+          machinePreview.costLabel = costLabel;
         }
       }
       // --- END NOTATION LABEL ---
@@ -798,8 +897,12 @@ export default class MachineFactory {
 
       machinePreview.on('pointerover', () => {
         machinePreview.setScale(machinePreview.basePanelScale);
-        slotFrame.fillColor = 0x1f3240;
-        slotFrame.setStrokeStyle(2, slotStyle.borderColor, machineType.isLocked ? 0.55 : 1);
+        slotFrame.fillColor = canAfford ? 0x1f3240 : 0x2a1d21;
+        slotFrame.setStrokeStyle(
+          2,
+          canAfford ? slotStyle.borderColor : 0xff7777,
+          machineType.isLocked ? 0.55 : 1
+        );
         this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
       });
 
@@ -814,6 +917,9 @@ export default class MachineFactory {
         if (machineType.isLocked) {
           this.scene?.showPlacementHint?.(machineType.lockedReason || 'Locked', '#83f7ff');
           return;
+        }
+        if (!canAfford) {
+          this.scene?.showPlacementHint?.(`Need $${placementCost}`, '#ff8888');
         }
         if (category === 'operator') {
           this.lastSelectedSlotIndex = slotIndex;
@@ -876,6 +982,7 @@ export default class MachineFactory {
 
     const styles = {
       splitter: { label: 'SPLIT', borderColor: 0xffd166, textColor: '#ffd166' },
+      'filter-splitter': { label: 'FILTER', borderColor: 0xfff3bf, textColor: '#fff3bf' },
       merger: { label: 'MERGE', borderColor: 0x88ffcc, textColor: '#88ffcc' },
       'underground-belt': { label: 'UNDER', borderColor: 0xb56cff, textColor: '#d9b6ff' },
       painter: { label: 'PAINT', borderColor: 0xff5f57, textColor: '#ffaaa5' },
@@ -1356,10 +1463,18 @@ export default class MachineFactory {
               this.lastSelectedCategory === 'logistics' &&
               this.lastSelectedSlotIndex >= 0
             ) {
+              const depletedTemporarySpecial =
+                this.selectedMachineType?.specialLogisticsSource === 'temporary' &&
+                typeof this.scene?.getSpecialLogisticsInventoryCount === 'function' &&
+                this.scene.getSpecialLogisticsInventoryCount(this.selectedMachineType.id) <= 0;
               this.rotateLogistics(this.lastSelectedSlotIndex);
               this.displayCurrentProcessorPreview();
-              // DO NOT clear selection for logistics - keep them valid for next placement
-              // DO NOT reset lastSelectedCategory/Index so we know what slot we are on
+              if (depletedTemporarySpecial) {
+                this.clearSelection();
+                this.lastSelectedCategory = null;
+                this.lastSelectedSlotIndex = -1;
+              }
+              // Standard logistics stay selected for repeated placement.
             }
 
             // Conveyor (lastSelectedSlotIndex === -1) stays selected for unlimited placement
@@ -1817,12 +1932,12 @@ export default class MachineFactory {
     const tooltipBg = this.scene.add.rectangle(
       0,
       0,
-      200,
-      100, // Increase initial height for better spacing
-      0x000000,
-      0.8
+      238,
+      112, // Increase initial height for better spacing
+      0x07111a,
+      0.94
     );
-    tooltipBg.setStrokeStyle(1, 0xffffff, 0.5);
+    tooltipBg.setStrokeStyle(1, 0x83f7ff, 0.78);
     this.tooltip.add(tooltipBg);
 
     // Add machine name (moved up for more spacing)
@@ -1849,6 +1964,11 @@ export default class MachineFactory {
       lines.push('Moves items along arrows.', 'Extracts from source nodes.');
     } else if (machineType.id === 'splitter') {
       lines.push('Alternates one input to two outputs.');
+    } else if (machineType.id === 'filter-splitter') {
+      lines.push(
+        'Routes high-tier or warm-colored items.',
+        'Falls back if preferred output is blocked.'
+      );
     } else if (machineType.id === 'merger') {
       lines.push('Merges inputs into one output.');
     } else if (machineType.id === 'underground-belt') {
@@ -1904,6 +2024,17 @@ export default class MachineFactory {
     if (machineType.isLocked) {
       lines.push(machineType.lockedReason || 'Locked for now.');
     }
+    if (machineType.specialLogisticsSource === 'temporary') {
+      lines.push(`Limited kit: ${machineType.specialLogisticsCount || 1} available.`);
+    } else if (machineType.specialLogisticsSource === 'permanent') {
+      lines.push('Stabilized blueprint: pay money each placement.');
+    }
+    if (
+      machineType.specialLogisticsSource &&
+      typeof this.scene?.getMachinePlacementCost === 'function'
+    ) {
+      lines.push(`Placement: $${this.scene.getMachinePlacementCost(machineType)}`);
+    }
 
     let tooltipText = lines.join('\n');
 
@@ -1923,7 +2054,7 @@ export default class MachineFactory {
           fontSize: 12,
           color: '#ffffff',
           align: 'left',
-          wordWrap: { width: 180 },
+          wordWrap: { width: 210 },
         }
       )
       .setOrigin(0.5);
@@ -1936,19 +2067,14 @@ export default class MachineFactory {
     this.tooltip.add(separator);
 
     // Adjust background height based on content with increased margin
-    tooltipBg.height = Math.max(100, 80 + tooltipContent.height);
+    tooltipBg.height = Math.max(112, 84 + tooltipContent.height);
     this.tooltip.setPosition(
-      Phaser.Math.Clamp(x, 108, this.scene.scale.width - 108),
+      Phaser.Math.Clamp(x, 128, this.scene.scale.width - 128),
       Phaser.Math.Clamp(
         y,
         tooltipBg.height / 2 + 8,
         this.scene.scale.height - tooltipBg.height / 2 - 8
       )
-    );
-
-    // Log that we're creating a tooltip (for debugging)
-    console.log(
-      `Creating tooltip for ${machineType.id} at (${x}, ${y}) with content: ${tooltipText}`
     );
 
     // Add a small animation

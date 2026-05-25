@@ -116,6 +116,9 @@ export default class GameScene extends Phaser.Scene {
     this.pendingBoardBonusTiles = [];
     this.currentShopOffers = null;
     this.shopRerollCount = 0;
+    this.pendingShopOpen = false;
+    this.specialLogisticsInventory = {};
+    this.permanentSpecialLogistics = {};
     this.tutorialDismissed = false;
     this.tutorialPanel = null;
     this.tutorialUiHighlight = null;
@@ -123,6 +126,7 @@ export default class GameScene extends Phaser.Scene {
     this.tutorialHighlightTween = null;
     this.tutorialHighlightKey = null;
     this.placementCue = null;
+    this.placementCueBg = null;
     this.placementCueText = null;
     this.placementHintText = null;
     this.lastQuotaHudScore = 0;
@@ -223,9 +227,10 @@ export default class GameScene extends Phaser.Scene {
     this.lastFlowMilestone = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
+    this.specialLogisticsInventory = {};
+    this.permanentSpecialLogistics = {};
 
     this.startRound(1, { buildPhase: true });
-    this.time.delayedCall(180, () => this.showStarterSparkScreen());
 
     // Play background music
     this.playBackgroundMusic();
@@ -233,6 +238,7 @@ export default class GameScene extends Phaser.Scene {
     this.events.on('upgradeSelected', this.resumeFromUpgrade, this);
     this.events.on('machineSelected', this.showPlacementCue, this);
     this.events.on('machineDeselected', this.hidePlacementCue, this);
+    this.time.delayedCall(180, () => this.showStarterSparkScreen());
 
     // Add a toggle button or key for switching input modes
     this.input.keyboard.on('keydown-M', () => {
@@ -507,7 +513,7 @@ export default class GameScene extends Phaser.Scene {
     const buttonStartY = height - 78;
 
     // Pause and speed controls
-    const pauseButton = this.createButton(
+    this.pauseButton = this.createButton(
       centerX - 90,
       buttonStartY,
       'PAUSE',
@@ -516,10 +522,10 @@ export default class GameScene extends Phaser.Scene {
       },
       78
     );
-    pauseButton.button.setScrollFactor(0);
-    pauseButton.text.setScrollFactor(0);
-    this.addToUI(pauseButton.button);
-    this.addToUI(pauseButton.text);
+    this.pauseButton.button.setScrollFactor(0);
+    this.pauseButton.text.setScrollFactor(0);
+    this.addToUI(this.pauseButton.button);
+    this.addToUI(this.pauseButton.text);
 
     this.fastForwardButton = this.createButton(
       centerX,
@@ -599,6 +605,7 @@ export default class GameScene extends Phaser.Scene {
     this.draftCycleButton.text.setScrollFactor(0);
     this.updateDraftCycleButton();
     this.updateFastForwardButton();
+    this.updatePauseButton();
     this.updateResetBoardButton();
     this.addToUI(this.draftCycleButton.button);
     this.addToUI(this.draftCycleButton.text);
@@ -1040,37 +1047,50 @@ export default class GameScene extends Phaser.Scene {
     if (!this.placementCue) {
       this.placementCue = this.add.container(0, 0).setScrollFactor(0);
       this.placementCue.setDepth(11000);
-      const background = this.add
-        .rectangle(0, 0, 178, 28, 0x07111a, 0.9)
+      this.placementCueBg = this.add
+        .rectangle(0, 0, 268, 50, 0x07111a, 0.94)
         .setOrigin(0)
         .setStrokeStyle(1, 0x88ccff, 0.85);
-      this.placementCueText = this.add.text(10, 14, '', {
+      this.placementCueText = this.add.text(12, 10, '', {
         fontFamily: 'Arial Black',
         fontSize: 11,
         color: '#dfefff',
+        lineSpacing: 3,
+        wordWrap: { width: 244 },
       });
-      this.placementCueText.setOrigin(0, 0.5);
-      this.placementCue.add([background, this.placementCueText]);
+      this.placementCueText.setOrigin(0, 0);
+      this.placementCue.add([this.placementCueBg, this.placementCueText]);
       this.addToUI(this.placementCue);
     }
 
     const label =
       machineType.pieceShortName || machineType.pieceName || machineType.name || machineType.id;
-    this.placementCueText.setText(`PLACING: ${label}`);
+    const cost =
+      typeof this.getMachinePlacementCost === 'function'
+        ? this.getMachinePlacementCost(machineType)
+        : machineType.placementCost || 0;
+    const actionHint =
+      this.inputMode === 'touch'
+        ? 'Tap board to preview. Tap again to place.'
+        : 'Click to place. R rotate. Esc cancel.';
+    this.placementCueText.setText(`PLACING ${label}${cost ? `  $${cost}` : ''}\n${actionHint}`);
     this.placementCue.setVisible(true);
-    this.updatePlacementCuePosition(this.input?.activePointer);
+    this.updatePlacementCuePosition();
     this.refreshTutorialPanel();
   }
 
-  updatePlacementCuePosition(pointer) {
-    if (!this.placementCue || !this.placementCue.visible || !pointer) return;
+  updatePlacementCuePosition() {
+    if (!this.placementCue || !this.placementCue.visible) return;
 
-    const width = 178;
-    const height = 28;
-    const margin = 8;
-    const x = Phaser.Math.Clamp(pointer.x + 16, margin, this.scale.width - width - margin);
-    const y = Phaser.Math.Clamp(pointer.y + 18, margin, this.scale.height - height - margin);
-    this.placementCue.setPosition(x, y);
+    const width = 268;
+    const margin = 10;
+    const playAreaWidth = Math.max(0, this.scale.width - this.rightPanelWidth);
+    const x = Phaser.Math.Clamp(
+      playAreaWidth - width - margin,
+      margin,
+      this.scale.width - width - margin
+    );
+    this.placementCue.setPosition(x, margin);
   }
 
   hidePlacementCue() {
@@ -3479,7 +3499,7 @@ export default class GameScene extends Phaser.Scene {
         this.nodeSpawnTimer.paused = true;
         console.log('[TIMER_DEBUG] Paused nodeSpawnTimer via togglePause.'); // Log pause
       }
-      this.showPauseScreen();
+      this.clearPauseScreen();
     } else {
       // Resume timers
       this.setProductionPaused(this.runState === 'BUILD_PHASE');
@@ -3489,39 +3509,24 @@ export default class GameScene extends Phaser.Scene {
         this.nodeSpawnTimer.paused = false;
         console.log('[TIMER_DEBUG] Resumed nodeSpawnTimer via togglePause.'); // Log resume
       }
-      this.hidePauseScreen();
+      this.clearPauseScreen();
     }
     this.updateFastForwardButton();
+    this.updatePauseButton();
   }
 
-  showPauseScreen() {
-    const width = this.cameras.main.width;
-    const height = this.cameras.main.height;
+  updatePauseButton() {
+    if (!this.pauseButton) return;
 
-    // Create a semi-transparent background
-    this.pauseOverlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.7).setOrigin(0, 0);
-
-    // Pause text
-    this.pauseText = this.add
-      .text(width / 2, height / 2, 'PAUSED', {
-        fontFamily: 'Arial Black',
-        fontSize: 48,
-        color: '#ffffff',
-      })
-      .setOrigin(0.5);
-
-    // Resume button
-    this.resumeButton = this.createButton(width / 2, height / 2 + 80, 'RESUME', () => {
-      this.togglePause();
-    });
-
-    // Main menu button
-    this.menuButton = this.createButton(width / 2, height / 2 + 150, 'MAIN MENU', () => {
-      this.scene.start('MainMenuScene');
-    });
+    const button = this.pauseButton.button;
+    const text = this.pauseButton.text;
+    text.setText(this.paused ? 'RESUME' : 'PAUSE');
+    button.fillColor = this.paused ? 0x7a4f2a : 0x4a6fb5;
+    button.defaultFillColor = button.fillColor;
+    button.hoverFillColor = this.paused ? 0x9a6a3a : 0x5a8fd5;
   }
 
-  hidePauseScreen() {
+  clearPauseScreen() {
     if (this.pauseOverlay) this.pauseOverlay.destroy();
     if (this.pauseText) this.pauseText.destroy();
     if (this.resumeButton) {
@@ -3532,6 +3537,10 @@ export default class GameScene extends Phaser.Scene {
       this.menuButton.button.destroy();
       this.menuButton.text.destroy();
     }
+    this.pauseOverlay = null;
+    this.pauseText = null;
+    this.resumeButton = null;
+    this.menuButton = null;
   }
 
   endGame() {
@@ -3858,8 +3867,63 @@ export default class GameScene extends Phaser.Scene {
     );
   }
 
+  getSpecialLogisticsConfig(machineTypeOrId) {
+    const machineId = String(machineTypeOrId?.id || machineTypeOrId || '').toLowerCase();
+    return GAME_CONFIG.specialLogistics?.[machineId] || null;
+  }
+
+  isSpecialLogisticsMachine(machineTypeOrId) {
+    return Boolean(this.getSpecialLogisticsConfig(machineTypeOrId));
+  }
+
+  getSpecialLogisticsInventoryCount(machineTypeOrId) {
+    const config = this.getSpecialLogisticsConfig(machineTypeOrId);
+    if (!config) return 0;
+    return Math.max(0, this.specialLogisticsInventory?.[config.id] || 0);
+  }
+
+  isPermanentSpecialLogisticsUnlocked(machineTypeOrId) {
+    const config = this.getSpecialLogisticsConfig(machineTypeOrId);
+    return Boolean(config && this.permanentSpecialLogistics?.[config.id]);
+  }
+
+  getLogisticsMachinePanelType(machineType) {
+    const machineId = String(machineType?.id || '').toLowerCase();
+    const specialConfig = this.getSpecialLogisticsConfig(machineId);
+    if (specialConfig) {
+      const isPermanent = this.isPermanentSpecialLogisticsUnlocked(machineId);
+      const inventoryCount = this.getSpecialLogisticsInventoryCount(machineId);
+      if (!isPermanent && inventoryCount <= 0) return null;
+      const useTemporaryKit = inventoryCount > 0;
+
+      return {
+        ...machineType,
+        name: specialConfig.name || machineType.name,
+        description: specialConfig.description || machineType.description,
+        specialLogisticsSource: useTemporaryKit ? 'temporary' : 'permanent',
+        specialLogisticsCount: inventoryCount,
+        placementCost: useTemporaryKit
+          ? specialConfig.temporaryPlacementCost
+          : specialConfig.permanentPlacementCost,
+      };
+    }
+
+    return this.isLogisticsMachineUnlocked(machineType) ? machineType : null;
+  }
+
+  shouldShowLockedLogisticsMachine(machineType) {
+    const machineId = String(machineType?.id || machineType || '').toLowerCase();
+    return machineId === 'underground-belt';
+  }
+
   isLogisticsMachineUnlocked(machineType) {
     const machineId = String(machineType?.id || machineType || '').toLowerCase();
+    if (this.isSpecialLogisticsMachine(machineId)) {
+      return (
+        this.getSpecialLogisticsInventoryCount(machineId) > 0 ||
+        this.isPermanentSpecialLogisticsUnlocked(machineId)
+      );
+    }
     if (machineId === 'underground-belt') {
       return this.isUndergroundBeltUnlocked();
     }
@@ -3886,6 +3950,56 @@ export default class GameScene extends Phaser.Scene {
     this.machineFactory?.displayCurrentProcessorPreview?.();
     this.showMetaUnlockFeedback('ADVANCED LOGISTICS\nUNDERGROUND BELTS');
     console.log(`[META] Unlocked underground belts (${reason})`);
+    return true;
+  }
+
+  refreshLogisticsPanel() {
+    this.machineFactory?.refreshAvailableLogistics?.();
+    this.machineFactory?.displayCurrentProcessorPreview?.();
+  }
+
+  grantSpecialLogisticsItem(machineId, quantity = 1) {
+    const config = this.getSpecialLogisticsConfig(machineId);
+    if (!config) return false;
+
+    this.specialLogisticsInventory = {
+      ...this.specialLogisticsInventory,
+      [config.id]: this.getSpecialLogisticsInventoryCount(config.id) + Math.max(1, quantity),
+    };
+    this.refreshLogisticsPanel();
+    this.showMetaUnlockFeedback(`${config.name.toUpperCase()}\nKIT READY`);
+    return true;
+  }
+
+  unlockPermanentSpecialLogistics(machineId) {
+    const config = this.getSpecialLogisticsConfig(machineId);
+    if (!config || this.isPermanentSpecialLogisticsUnlocked(config.id)) return false;
+
+    this.permanentSpecialLogistics = {
+      ...this.permanentSpecialLogistics,
+      [config.id]: true,
+    };
+    this.refreshLogisticsPanel();
+    this.updateActiveUpgradesDisplay();
+    this.showMetaUnlockFeedback(`${config.name.toUpperCase()}\nSTABILIZED`);
+    return true;
+  }
+
+  consumeSpecialLogisticsPlacement(machineType, machineObj) {
+    const config = this.getSpecialLogisticsConfig(machineType);
+    if (!config || machineType?.specialLogisticsSource !== 'temporary') return false;
+
+    const count = this.getSpecialLogisticsInventoryCount(config.id);
+    if (count <= 0) return false;
+
+    this.specialLogisticsInventory = {
+      ...this.specialLogisticsInventory,
+      [config.id]: Math.max(0, count - 1),
+    };
+    if (machineObj) {
+      machineObj.specialLogisticsSource = 'temporary';
+    }
+    this.refreshLogisticsPanel();
     return true;
   }
 
@@ -4770,6 +4884,15 @@ export default class GameScene extends Phaser.Scene {
       const placementCost = isRepositionedMachine
         ? 0
         : this.getMachinePlacementCost(machineType, boardTileEffects);
+      if (
+        !isRepositionedMachine &&
+        machineType.specialLogisticsSource === 'temporary' &&
+        this.getSpecialLogisticsInventoryCount(machineType.id) <= 0
+      ) {
+        this.showPlacementHint('No kits left', '#ffcc88');
+        this.refreshLogisticsPanel();
+        return null;
+      }
       if (!isRepositionedMachine && this.money < placementCost) {
         console.warn(
           `[GameScene.placeMachine] Exit P6c: Cannot afford ${machineType.id}. Cost ${placementCost}, money ${this.money}`
@@ -4896,6 +5019,7 @@ export default class GameScene extends Phaser.Scene {
       machineObj.placementCost = placementCost;
       this.applyBoardTileEffectsToMachine(machineObj, boardTileEffects);
       this.addMoney(-placementCost, machineObj.id);
+      this.consumeSpecialLogisticsPlacement(machineType, machineObj);
 
       if (replacementInfo) {
         this.applyProcessorReplacementCost(replacementInfo);
@@ -6108,8 +6232,14 @@ export default class GameScene extends Phaser.Scene {
       this.lastQuotaHudScore = cappedScore;
     }
     if (this.deliveryBoardText) {
+      const phaseLabel =
+        this.runState === 'BUILD_PHASE'
+          ? 'BUILD PLAN'
+          : this.runState === 'ROUND_ACTIVE'
+            ? 'RUNNING'
+            : 'ROUND CLEAR';
       this.deliveryBoardText.setText(
-        `${this.getRoundPacingLabel(this.currentRound)}\nBoard: ${this.getRoundBoardSummary(this.currentRound)}`
+        `${phaseLabel}: ${this.getRoundPacingLabel(this.currentRound)}\n${this.getRoundBoardSummary(this.currentRound)}`
       );
     }
     if (this.deliveryDemandText) {
@@ -6131,17 +6261,17 @@ export default class GameScene extends Phaser.Scene {
     if (this.nextDemandText) {
       if (this.runState === 'BUILD_PHASE') {
         this.nextDemandText.setText(
-          `${this.getRoundPacingLabel(this.currentRound)} | PLAN R${this.currentRound}: ${this.getRoundPreviewText(this.currentRound, 3)}`
+          `Current asks: ${this.getRoundPreviewText(this.currentRound, 3)}`
         );
         this.nextDemandText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         this.nextDemandText.setText(
-          `${this.getRoundPacingLabel(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `Next R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       } else {
         this.nextDemandText.setText(
-          `${this.getRoundPacingLabel(this.currentRound + 1)} | NEXT R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 3)}`
+          `Next R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       }
@@ -6418,10 +6548,14 @@ export default class GameScene extends Phaser.Scene {
     if (machineType?.isRelocation && typeof machineType.placementCost === 'number') {
       return machineType.placementCost;
     }
+    if (typeof machineType?.placementCost === 'number' && machineType.specialLogisticsSource) {
+      return machineType.placementCost;
+    }
     const costs = GAME_CONFIG.machinePlacementCosts || {};
     const id = machineType?.id || '';
     if (id === 'conveyor') return costs.conveyor || 1;
     if (id === 'splitter') return costs.splitter || 4;
+    if (id === 'filter-splitter') return costs['filter-splitter'] || 42;
     if (id === 'merger') return costs.merger || 4;
     if (id === 'underground-belt') return costs['underground-belt'] || 5;
     if (id === 'painter') return costs.painter || 3;
@@ -7112,6 +7246,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.starterSparkOffered = true;
     this.isPausedForUpgrade = true;
+    this.destroyTutorialPanel();
     if (this.gameTimer) this.gameTimer.paused = true;
     if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
     if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
@@ -7130,7 +7265,7 @@ export default class GameScene extends Phaser.Scene {
     return [...fixedOffers, ...randomOffers].slice(0, 3).map((choice) => ({
       ...choice,
       type: choice.id,
-      kind: 'Spark',
+      kind: 'Bonus',
     }));
   }
 
@@ -7142,18 +7277,18 @@ export default class GameScene extends Phaser.Scene {
     switch (sparkId) {
       case 'spark_surge_voucher':
         this.pendingStarterSparkRound = 3;
-        this.pendingStarterSparkGrant = { money: 40, scrap: 10, label: 'Surge voucher' };
+        this.pendingStarterSparkGrant = { money: 40, scrap: 10, label: 'Skip Ahead' };
         break;
       case 'spark_prototype_crate':
         this.applyPrototypeCrateSpark();
-        this.pendingStarterSparkGrant = { money: 12, scrap: 0, label: 'Prototype crate' };
+        this.pendingStarterSparkGrant = { money: 12, scrap: 0, label: 'Free Prototype' };
         break;
       case 'spark_hyperlane_key':
         this.refreshMachineFlowSpeed();
-        this.pendingStarterSparkGrant = { money: 8, scrap: 2, label: 'Hyperlane key' };
+        this.pendingStarterSparkGrant = { money: 8, scrap: 2, label: 'Faster Factory' };
         break;
       case 'spark_jackpot_primer':
-        this.pendingStarterSparkGrant = { money: 10, scrap: 2, label: 'Jackpot primer' };
+        this.pendingStarterSparkGrant = { money: 10, scrap: 2, label: 'First Clear Bonus' };
         break;
       default:
         break;
@@ -7208,14 +7343,17 @@ export default class GameScene extends Phaser.Scene {
       this.addScrap(grant.scrap, grant.label || 'opening spark');
     }
     if (grant) {
-      this.showStarterSparkFeedback(grant.label || 'Opening spark');
+      this.showStarterSparkFeedback(grant.label || 'Starting Bonus');
+    }
+    if (this.shouldShowTutorialPanel()) {
+      this.createTutorialPanel();
     }
     this.updateRoundUI();
   }
 
   showStarterSparkFeedback(label) {
     const text = this.add
-      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 104, `OPENING SPARK\n${label}`, {
+      .text(this.scale.width / 2 - this.rightPanelWidth / 2, 104, `STARTING BONUS\n${label}`, {
         fontFamily: 'Arial Black',
         fontSize: 26,
         color: '#ffd166',
@@ -7242,7 +7380,13 @@ export default class GameScene extends Phaser.Scene {
   }
 
   showShopScreen() {
+    if (this.scene.isActive('UpgradeScene')) {
+      this.pendingShopOpen = true;
+      return;
+    }
+
     this.isPausedForUpgrade = true;
+    this.pendingShopOpen = false;
     if (this.gameTimer) this.gameTimer.paused = true;
     if (this.contractTimerEvent) this.contractTimerEvent.paused = true;
     if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = true;
@@ -7285,11 +7429,86 @@ export default class GameScene extends Phaser.Scene {
   createShopOffers() {
     const assistOffer = this.createNextRoundAssistOffer();
     const randomPieceCount = assistOffer ? 2 : 3;
+    const logisticsOffer = this.createSpecialLogisticsShopOffer();
     return [
       assistOffer,
       ...this.createShopPieceOffers(randomPieceCount),
-      this.createPermanentUpgradeOffer(),
+      logisticsOffer || this.createPermanentUpgradeOffer(),
     ].filter(Boolean);
+  }
+
+  createSpecialLogisticsShopOffer() {
+    const blueprintChance = GAME_CONFIG.shopSpecialLogisticsBlueprintChance ?? 0.08;
+    const dropChance = GAME_CONFIG.shopSpecialLogisticsDropChance ?? 0.32;
+
+    if (Math.random() < blueprintChance) {
+      const blueprintOffer = this.createSpecialLogisticsBlueprintOffer();
+      if (blueprintOffer) return blueprintOffer;
+    }
+
+    if (Math.random() >= dropChance) return null;
+    return this.createSpecialLogisticsDropOffer();
+  }
+
+  getSpecialLogisticsShopConfigs(options = {}) {
+    const configs = Object.values(GAME_CONFIG.specialLogistics || {});
+    if (options.onlyBlueprints) {
+      return configs.filter((config) => !this.isPermanentSpecialLogisticsUnlocked(config.id));
+    }
+    return configs;
+  }
+
+  chooseWeightedSpecialLogisticsConfig(configs) {
+    if (!configs.length) return null;
+
+    const totalWeight = configs.reduce(
+      (sum, config) => sum + Math.max(1, config.shopWeight || 1),
+      0
+    );
+    let roll = Math.random() * totalWeight;
+    for (const config of configs) {
+      roll -= Math.max(1, config.shopWeight || 1);
+      if (roll <= 0) return config;
+    }
+    return configs[configs.length - 1];
+  }
+
+  createSpecialLogisticsDropOffer() {
+    const config = this.chooseWeightedSpecialLogisticsConfig(this.getSpecialLogisticsShopConfigs());
+    if (!config) return null;
+
+    return {
+      type: 'special_logistics_drop',
+      kind: 'Special',
+      specialLogisticsId: config.id,
+      quantity: 1,
+      name: config.dropName || `${config.name} Kit`,
+      description: `${config.description} Limited shop kit; placing it consumes one copy.`,
+      effect:
+        config.temporaryPlacementCost > 0
+          ? `Placement: $${config.temporaryPlacementCost}`
+          : 'Placement: free kit',
+      cost: config.shopDropCost || 4,
+      purchased: false,
+    };
+  }
+
+  createSpecialLogisticsBlueprintOffer() {
+    const config = this.chooseWeightedSpecialLogisticsConfig(
+      this.getSpecialLogisticsShopConfigs({ onlyBlueprints: true })
+    );
+    if (!config) return null;
+
+    return {
+      type: 'special_logistics_blueprint',
+      kind: 'Blueprint',
+      specialLogisticsId: config.id,
+      name: config.blueprintName || `Stabilized ${config.name} Blueprint`,
+      description: `Permanently adds ${config.name} to this run's logistics tray.`,
+      effect: `Placement: $${config.permanentPlacementCost}`,
+      cost: config.blueprintCost || 12,
+      purchased: false,
+    };
   }
 
   createNextRoundAssistOffer() {
@@ -7321,6 +7540,7 @@ export default class GameScene extends Phaser.Scene {
     offer.description = `${offer.description} Recommended for ${this.getRoundPacingLabel(nextRound)}.`;
     offer.effect = `Next: ${this.getRoundPreviewText(nextRound, 2)}`;
     offer.isRecommended = true;
+    offer.recommendationLabel = nextPacing.isBoss ? 'BOSS PREP' : 'PLAN FIT';
     return offer;
   }
 
@@ -7354,9 +7574,7 @@ export default class GameScene extends Phaser.Scene {
       );
     }
 
-    return library.find((template) =>
-      matchesOperation(template, ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, 1)
-    );
+    return null;
   }
 
   createShopPieceOffers(count = 3) {
@@ -7508,6 +7726,12 @@ export default class GameScene extends Phaser.Scene {
         this.updateActiveUpgradesDisplay();
         this.updateRoundUI();
         break;
+      case 'special_logistics_drop':
+        success = this.grantSpecialLogisticsItem(choice.specialLogisticsId, choice.quantity || 1);
+        break;
+      case 'special_logistics_blueprint':
+        success = this.unlockPermanentSpecialLogistics(choice.specialLogisticsId);
+        break;
       case 'reroll_shop':
         this.shopRerollCount = (this.shopRerollCount || 0) + 1;
         this.currentShopOffers = this.createShopOffers();
@@ -7540,6 +7764,11 @@ export default class GameScene extends Phaser.Scene {
     if (this.nodeSpawnTimer) this.nodeSpawnTimer.paused = false;
     if (this.pendingStarterSparkGrant || this.pendingStarterSparkRound) {
       this.applyPendingStarterSparkResume();
+      if (!this.pendingShopOpen) return;
+    }
+    if (this.pendingShopOpen) {
+      this.pendingShopOpen = false;
+      this.time.delayedCall(0, () => this.showShopScreen());
       return;
     }
     if (this.pendingRoundAdvanceAfterBoon) {
@@ -7558,6 +7787,9 @@ export default class GameScene extends Phaser.Scene {
     const activeUpgrades = this.upgradeManager.currentUpgrades;
     const activeBoons = Array.from(this.upgradeManager.activeProceduralUpgrades || []);
     const runWideLines = Array.isArray(this.runWideHudLines) ? this.runWideHudLines : [];
+    const permanentSpecials = Object.keys(this.permanentSpecialLogistics || {}).filter(
+      (machineId) => this.permanentSpecialLogistics[machineId]
+    );
     const metaLines = [];
     if (this.isUndergroundBeltUnlocked()) {
       metaLines.push({
@@ -7574,6 +7806,7 @@ export default class GameScene extends Phaser.Scene {
       Object.keys(activeUpgrades).length === 0 &&
       activeBoons.length === 0 &&
       runWideLines.length === 0 &&
+      permanentSpecials.length === 0 &&
       metaLines.length === 0
     ) {
       entries.push({
@@ -7605,6 +7838,17 @@ export default class GameScene extends Phaser.Scene {
           value: boon?.rarity ? boon.rarity.toUpperCase() : 'BOON',
           description: boon?.description || 'Run-defining boon.',
           color: boonId.startsWith('spark_') ? 0xff8fab : 0xffd166,
+        });
+      });
+      permanentSpecials.forEach((machineId) => {
+        const config = this.getSpecialLogisticsConfig(machineId);
+        entries.push({
+          title: config?.name || machineId,
+          value: 'BLUEPRINT',
+          description: `Available in the logistics tray. Placement costs $${
+            config?.permanentPlacementCost || this.getMachinePlacementCostBase({ id: machineId })
+          }.`,
+          color: 0x83f7ff,
         });
       });
     }

@@ -1,5 +1,16 @@
 import Phaser from 'phaser';
 
+const COLORS = {
+  panel: 0x09131d,
+  panelStroke: 0x2f4d62,
+  card: 0x172636,
+  cardHover: 0x223b50,
+  cardStroke: 0x70d6ff,
+  spark: 0xffd166,
+  text: '#f4fbff',
+  muted: '#b7cbd6',
+};
+
 export class UpgradeScene extends Phaser.Scene {
   constructor() {
     super('UpgradeScene');
@@ -37,7 +48,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Add title
     let titleText = this.isStarterSpark
-      ? 'Choose an Opening Spark'
+      ? 'Choose a Starting Bonus'
       : this.isBoon
         ? 'Choose a Run Boon'
         : this.isShop
@@ -48,9 +59,23 @@ export class UpgradeScene extends Phaser.Scene {
 
     this.title = this.add
       .text(width / 2, height * 0.15, titleText, {
-        fontFamily: 'Arial',
+        fontFamily: 'Arial Black',
         fontSize: 28,
         color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    const subtitle = this.isStarterSpark
+      ? 'Pick one boost for this run. You can only choose one.'
+      : this.isShop
+        ? 'Spend Scrap on pieces, upgrades, and run tools.'
+        : 'Pick the modifier that best fits this board.';
+    this.add
+      .text(width / 2, height * 0.15 + 34, subtitle, {
+        fontFamily: 'Arial',
+        fontSize: 13,
+        color: COLORS.muted,
         align: 'center',
       })
       .setOrigin(0.5);
@@ -93,11 +118,20 @@ export class UpgradeScene extends Phaser.Scene {
       return;
     }
 
+    const panelWidth = this.isStarterSpark ? 520 : 460;
+    const panelHeight = this.isStarterSpark ? 410 : 390;
+    const panelY = this.isStarterSpark
+      ? this.cameras.main.height / 2 + 60
+      : this.cameras.main.height / 2 + 42;
+    this.add
+      .rectangle(this.cameras.main.width / 2, panelY, panelWidth, panelHeight, COLORS.panel, 0.92)
+      .setStrokeStyle(2, COLORS.panelStroke, 0.95);
+
     // Display choices
     const buttonYStart = this.isStarterSpark ? 185 : 200;
-    const buttonYStep = this.isStarterSpark ? 130 : 120;
-    const buttonWidth = this.isStarterSpark ? 460 : 400;
-    const buttonHeight = this.isStarterSpark ? 114 : 100;
+    const buttonYStep = this.isStarterSpark ? 126 : 116;
+    const buttonWidth = this.isStarterSpark ? 470 : 410;
+    const buttonHeight = this.isStarterSpark ? 104 : 94;
 
     this.upgradeChoices.forEach((choice, index) => {
       const y = buttonYStart + index * buttonYStep;
@@ -139,7 +173,7 @@ export class UpgradeScene extends Phaser.Scene {
       .setStrokeStyle(2, 0x2f4d62, 0.95);
 
     this.add
-      .text(width / 2, panelTop + 24, 'LUCKY DRAW', {
+      .text(width / 2, panelTop + 24, 'SCRAP MARKET', {
         fontFamily: 'Arial Black',
         fontSize: 18,
         color: '#88ffcc',
@@ -192,10 +226,11 @@ export class UpgradeScene extends Phaser.Scene {
 
   createShopOfferButton(x, y, width, height, choice, scrap) {
     const canAfford = !choice.purchased && (choice.isFree || scrap >= (choice.cost || 0));
-    const isJackpot = Boolean(choice.isRecommended);
-    const fillColor = canAfford ? (isJackpot ? 0x243616 : 0x173244) : 0x171d25;
-    const hoverColor = canAfford ? (isJackpot ? 0x39551f : 0x214b64) : 0x202633;
-    const strokeColor = canAfford ? (isJackpot ? 0xffd166 : 0x4aa3c7) : 0x4b5663;
+    const isFeatured = Boolean(choice.isRecommended);
+    const featuredColor = choice.kind === 'Boss Prep' ? 0xffd166 : 0x88ffcc;
+    const fillColor = canAfford ? (isFeatured ? 0x183127 : 0x173244) : 0x171d25;
+    const hoverColor = canAfford ? (isFeatured ? 0x254836 : 0x214b64) : 0x202633;
+    const strokeColor = canAfford ? (isFeatured ? featuredColor : 0x4aa3c7) : 0x4b5663;
     const textColor = canAfford ? '#f4fbff' : '#8c98a3';
     const accentColor = this.getShopKindColor(choice.kind);
     const compact = height < 210;
@@ -215,7 +250,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     const bg = this.add
       .rectangle(x, y, width, height, fillColor, 0.98)
-      .setStrokeStyle(isJackpot ? 3 : 2, strokeColor, canAfford ? 0.95 : 0.55)
+      .setStrokeStyle(isFeatured ? 3 : 2, strokeColor, canAfford ? 0.95 : 0.55)
       .setInteractive({ useHandCursor: true });
     bg.setAlpha(0);
     bg.setScale(0.92);
@@ -228,21 +263,21 @@ export class UpgradeScene extends Phaser.Scene {
       ease: 'Back.easeOut',
     });
 
-    if (isJackpot) {
+    if (isFeatured) {
       this.tweens.add({
         targets: bg,
-        scaleX: 1.025,
-        scaleY: 1.025,
-        duration: 620,
+        scaleX: 1.014,
+        scaleY: 1.014,
+        duration: 780,
         yoyo: true,
         repeat: -1,
         ease: 'Sine.easeInOut',
       });
       this.add
-        .text(x, y - height / 2 + 8, 'JACKPOT PICK', {
+        .text(x, y - height / 2 + 8, choice.recommendationLabel || 'GOOD FIT', {
           fontFamily: 'Arial Black',
           fontSize: 10,
-          color: '#fff3bf',
+          color: choice.kind === 'Boss Prep' ? '#fff3bf' : '#c8fff0',
           align: 'center',
           stroke: '#000000',
           strokeThickness: 3,
@@ -386,8 +421,13 @@ export class UpgradeScene extends Phaser.Scene {
         return 0xcdb4db;
       case 'Budget':
         return 0xffd166;
+      case 'Plan':
+        return 0x88ffcc;
+      case 'Boss Prep':
+        return 0xffd166;
       case 'Upgrade':
       case 'Permanent':
+      case 'Blueprint':
         return 0x88ccff;
       case 'Run':
         return 0xff8fab;
@@ -426,31 +466,76 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   createUpgradeButton(x, y, width, height, choice) {
+    const isSpark = this.isStarterSpark;
+    const strokeColor = isSpark ? COLORS.spark : COLORS.cardStroke;
     const bg = this.add
-      .rectangle(x, y, width, height, 0x3a5f95)
-      .setStrokeStyle(2, 0x6a8fbb)
+      .rectangle(x, y, width, height, COLORS.card, 0.98)
+      .setStrokeStyle(2, strokeColor, 0.85)
       .setInteractive({ useHandCursor: true });
 
     const costText = this.isShop ? ` [${choice.cost || 0} Scrap]` : '';
-    const kindText = this.isShop && choice.kind ? `${choice.kind} - ` : '';
-    const effectText = this.isStarterSpark && choice.effect ? `\n${choice.effect}` : '';
-    const textContent = choice.level
-      ? `${choice.name} (Lvl ${choice.level})${costText}\n${choice.description}`
-      : `${kindText}${choice.name}${costText}\n${choice.description}${effectText}`;
-    const text = this.add
-      .text(x, y, textContent, {
-        fontSize: this.isShop ? '15px' : '18px',
-        fill: '#ffffff',
+    const badgeText =
+      choice.kind || (isSpark ? 'Spark' : choice.level ? `L${choice.level}` : 'Upgrade');
+    const badgeWidth = Math.min(92, Math.max(58, badgeText.length * 7 + 18));
+    const badge = this.add
+      .rectangle(
+        x - width / 2 + badgeWidth / 2 + 14,
+        y - height / 2 + 20,
+        badgeWidth,
+        24,
+        strokeColor,
+        0.95
+      )
+      .setStrokeStyle(1, 0xffffff, 0.2);
+    this.add
+      .text(badge.x, badge.y, badgeText.toUpperCase(), {
+        fontFamily: 'Arial Black',
+        fontSize: 10,
+        color: '#07111a',
         align: 'center',
-        wordWrap: { width: width - 20 },
       })
       .setOrigin(0.5);
 
+    const title = this.add
+      .text(x - width / 2 + 18, y - height / 2 + 46, `${choice.name}${costText}`, {
+        fontFamily: 'Arial Black',
+        fontSize: isSpark ? 16 : 15,
+        color: COLORS.text,
+        align: 'left',
+        wordWrap: { width: width - 36 },
+      })
+      .setOrigin(0, 0.5);
+
+    const body = this.add
+      .text(x - width / 2 + 18, y - height / 2 + 66, choice.description || '', {
+        fontFamily: 'Arial',
+        fontSize: isSpark ? 13 : 12,
+        color: '#d7e7ef',
+        align: 'left',
+        lineSpacing: 3,
+        wordWrap: { width: width - 36 },
+      })
+      .setOrigin(0, 0);
+
+    const effect = choice.effect
+      ? this.add
+          .text(x + width / 2 - 18, y + height / 2 - 14, choice.effect, {
+            fontFamily: 'Arial Black',
+            fontSize: 11,
+            color: '#ffd166',
+            align: 'right',
+            wordWrap: { width: width - 36 },
+          })
+          .setOrigin(1, 0.5)
+      : null;
+
     bg.on('pointerover', () => {
-      bg.fillColor = 0x4a6fb5;
+      bg.fillColor = COLORS.cardHover;
+      bg.setStrokeStyle(3, strokeColor, 1);
     });
     bg.on('pointerout', () => {
-      bg.fillColor = 0x3a5f95;
+      bg.fillColor = COLORS.card;
+      bg.setStrokeStyle(2, strokeColor, 0.85);
     });
     bg.on('pointerdown', () => {
       if (this.isShop) {
@@ -459,7 +544,7 @@ export class UpgradeScene extends Phaser.Scene {
       } else if (this.isStarterSpark) {
         const applied = this.scene.get(this.callingSceneKey)?.applyStarterSparkChoice?.(choice);
         if (!applied) {
-          this.showShopMessage('Opening Spark unavailable.');
+          this.showShopMessage('Starting bonus unavailable.');
           return;
         }
       } else if (this.isBoon) {
@@ -474,7 +559,7 @@ export class UpgradeScene extends Phaser.Scene {
       this.closeScene();
     });
 
-    return { bg, text };
+    return { bg, title, body, effect, badge };
   }
 
   showShopMessage(message) {

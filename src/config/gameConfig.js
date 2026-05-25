@@ -28,6 +28,33 @@ export const GAME_CONFIG = {
     advancedLogisticsUnlockRound: 4,
   },
 
+  specialLogistics: {
+    painter: {
+      id: 'painter',
+      name: 'Painter Cell',
+      dropName: 'Painter Cell Kit',
+      blueprintName: 'Stabilized Painter Blueprint',
+      description: 'Recolors passing items by direction. Rotate before placement to pick color.',
+      shopDropCost: 4,
+      blueprintCost: 11,
+      temporaryPlacementCost: 0,
+      permanentPlacementCost: 34,
+      shopWeight: 3,
+    },
+    'filter-splitter': {
+      id: 'filter-splitter',
+      name: 'Filter Splitter',
+      dropName: 'Filter Splitter Kit',
+      blueprintName: 'Stabilized Filter Splitter Blueprint',
+      description: 'Routes high-tier or warm-colored items to its alternate output.',
+      shopDropCost: 5,
+      blueprintCost: 13,
+      temporaryPlacementCost: 0,
+      permanentPlacementCost: 42,
+      shopWeight: 2,
+    },
+  },
+
   // Resource generation
   resourceGenerationRate: 2000, // ms
   resourceTypes: [
@@ -193,6 +220,8 @@ export const GAME_CONFIG = {
   shopOverkillScorePerScrap: 250,
   shopOfferCount: 3,
   shopRerollCost: 2,
+  shopSpecialLogisticsDropChance: 0.32,
+  shopSpecialLogisticsBlueprintChance: 0.08,
   shopPieceTraitChance: 0.3,
   shopPieceTraitCost: 3,
   shopSourceLifespan: 180,
@@ -248,6 +277,7 @@ export const GAME_CONFIG = {
   machinePlacementCosts: {
     conveyor: 1,
     splitter: 4,
+    'filter-splitter': 42,
     merger: 4,
     'underground-belt': 5,
     painter: 3,
