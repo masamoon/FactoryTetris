@@ -9,6 +9,7 @@ const STORAGE_KEY = 'gridforge.settings';
 const META_STORAGE_KEY = 'gridforge.metaUnlocks';
 
 export const DEFAULT_META_UNLOCKS = {
+  freeDraftRedrawPerRound: true,
   undergroundBelts: false,
 };
 
@@ -74,6 +75,7 @@ function normalizeMetaUnlocks(unlocks = {}) {
   return {
     ...DEFAULT_META_UNLOCKS,
     ...unlocks,
+    freeDraftRedrawPerRound: unlocks.freeDraftRedrawPerRound !== false,
     undergroundBelts: Boolean(unlocks.undergroundBelts),
   };
 }

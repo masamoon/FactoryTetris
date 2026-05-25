@@ -25,6 +25,8 @@ const DELIVERY_POPUP_COLUMNS = [-1, 0, 1];
 const DELIVERY_NODE_PROGRESS_WIDTH = 24;
 const DELIVERY_NODE_TAG_WIDTH = 58;
 const DELIVERY_NODE_TAG_HEIGHT = 24;
+const NEUTRAL_DELIVERY_COLOR = 0x6f7f8c;
+const NEUTRAL_DELIVERY_BORDER_COLOR = 0xd6b46a;
 
 export default class DeliveryNode {
   constructor(scene, config) {
@@ -84,7 +86,7 @@ export default class DeliveryNode {
 
     // Delivery nodes are small contracts on the board.
     const nodeColor = this.getConditionColor();
-    const borderColor = this.getConditionTierColor();
+    const borderColor = this.getConditionBorderColor();
 
     this.sinkPlate = this.scene.add.rectangle(0, 0, 32, 32, 0x07111a, 0.78);
     this.sinkPlate.setStrokeStyle(1.5, borderColor, 0.8);
@@ -222,7 +224,11 @@ export default class DeliveryNode {
     if (this.condition.itemColor) {
       return this.getConditionItemColor();
     }
-    return this.getConditionTierColor();
+    return NEUTRAL_DELIVERY_COLOR;
+  }
+
+  getConditionBorderColor() {
+    return this.condition.itemColor ? this.getConditionTierColor() : NEUTRAL_DELIVERY_BORDER_COLOR;
   }
 
   getConditionTierColor() {
@@ -232,6 +238,9 @@ export default class DeliveryNode {
   }
 
   getConditionItemColor() {
+    if (!this.condition.itemColor) {
+      return this.getConditionColor();
+    }
     return getItemColorHex(this.condition.itemColor, this.getConditionTierColor());
   }
 
@@ -597,7 +606,7 @@ export default class DeliveryNode {
   }
 
   createFillPulse(tier) {
-    const itemColor = this.getConditionItemColor();
+    const itemColor = this.getConditionColor();
     if (this.background) {
       this.scene.tweens.add({
         targets: this.background,
@@ -662,8 +671,8 @@ export default class DeliveryNode {
   }
 
   createCompletionBurst() {
-    const tierColor = this.getConditionTierColor();
-    const itemColor = this.getConditionItemColor();
+    const tierColor = this.getConditionBorderColor();
+    const itemColor = this.getConditionColor();
     this.scene.cameras.main.shake(120, 0.004);
     this.scene.cameras.main.flash(90, 255, 255, 255, true);
 

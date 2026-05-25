@@ -816,7 +816,9 @@ export default class BaseMachine {
     let rotatedOutputPos = null;
 
     // Use the single source of truth for I/O positions with the actual direction
-    const ioPositions = this.constructor.getIOPositionsForDirection
+    const ioPositions = this.getIOPositionsForDirection
+      ? this.getIOPositionsForDirection(currentDirection)
+      : this.constructor.getIOPositionsForDirection
       ? this.constructor.getIOPositionsForDirection(this.id, currentDirection)
       : BaseMachine.getIOPositionsForDirection(this.id, currentDirection);
 
@@ -2826,7 +2828,9 @@ export default class BaseMachine {
     try {
       // Use static method to get the output position based on machine ID and direction
       const machineId = this.id;
-      const ioPositions = this.constructor.getIOPositionsForDirection(machineId, this.direction);
+      const ioPositions = this.getIOPositionsForDirection
+        ? this.getIOPositionsForDirection(this.direction)
+        : this.constructor.getIOPositionsForDirection(machineId, this.direction);
       if (ioPositions && ioPositions.outputPos) {
         outputPos = ioPositions.outputPos;
       }

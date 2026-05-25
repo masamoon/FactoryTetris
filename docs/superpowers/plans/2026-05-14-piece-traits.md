@@ -37,7 +37,7 @@
 **Unchanged:**
 
 - All individual machine subclasses (ProcessorAMachine etc.) — trait is on BaseMachine
-- `FactoryAnalyzer.js`, `eraConfig.js`, `resourceLevels.js`
+- `FactoryAnalyzer.js`, `tierConfig.js`, `resourceLevels.js`
 
 ---
 
@@ -1282,7 +1282,7 @@ Open `src/utils/PieceGenerator.js`. In `generatePieceOptions`, replace the `for`
       (c) => c.output >= 3 && isPieceUsable(c, producibleLevels)
     );
     if (usableL3Plus.length > 0) {
-      const forced = selectWeightedConfig(usableL3Plus, producibleLevels, currentEra);
+      const forced = selectWeightedConfig(usableL3Plus, producibleLevels, scene);
       options[0] = {
         ...forced,
         isUsable: true,

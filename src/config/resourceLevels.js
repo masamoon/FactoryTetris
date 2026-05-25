@@ -4,9 +4,9 @@
  * Extended with dynamic tier generation
  */
 
-import { getPointsForTier, getColorForTier, getNameForTier } from './eraConfig.js';
+import { getPointsForTier, getColorForTier, getNameForTier } from './tierConfig.js';
 
-// Static resource level definitions (Era 1 base tiers)
+// Static resource level definitions
 export const RESOURCE_LEVELS = {
   1: { name: 'Raw', color: 0x888888, points: 10 },
   2: { name: 'Refined', color: 0x22cc22, points: 25 },
@@ -19,7 +19,6 @@ export function getLevelColor(level) {
   if (RESOURCE_LEVELS[level]) {
     return RESOURCE_LEVELS[level].color;
   }
-  // Dynamic tier from eraConfig
   return getColorForTier(level);
 }
 
@@ -28,7 +27,6 @@ export function getLevelName(level) {
   if (RESOURCE_LEVELS[level]) {
     return RESOURCE_LEVELS[level].name;
   }
-  // Dynamic tier from eraConfig
   return getNameForTier(level);
 }
 
@@ -37,7 +35,6 @@ export function getLevelPoints(level) {
   if (RESOURCE_LEVELS[level]) {
     return RESOURCE_LEVELS[level].points;
   }
-  // Dynamic tier from eraConfig
   return getPointsForTier(level);
 }
 

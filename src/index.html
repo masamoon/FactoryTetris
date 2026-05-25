@@ -25,9 +25,44 @@
         display: block;
         margin: 0 auto;
       }
+      #orientation-notice {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: #07111a;
+        color: #f4fbff;
+        font-family:
+          Arial Black,
+          Arial,
+          sans-serif;
+        text-align: center;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
+      }
+      #orientation-notice p {
+        max-width: 300px;
+        margin: 10px auto 0;
+        color: #b7cbd6;
+        font-family: Arial, sans-serif;
+        font-size: 15px;
+        line-height: 1.4;
+      }
+      @media (orientation: portrait) and (max-width: 700px) {
+        #orientation-notice {
+          display: flex;
+        }
+      }
     </style>
   </head>
   <body>
+    <div id="orientation-notice">
+      <div>
+        <div>GRIDFORGE PLAYS IN LANDSCAPE</div>
+        <p>Rotate your device or use a wider window for readable factory controls.</p>
+      </div>
+    </div>
     <div id="game-container"></div>
   </body>
 </html>

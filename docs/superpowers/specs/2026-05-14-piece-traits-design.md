@@ -26,7 +26,7 @@ This spec covers the trait system core, a curated starter library of 10 traits, 
 
 - Trait gate: any piece whose recipe `output ≥ L3` rolls a trait at draft time
 - L1→L2 pieces (the workhorse early-game pieces) remain plain — preserves the gentle ramp
-- Trait pool is fully unlocked from Era 1 (no era-gating)
+- Trait pool is fully unlocked from Round 1 (no round-gating)
 - Trait is locked once placed; removing the piece destroys the trait
 - Random trait per draft option; rolls are independent across the hand (duplicates allowed in v1)
 - One-time "draft-2 trait introduction" guarantee ensures every run meets traits within ~30s
@@ -39,7 +39,7 @@ Implemented in `PieceGenerator`:
 
 - After `selectWeightedConfig` returns a recipe, if `recipe.output ≥ 3`, call `rollTrait()` and attach the resulting trait id to the option
 - Plain pieces (`output < 3`) skip the trait roll
-- Trait pool: all 10 traits eligible from Era 1
+- Trait pool: all 10 traits eligible from Round 1
 
 ### 3.2 Trait Data Shape
 
@@ -124,7 +124,7 @@ The `TraitRegistry` holds run-scoped state for run-wide traits:
 - Hoarder: per-machine delivery counters keyed by machine id; resets on machine remove
 - Tycoon: stateless (acts at delivery time via `traitTags`)
 
-State is cleared on era transcend reset and on game over.
+State is cleared on run reset and on game over.
 
 ## 4. The Starter Library (10 Traits)
 
@@ -206,7 +206,7 @@ Each trait fires a brief particle flash on its machine when it activates (Resona
 **Unchanged**
 
 - `FactoryAnalyzer.js` — trait math doesn't affect producibility analysis
-- All Era / Chip / DeliveryNode threshold logic
+- DeliveryNode threshold logic
 - All non-trait machines (Conveyor, Splitter, Merger, Underground)
 
 **Save/load:** game appears session-only (no persistence layer found in initial pass). If persistence is added later, `machine.trait.id` and `TraitRegistry` run-wide state must be serialized. Out of scope for this spec.

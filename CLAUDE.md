@@ -27,13 +27,13 @@ npm run format    # Format code with Prettier
 - `src/index.ts` - Game bootstrap, scene registration
 - `src/scenes/GameScene.js` - Main game loop (largest file, handles most game logic)
 - `src/config/gameConfig.js` - All game parameters (grid size, machine types, resources, purity levels)
-- `src/config/eraConfig.js` - Transcendence/Era progression system
+- `src/config/tierConfig.js` - Open-ended resource tier display and score helpers
 
 ### Key Directories
 
 - `src/scenes/` - Phaser scenes: Boot → Preload → MainMenu → Game → Upgrade → GameOver
 - `src/objects/machines/` - Machine implementations, all extend `BaseMachine.js`
-- `src/objects/` - Game entities: Grid, ResourceNode, DeliveryNode, ChipNode
+- `src/objects/` - Game entities: Grid, ResourceNode, DeliveryNode
 - `src/managers/` - System managers (UpgradeManager)
 - `src/utils/` - Utilities: PieceGenerator, FactoryAnalyzer, PurityUtils
 - `src/config/` - Static configuration files
@@ -55,17 +55,17 @@ ResourceNodes → Machines (Conveyors/Processors) → DeliveryNodes
 
 **Purity System:** Resources have purity levels (1-12+) that increase through processing. Higher purity = more points.
 
-**Era/Transcendence:** Grid expands (10 + 4\*(era-1) cells), new resource tiers unlock (3 per era). ChipNodes emit resources for next era.
+**Rounds:** Each round generates board constraints, finite resources, delivery demands, and between-round shop rewards.
 
 **Upgrades:** 7 types with 3 tiers each, applied via UpgradeManager modifiers.
 
 ### Important GameScene State
 
 ```javascript
-this.score, this.currentLevel, this.currentEra
+this.score, this.currentRound, this.roundScore, this.roundQuota
 this.currentMomentum     // Combo multiplier 0-100
 this.machines[]          // Active machines on grid
-this.resourceNodes[], this.deliveryNodes[], this.chips[]
+this.resourceNodes[], this.deliveryNodes[]
 ```
 
 ### Conventions

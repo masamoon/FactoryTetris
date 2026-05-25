@@ -26,7 +26,7 @@ import TraitRegistry from '../objects/traits/TraitRegistry';
 import { TRAIT_CATEGORIES, getTraitBandColor, getTraitById, rollTrait } from '../config/traits';
 import { STARTER_PIECE_DECK, STANDARD_PIECE_LIBRARY } from '../config/pieceDeck';
 import { getProcessingPieceBody, isProcessingPieceBodyId } from '../config/pieceBodies';
-import { getItemColorHex, getItemColorKey } from '../utils/PurityUtils';
+import { getItemColorHex, getItemColorKey, getItemColorName } from '../utils/PurityUtils';
 import {
   loadGameSettings,
   loadMetaUnlocks,
@@ -69,7 +69,6 @@ export default class GameScene extends Phaser.Scene {
     this.rightPanelWidth = 300; // Fixed width for right panel
     this.debugMode = false; // Toggle for debug features like "Clear Factory"
 
-    this.currentEra = 1;
     // === Round / quota system state ===
     // runState: 'BUILD_PHASE' | 'ROUND_ACTIVE' | 'ROUND_CLEARED' | 'GRACE' | 'RUN_OVER'
     this.runState = 'ROUND_ACTIVE';
@@ -138,8 +137,10 @@ export default class GameScene extends Phaser.Scene {
     this.pendingStarterSparkGrant = null;
     this.starterJackpotPrimerSpent = false;
     this.metaUnlocks = {
+      freeDraftRedrawPerRound: true,
       undergroundBelts: GAME_CONFIG.metaProgression?.undergroundBeltsUnlockedByDefault === true,
     };
+    this.freeDraftRedrawsRemaining = 0;
   }
 
   create() {
@@ -149,6 +150,7 @@ export default class GameScene extends Phaser.Scene {
     this.metaUnlocks = {
       ...this.metaUnlocks,
       ...savedMetaUnlocks,
+      freeDraftRedrawPerRound: savedMetaUnlocks.freeDraftRedrawPerRound !== false,
       undergroundBelts: Boolean(
         this.metaUnlocks.undergroundBelts || savedMetaUnlocks.undergroundBelts
       ),
@@ -485,7 +487,20 @@ export default class GameScene extends Phaser.Scene {
       this.nextDemandText,
     ].forEach((obj) => this.addToUI(obj));
 
-    this.createHudPanel(contentX, 272, contentWidth, 150, 0x15151b, 0x3f3d55);
+    this.upgradesPanelBounds = {
+      x: contentX,
+      y: 272,
+      width: contentWidth,
+      height: 150,
+    };
+    this.createHudPanel(
+      this.upgradesPanelBounds.x,
+      this.upgradesPanelBounds.y,
+      this.upgradesPanelBounds.width,
+      this.upgradesPanelBounds.height,
+      0x15151b,
+      0x3f3d55
+    );
     this.createSectionLabel(contentX + 10, 282, 'UPGRADES');
     this.upgradeRows = [];
     this.upgradeRowContainer = this.add.container(0, 0).setScrollFactor(0);
@@ -1901,8 +1916,12 @@ export default class GameScene extends Phaser.Scene {
         machineConstructor = this.machineFactory.machineRegistry.machineTypes.get(machineId);
       }
 
+      if (machine.ioByDirection?.[direction]) {
+        inputPos = machine.ioByDirection[direction].inputPos;
+        outputPos = machine.ioByDirection[direction].outputPos;
+      }
       // Use the getIOPositionsForDirection method from the constructor if available
-      if (
+      else if (
         machineConstructor &&
         typeof machineConstructor.getIOPositionsForDirection === 'function'
       ) {
@@ -2651,7 +2670,7 @@ export default class GameScene extends Phaser.Scene {
       const itemColor =
         itemColorOverride || sourceColorCycle[sourceIndex % sourceColorCycle.length];
 
-      // Create a new resource node, passing the current era for scaling AND upgradeManager
+      // Create a new resource node, passing the current round for scaling and upgradeManager.
       const node = new ResourceNode(
         this,
         {
@@ -3261,8 +3280,8 @@ export default class GameScene extends Phaser.Scene {
     return this.buildRound();
   }
 
-  createContractShape(era, requiredTier, quantity) {
-    const variant = (era - 1) % 5;
+  createContractShape(round, requiredTier, quantity) {
+    const variant = (round - 1) % 5;
     const lowerTier = Math.max(1, requiredTier - 1);
     const feederTier = Math.max(1, requiredTier - 2);
     const mixFinish = {
@@ -3316,7 +3335,7 @@ export default class GameScene extends Phaser.Scene {
       };
     }
 
-    if (era > 1) {
+    if (round > 1) {
       return {
         title: 'Precision Add',
         demands: [{ tier: requiredTier, quantity, delivered: 0, exact: true, ...mixFinish }],
@@ -3562,7 +3581,7 @@ export default class GameScene extends Phaser.Scene {
     this.scene.start('GameOverScene', {
       score: this.score,
       timeSurvived: this.gameTime,
-      finalEra: this.currentEra,
+      finalRound: this.currentRound,
     });
   }
 
@@ -3576,7 +3595,7 @@ export default class GameScene extends Phaser.Scene {
       this.machineFactory?.canCycleProcessorSlot?.(selectedProcessorSlot) === true;
     const cost = canCycleSelectedSlot
       ? GAME_CONFIG.draftCycleCost || 2
-      : GAME_CONFIG.draftRedrawCost || 4;
+      : this.getDraftRedrawCost();
     const inBuildPhase =
       this.runState === 'BUILD_PHASE' && !this.gameOver && !this.paused && !this.isPausedForUpgrade;
 
@@ -3586,7 +3605,11 @@ export default class GameScene extends Phaser.Scene {
       cost,
       enabled: inBuildPhase,
       inBuildPhase,
-      label: canCycleSelectedSlot ? `CYCLE SLOT ($${cost})` : `REDRAW HAND ($${cost})`,
+      label: canCycleSelectedSlot
+        ? `CYCLE SLOT ($${cost})`
+        : cost === 0
+          ? 'REDRAW HAND (FREE)'
+          : `REDRAW HAND ($${cost})`,
       selectedProcessorSlot,
     };
   }
@@ -3614,12 +3637,32 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.addMoney(-state.cost, state.canCycleSelectedSlot ? 'cycle slot' : 'redraw hand');
+    if (state.canCycleSelectedSlot) {
+      this.addMoney(-state.cost, 'cycle slot');
+    } else if (state.cost > 0) {
+      this.addMoney(-state.cost, 'redraw hand');
+    } else {
+      this.freeDraftRedrawsRemaining = Math.max(0, (this.freeDraftRedrawsRemaining || 0) - 1);
+      this.updateActiveUpgradesDisplay();
+    }
     this.playSound(state.canCycleSelectedSlot ? 'draft-cycle' : 'draft-redraw');
     this.pulseUIButton(this.draftCycleButton, { scale: 1.06, duration: 120 });
     this.showDraftCycleFeedback(state.canCycleSelectedSlot ? 'Slot cycled' : 'Hand redrawn');
     this.updateRoundState({ draft: this.machineFactory?.getDeckCounts?.() || null });
     this.updateDraftCycleButton();
+  }
+
+  getDraftRedrawCost() {
+    return this.hasFreeDraftRedrawPerRound() && (this.freeDraftRedrawsRemaining || 0) > 0
+      ? 0
+      : GAME_CONFIG.draftRedrawCost || 4;
+  }
+
+  hasFreeDraftRedrawPerRound() {
+    return (
+      this.metaUnlocks?.freeDraftRedrawPerRound === true &&
+      (GAME_CONFIG.metaProgression?.freeDraftRedrawsPerRound || 0) > 0
+    );
   }
 
   showDraftCycleFeedback(message, color = '#88ccff') {
@@ -6179,12 +6222,25 @@ export default class GameScene extends Phaser.Scene {
     const count = this.getDeliveryNodeCountForRound(round);
     const parts = [];
     for (let i = 0; i < Math.min(count, limit); i++) {
-      parts.push(this.createDeliveryCondition(round, i).label);
+      parts.push(this.formatDeliveryConditionHud(this.createDeliveryCondition(round, i)));
     }
     if (count > limit) {
       parts.push(`+${count - limit} more`);
     }
-    return parts.join(' | ');
+    return parts.join(', ');
+  }
+
+  formatDeliveryConditionHud(condition) {
+    if (!condition) return '';
+    const tier = condition.tier || 1;
+    const tierLabel = `${condition.exact ? '=' : ''}L${tier}${condition.exact ? '' : '+'}`;
+    const colorLabel = condition.itemColor
+      ? getItemColorName(condition.itemColor).charAt(0).toUpperCase()
+      : null;
+    const count = Math.max(1, condition.requiredCount || 1);
+    return [colorLabel, condition.operationLabel, tierLabel, `x${count}`]
+      .filter(Boolean)
+      .join(' ');
   }
 
   getOperationDemandLabel(operationTag) {
@@ -6234,13 +6290,12 @@ export default class GameScene extends Phaser.Scene {
     if (this.deliveryBoardText) {
       const phaseLabel =
         this.runState === 'BUILD_PHASE'
-          ? 'BUILD PLAN'
+          ? 'Plan'
           : this.runState === 'ROUND_ACTIVE'
-            ? 'RUNNING'
-            : 'ROUND CLEAR';
-      this.deliveryBoardText.setText(
-        `${phaseLabel}: ${this.getRoundPacingLabel(this.currentRound)}\n${this.getRoundBoardSummary(this.currentRound)}`
-      );
+            ? 'Live'
+            : 'Cleared';
+      const pacing = this.getRoundPacing(this.currentRound);
+      this.deliveryBoardText.setText(`${phaseLabel} - ${pacing.stageName}`);
     }
     if (this.deliveryDemandText) {
       const outputLines =
@@ -6260,18 +6315,16 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.nextDemandText) {
       if (this.runState === 'BUILD_PHASE') {
-        this.nextDemandText.setText(
-          `Current asks: ${this.getRoundPreviewText(this.currentRound, 3)}`
-        );
+        this.nextDemandText.setText('');
         this.nextDemandText.setColor('#88ffcc');
       } else if (this.runState === 'ROUND_ACTIVE') {
         this.nextDemandText.setText(
-          `Next R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
+          `Next: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       } else {
         this.nextDemandText.setText(
-          `Next R${this.currentRound + 1}: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
+          `Up next: ${this.getRoundPreviewText(this.currentRound + 1, 2)}`
         );
         this.nextDemandText.setColor('#b9f7ff');
       }
@@ -6709,6 +6762,10 @@ export default class GameScene extends Phaser.Scene {
     this.roundExhaustionStartedAt = null;
     this.lastQuotaHudScore = 0;
     this.pendingDeliveryCompletionScore = 0;
+    this.freeDraftRedrawsRemaining = this.hasFreeDraftRedrawPerRound()
+      ? GAME_CONFIG.metaProgression?.freeDraftRedrawsPerRound || 1
+      : 0;
+    this.updateActiveUpgradesDisplay();
     const board = this.applyRoundBoard(round);
     this.buildRound();
     this.money = Math.max(this.money || 0, this.getRoundStartingMoney(round));
@@ -7159,7 +7216,7 @@ export default class GameScene extends Phaser.Scene {
           itemColor,
           lifespan: GAME_CONFIG.nodeLifespan * this.upgradeManager.getNodeLongevityModifier(),
         },
-        this.currentEra,
+        this.currentRound,
         this.upgradeManager
       );
       this.resourceNodes.push(resourceNode);
@@ -7800,6 +7857,16 @@ export default class GameScene extends Phaser.Scene {
         color: 0x83f7ff,
       });
     }
+    if (this.hasFreeDraftRedrawPerRound()) {
+      metaLines.push({
+        title: 'Free Redraw',
+        value: `${this.freeDraftRedrawsRemaining || 0}/${
+          GAME_CONFIG.metaProgression?.freeDraftRedrawsPerRound || 1
+        }`,
+        description: 'The first full hand redraw each round costs no Budget.',
+        color: 0xffd166,
+      });
+    }
     const entries = [];
 
     if (
@@ -7879,28 +7946,37 @@ export default class GameScene extends Phaser.Scene {
     const rowX = contentX + 10;
     const rowY = 306;
     const rowWidth = contentWidth - 20;
-    const rowHeight = 25;
-    const gap = 7;
-    const maxRows = 4;
-    const visibleEntries = entries.slice(0, maxRows);
+    const rowHeight = 24;
+    const gap = 6;
+    const panelBottom =
+      (this.upgradesPanelBounds?.y || 272) + (this.upgradesPanelBounds?.height || 150);
+    const rowAreaTop = rowY - rowHeight / 2;
+    const rowAreaBottom = panelBottom - 12;
+    const rowSlots = Math.max(
+      1,
+      Math.floor((rowAreaBottom - rowAreaTop + gap) / (rowHeight + gap))
+    );
+    const needsOverflowRow = entries.length > rowSlots;
+    const visibleCount = needsOverflowRow ? Math.max(0, rowSlots - 1) : rowSlots;
+    const visibleEntries = entries.slice(0, visibleCount);
 
     visibleEntries.forEach((entry, index) => {
       this.createUpgradeRow(entry, rowX, rowY + index * (rowHeight + gap), rowWidth, rowHeight);
     });
 
-    if (entries.length > maxRows) {
+    if (needsOverflowRow) {
       this.createUpgradeRow(
         {
-          title: `+${entries.length - maxRows} more upgrades`,
+          title: `+${entries.length - visibleCount} more`,
           value: '',
           description: entries
-            .slice(maxRows)
+            .slice(visibleCount)
             .map((entry) => `${entry.title}${entry.value ? ` ${entry.value}` : ''}`)
             .join('\n'),
           color: 0x95aab5,
         },
         rowX,
-        rowY + maxRows * (rowHeight + gap),
+        rowY + visibleCount * (rowHeight + gap),
         rowWidth,
         rowHeight
       );
@@ -8149,6 +8225,26 @@ export default class GameScene extends Phaser.Scene {
     }
     if (machine.trait) {
       machineType.trait = machine.trait;
+    }
+    if (machine.bodyId) {
+      machineType.bodyId = machine.bodyId;
+    }
+    if (machine.inputCoord) {
+      machineType.inputCoord = { ...machine.inputCoord };
+    }
+    if (machine.outputCoord) {
+      machineType.outputCoord = { ...machine.outputCoord };
+    }
+    if (machine.ioByDirection) {
+      machineType.ioByDirection = Object.fromEntries(
+        Object.entries(machine.ioByDirection).map(([dir, io]) => [
+          dir,
+          {
+            inputPos: { ...io.inputPos },
+            outputPos: { ...io.outputPos },
+          },
+        ])
+      );
     }
     machineType.placementCost = 0;
     machineType.isRelocation = true;

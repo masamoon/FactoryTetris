@@ -93,12 +93,11 @@ export default class ProcessingPieceMachine extends BaseMachine {
     this.machineFamily = 'operator';
     this.isComplexBody = Boolean(body.isComplexBody);
 
-    const ioPositions = ProcessingPieceMachine.getIOPositionsForBody(
-      body.id,
-      this.defaultDirection
-    );
-    this.inputCoord = ioPositions.inputPos;
-    this.outputCoord = ioPositions.outputPos;
+    const baseIO =
+      body.io?.right || ProcessingPieceMachine.getIOPositionsForBody(body.id, 'right');
+    this.inputCoord = clonePos(this.config?.inputCoord || baseIO.inputPos);
+    this.outputCoord = clonePos(this.config?.outputCoord || baseIO.outputPos);
+    this.ioByDirection = this.config?.ioByDirection || null;
 
     this.inputLevels = this.config?.inputLevels ?? [1];
     this.outputLevel = this.config?.outputLevel ?? 2;
@@ -134,6 +133,36 @@ export default class ProcessingPieceMachine extends BaseMachine {
 
   static getIOPositionsForDirection(machineId, direction) {
     return ProcessingPieceMachine.getIOPositionsForBody(machineId || this.bodyId, direction);
+  }
+
+  getIOPositionsForDirection(direction = this.direction || this.defaultDirection || 'right') {
+    const normalizedDirection = CARDINAL_DIRECTIONS.includes(direction) ? direction : 'right';
+    const runtimeIO = this.ioByDirection?.[normalizedDirection];
+
+    if (
+      runtimeIO &&
+      areIOPositionsOnShape(runtimeIO, getRotatedShape(this.shape, normalizedDirection))
+    ) {
+      return {
+        inputPos: clonePos(runtimeIO.inputPos),
+        outputPos: clonePos(runtimeIO.outputPos),
+      };
+    }
+
+    if (this.inputCoord && this.outputCoord) {
+      const rotatedPositions = {
+        inputPos: rotatePos(this.inputCoord, this.shape, normalizedDirection),
+        outputPos: rotatePos(this.outputCoord, this.shape, normalizedDirection),
+      };
+
+      if (
+        areIOPositionsOnShape(rotatedPositions, getRotatedShape(this.shape, normalizedDirection))
+      ) {
+        return rotatedPositions;
+      }
+    }
+
+    return ProcessingPieceMachine.getIOPositionsForBody(this.bodyId, normalizedDirection);
   }
 
   static getIOPositionsForBody(bodyId, direction = 'right') {

@@ -14,14 +14,13 @@ import {
   isArithmeticConfig,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
-import { getTiersForEra } from '../config/eraConfig';
 import { GAME_CONFIG } from '../config/gameConfig';
 
-// How much more likely a draft piece that outputs the era apex tier is,
+// How much more likely a draft piece that outputs the current draft apex tier is,
 // relative to the pyramid baseline.
 // Tunable: 1 = no boost (rarest), ~4 = on par with low/feeder tiers,
-// 6 = clearly the most common era-relevant piece.
-const ERA_APEX_TIER_WEIGHT_BOOST = 4.0;
+// 6 = clearly the most common round-relevant piece.
+const DRAFT_APEX_TIER_WEIGHT_BOOST = 4.0;
 
 /**
  * Generates a set of piece configurations for the player to choose from
@@ -33,9 +32,6 @@ export function generatePieceOptions(scene, count = 3) {
   const producibleLevels = getProducibleLevels(scene);
   const options = [];
 
-  // Get the current era from scene (default to Era 1)
-  const currentEra = scene?.currentEra || 1;
-
   // Get all available arithmetic configurations.
   const allConfigs = getDraftConfigPool(scene);
 
@@ -43,8 +39,6 @@ export function generatePieceOptions(scene, count = 3) {
   const usableConfigs = allConfigs.filter((config) => isPieceUsable(config, producibleLevels));
 
   // Filter higher tier configs for balance
-  // Era 1: output > 2. Era 2+: Also output > 2 to include L3/L4/L5 in the "higher tier" pool
-  // This prevents L6 dominance in Era 2 by diluting the pool with L3-L5
   const higherTierThreshold = 2;
   const higherTierConfigs = allConfigs.filter(
     (config) => getDraftOutputLevel(config, producibleLevels) > higherTierThreshold
@@ -62,7 +56,7 @@ export function generatePieceOptions(scene, count = 3) {
 
     // For the first piece, guarantee it's usable if possible
     if (i === 0 && usableConfigs.length > 0) {
-      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra, scene);
+      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, scene);
       guaranteedUsable = true;
       if (getDraftOutputLevel(selectedConfig, producibleLevels) > higherTierThreshold) {
         guaranteedHigherTier = true;
@@ -71,19 +65,19 @@ export function generatePieceOptions(scene, count = 3) {
       // Guarantee at least one higher tier piece for balance
       // Prefer usable higher tier, but include any higher tier for progression visibility
       const pool = usableHigherTierConfigs.length > 0 ? usableHigherTierConfigs : higherTierConfigs;
-      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra, scene);
+      selectedConfig = selectWeightedConfig(pool, producibleLevels, scene);
       guaranteedHigherTier = true;
       if (isPieceUsable(selectedConfig, producibleLevels)) {
         guaranteedUsable = true;
       }
     } else if (!guaranteedUsable && i === count - 1 && usableConfigs.length > 0) {
       // Last chance to ensure at least one usable piece
-      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, currentEra, scene);
+      selectedConfig = selectWeightedConfig(usableConfigs, producibleLevels, scene);
       guaranteedUsable = true;
     } else {
       // Random selection from all configs (biased toward usable)
       const pool = Math.random() < 0.7 && usableConfigs.length > 0 ? usableConfigs : allConfigs;
-      selectedConfig = selectWeightedConfig(pool, producibleLevels, currentEra, scene);
+      selectedConfig = selectWeightedConfig(pool, producibleLevels, scene);
     }
 
     options.push({
@@ -100,11 +94,10 @@ export function generatePieceOptions(scene, count = 3) {
  * Prefers configurations that advance the player toward higher levels
  * @param {Array<object>} configs - Available configurations
  * @param {Set<number>} producibleLevels - Currently producible levels
- * @param {number} currentEra - The current game era (default 1)
  * @param {object} scene - The game scene, used for active round context
  * @returns {object} Selected configuration
  */
-function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene = null) {
+function selectWeightedConfig(configs, producibleLevels, scene = null) {
   if (configs.length === 0) {
     // Fallback to the simplest arithmetic config
     return ARITHMETIC_PIECE_CONFIGS[0];
@@ -112,17 +105,17 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene =
 
   // FORMULAIC BALANCE (Pyramid Distribution)
   // We want a distribution where lower tiers are common and the apex is rarer.
-  // Formula: Weight = RarityFactor ^ (eraMax - Level), distance capped at 1.3.
+  // Formula: Weight = RarityFactor ^ (draftApexTier - Level), distance capped at 1.3.
   //
-  const eraMax = getTiersForEra(currentEra).output;
+  const draftApexTier = getDraftApexTier(configs, producibleLevels);
   const rarityFactor = 3.0;
 
   // Calculate weights
   const contractOperationTags = getActiveContractOperationTags(scene);
   const weights = configs.map((config) => {
     const outputLevel = getDraftOutputLevel(config, producibleLevels);
-    // Calculate distance from the era apex tier.
-    const rawDist = eraMax - outputLevel;
+    // Calculate distance from the current draft apex tier.
+    const rawDist = draftApexTier - outputLevel;
 
     // Cap the distance at 1.3 so the broad base of low tiers shares similar
     // commonality (~3^1.3 ≈ 4.17x the apex baseline) instead of exploding.
@@ -131,9 +124,9 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene =
     // Weight formula: Factor ^ Distance
     let weight = Math.pow(rarityFactor, effectiveDist);
 
-    // Boost the era apex so high-tier pieces appear often enough to matter.
-    if (outputLevel === eraMax) {
-      weight *= ERA_APEX_TIER_WEIGHT_BOOST;
+    // Boost the apex so high-tier pieces appear often enough to matter.
+    if (outputLevel === draftApexTier) {
+      weight *= DRAFT_APEX_TIER_WEIGHT_BOOST;
     }
 
     // Minor boosting for new levels to ensure they appear
@@ -165,6 +158,16 @@ function selectWeightedConfig(configs, producibleLevels, currentEra = 1, scene =
   return configs[configs.length - 1];
 }
 
+function getDraftApexTier(configs, producibleLevels) {
+  const configuredFloor = 3;
+  const configMax = configs.reduce(
+    (max, config) => Math.max(max, getDraftOutputLevel(config, producibleLevels) || 1),
+    configuredFloor
+  );
+  const producibleMax = Math.max(configuredFloor, ...Array.from(producibleLevels || [1]));
+  return Math.max(3, Math.min(configMax, producibleMax + 2));
+}
+
 /**
  * Assigns a level configuration to a piece shape
  * @param {Array<Array<number>>} shape - The piece shape (2D array)
@@ -179,11 +182,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   // Count blocks in shape
   const blockCount = countBlocks(shape);
 
-  // Get the current era from scene (default to Era 1)
-  const currentEra = scene?.currentEra || 1;
-
-  // Build configs array. Recipes are operation-driven now; eras still matter
-  // through scoring and board demands, not through a deterministic recipe ladder.
+  // Build configs array. Recipes are operation-driven and guided by round demands.
   let configs = getDraftConfigPool(scene, getConfigsForBlockCount(blockCount));
 
   if (forcedArithmeticOperation) {
@@ -207,9 +206,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
     };
   }
 
-  // If forcing higher tier, filter to configs with output > 2
-  // For higher eras, we now keep the threshold at > 2 to allow mid-tier pieces (L3/L4/L5)
-  // to count as "higher tier" relative to basic L2 production.
+  // If forcing higher tier, filter to configs with output > 2.
   const higherTierThreshold = 2;
   if (forceHigherTier) {
     const higherTierConfigs = configs.filter(
@@ -227,7 +224,7 @@ export function assignLevelsToShape(shape, scene, options = {}) {
   const pool = usableConfigs.length > 0 ? usableConfigs : configs;
 
   // Select a config
-  const config = selectWeightedConfig(pool, producibleLevels, currentEra, scene) || {
+  const config = selectWeightedConfig(pool, producibleLevels, scene) || {
     inputs: [1],
     output: 2,
     notation: '1/2',

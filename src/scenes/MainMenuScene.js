@@ -4,34 +4,23 @@ import { loadGameSettings } from '../utils/GameSettings';
 const COLORS = {
   backgroundTop: 0x070b10,
   backgroundBottom: 0x14232c,
-  panelStroke: 0x315062,
   cyan: 0x83f7ff,
   blue: 0x3f8cff,
   yellow: 0xffd166,
   green: 0x4dd47e,
   purple: 0xb56cff,
   text: '#f4fbff',
-  muted: '#95aab5',
 };
 
 export default class MainMenuScene extends Phaser.Scene {
   constructor() {
     super('MainMenuScene');
-    this.movingItems = [];
   }
 
   preload() {
     const images = [
       ['button-idle', 'assets/images/button.png'],
       ['button-hover', 'assets/images/button-hover.png'],
-      ['machine-i', 'assets/images/machine-i.png'],
-      ['machine-l', 'assets/images/machine-l.png'],
-      ['machine-t', 'assets/images/machine-t.png'],
-      ['machine-o', 'assets/images/machine-o.png'],
-      ['raw-resource', 'assets/images/raw-resource.png'],
-      ['product-a', 'assets/images/product-a.png'],
-      ['product-b', 'assets/images/product-b.png'],
-      ['product-c', 'assets/images/product-c.png'],
     ];
 
     images.forEach(([key, path]) => {
@@ -43,28 +32,14 @@ export default class MainMenuScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.cameras.main;
-    this.movingItems = [];
 
     this.drawBackground(width, height);
-    this.createFactoryShowpiece(width);
     this.createTitle(width);
     this.createMenuControls(width);
     this.createAmbientMotion(width, height);
 
     this.input.keyboard?.once('keydown-ENTER', () => this.startGame());
     this.input.keyboard?.once('keydown-SPACE', () => this.startGame());
-  }
-
-  update(_time, delta) {
-    const moveBy = delta * 0.085;
-
-    this.movingItems.forEach((item) => {
-      item.sprite.x += moveBy * item.speed;
-
-      if (item.sprite.x > item.endX) {
-        item.sprite.x = item.startX;
-      }
-    });
   }
 
   drawBackground(width, height) {
@@ -110,38 +85,6 @@ export default class MainMenuScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
-  }
-
-  createFactoryShowpiece(width) {
-    const platform = this.add.graphics();
-    platform.fillStyle(0x0b1118, 0.96);
-    platform.fillRoundedRect(78, 292, width - 156, 142, 8);
-    platform.lineStyle(2, COLORS.panelStroke, 0.9);
-    platform.strokeRoundedRect(78, 292, width - 156, 142, 8);
-
-    this.drawConveyor(120, 350, 560, COLORS.cyan);
-    this.drawConveyor(190, 392, 420, COLORS.yellow);
-
-    this.addMachineSprite(176, 328, 'machine-l', COLORS.blue, 0.88);
-    this.addMachineSprite(302, 328, 'machine-t', COLORS.green, 0.9);
-    this.addMachineSprite(438, 328, 'machine-o', COLORS.purple, 0.88);
-    this.addMachineSprite(570, 328, 'machine-i', COLORS.yellow, 0.82);
-
-    this.createFlowItem(128, 350, 668, 'raw-resource', 0.52, 0.72);
-    this.createFlowItem(260, 350, 668, 'product-a', 0.5, 1);
-    this.createFlowItem(405, 350, 668, 'product-b', 0.48, 0.88);
-    this.createFlowItem(542, 350, 668, 'product-c', 0.48, 1.08);
-    this.createFlowItem(204, 392, 604, 'raw-resource', 0.42, 0.82);
-    this.createFlowItem(378, 392, 604, 'product-a', 0.4, 0.72);
-
-    this.add
-      .text(width / 2, 462, 'Forge chains. Refine purity. Expand the grid.', {
-        fontFamily: 'Arial',
-        fontSize: 16,
-        color: COLORS.muted,
-        align: 'center',
-      })
-      .setOrigin(0.5);
   }
 
   createTitle(width) {
@@ -264,63 +207,6 @@ export default class MainMenuScene extends Phaser.Scene {
         delay: Phaser.Math.Between(0, 1200),
       });
     }
-  }
-
-  drawConveyor(x, y, width, accentColor) {
-    const belt = this.add.graphics();
-    belt.fillStyle(0x131d24, 1);
-    belt.fillRoundedRect(x, y - 15, width, 30, 5);
-    belt.lineStyle(2, 0x3a5665, 0.9);
-    belt.strokeRoundedRect(x, y - 15, width, 30, 5);
-
-    for (let i = 0; i <= width; i += 32) {
-      belt.lineStyle(2, accentColor, 0.2);
-      belt.lineBetween(x + i, y - 12, x + i + 16, y + 12);
-    }
-  }
-
-  addMachineSprite(x, y, texture, tint, scale) {
-    const glow = this.add.rectangle(x, y, 62, 62, tint, 0.09);
-    glow.setStrokeStyle(1, tint, 0.42);
-
-    const machine = this.add.image(x, y, texture);
-    machine.setScale(scale);
-    machine.setTint(tint);
-    machine.setAlpha(0.95);
-
-    this.tweens.add({
-      targets: glow,
-      alpha: { from: 0.22, to: 0.46 },
-      duration: 900,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-      delay: x,
-    });
-  }
-
-  createFlowItem(x, y, endX, texture, scale, speed) {
-    const sprite = this.add.image(x, y, texture);
-    sprite.setScale(scale);
-    sprite.setDepth(2);
-    sprite.setAlpha(0.96);
-
-    this.movingItems.push({
-      sprite,
-      startX: x,
-      endX,
-      speed,
-    });
-
-    this.tweens.add({
-      targets: sprite,
-      y: y - 3,
-      duration: 560,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-      delay: x,
-    });
   }
 
   createButton(x, y, text, callback, options = {}) {

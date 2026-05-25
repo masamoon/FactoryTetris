@@ -26,6 +26,7 @@ export const GAME_CONFIG = {
   metaProgression: {
     undergroundBeltsUnlockedByDefault: false,
     advancedLogisticsUnlockRound: 4,
+    freeDraftRedrawsPerRound: 1,
   },
 
   specialLogistics: {

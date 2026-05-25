@@ -1,17 +1,7 @@
 /**
- * Era Configuration
- * Defines tier scaling helpers for run progression.
+ * Resource tier helpers.
+ * Defines point, color, and name scaling for open-ended resource levels.
  */
-
-// Resource tier formulas
-// Era N produces tiers: 3N-2, 3N-1, 3N
-export function getTiersForEra(era) {
-  return {
-    input: 3 * era - 2, // L1, L4, L7, L10...
-    mid: 3 * era - 1, // L2, L5, L8, L11...
-    output: 3 * era, // L3, L6, L9, L12...
-  };
-}
 
 // Point scaling for resource tiers
 // Higher tiers = exponentially more points
@@ -39,7 +29,6 @@ const TIER_COLORS = [
 ];
 
 export function getColorForTier(tier) {
-  // Cycle through colors, with brightness increase for higher tiers
   const colorIndex = (tier - 1) % TIER_COLORS.length;
   return TIER_COLORS[colorIndex];
 }

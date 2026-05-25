@@ -30,16 +30,22 @@ export default class GameOverScene extends Phaser.Scene {
     }
 
     // Background
-    this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0, 0);
+    this.cameras.main.setBackgroundColor('#070b10');
+    const backdrop = this.add.graphics();
+    backdrop.fillGradientStyle(0x070b10, 0x070b10, 0x14232c, 0x14232c, 1);
+    backdrop.fillRect(0, 0, width, height);
+    this.add
+      .rectangle(width / 2, height / 2, 470, 390, 0x09131d, 0.94)
+      .setStrokeStyle(2, 0x456274, 0.95);
 
     // Game Over text
     this.add
-      .text(width / 2, height / 4, 'GAME OVER', {
+      .text(width / 2, height / 2 - 145, 'RUN COMPLETE', {
         fontFamily: 'Arial Black',
-        fontSize: 48,
-        color: '#ff0000',
-        stroke: '#000000',
-        strokeThickness: 8,
+        fontSize: 42,
+        color: '#f4fbff',
+        stroke: '#123646',
+        strokeThickness: 6,
         align: 'center',
       })
       .setOrigin(0.5);
@@ -51,59 +57,70 @@ export default class GameOverScene extends Phaser.Scene {
 
     // Score and time display
     this.add
-      .text(width / 2, height / 2 - 40, `SCORE: ${this.score}`, {
-        fontFamily: 'Arial',
+      .text(width / 2, height / 2 - 58, `SCORE  ${this.score}`, {
+        fontFamily: 'Arial Black',
         fontSize: 32,
-        color: '#ffffff',
+        color: '#ffd166',
         align: 'center',
       })
       .setOrigin(0.5);
 
     this.add
-      .text(width / 2, height / 2 + 10, `TIME SURVIVED: ${timeString}`, {
+      .text(width / 2, height / 2 - 12, `TIME  ${timeString}`, {
         fontFamily: 'Arial',
         fontSize: 24,
-        color: '#ffffff',
+        color: '#dfefff',
         align: 'center',
       })
       .setOrigin(0.5);
 
     // Reason for factory collapse
     this.add
-      .text(width / 2, height / 2 + 60, 'Your factory collapsed due to Cargo Bay overflow!', {
-        fontFamily: 'Arial',
-        fontSize: 18,
-        color: '#ff9999',
-        align: 'center',
-      })
+      .text(
+        width / 2,
+        height / 2 + 34,
+        'The cargo contract failed. Rebuild the line and push farther.',
+        {
+          fontFamily: 'Arial',
+          fontSize: 16,
+          color: '#95aab5',
+          align: 'center',
+          wordWrap: { width: 360 },
+        }
+      )
       .setOrigin(0.5);
 
     // Create buttons
-    this.createButton(width / 2, height * 0.7, 'PLAY AGAIN', () => {
+    this.createButton(width / 2, height / 2 + 104, 'PLAY AGAIN', () => {
       this.scene.start('GameScene');
     });
 
-    this.createButton(width / 2, height * 0.7 + 70, 'MAIN MENU', () => {
+    this.createButton(width / 2, height / 2 + 164, 'MAIN MENU', () => {
       this.scene.start('MainMenuScene');
     });
   }
 
   createButton(x, y, text, callback) {
-    const button = this.add.rectangle(x, y, 200, 50, 0x4a6fb5).setInteractive();
+    const button = this.add
+      .rectangle(x, y, 220, 46, text === 'PLAY AGAIN' ? 0x2c7a55 : 0x263746, 0.98)
+      .setInteractive({ useHandCursor: true });
+    button.defaultFillColor = text === 'PLAY AGAIN' ? 0x2c7a55 : 0x263746;
+    button.hoverFillColor = text === 'PLAY AGAIN' ? 0x3f9f72 : 0x35546a;
+    button.setStrokeStyle(2, text === 'PLAY AGAIN' ? 0x88ffcc : 0x83f7ff, 0.9);
     const buttonText = this.add
       .text(x, y, text, {
-        fontFamily: 'Arial',
-        fontSize: 20,
+        fontFamily: 'Arial Black',
+        fontSize: 16,
         color: '#ffffff',
       })
       .setOrigin(0.5);
 
     button.on('pointerover', () => {
-      button.fillColor = 0x5a8fd5;
+      button.fillColor = button.hoverFillColor;
     });
 
     button.on('pointerout', () => {
-      button.fillColor = 0x4a6fb5;
+      button.fillColor = button.defaultFillColor;
     });
 
     button.on('pointerdown', () => {

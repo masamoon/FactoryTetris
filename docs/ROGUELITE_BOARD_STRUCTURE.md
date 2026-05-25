@@ -9,7 +9,7 @@ Balatro-like roguelite cadence:
 2. The player drafts or buys machines for that board.
 3. The player builds a factory around the board texture.
 4. The factory converts a limited resource budget into score.
-5. The player earns money, boons, chips, or rerolls between rounds.
+5. The player earns money, boons, meta progress, or rerolls between rounds.
 
 In this model, the board is not empty placement space. It is the round's
 primary tactical puzzle, similar to how a poker hand exists inside the blind,
@@ -71,7 +71,7 @@ Later board modifiers can add stronger roguelite texture:
 - Conveyor-only lanes.
 - Color conversion tiles.
 - Splitter or merger bonus zones.
-- Chip resonance zones.
+- Reward resonance zones.
 - Temporary hazard cells.
 - Optional challenge outputs for bonus rewards.
 
@@ -85,7 +85,7 @@ Suggested modules:
 - `src/config/boardConfig.js`
   Static board feature definitions, tuning, and visual metadata.
 - `src/managers/BoardGenerator.js`
-  Creates deterministic board layouts from round, era, and run seed.
+  Creates deterministic board layouts from round and run seed.
 - `src/managers/RoundManager.js`
   Owns round state transitions: preview, build, active, cleared, failed.
 - `src/objects/BoardTile.js`
@@ -131,7 +131,7 @@ Primary files:
 ### Phase 2: Add Build Phase
 
 - Restore a real build phase before production starts.
-- Pause resource nodes, chips, conveyors, and processors during build.
+- Pause resource nodes, conveyors, and processors during build.
 - Show the incoming board and contract clearly.
 - Let the player start the round manually.
 - Give each resource node a per-round remaining count and stop emission when
@@ -143,7 +143,6 @@ Primary files:
 
 - `src/scenes/GameScene.js`
 - `src/objects/ResourceNode.js`
-- `src/objects/ChipNode.js`
 - `src/objects/machines/BaseMachine.js`
 - `src/objects/machines/ConveyorMachine.js`
 
@@ -182,14 +181,13 @@ Primary files:
 - Move boons to a between-round reward cadence.
 - Add board-aware boons such as choosing between boards, converting blockers,
   preserving one machine, or upgrading a bonus tile.
-- Let chips interact with board generation instead of only era progression.
+- Let long-term rewards interact with board generation.
 
 Primary files:
 
 - `src/config/boons.js`
 - `src/managers/UpgradeManager.js`
 - `src/scenes/GameScene.js`
-- `src/objects/ChipNode.js`
 
 ## First Playable Target
 

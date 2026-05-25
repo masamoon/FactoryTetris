@@ -22,8 +22,7 @@ import {
 export function getProducibleLevels(scene) {
   const producibleLevels = new Set();
 
-  // L1 is ALWAYS producible from resource nodes (regardless of era)
-  // This ensures players must maintain Era 1 production chains in later eras
+  // L1 is always producible from resource nodes so players can recover a chain.
   producibleLevels.add(1);
 
   if (!scene || !scene.factoryGrid) {

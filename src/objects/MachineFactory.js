@@ -6,7 +6,11 @@ import { assignLevelsToShape } from '../utils/PieceGenerator';
 import { getTraitById, getTraitBandColor } from '../config/traits';
 import { ARITHMETIC_OPERATION_TYPES } from '../config/resourceLevels';
 import { createPieceDeckForRound, getPieceDeckEntryById } from '../config/pieceDeck';
-import { isProcessingPieceBodyId, normalizeProcessingPieceBodyId } from '../config/pieceBodies';
+import {
+  getProcessingPieceBody,
+  isProcessingPieceBodyId,
+  normalizeProcessingPieceBodyId,
+} from '../config/pieceBodies';
 
 export default class MachineFactory {
   constructor(scene, config) {
@@ -343,9 +347,11 @@ export default class MachineFactory {
       forcedArithmeticOperation: card.arithmeticOperation || options.forcedArithmeticOperation,
     });
     const inputLevels = Array.isArray(levelConfig.inputLevels) ? levelConfig.inputLevels : [1];
+    const randomizedIO = this.createRandomizedProcessorIO(card.bodyId || baseProcessor.id);
 
     return {
       ...baseProcessor,
+      ...randomizedIO,
       inputLevels,
       outputLevel: levelConfig.outputLevel,
       previewOutputLevel: levelConfig.previewOutputLevel,
@@ -362,6 +368,66 @@ export default class MachineFactory {
     };
   }
 
+  createRandomizedProcessorIO(bodyId) {
+    const body = getProcessingPieceBody(bodyId);
+    const shape = body.shape || [[1]];
+    const baseIO = body.io?.right || { inputPos: { x: 0, y: 0 }, outputPos: { x: 0, y: 0 } };
+    const inputCoord = { ...baseIO.inputPos };
+    const occupiedCells = this.getOccupiedShapeCells(shape);
+    const outputCandidates = occupiedCells.filter(
+      (cell) => cell.x !== inputCoord.x || cell.y !== inputCoord.y
+    );
+    const pool = outputCandidates.length > 0 ? outputCandidates : occupiedCells;
+    const outputCoord = { ...pool[Math.floor(Math.random() * pool.length)] };
+
+    return {
+      inputCoord,
+      outputCoord,
+      ioByDirection: this.buildDirectionalIO(shape, inputCoord, outputCoord),
+    };
+  }
+
+  getOccupiedShapeCells(shape) {
+    const cells = [];
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < (shape[y]?.length || 0); x++) {
+        if (shape[y][x] === 1) {
+          cells.push({ x, y });
+        }
+      }
+    }
+    return cells.length > 0 ? cells : [{ x: 0, y: 0 }];
+  }
+
+  buildDirectionalIO(shape, inputCoord, outputCoord) {
+    return Object.fromEntries(
+      ['right', 'down', 'left', 'up'].map((direction) => [
+        direction,
+        {
+          inputPos: this.rotateShapeCoord(inputCoord, shape, direction),
+          outputPos: this.rotateShapeCoord(outputCoord, shape, direction),
+        },
+      ])
+    );
+  }
+
+  rotateShapeCoord(pos, shape, direction) {
+    const height = shape.length;
+    const width = shape[0]?.length || 1;
+
+    switch (direction) {
+      case 'down':
+        return { x: height - 1 - pos.y, y: pos.x };
+      case 'left':
+        return { x: width - 1 - pos.x, y: height - 1 - pos.y };
+      case 'up':
+        return { x: pos.y, y: width - 1 - pos.x };
+      case 'right':
+      default:
+        return { x: pos.x, y: pos.y };
+    }
+  }
+
   createDraftProcessor(options = {}) {
     const { requireUsable = false, ...levelOptions } = options;
     let fallback = null;
@@ -371,8 +437,12 @@ export default class MachineFactory {
       const baseProcessor = this.processorTypes[randomIndex];
       const levelConfig = assignLevelsToShape(baseProcessor.shape, this.scene, levelOptions);
       const inputLevels = Array.isArray(levelConfig.inputLevels) ? levelConfig.inputLevels : [1];
+      const randomizedIO = this.createRandomizedProcessorIO(
+        baseProcessor.bodyId || baseProcessor.id
+      );
       const candidate = {
         ...baseProcessor,
+        ...randomizedIO,
         inputLevels,
         outputLevel: levelConfig.outputLevel,
         previewOutputLevel: levelConfig.previewOutputLevel,
@@ -637,7 +707,7 @@ export default class MachineFactory {
 
     let machinePreview;
     try {
-      if (this.machineRegistry.hasMachineType(machineType.id)) {
+      if (!isOperator && this.machineRegistry.hasMachineType(machineType.id)) {
         machinePreview = this.machineRegistry.createMachinePreview(
           machineType.id,
           this.scene,
@@ -1585,15 +1655,11 @@ export default class MachineFactory {
     // For Y, use bottom-alignment so pieces don't need visualCenterY
     // --- End Default Shape Handling ---
 
-    // Determine input and output positions based on direction (Use default 'right' for preview)
-    // Determine input and output positions based on direction (Use default 'right' for preview)
-    // const direction = machineType.defaultDirection || 'right';
-    // let inputPos = { x: -1, y: -1 };
-    // let outputPos = { x: -1, y: -1 };
-
-    // Simplified input/output logic for preview based on common patterns
-    // This might need to be generalized or rely on static properties if machines vary greatly
-    // Or better yet, use the static getPreviewSprite from the machine class itself!
+    const direction = machineType.defaultDirection || 'right';
+    const outputPos =
+      machineType.ioByDirection?.[direction]?.outputPos ||
+      machineType.outputCoord ||
+      { x: shapeWidth - 1, y: shapeHeight - 1 };
 
     // --- Generic Preview Drawing (Placeholder/Fallback) ---
     // All cells use the unique machine color
@@ -1618,8 +1684,7 @@ export default class MachineFactory {
           rect.setStrokeStyle(1, 0x555555);
           container.add(rect);
 
-          // Add output arrow on the last cell (fallback output position)
-          if (x === shapeWidth - 1 && y === shapeHeight - 1) {
+          if (x === outputPos.x && y === outputPos.y) {
             const arrowSize = cellSize * 0.3;
             const outputArrow = this.scene.add
               .triangle(
@@ -1634,8 +1699,21 @@ export default class MachineFactory {
                 0xffffff
               )
               .setOrigin(0.5, 0.5);
-            // Default to pointing right for preview
-            outputArrow.rotation = 0;
+            switch (direction) {
+              case 'down':
+                outputArrow.rotation = Math.PI / 2;
+                break;
+              case 'left':
+                outputArrow.rotation = Math.PI;
+                break;
+              case 'up':
+                outputArrow.rotation = (3 * Math.PI) / 2;
+                break;
+              case 'right':
+              default:
+                outputArrow.rotation = 0;
+                break;
+            }
             outputArrow.setDepth(1);
             container.add(outputArrow);
           }
@@ -1881,6 +1959,23 @@ export default class MachineFactory {
         }
         if (typeOrId.bodyId) {
           config.bodyId = typeOrId.bodyId;
+        }
+        if (typeOrId.inputCoord) {
+          config.inputCoord = { ...typeOrId.inputCoord };
+        }
+        if (typeOrId.outputCoord) {
+          config.outputCoord = { ...typeOrId.outputCoord };
+        }
+        if (typeOrId.ioByDirection) {
+          config.ioByDirection = Object.fromEntries(
+            Object.entries(typeOrId.ioByDirection).map(([dir, io]) => [
+              dir,
+              {
+                inputPos: { ...io.inputPos },
+                outputPos: { ...io.outputPos },
+              },
+            ])
+          );
         }
         if (typeOrId.pieceName) {
           config.pieceName = typeOrId.pieceName;
