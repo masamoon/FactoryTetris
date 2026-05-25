@@ -1,81 +1,86 @@
 import { ARITHMETIC_OPERATION_TYPES } from './resourceLevels';
 
-export const STARTER_PIECE_DECK = [
+const CLASSIC_SINGLE_INPUT_BODIES = [
+  { bodyId: 'operator-elbow', suffix: 'elbow-end', shortPrefix: 'L' },
+  { bodyId: 'operator-elbow-tip-output', suffix: 'elbow-tip', shortPrefix: 'L Tip' },
+  { bodyId: 'operator-hook', suffix: 'hook-end', shortPrefix: 'J' },
+  { bodyId: 'operator-hook-tip-output', suffix: 'hook-tip', shortPrefix: 'J Tip' },
+  { bodyId: 'operator-tee', suffix: 'tee-end', shortPrefix: 'T' },
+  { bodyId: 'operator-tee-stem-output', suffix: 'tee-stem', shortPrefix: 'T Stem' },
+  { bodyId: 'operator-s', suffix: 's-end', shortPrefix: 'S' },
+  { bodyId: 'operator-s-center-output', suffix: 's-center', shortPrefix: 'S Mid' },
+  { bodyId: 'operator-z', suffix: 'z-end', shortPrefix: 'Z' },
+  { bodyId: 'operator-z-center-output', suffix: 'z-center', shortPrefix: 'Z Mid' },
+];
+
+const BLOCK_BODIES = [
+  { bodyId: 'operator-block', suffix: 'block-corner', shortPrefix: 'O' },
+  { bodyId: 'operator-block-edge-output', suffix: 'block-edge', shortPrefix: 'O Edge' },
+];
+
+const LINE_BODIES = [
+  { bodyId: 'operator-line', suffix: 'line-end', shortPrefix: 'Line' },
+  { bodyId: 'operator-line-center-output', suffix: 'line-center', shortPrefix: 'Line Mid' },
+  { bodyId: 'operator-i', suffix: 'i-end', shortPrefix: 'I' },
+  { bodyId: 'operator-i-center-output', suffix: 'i-center', shortPrefix: 'I Mid' },
+];
+
+const STARTER_PIECE_TEMPLATES = [
   {
     id: 'starter-refiner-elbow',
-    name: 'Elbow Refiner',
-    shortName: 'Elbow +1',
-    bodyId: 'operator-elbow',
-    copies: 2,
-    arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
-    suppressTrait: true,
-  },
-  {
-    id: 'starter-refiner-block',
-    name: 'Block Refiner',
-    shortName: 'Block +1',
-    bodyId: 'operator-block',
-    copies: 2,
+    name: 'Refiner',
+    shortName: '+1',
+    bodyVariants: [...CLASSIC_SINGLE_INPUT_BODIES, ...BLOCK_BODIES, ...LINE_BODIES.slice(0, 2)],
+    copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
     suppressTrait: true,
   },
   {
     id: 'starter-booster-line',
-    name: 'Line Booster',
-    shortName: 'Line +2',
-    bodyId: 'operator-line',
-    copies: 2,
+    name: 'Booster',
+    shortName: '+2',
+    bodyVariants: [...LINE_BODIES, ...CLASSIC_SINGLE_INPUT_BODIES.slice(0, 6)],
+    copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 2 },
     suppressTrait: true,
   },
 ];
 
-export const STANDARD_PIECE_LIBRARY = [
+const STANDARD_PIECE_TEMPLATES = [
   {
     id: 'standard-refiner-left',
-    name: 'Left Refiner',
-    shortName: 'Left +1',
-    bodyId: 'operator-elbow',
-    copies: 2,
-    arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
-  },
-  {
-    id: 'standard-refiner-tee',
-    name: 'Tee Refiner',
-    shortName: 'Tee +1',
-    bodyId: 'operator-tee',
-    copies: 2,
+    name: 'Refiner',
+    shortName: '+1',
+    bodyVariants: [...CLASSIC_SINGLE_INPUT_BODIES, ...BLOCK_BODIES, ...LINE_BODIES],
+    copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 1 },
   },
   {
     id: 'standard-booster-line',
-    name: 'Line Booster',
-    shortName: 'Line +2',
-    bodyId: 'operator-line',
-    copies: 2,
-    arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 2 },
-  },
-  {
-    id: 'standard-booster-elbow',
-    name: 'Elbow Booster',
-    shortName: 'Elbow +2',
-    bodyId: 'operator-hook',
+    name: 'Booster',
+    shortName: '+2',
+    bodyVariants: [...LINE_BODIES, ...CLASSIC_SINGLE_INPUT_BODIES],
     copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT, value: 2 },
   },
   {
     id: 'standard-mixer-block',
-    name: 'Block Adder',
+    name: 'Adder',
     shortName: 'Add',
-    bodyId: 'operator-block',
-    copies: 2,
+    bodyVariants: [...BLOCK_BODIES, ...CLASSIC_SINGLE_INPUT_BODIES.slice(0, 6)],
+    copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD },
   },
   {
     id: 'standard-mixer-u',
-    name: 'U Adder',
-    shortName: 'U Add',
-    bodyId: 'operator-u',
+    name: 'Complex Adder',
+    shortName: 'Add',
+    bodyVariants: [
+      { bodyId: 'operator-u', suffix: 'u-end', shortPrefix: 'U' },
+      { bodyId: 'operator-u-bridge-output', suffix: 'u-bridge', shortPrefix: 'U Bridge' },
+      { bodyId: 'operator-s', suffix: 's-end', shortPrefix: 'S' },
+      { bodyId: 'operator-z', suffix: 'z-end', shortPrefix: 'Z' },
+    ],
     copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.ADD },
   },
@@ -83,7 +88,12 @@ export const STANDARD_PIECE_LIBRARY = [
     id: 'standard-multiplier-cross',
     name: 'Multiplier',
     shortName: 'Mult',
-    bodyId: 'operator-cross',
+    bodyVariants: [
+      { bodyId: 'operator-cross', suffix: 'cross-end', shortPrefix: 'X' },
+      { bodyId: 'operator-cross-top-output', suffix: 'cross-top', shortPrefix: 'X Top' },
+      { bodyId: 'operator-tee', suffix: 'tee-end', shortPrefix: 'T' },
+      { bodyId: 'operator-tee-stem-output', suffix: 'tee-stem', shortPrefix: 'T Stem' },
+    ],
     copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.MULTIPLY },
   },
@@ -91,11 +101,24 @@ export const STANDARD_PIECE_LIBRARY = [
     id: 'standard-divider-long',
     name: 'Divider',
     shortName: 'Divide',
-    bodyId: 'operator-long-hook',
+    bodyVariants: [
+      { bodyId: 'operator-long-hook', suffix: 'long-hook-end', shortPrefix: 'Long J' },
+      {
+        bodyId: 'operator-long-hook-inner-output',
+        suffix: 'long-hook-inner',
+        shortPrefix: 'Long J In',
+      },
+      { bodyId: 'operator-i', suffix: 'i-end', shortPrefix: 'I' },
+      { bodyId: 'operator-i-center-output', suffix: 'i-center', shortPrefix: 'I Mid' },
+    ],
     copies: 1,
     arithmeticOperation: { type: ARITHMETIC_OPERATION_TYPES.DIVIDE },
   },
 ];
+
+export const STARTER_PIECE_DECK = expandBodyVariantTemplates(STARTER_PIECE_TEMPLATES);
+
+export const STANDARD_PIECE_LIBRARY = expandBodyVariantTemplates(STANDARD_PIECE_TEMPLATES);
 
 export function createPieceDeckForRound() {
   return expandPieceDeck(STARTER_PIECE_DECK);
@@ -112,5 +135,24 @@ export function expandPieceDeck(library) {
       ...entry,
       instanceId: `${entry.id}-${copyIndex + 1}`,
     }));
+  });
+}
+
+function expandBodyVariantTemplates(templates) {
+  return templates.flatMap((template) => {
+    if (!Array.isArray(template.bodyVariants) || template.bodyVariants.length === 0) {
+      return [template];
+    }
+
+    return template.bodyVariants.map((variant, index) => {
+      const { bodyVariants: _bodyVariants, ...entry } = template;
+      return {
+        ...entry,
+        id: index === 0 ? template.id : `${template.id}-${variant.suffix}`,
+        name: `${variant.shortPrefix} ${template.name}`,
+        shortName: `${variant.shortPrefix} ${template.shortName || template.name}`,
+        bodyId: variant.bodyId,
+      };
+    });
   });
 }
