@@ -7420,11 +7420,11 @@ export default class GameScene extends Phaser.Scene {
       case 'add-constant':
         return `Raises one input by ${operation.value || 1}.`;
       case 'add':
-        return 'Adds two input levels together.';
+        return 'Adds two different input levels together.';
       case 'divide':
-        return 'Divides the higher input by the lower input.';
+        return 'Divides two different input levels.';
       case 'multiply':
-        return 'Multiplies two input levels together.';
+        return 'Multiplies two different input levels together.';
       default:
         return 'Transforms numeric resources.';
     }

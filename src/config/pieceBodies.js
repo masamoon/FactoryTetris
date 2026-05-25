@@ -150,9 +150,9 @@ const PROCESSING_PIECE_BODY_LIST = [
     isComplexBody: true,
     io: {
       right: { inputPos: { x: 0, y: 0 }, outputPos: { x: 2, y: 0 } },
-      down: { inputPos: { x: 2, y: 0 }, outputPos: { x: 1, y: 1 } },
+      down: { inputPos: { x: 1, y: 0 }, outputPos: { x: 1, y: 2 } },
       left: { inputPos: { x: 2, y: 0 }, outputPos: { x: 0, y: 0 } },
-      up: { inputPos: { x: 1, y: 1 }, outputPos: { x: 2, y: 0 } },
+      up: { inputPos: { x: 0, y: 2 }, outputPos: { x: 0, y: 0 } },
     },
   },
   {

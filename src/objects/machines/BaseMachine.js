@@ -246,9 +246,8 @@ export default class BaseMachine {
       return [0];
     }
 
-    // Two-input arithmetic pieces are meant to combine mixed tiers. If we
-    // consume the first two queued items, a feeder with bursts like 2,2,3
-    // will always process 2+2 before the 3 can join the recipe.
+    // Two-input arithmetic pieces combine mixed tiers. This creates a real
+    // routing requirement instead of letting a single resource stream feed them.
     if (requiredCount === 2) {
       let bestPair = null;
       let bestScore = -Infinity;
@@ -295,6 +294,31 @@ export default class BaseMachine {
     }
 
     return selected.length === requiredCount ? selected : null;
+  }
+
+  getArithmeticWaitReason() {
+    if (!this.isArithmeticMachine()) {
+      return null;
+    }
+
+    const requiredCount = this.getArithmeticRequiredInputCount();
+    const queuedCount = this.inputQueue?.length || 0;
+    if (queuedCount < requiredCount) {
+      return requiredCount > 1
+        ? `Waiting for ${requiredCount} input resources`
+        : 'Waiting for resources';
+    }
+
+    if (requiredCount > 1) {
+      const distinctLevels = new Set(
+        (this.inputQueue || []).map((item) => this.getItemInputLevel(item))
+      );
+      if (distinctLevels.size < requiredCount) {
+        return `Needs ${requiredCount} different input levels`;
+      }
+    }
+
+    return null;
   }
 
   findArithmeticSurplusInputIndexForIncomingLevel(itemLevel) {
@@ -1395,7 +1419,7 @@ export default class BaseMachine {
     } else if (this.canProcess()) {
       tooltipContent += '\nReady to process';
     } else {
-      tooltipContent += '\nWaiting for resources';
+      tooltipContent += `\n${this.getArithmeticWaitReason() || 'Waiting for resources'}`;
     }
 
     // Check if the machine is a Conveyor-like machine
@@ -1423,7 +1447,7 @@ export default class BaseMachine {
         tooltipContent += `\nOperation: ${this.notation || 'arithmetic'}`;
         tooltipContent +=
           inputCount > 1
-            ? `\nInputs: ${inputCount} different level resources`
+            ? `\nInputs: ${inputCount} different level resources only`
             : `\nInputs: any level resource`;
       }
 

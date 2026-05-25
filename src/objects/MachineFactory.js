@@ -684,6 +684,21 @@ export default class MachineFactory {
         // Store reference for potential updates
         machinePreview.notationLabel = notationLabel;
 
+        if (machineType.arithmeticOperation && (machineType.arithmeticInputCount || 1) > 1) {
+          const inputCount = machineType.arithmeticInputCount || 1;
+          const ruleBadge = this.scene.add
+            .text(itemX + slotWidth / 2 - 21, itemY - slotHeight / 2 + 10, `${inputCount} DIFF`, {
+              fontFamily: 'Arial Black',
+              fontSize: 7,
+              color: '#ffe08a',
+              stroke: '#000000',
+              strokeThickness: 2,
+            })
+            .setOrigin(0.5);
+          this.processorPreviewContainer.add(ruleBadge);
+          machinePreview.ruleBadge = ruleBadge;
+        }
+
         // --- ADD TRAIT INFO BENEATH NOTATION ---
         if (machineType.trait) {
           const traitDef = getTraitById(machineType.trait);
@@ -1843,7 +1858,11 @@ export default class MachineFactory {
     } else if (machineType.arithmeticOperation) {
       const inputCount = machineType.arithmeticInputCount || 1;
       lines.push(`Op: ${machineType.notation}`);
-      lines.push(inputCount > 1 ? `Input: ${inputCount} different levels` : 'Input: any level');
+      lines.push(
+        inputCount > 1
+          ? `Input: ${inputCount} different levels only`
+          : 'Input: any level'
+      );
       if (typeof this.scene?.getMachinePlacementCost === 'function') {
         lines.push(`Cost: $${this.scene.getMachinePlacementCost(machineType)}`);
       }
