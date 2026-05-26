@@ -53,6 +53,9 @@ export default class MachineFactory {
     this.isDraggingConveyor = false;
     this.dragPath = []; // Array of {x, y} grid positions
     this.lastDragGridPos = null;
+    this.dragStartPointer = null;
+    this.quickConveyorPlacement = false;
+    this.lastConveyorDirection = 'right';
     // --- End Processor Selection State ---
 
     // Create visual representation
@@ -1268,6 +1271,8 @@ export default class MachineFactory {
   clearSelection() {
     // Reset the selected machine type
     this.selectedMachineType = null;
+    this.quickConveyorPlacement = false;
+    this.dragStartPointer = null;
     if (this.scene) {
       this.scene.isPlacingMachine = false;
       this.scene.selectedMachineType = null;
@@ -1311,9 +1316,15 @@ export default class MachineFactory {
     // Other machines are placed by GameScene's normal click handler.
     if (this.selectedMachineType.id !== 'conveyor') return;
 
+    this.quickConveyorPlacement = false;
+    this.beginConveyorDrag(pointer);
+  }
+
+  beginConveyorDrag(pointer) {
     this.isDraggingConveyor = true;
     this.dragPath = [];
     this.lastDragGridPos = null;
+    this.dragStartPointer = { x: pointer.x, y: pointer.y };
 
     // Add the initial point
     if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
@@ -1326,6 +1337,42 @@ export default class MachineFactory {
         this.updateDragPreview();
       }
     }
+  }
+
+  startQuickConveyorPlacement(pointer) {
+    if (!this.conveyorMachineType || !this.scene?.factoryGrid) return false;
+    if (!this.isPrimaryPointer(pointer) || this.isPointerOverUI(pointer)) return false;
+
+    const direction =
+      this.lastConveyorDirection ||
+      this.conveyorMachineType.direction ||
+      this.conveyorMachineType.defaultDirection ||
+      'right';
+    const rotation = this.getRotationFromDirection(direction);
+
+    this.selectedMachineType = {
+      ...this.conveyorMachineType,
+      id: 'conveyor',
+      shape: this.conveyorMachineType.shape || [[1]],
+      direction,
+      defaultDirection: direction,
+      rotation,
+      rotationDegrees: Math.round((rotation * 180) / Math.PI),
+    };
+    this.quickConveyorPlacement = true;
+
+    if (this.scene) {
+      this.scene.isPlacingMachine = true;
+      this.scene.selectedMachineType = this.selectedMachineType;
+    }
+
+    this.beginConveyorDrag(pointer);
+    if (this.dragPath.length === 0) {
+      this.quickConveyorPlacement = false;
+      this.clearSelection();
+      return false;
+    }
+    return true;
   }
 
   isPrimaryPointer(pointer) {
@@ -1391,6 +1438,11 @@ export default class MachineFactory {
 
     this.isDraggingConveyor = false;
 
+    const singleCellDirection = this.getSingleCellDragDirection(_pointer);
+    if (singleCellDirection && this.dragPath.length === 1 && this.selectedMachineType) {
+      this.setSelectedConveyorDirection(singleCellDirection);
+    }
+
     // Execute placement for the path
     if (this.dragPath.length > 0) {
       this.placeConveyorPath();
@@ -1399,13 +1451,41 @@ export default class MachineFactory {
     // Clear path
     this.dragPath = [];
     this.lastDragGridPos = null;
+    this.dragStartPointer = null;
 
     // Clear the custom preview
     this.scene.clearPlacementPreview();
 
+    if (this.quickConveyorPlacement) {
+      this.quickConveyorPlacement = false;
+      this.clearSelection();
+    }
+
     // If we still have the conveyor selected (which we should),
     // the update loop might try to show a single preview again.
     // That's fine.
+  }
+
+  getSingleCellDragDirection(pointer) {
+    if (!pointer || !this.dragStartPointer) return null;
+
+    const dx = pointer.x - this.dragStartPointer.x;
+    const dy = pointer.y - this.dragStartPointer.y;
+    const minDragDistance = 12;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < minDragDistance) return null;
+
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx >= 0 ? 'right' : 'left';
+    }
+    return dy >= 0 ? 'down' : 'up';
+  }
+
+  setSelectedConveyorDirection(direction) {
+    const rotation = this.getRotationFromDirection(direction);
+    this.selectedMachineType.direction = direction;
+    this.selectedMachineType.defaultDirection = direction;
+    this.selectedMachineType.rotation = rotation;
+    this.selectedMachineType.rotationDegrees = Math.round((rotation * 180) / Math.PI);
   }
 
   updateDragPreview() {
@@ -1420,6 +1500,8 @@ export default class MachineFactory {
     // We need to determine direction for each.
     // A conveyor at index i should point to i+1.
     // The last conveyor should point in the direction of the drag (or default).
+
+    let lastPlacedDirection = null;
 
     for (let i = 0; i < this.dragPath.length; i++) {
       const currentPos = this.dragPath[i];
@@ -1459,15 +1541,21 @@ export default class MachineFactory {
       );
 
       if (canPlace) {
-        this.scene.placeMachine(
+        const placedMachine = this.scene.placeMachine(
           this.selectedMachineType,
           currentPos.x,
           currentPos.y,
           this.getRotationFromDirection(direction) // Helper needed? or placeMachine takes dir?
           // placeMachine takes rotation in radians usually, let's check
         );
-        this.scene.playSound('place');
+        if (placedMachine) {
+          lastPlacedDirection = direction;
+        }
       }
+    }
+
+    if (lastPlacedDirection) {
+      this.lastConveyorDirection = lastPlacedDirection;
     }
   }
 

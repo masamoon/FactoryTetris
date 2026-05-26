@@ -1370,7 +1370,11 @@ export default class GameScene extends Phaser.Scene {
       if (this.inputMode === 'touch') {
         // Touch mode: first tap shows preview, second tap confirms
         const gridPos = this.grid.worldToGrid(pointer.worldX, pointer.worldY);
-        if (!this.isPlacingMachine) return;
+        if (!gridPos) return;
+        if (!this.isPlacingMachine) {
+          this.tryStartQuickConveyorPlacement(pointer, gridPos);
+          return;
+        }
         if (!this.isTouchPlacing) {
           // First tap: show preview
           this.isTouchPlacing = true;
@@ -1434,6 +1438,9 @@ export default class GameScene extends Phaser.Scene {
                   return;
                 } else {
                   console.log('[POINTERDOWN] Cell is empty or has no placed machine.');
+                  if (this.tryStartQuickConveyorPlacement(pointer, gridPos)) {
+                    return;
+                  }
                 }
               } else {
                 console.log('[POINTERDOWN] Could not convert to grid position.');
@@ -1489,6 +1496,19 @@ export default class GameScene extends Phaser.Scene {
       pointer?.button === 0 ||
       (pointer && typeof pointer.leftButtonDown === 'function' && pointer.leftButtonDown())
     );
+  }
+
+  tryStartQuickConveyorPlacement(pointer, gridPos) {
+    if (this.paused || this.gameOver || this.isDraggingCamera) return false;
+    if (!this.machineFactory || this.machineFactory.selectedMachineType) return false;
+    if (!gridPos || !this.grid) return false;
+
+    const cell = this.grid.getCell(gridPos.x, gridPos.y);
+    const isFreeCell = cell && (cell.type === 'empty' || cell.type === 'board-tile');
+    if (!isFreeCell) return false;
+
+    if (typeof this.machineFactory.startQuickConveyorPlacement !== 'function') return false;
+    return this.machineFactory.startQuickConveyorPlacement(pointer);
   }
 
   isPointerInWorldViewport(pointer) {
