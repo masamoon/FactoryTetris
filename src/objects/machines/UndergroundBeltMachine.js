@@ -21,54 +21,17 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
   }
 
   /**
-   * Calculates the target coordinates for extraction.
-   * For underground belts, the item travels from index 0 to index 1 of the shape.
+   * Calculates the target coordinates for the side this item should exit.
    */
-  getTransferTargetCoords() {
+  getTransferTargetCoords(itemOnBelt = null) {
     if (!this.grid) return null;
 
-    let targetX = this.gridX;
-    let targetY = this.gridY;
-
-    // The output is at the "end" of the shape
-    switch (this.direction) {
-      case 'right':
-        targetX += 4;
-        break;
-      case 'down':
-        targetY += 4;
-        break;
-      case 'left':
-        targetX -= 1;
-        break; // Origin is at 3, so output is at -1? No, origin is 0,0, shape is 1x4.
-      case 'up':
-        targetY -= 1;
-        break;
-    }
-
-    // Wait, let's be more precise based on shape:
-    // right: shape [[1,0,0,1]] at gridX, gridY. Input at (0,0), Output at (3,0). Target is (4,0).
-    // left: shape [[1,0,0,1]] at gridX, gridY. Input at (3,0), Output at (0,0). Target is (-1,0).
-    // down: shape [[1],[0],[0],[1]] at gridX, gridY. Input at (0,0), Output at (0,3). Target is (0,4).
-    // up: shape [[1],[0],[0],[1]] at gridX, gridY. Input at (0,3), Output at (0,0). Target is (0,-1).
-
-    targetX = this.gridX;
-    targetY = this.gridY;
-
-    switch (this.direction) {
-      case 'right':
-        targetX += 4;
-        break;
-      case 'down':
-        targetY += 4;
-        break;
-      case 'left':
-        targetX -= 1;
-        break;
-      case 'up':
-        targetY -= 1;
-        break;
-    }
+    const endpoints = this.getEndpointCells();
+    const targetOffset = itemOnBelt?.reverseTunnelRoute
+      ? endpoints.beforeStart
+      : endpoints.afterEnd;
+    const targetX = this.gridX + targetOffset.x;
+    const targetY = this.gridY + targetOffset.y;
 
     if (
       !this.grid ||
@@ -97,49 +60,46 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
     const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
     if (firstItemProgress < 0.1) return;
 
-    // Use static helper to find entrance coordinates
-    const ioPos = UndergroundBeltMachine.getIOPositionsForDirection(this.id, this.direction);
-    const entranceX = this.gridX + ioPos.inputPos.x;
-    const entranceY = this.gridY + ioPos.inputPos.y;
+    const endpoints = this.getEndpointCells();
+    const sourceOptions = [
+      { offset: endpoints.beforeStart, reverseTunnelRoute: false },
+      { offset: endpoints.afterEnd, reverseTunnelRoute: true },
+    ];
 
-    // Source cell is one step BACK from entrance
-    let sourceX = entranceX;
-    let sourceY = entranceY;
+    for (const option of sourceOptions) {
+      const sourceX = this.gridX + option.offset.x;
+      const sourceY = this.gridY + option.offset.y;
 
-    switch (this.direction) {
-      case 'right':
-        sourceX -= 1;
-        break;
-      case 'down':
-        sourceY -= 1;
-        break;
-      case 'left':
-        sourceX += 1;
-        break;
-      case 'up':
-        sourceY += 1;
-        break;
-    }
+      if (
+        sourceX < 0 ||
+        sourceX >= this.grid.width ||
+        sourceY < 0 ||
+        sourceY >= this.grid.height
+      ) {
+        continue;
+      }
 
-    if (sourceX < 0 || sourceX >= this.grid.width || sourceY < 0 || sourceY >= this.grid.height) {
-      return;
-    }
+      const sourceCell = this.grid.getCell(sourceX, sourceY);
+      if (
+        !sourceCell ||
+        sourceCell.type !== 'node' ||
+        typeof sourceCell.object?.extractResource !== 'function'
+      ) {
+        continue;
+      }
 
-    const sourceCell = this.grid.getCell(sourceX, sourceY);
-    if (!sourceCell || !sourceCell.object) return;
-
-    let extractedItem = null;
-    if (sourceCell.type === 'node' && typeof sourceCell.object.extractResource === 'function') {
-      extractedItem = sourceCell.object.extractResource();
-    }
-
-    if (extractedItem && extractedItem.type) {
-      this.lastExtractTime = now;
-      this.addItemVisual(extractedItem);
+      const extractedItem = sourceCell.object.extractResource();
+      if (extractedItem && extractedItem.type) {
+        this.lastExtractTime = now;
+        this.addItemVisual(extractedItem, {
+          reverseTunnelRoute: option.reverseTunnelRoute,
+        });
+        return;
+      }
     }
   }
 
-  getItemPosition(progress) {
+  getItemPosition(progress, itemOnBelt = null) {
     const cellSize = this.grid.cellSize;
     const rotatedShape = this.grid.getRotatedShape(this.shape, this.direction);
     const shapeWidth = rotatedShape[0].length;
@@ -148,27 +108,9 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
     const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
     const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
 
-    // Find the relative positions of the input (progress 0) and output (progress 1) cells
-    let startCell, endCell;
-
-    switch (this.direction) {
-      case 'right':
-        startCell = { x: 0, y: 0 };
-        endCell = { x: 3, y: 0 };
-        break;
-      case 'down':
-        startCell = { x: 0, y: 0 };
-        endCell = { x: 0, y: 3 };
-        break;
-      case 'left':
-        startCell = { x: 3, y: 0 };
-        endCell = { x: 0, y: 0 };
-        break;
-      case 'up':
-        startCell = { x: 0, y: 3 };
-        endCell = { x: 0, y: 0 };
-        break;
-    }
+    const endpoints = this.getEndpointCells();
+    const startCell = itemOnBelt?.reverseTunnelRoute ? endpoints.end : endpoints.start;
+    const endCell = itemOnBelt?.reverseTunnelRoute ? endpoints.start : endpoints.end;
 
     const startX = startCell.x * cellSize + cellSize / 2 - visualCenterX;
     const startY = startCell.y * cellSize + cellSize / 2 - visualCenterY;
@@ -262,38 +204,40 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
     this.container.add(graphics);
     this.container.sendToBack(graphics);
 
-    // --- Explicit Direction Arrow ---
+    // --- Bidirectional Orientation Arrows ---
     const arrowSize = cellSize * 0.4;
-    this.directionIndicator = this.scene.add
+    this.directionIndicator = this.scene.add.container(0, 0);
+    const arrowForward = this.scene.add
       .triangle(
+        arrowSize * 0.45,
         0,
-        0,
-        -arrowSize * 0.75,
-        -arrowSize * 0.7,
-        -arrowSize * 0.75,
-        arrowSize * 0.7,
-        arrowSize * 0.75,
+        -arrowSize * 0.45,
+        -arrowSize * 0.55,
+        -arrowSize * 0.45,
+        arrowSize * 0.55,
+        arrowSize * 0.45,
         0,
         0xffffff
       )
       .setOrigin(0.5, 0.5);
+    const arrowBack = this.scene.add
+      .triangle(
+        -arrowSize * 0.45,
+        0,
+        arrowSize * 0.45,
+        -arrowSize * 0.55,
+        arrowSize * 0.45,
+        arrowSize * 0.55,
+        -arrowSize * 0.45,
+        0,
+        0xffffff
+      )
+      .setOrigin(0.5, 0.5);
+    this.directionIndicator.add([arrowForward, arrowBack]);
     this.container.add(this.directionIndicator);
 
-    // Fix the rotation: 0=Right, PI/2=Down, PI=Left, 3PI/2=Up
-    switch (this.direction) {
-      case 'right':
-        this.directionIndicator.rotation = 0;
-        break;
-      case 'down':
-        this.directionIndicator.rotation = Math.PI / 2;
-        break;
-      case 'left':
-        this.directionIndicator.rotation = Math.PI;
-        break;
-      case 'up':
-        this.directionIndicator.rotation = (3 * Math.PI) / 2;
-        break;
-    }
+    this.directionIndicator.rotation =
+      this.direction === 'down' || this.direction === 'up' ? Math.PI / 2 : 0;
 
     this.addPlacementAnimation();
   }
@@ -349,6 +293,104 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
         outputPos = { x: 3, y: 0 };
     }
     return { inputPos, outputPos };
+  }
+
+  getEndpointCells(direction = this.direction) {
+    switch (direction) {
+      case 'down':
+        return {
+          start: { x: 0, y: 0 },
+          end: { x: 0, y: 3 },
+          beforeStart: { x: 0, y: -1 },
+          afterEnd: { x: 0, y: 4 },
+        };
+      case 'left':
+        return {
+          start: { x: 3, y: 0 },
+          end: { x: 0, y: 0 },
+          beforeStart: { x: 4, y: 0 },
+          afterEnd: { x: -1, y: 0 },
+        };
+      case 'up':
+        return {
+          start: { x: 0, y: 3 },
+          end: { x: 0, y: 0 },
+          beforeStart: { x: 0, y: 4 },
+          afterEnd: { x: 0, y: -1 },
+        };
+      case 'right':
+      default:
+        return {
+          start: { x: 0, y: 0 },
+          end: { x: 3, y: 0 },
+          beforeStart: { x: -1, y: 0 },
+          afterEnd: { x: 4, y: 0 },
+        };
+    }
+  }
+
+  inferRouteOptionsFromSource(sourceMachine = null) {
+    if (!sourceMachine) {
+      return { reverseTunnelRoute: false };
+    }
+
+    const endpoints = this.getEndpointCells();
+    const beforeStart = {
+      x: this.gridX + endpoints.beforeStart.x,
+      y: this.gridY + endpoints.beforeStart.y,
+    };
+    const afterEnd = {
+      x: this.gridX + endpoints.afterEnd.x,
+      y: this.gridY + endpoints.afterEnd.y,
+    };
+
+    const sourceCells =
+      typeof sourceMachine.getOccupiedCells === 'function'
+        ? sourceMachine.getOccupiedCells()
+        : [{ x: sourceMachine.gridX, y: sourceMachine.gridY }];
+
+    const touchesBeforeStart = sourceCells.some(
+      (cell) => cell.x === beforeStart.x && cell.y === beforeStart.y
+    );
+    const touchesAfterEnd = sourceCells.some(
+      (cell) => cell.x === afterEnd.x && cell.y === afterEnd.y
+    );
+
+    return { reverseTunnelRoute: touchesAfterEnd && !touchesBeforeStart };
+  }
+
+  acceptItem(itemData, sourceMachine = null) {
+    if (!itemData || !itemData.type) {
+      console.log(`[UNDERGROUND] (${this.gridX}, ${this.gridY}) rejected: Invalid itemData.`);
+      return false;
+    }
+
+    const routedItem = this.tagItemRoute(itemData, this.id);
+    if (!this.canAcceptInput(routedItem.type)) {
+      console.log(
+        `[UNDERGROUND] (${this.gridX}, ${this.gridY}) rejected: Type ${routedItem.type} not accepted.`
+      );
+      return false;
+    }
+
+    if (this.itemsOnBelt.length >= this.maxCapacity) {
+      console.log(
+        `[UNDERGROUND] (${this.gridX}, ${this.gridY}) rejected: Tunnel full (${this.itemsOnBelt.length}/${this.maxCapacity}).`
+      );
+      return false;
+    }
+
+    const routeOptions = this.inferRouteOptionsFromSource(sourceMachine);
+    const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
+    if (firstItemProgress < 0.1) {
+      console.log(
+        `[UNDERGROUND] (${this.gridX}, ${this.gridY}) rejected: Entrance blocked (first item progress: ${firstItemProgress.toFixed(2)}).`
+      );
+      return false;
+    }
+
+    this.addItemVisual(routedItem, routeOptions);
+    return true;
   }
 
   /**

@@ -22,6 +22,11 @@ const GAME = {
   roundSourceBaseInventory: 24,
   roundSourceInventoryGrowth: 5,
   roundSourceInventoryVariance: 2,
+  roundBaseTimeLimit: 70,
+  roundTimeGrowth: 8,
+  roundTimePerDeliveryNode: 12,
+  roundBossTimeBonus: 18,
+  roundTimeBonusPointsPerSecond: 6,
   roundBaseMoney: 28,
   roundMoneyGrowth: 8,
   roundClearBonus: 18,
@@ -34,6 +39,7 @@ const GAME = {
   maxDeliveryNodesPerRound: 7,
   shopRoundClearScrap: 6,
   shopOverkillScorePerScrap: 250,
+  shopTimeBonusScorePerScrap: 180,
   sourceColorCycle: ['blue', 'yellow', 'red', 'green'],
   itemColors: {
     blue: { name: 'Blue', scoreMultiplier: 1.05 },
@@ -233,7 +239,7 @@ function getRoundPacing(round) {
 }
 
 function createRoundBoard(round, runSeed) {
-  if (round <= 1) {
+  if (round <= 2) {
     return {
       ...BOARD_TEMPLATES.OPEN_FLOOR,
       round,
@@ -245,6 +251,15 @@ function createRoundBoard(round, runSeed) {
 
   const rng = createRng(`${runSeed}:board:${round}`);
   const pacing = getRoundPacing(round);
+  if (round === 3) {
+    return {
+      ...BOARD_TEMPLATES.SPLIT_LANES,
+      round,
+      blockerCount: 5,
+      specialTileCount: 3,
+      laneComplexity: 0.18,
+    };
+  }
   if (pacing.isBoss) {
     const template =
       Object.values(BOARD_TEMPLATES).find(
@@ -266,7 +281,7 @@ function createRoundBoard(round, runSeed) {
     };
   }
   const unlocked =
-    round <= 3
+    round <= 4
       ? [BOARD_TEMPLATES.SPLIT_LANES.id, BOARD_TEMPLATES.CROSSFLOW_GATE.id]
       : BOARD_TEMPLATE_SEQUENCE;
   const fallback = BOARD_TEMPLATE_SEQUENCE[(round - 2) % BOARD_TEMPLATE_SEQUENCE.length];
@@ -305,7 +320,20 @@ function getRoundSourceInventory(round, board) {
   );
 }
 
+function getRoundTimeLimit(round) {
+  const pacing = getRoundPacing(round);
+  const bossBonus = pacing.isBoss ? GAME.roundBossTimeBonus : 0;
+  return Math.max(
+    30,
+    GAME.roundBaseTimeLimit +
+      Math.max(0, round - 1) * GAME.roundTimeGrowth +
+      getDeliveryNodeCount(round) * GAME.roundTimePerDeliveryNode +
+      bossBonus
+  );
+}
+
 function getSourceCount(round) {
+  if (round <= 1) return 1;
   return GAME.initialNodeCount + Math.floor((round - 1) / 2);
 }
 
@@ -327,28 +355,29 @@ function createDeliveryCondition(round, index, runSeed) {
   const tierJitter = round >= 5 && rng() < 0.35 ? (rng() < 0.55 ? -1 : 1) : 0;
   const tier = round <= 2 ? 2 : Math.max(2, Math.min(6, baseTier + tierJitter));
   const exactOffset = round >= 3 ? randomInt(rng, 0, 1) : 0;
-  const exact =
-    (pacing.isBoss && (index === 0 || pacing.act >= 2)) ||
-    (round >= 4 && !pacing.isBoss && (index + exactOffset) % 2 === 0);
+  const exact = pacing.isBoss
+    ? round >= 8 && (index === 0 || pacing.act >= 3)
+    : round >= 5 && (index + exactOffset) % 2 === 0;
   const countJitter = round >= 4 ? randomInt(rng, -1, 1) : 0;
   let requiredCount = Math.max(
     1,
     Math.min(7, round === 1 ? 1 : 2 + Math.floor((round - 1) / 3) + (index % 2) + countJitter)
   );
-  if (round === 3) requiredCount = Math.min(requiredCount, 3);
+  if (round <= 4) requiredCount = Math.min(requiredCount, 3);
   if (pacing.isBoss) requiredCount = Math.min(8, requiredCount + pacing.requiredCountBonus);
+  const nodeCount = getDeliveryNodeCount(round);
   const colorOffset = randomInt(rng, 0, GAME.sourceColorCycle.length - 1);
   const wantsColorDemand =
-    (round === 3 && index === 1) ||
-    (round > 3 && (!pacing.isBoss || pacing.act > 1 || index % 2 === 1));
+    round >= 7 &&
+    (round <= 8 ? index === nodeCount - 1 : !pacing.isBoss || pacing.act > 1 || index % 2 === 1);
   const itemColor = wantsColorDemand
     ? GAME.sourceColorCycle[(round + index + colorOffset - 2) % GAME.sourceColorCycle.length]
     : null;
   const requiredLastOperationTag =
-    round >= 8 &&
-    (index === getDeliveryNodeCount(round) - 1 ||
+    round >= 10 &&
+    (index === nodeCount - 1 ||
       (pacing.isBoss && pacing.act >= 2 && index % 2 === 0) ||
-      (round >= 9 && index % 3 === 2))
+      (round >= 11 && index % 3 === 2))
       ? OPERATION_TAGS[
           (round + index + randomInt(rng, 0, OPERATION_TAGS.length - 1)) % OPERATION_TAGS.length
         ]
@@ -475,7 +504,15 @@ function getMomentTags(round, board, demands, clear, state) {
   return tags;
 }
 
-function updateRunProgression(state, rng, profile, clear, overkillScore, completedDemands) {
+function updateRunProgression(
+  state,
+  rng,
+  profile,
+  clear,
+  overkillScore,
+  timeBonusScore,
+  completedDemands
+) {
   if (!clear) return;
 
   const bossClearBonus = completedDemands.some((demand) => demand.pacingStage === 'BOSS')
@@ -485,6 +522,7 @@ function updateRunProgression(state, rng, profile, clear, overkillScore, complet
     GAME.shopRoundClearScrap +
     bossClearBonus +
     Math.floor(Math.max(0, overkillScore) / GAME.shopOverkillScorePerScrap) +
+    Math.floor(Math.max(0, timeBonusScore) / GAME.shopTimeBonusScorePerScrap) +
     completedDemands.reduce((sum, demand) => sum + demand.completionScrapReward, 0);
   state.scrap += scrapGain;
 
@@ -575,6 +613,10 @@ function simulateSession(profile, sessionIndex, options) {
     const budgetFit = estimateBuildBudgetFit(round, demands);
     const capability = state.skill + budgetFit * 0.16 + state.economyLift;
     const planConfidence = clamp(sigmoid((capability - complexity) * 4.2), 0.02, 0.98);
+    const roundTimeLimit = getRoundTimeLimit(round);
+    const firstDeliveryDelay = Math.round(
+      28 + complexity * 64 - profile.planningSkill * 22 - budgetFit * 10 + rng() * 18
+    );
     const completedDemands = [];
     let roundScore = 0;
     let deliveries = 0;
@@ -619,22 +661,35 @@ function simulateSession(profile, sessionIndex, options) {
       roundScore = Math.floor(roundScore * clamp(1.05 - resourcePressure * 0.25, 0.65, 1));
     }
 
+    const estimatedDuration =
+      firstDeliveryDelay + deliveries * (3.8 + complexity * 4.5) + demands.length * 6;
+    const timeCompletion = clamp(roundTimeLimit / Math.max(1, estimatedDuration), 0.45, 1);
+    if (timeCompletion < 1) {
+      roundScore = Math.floor(roundScore * timeCompletion);
+    }
+
     const quotaMet = roundScore >= quota;
     const clear = quotaMet;
+    const timeBonusScore = clear
+      ? Math.max(
+          0,
+          Math.floor((roundTimeLimit - estimatedDuration) * GAME.roundTimeBonusPointsPerSecond)
+        )
+      : 0;
     const overkillScore = Math.max(0, roundScore - quota);
     const novelty =
       (board.name === state.lastBoardName ? 0.2 : 0.45) +
       (demands.some((demand) => demand.tier >= 4) ? 0.22 : 0) +
       (demands.some((demand) => demand.requiredLastOperationTag) ? 0.23 : 0) +
       (state.scrap >= 5 ? 0.18 : 0);
-    const firstDeliveryDelay = Math.round(
-      28 + complexity * 64 - profile.planningSkill * 22 - budgetFit * 10 + rng() * 18
-    );
 
     const record = {
       round,
       board: board.name,
       quota,
+      roundTimeLimit,
+      estimatedDuration,
+      timeBonusScore,
       sourceSupply,
       demands,
       clear,
@@ -663,12 +718,23 @@ function simulateSession(profile, sessionIndex, options) {
     state.lastComplexity = complexity;
 
     if (!clear) {
-      record.stopReason = 'hard_fail_quota_or_supply';
+      record.stopReason =
+        estimatedDuration > roundTimeLimit
+          ? 'hard_fail_time_or_quota'
+          : 'hard_fail_quota_or_supply';
       records.push(record);
       return { profile, stoppedRound: round, stopType: 'hard', records };
     }
 
-    updateRunProgression(state, rng, profile, clear, overkillScore, completedDemands);
+    updateRunProgression(
+      state,
+      rng,
+      profile,
+      clear,
+      overkillScore,
+      timeBonusScore,
+      completedDemands
+    );
     const stopRisk = getVoluntaryStopRisk(round, clear, record, profile, state);
     record.stopRisk = stopRisk;
     records.push(record);
@@ -943,10 +1009,10 @@ function printReport(summaries, options) {
     `- Use Act pacing deliberately: R3 is a Surge preview, R4/R8/R12 are Boss rounds, and the shop before each Boss should show at least one direct answer.`
   );
   console.log(
-    `- R3 should be a readable Surge preview, with color pressure but no exact-tier wall. Exact demands land at the first Boss where the score target can still carry the round.`
+    `- R3 should be a readable Surge preview with a simple split-lane board. Exact demands start after the first Boss, and color pressure follows after that.`
   );
   console.log(
-    `- R8 introduces operation-tag demands. Treat the first operation demand as a milestone with a guaranteed relevant shop/operator option beforehand.`
+    `- R10 introduces operation-tag demands. Treat the first operation demand as a milestone with a guaranteed relevant shop/operator option beforehand.`
   );
   console.log(
     `- Make shop choices reliably actionable: if a player has 4-7 Scrap, guarantee at least one affordable card that solves the next round's color, tier, or operation pressure.`

@@ -114,6 +114,7 @@ export default class ProcessingPieceMachine extends BaseMachine {
         coreShape: body.coreShape || 'circle',
       });
       this.renderOperationCellLabels();
+      this.renderOutputCellMarker();
     }
   }
 
@@ -146,7 +147,6 @@ export default class ProcessingPieceMachine extends BaseMachine {
     const cellSize = this.grid.cellSize;
     const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
     const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
-    const outputPos = this.getIOPositionsForDirection(direction)?.outputPos;
     const occupiedCells = [];
 
     for (let y = 0; y < shapeHeight; y++) {
@@ -157,26 +157,12 @@ export default class ProcessingPieceMachine extends BaseMachine {
       }
     }
 
-    const labelCells = occupiedCells.filter(
-      (cell) => !(outputPos && cell.x === outputPos.x && cell.y === outputPos.y)
-    );
-    const cellsToMark = labelCells.length > 0 ? labelCells : occupiedCells;
     const isCompactLabel = operationLabel.length > 1;
-    const badgeWidth = Math.min(cellSize - 7, isCompactLabel ? cellSize - 5 : cellSize * 0.7);
-    const badgeHeight = Math.min(cellSize - 10, isCompactLabel ? 18 : 20);
     const fontSize = isCompactLabel ? Math.max(11, cellSize * 0.42) : Math.max(15, cellSize * 0.56);
 
-    cellsToMark.forEach((cell) => {
+    occupiedCells.forEach((cell) => {
       const x = cell.x * cellSize + cellSize / 2 - visualCenterX;
       const y = cell.y * cellSize + cellSize / 2 - visualCenterY;
-      const badge = this.scene.add
-        .rectangle(x, y, badgeWidth, badgeHeight, 0x101820, 0.74)
-        .setOrigin(0.5)
-        .setStrokeStyle(1, 0xffd966, 0.85);
-      badge.setDepth(3);
-      badge.isOperationLabel = true;
-      this.container.add(badge);
-
       const text = this.scene.add
         .text(x, y, operationLabel, {
           fontFamily: 'Arial Black, Arial, sans-serif',
@@ -190,6 +176,60 @@ export default class ProcessingPieceMachine extends BaseMachine {
       text.isOperationLabel = true;
       this.container.add(text);
     });
+  }
+
+  renderOutputCellMarker() {
+    if (!this.container || !this.grid) return;
+
+    if (this.outputArrow) {
+      this.outputArrow.destroy();
+      this.outputArrow = null;
+    }
+
+    const direction = this.direction || this.defaultDirection || 'right';
+    const rotatedShape = getRotatedShape(this.shape, direction);
+    const shapeWidth = rotatedShape[0]?.length || 1;
+    const shapeHeight = rotatedShape.length || 1;
+    const outputPos = this.getIOPositionsForDirection(direction)?.outputPos;
+    if (!outputPos || rotatedShape[outputPos.y]?.[outputPos.x] !== 1) return;
+
+    const cellSize = this.grid.cellSize;
+    const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
+    const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
+    const x = outputPos.x * cellSize + cellSize / 2 - visualCenterX;
+    const y = outputPos.y * cellSize + cellSize / 2 - visualCenterY;
+
+    const outline = this.scene.add
+      .rectangle(x, y, cellSize - 5, cellSize - 5, 0x000000, 0)
+      .setOrigin(0.5)
+      .setStrokeStyle(3, 0x83f7ff, 0.95);
+    outline.setDepth(5);
+    outline.isOutputMarker = true;
+    this.container.add(outline);
+
+    const tagY = y + cellSize * 0.31;
+    const tagText = this.scene.add
+      .text(x, tagY, 'OUT', {
+        fontFamily: 'Arial Black, Arial, sans-serif',
+        fontSize: 7,
+        color: '#efffff',
+        stroke: '#05090d',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    tagText.setDepth(7);
+    tagText.isOutputMarker = true;
+    this.container.add(tagText);
+  }
+
+  startProcessing() {
+    super.startProcessing();
+    this.hideProgressBar();
+  }
+
+  hideProgressBar() {
+    this.progressBar?.setVisible(false);
+    this.progressFill?.setVisible(false);
   }
 
   static getPreviewSprite(scene, x, y, direction = 'right') {

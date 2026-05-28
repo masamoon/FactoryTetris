@@ -9,7 +9,7 @@ export default class FilterSplitterMachine extends SplitterMachine {
     super.initMachineProperties();
     this.id = 'filter-splitter';
     this.name = 'Filter Splitter';
-    this.description = 'Routes high-tier or warm-colored items to its alternate output';
+    this.description = 'Routes high-level or warm-colored items to its alternate output';
   }
 
   getPreferredOutputIndex(itemData) {
@@ -85,7 +85,7 @@ export default class FilterSplitterMachine extends SplitterMachine {
     return BaseMachine.getStandardConfig({
       id: 'filter-splitter',
       name: 'Filter Splitter',
-      description: 'Routes high-tier or warm-colored items to its alternate output',
+      description: 'Routes high-level or warm-colored items to its alternate output',
       shape: [[1], [1]],
       inputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
       outputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],

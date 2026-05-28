@@ -432,6 +432,7 @@ export default class DeliveryNode {
     // --- Handle level-based resources (new dynamic level system) ---
     if (itemType === 'level-resource') {
       if (!this.matchesCondition(itemData)) {
+        this.scene?.recordDeliveryRejection?.(this, itemData);
         return false;
       }
       const level = itemData.level || 1;
@@ -478,6 +479,7 @@ export default class DeliveryNode {
     // --- Handle purity resources ---
     if (itemType === 'purity-resource') {
       if (!this.matchesCondition(itemData)) {
+        this.scene?.recordDeliveryRejection?.(this, itemData);
         return false;
       }
       const purity = itemData.purity || 1;
@@ -533,6 +535,7 @@ export default class DeliveryNode {
     // --- Handle regular resources (legacy) ---
     const resourceType = itemType;
     if (!this.matchesCondition({ ...itemData, purity: 1 })) {
+      this.scene?.recordDeliveryRejection?.(this, { ...itemData, purity: 1 });
       return false;
     }
 
@@ -743,15 +746,22 @@ export default class DeliveryNode {
   canAcceptInput(itemType, itemData = null) {
     // Allow level-based resources (new dynamic level system)
     if (itemType === 'level-resource') {
-      return itemData ? this.matchesCondition(itemData) : true;
+      const accepted = itemData ? this.matchesCondition(itemData) : true;
+      if (!accepted) this.scene?.recordDeliveryRejection?.(this, itemData);
+      return accepted;
     }
     // Allow purity resources (legacy system)
     if (itemType === 'purity-resource') {
-      return itemData ? this.matchesCondition(itemData) : true;
+      const accepted = itemData ? this.matchesCondition(itemData) : true;
+      if (!accepted) this.scene?.recordDeliveryRejection?.(this, itemData);
+      return accepted;
     }
     // Allow any resource type defined in the game config (legacy)
     if (GAME_CONFIG.resourceTypes.some((r) => r.id === itemType)) {
-      return itemData ? this.matchesCondition({ ...itemData, purity: 1 }) : true;
+      const candidate = { ...itemData, purity: 1 };
+      const accepted = itemData ? this.matchesCondition(candidate) : true;
+      if (!accepted) this.scene?.recordDeliveryRejection?.(this, candidate);
+      return accepted;
     }
     // Reject unknown types
     console.warn(

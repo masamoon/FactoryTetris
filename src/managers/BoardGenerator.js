@@ -57,7 +57,7 @@ export default class BoardGenerator {
       });
     };
 
-    if (round <= 1) {
+    if (round <= 2) {
       const starterTileX = this.clamp(midX - 1 + this.randomInt(rng, -1, 1), 1, width - 2);
       addSpecialTile(starterTileX, midY, BOARD_TILE_TYPES.POWER);
       return this.createBoardFromTemplate(BOARD_TEMPLATES.OPEN_FLOOR, round, {
@@ -155,12 +155,16 @@ export default class BoardGenerator {
   }
 
   pickTemplateId(round, rng) {
+    if (round === 3) {
+      return BOARD_TEMPLATES.SPLIT_LANES.id;
+    }
+
     if (round > 1 && round % 4 === 0) {
       return BOARD_TEMPLATE_SEQUENCE[(Math.floor(round / 4) - 1) % BOARD_TEMPLATE_SEQUENCE.length];
     }
 
     const unlockedTemplates =
-      round <= 3
+      round <= 4
         ? [BOARD_TEMPLATES.SPLIT_LANES.id, BOARD_TEMPLATES.CROSSFLOW_GATE.id]
         : BOARD_TEMPLATE_SEQUENCE;
     const fallbackId = BOARD_TEMPLATE_SEQUENCE[(round - 2) % BOARD_TEMPLATE_SEQUENCE.length];

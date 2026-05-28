@@ -23,7 +23,6 @@ export default class ColorPainterMachine extends ConveyorMachine {
     this.processingTime = 700;
     this.inputTypes = ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
     this.outputTypes = ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
-    this.acceptsDirectSource = false;
   }
 
   getPaintColorKey(direction = this.direction) {
@@ -59,12 +58,8 @@ export default class ColorPainterMachine extends ConveyorMachine {
     };
   }
 
-  addItemVisual(itemData) {
-    return super.addItemVisual(this.paintItem(itemData));
-  }
-
-  tryExtractFromSource() {
-    return false;
+  addItemVisual(itemData, routeOptions = {}) {
+    return super.addItemVisual(this.paintItem(itemData), routeOptions);
   }
 
   createVisuals() {

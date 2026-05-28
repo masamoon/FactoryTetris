@@ -523,7 +523,7 @@ export default class ConveyorMachine extends BaseMachine {
    * @param {object} itemData - The item data {type, amount}
    * @returns {boolean} True if the item was successfully added, false otherwise
    */
-  addItemVisual(itemData) {
+  addItemVisual(itemData, routeOptions = {}) {
     try {
       itemData = this.tagItemRoute(itemData, this.id === 'conveyor' ? 'belt' : this.id);
       // --- ADDED Safety Check ---
@@ -565,7 +565,7 @@ export default class ConveyorMachine extends BaseMachine {
         return false; // Could not create visual
       }
 
-      const startPos = this.getItemPosition(0); // Position at progress 0
+      const startPos = this.getItemPosition(0, routeOptions); // Position at progress 0
       visual.setPosition(startPos.x, startPos.y);
 
       // Add visual to the container for rendering AND to the group for management
@@ -577,6 +577,7 @@ export default class ConveyorMachine extends BaseMachine {
         visual: visual,
         itemData: itemData,
         progress: 0,
+        ...routeOptions,
       });
       console.log(
         `[CONVEYOR] Added visual for ${itemData.type} to belt (${this.gridX}, ${this.gridY}). Total items: ${this.itemsOnBelt.length}`
@@ -812,7 +813,7 @@ export default class ConveyorMachine extends BaseMachine {
       currentItem.progress = Phaser.Math.Clamp(currentItem.progress, 0, 1);
 
       // Update visual position
-      const newPos = this.getItemPosition(currentItem.progress);
+      const newPos = this.getItemPosition(currentItem.progress, currentItem);
       currentItem.visual.setPosition(newPos.x, newPos.y);
 
       // --- VISUAL UPDATE FOR RAINBOW/GLOW EFFECTS & TRAILS ---
@@ -855,7 +856,7 @@ export default class ConveyorMachine extends BaseMachine {
    * @returns {boolean} True if the item was successfully transferred and removed, false otherwise.
    */
   tryTransferItem(itemToTransfer, index) {
-    const targetCoords = this.getTransferTargetCoords();
+    const targetCoords = this.getTransferTargetCoords(itemToTransfer);
     if (!targetCoords) return false; // No valid target cell
 
     const targetCell = this.grid.getCell(targetCoords.x, targetCoords.y);
@@ -898,7 +899,7 @@ export default class ConveyorMachine extends BaseMachine {
       // Now check if the target can accept this specific item type
       if (targetEntity.canAcceptInput(itemToTransfer.itemData.type, itemToTransfer.itemData)) {
         // Attempt to transfer the item object ({type, amount})
-        if (targetEntity.acceptItem(itemToTransfer.itemData)) {
+        if (targetEntity.acceptItem(itemToTransfer.itemData, this)) {
           console.log(
             `[CONVEYOR] Transferred ${itemToTransfer.itemData.type} from (${this.gridX}, ${this.gridY}) to ${targetEntityType} at (${targetCoords.x}, ${targetCoords.y})`
           );

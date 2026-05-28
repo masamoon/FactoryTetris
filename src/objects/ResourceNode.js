@@ -27,6 +27,7 @@ export default class ResourceNode {
     this.lifespan = config.lifespan;
     this.round = round || 1;
     this.isFiniteSource = config.finiteSource ?? GAME_CONFIG.finiteResourceRounds ?? false;
+    this.showColorTag = config.showColorTag ?? false;
 
     // Calculate properties based on round
     const baseInitialMin = 3;
@@ -177,6 +178,7 @@ export default class ResourceNode {
         strokeThickness: 3,
       })
       .setOrigin(0.5);
+    this.colorTag.setVisible(this.showColorTag);
     this.container.add(this.colorTag);
 
     this.lifespanBar = null;
@@ -218,6 +220,14 @@ export default class ResourceNode {
     }
     if (this.colorTag) {
       this.colorTag.setText(getItemColorName(this.itemColor).charAt(0).toUpperCase());
+      this.colorTag.setVisible(this.showColorTag);
+    }
+  }
+
+  setColorTagVisible(visible) {
+    this.showColorTag = Boolean(visible);
+    if (this.colorTag) {
+      this.colorTag.setVisible(this.showColorTag);
     }
   }
 
@@ -387,10 +397,14 @@ export default class ResourceNode {
       // --- Priority 2: Push to adjacent belt-like machine pointing AWAY ---
       else if (cell && cell.type === 'machine' && targetMachine && isConveyorLike) {
         let isPointingAway = false;
-        if (offset.dx === 1 && targetMachine.direction !== 'left') isPointingAway = true;
-        if (offset.dx === -1 && targetMachine.direction !== 'right') isPointingAway = true;
-        if (offset.dy === 1 && targetMachine.direction !== 'up') isPointingAway = true;
-        if (offset.dy === -1 && targetMachine.direction !== 'down') isPointingAway = true;
+        if (targetMachine.id === 'underground-belt') {
+          isPointingAway = true;
+        } else {
+          if (offset.dx === 1 && targetMachine.direction !== 'left') isPointingAway = true;
+          if (offset.dx === -1 && targetMachine.direction !== 'right') isPointingAway = true;
+          if (offset.dy === 1 && targetMachine.direction !== 'up') isPointingAway = true;
+          if (offset.dy === -1 && targetMachine.direction !== 'down') isPointingAway = true;
+        }
 
         // Create purity resource with initial purity 1 for validation check
         const itemToPush = this.createOutputItem();
@@ -399,7 +413,7 @@ export default class ResourceNode {
           targetMachine.canAcceptInput &&
           targetMachine.canAcceptInput('purity-resource', itemToPush)
         ) {
-          if (targetMachine.acceptItem(itemToPush)) {
+          if (targetMachine.acceptItem(itemToPush, this)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
             this.updateResourceIndicator();

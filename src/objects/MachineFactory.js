@@ -48,6 +48,16 @@ export default class MachineFactory {
     this.availableSpecialLogistics = [];
     this.lockedLogistics = []; // Logistics shown as future meta unlocks
     this.logisticsTypes = []; // Pool of logistics machine types
+    this.logisticsScrollX = 0;
+    this.logisticsScrollMax = 0;
+    this.logisticsScrollViewport = null;
+    this.logisticsScrollContainer = null;
+    this.logisticsScrollDragging = false;
+    this.logisticsScrollDragStartX = 0;
+    this.logisticsScrollStartX = 0;
+    this.logisticsScrollLeftButton = null;
+    this.logisticsScrollRightButton = null;
+    this.logisticsScrollItems = [];
 
     // --- Conveyor Drag State ---
     this.isDraggingConveyor = false;
@@ -71,6 +81,7 @@ export default class MachineFactory {
     this.scene.input.on('pointerdown', this.handlePointerDown, this);
     this.scene.input.on('pointermove', this.handlePointerMove, this);
     this.scene.input.on('pointerup', this.handlePointerUp, this);
+    this.scene.input.on('wheel', this.handleWheel, this);
     // Also handle pointer up outside the canvas to cancel/finish drag
     this.scene.input.on('gameout', this.handlePointerUp, this);
   }
@@ -696,7 +707,16 @@ export default class MachineFactory {
     const logisticsDisplayTypes = this.getDisplayedLogisticsTypes();
     const logisticsSlotCount = logisticsDisplayTypes.length;
     const logisticsItems = logisticsSlotCount + 1;
-    const logisticsStartX = -((logisticsItems - 1) * logisticsSpacing) / 2;
+    const logisticsArrowInset = 24;
+    const logisticsArrowGap = 18;
+    const logisticsViewportLeft = -this.width / 2 + logisticsArrowInset + logisticsArrowGap;
+    const logisticsViewportRight = this.width / 2 - logisticsArrowInset - logisticsArrowGap;
+    const logisticsViewportWidth = Math.max(160, logisticsViewportRight - logisticsViewportLeft);
+    const logisticsStartX = 36;
+    const logisticsContentWidth = Math.max(
+      logisticsViewportWidth,
+      logisticsItems * logisticsSpacing
+    );
 
     const processorLabel = this.scene.add
       .text(-this.width / 2 + 32, -this.height / 2 + 14, 'OPERATORS', {
@@ -724,18 +744,28 @@ export default class MachineFactory {
       this.addMachinePreviewToPanel(machineType, itemX, processorY, slotIndex, 'operator');
     }
 
+    this.createLogisticsScrollViewport(
+      logisticsViewportLeft,
+      logisticsY,
+      logisticsViewportWidth,
+      logisticsContentWidth
+    );
+    const rootPreviewContainer = this.processorPreviewContainer;
+    this.processorPreviewContainer = this.logisticsScrollContainer;
+    this.logisticsScrollItems = [];
+
     // --- Display Logistics ---
     for (let slotIndex = 0; slotIndex < logisticsSlotCount; slotIndex++) {
       const machineType = logisticsDisplayTypes[slotIndex];
       const itemX = logisticsStartX + slotIndex * logisticsSpacing;
 
-      this.addMachinePreviewToPanel(machineType, itemX, logisticsY, slotIndex, 'logistics');
+      this.addLogisticsPreviewToScroll(machineType, itemX, logisticsY, slotIndex, 'logistics');
     }
 
     // --- Display Conveyor ---
     const conveyorX = logisticsStartX + logisticsSlotCount * logisticsSpacing;
     if (this.conveyorMachineType) {
-      this.addMachinePreviewToPanel(
+      this.addLogisticsPreviewToScroll(
         this.conveyorMachineType,
         conveyorX,
         logisticsY,
@@ -743,6 +773,8 @@ export default class MachineFactory {
         'conveyor'
       );
     }
+    this.processorPreviewContainer = rootPreviewContainer;
+    this.updateLogisticsScrollPosition();
 
     const counts = this.getDeckCounts();
     const deckText = this.scene.add
@@ -755,6 +787,161 @@ export default class MachineFactory {
       .setOrigin(1, 0.5);
     this.processorPreviewContainer.add(deckText);
     this.updatePanelSelectionHighlights();
+  }
+
+  addLogisticsPreviewToScroll(machineType, itemX, itemY, slotIndex, category) {
+    const beforeCount = this.logisticsScrollContainer?.list?.length || 0;
+    this.addMachinePreviewToPanel(machineType, itemX, itemY, slotIndex, category);
+    const children = (this.logisticsScrollContainer?.list || []).slice(beforeCount);
+    this.logisticsScrollItems.push({ itemX, children });
+  }
+
+  createLogisticsScrollViewport(left, centerY, width, contentWidth) {
+    const height = 78;
+    const top = centerY - height / 2;
+    this.logisticsScrollViewport = { left, right: left + width, top, bottom: top + height, width };
+    this.logisticsScrollMax = Math.max(0, contentWidth - width);
+    this.logisticsScrollX = Phaser.Math.Clamp(
+      this.logisticsScrollX || 0,
+      0,
+      this.logisticsScrollMax
+    );
+
+    this.logisticsScrollContainer = this.scene.add.container(left - this.logisticsScrollX, 0);
+    this.processorPreviewContainer.add(this.logisticsScrollContainer);
+
+    this.logisticsScrollLeftButton = this.createLogisticsScrollButton(left - 18, centerY, '<', -1);
+    this.logisticsScrollRightButton = this.createLogisticsScrollButton(
+      left + width + 18,
+      centerY,
+      '>',
+      1
+    );
+  }
+
+  createLogisticsScrollButton(x, y, label, direction) {
+    const button = this.scene.add
+      .rectangle(x, y, 22, 44, 0x101923, 0.55)
+      .setStrokeStyle(1, 0x83f7ff, 0.45)
+      .setInteractive({ useHandCursor: true });
+    const icon = this.scene.add
+      .text(x, y - 1, label, {
+        fontFamily: 'Arial Black',
+        fontSize: 18,
+        color: '#b9f7ff',
+      })
+      .setOrigin(0.5);
+    button.on('pointerdown', (pointer) => {
+      pointer.event.stopPropagation();
+      this.scrollLogisticsBy(direction * 160);
+    });
+    button.on('pointerover', () => {
+      button.fillColor = 0x203746;
+      button.fillAlpha = 0.82;
+    });
+    button.on('pointerout', () => {
+      button.fillColor = 0x101923;
+      button.fillAlpha = 0.55;
+    });
+    this.processorPreviewContainer.add([button, icon]);
+    return { button, icon };
+  }
+
+  scrollLogisticsBy(delta) {
+    this.setLogisticsScrollX((this.logisticsScrollX || 0) + delta);
+  }
+
+  setLogisticsScrollX(value) {
+    this.logisticsScrollX = Phaser.Math.Clamp(value || 0, 0, this.logisticsScrollMax || 0);
+    this.updateLogisticsScrollPosition();
+  }
+
+  updateLogisticsScrollPosition() {
+    if (this.logisticsScrollContainer && this.logisticsScrollViewport) {
+      this.logisticsScrollContainer.x =
+        this.logisticsScrollViewport.left - (this.logisticsScrollX || 0);
+    }
+
+    this.updateLogisticsScrollItemVisibility();
+
+    const canScroll = (this.logisticsScrollMax || 0) > 0;
+    const atStart = (this.logisticsScrollX || 0) <= 0;
+    const atEnd = (this.logisticsScrollX || 0) >= (this.logisticsScrollMax || 0);
+    this.setLogisticsScrollButtonState(this.logisticsScrollLeftButton, canScroll && !atStart);
+    this.setLogisticsScrollButtonState(this.logisticsScrollRightButton, canScroll && !atEnd);
+  }
+
+  updateLogisticsScrollItemVisibility() {
+    if (!this.logisticsScrollViewport || !Array.isArray(this.logisticsScrollItems)) return;
+
+    const viewport = this.logisticsScrollViewport;
+    for (const item of this.logisticsScrollItems) {
+      const worldX = viewport.left - (this.logisticsScrollX || 0) + item.itemX;
+      const visible = worldX >= viewport.left - 48 && worldX <= viewport.right + 48;
+      for (const child of item.children || []) {
+        child.setVisible?.(visible);
+      }
+    }
+  }
+
+  setLogisticsScrollButtonState(buttonBundle, enabled) {
+    if (!buttonBundle?.button || !buttonBundle?.icon) return;
+    buttonBundle.button.setAlpha(enabled ? 1 : 0.34);
+    buttonBundle.icon.setAlpha(enabled ? 1 : 0.34);
+    if (enabled) {
+      buttonBundle.button.setInteractive({ useHandCursor: true });
+    } else {
+      buttonBundle.button.disableInteractive();
+    }
+  }
+
+  isPointerInsideLogisticsViewport(pointer) {
+    if (!pointer || !this.logisticsScrollViewport) return false;
+
+    const localX = pointer.x - this.x;
+    const localY = pointer.y - this.y;
+    const viewport = this.logisticsScrollViewport;
+    return (
+      localX >= viewport.left &&
+      localX <= viewport.right &&
+      localY >= viewport.top &&
+      localY <= viewport.bottom
+    );
+  }
+
+  canScrollLogistics() {
+    return (this.logisticsScrollMax || 0) > 0;
+  }
+
+  beginLogisticsScrollDrag(pointer) {
+    if (!this.canScrollLogistics() || !this.isPointerInsideLogisticsViewport(pointer)) return false;
+
+    this.logisticsScrollDragging = true;
+    this.logisticsScrollDragStartX = pointer.x;
+    this.logisticsScrollStartX = this.logisticsScrollX || 0;
+    return true;
+  }
+
+  updateLogisticsScrollDrag(pointer) {
+    if (!this.logisticsScrollDragging || !pointer) return false;
+
+    const deltaX = pointer.x - this.logisticsScrollDragStartX;
+    this.setLogisticsScrollX(this.logisticsScrollStartX - deltaX);
+    return true;
+  }
+
+  endLogisticsScrollDrag() {
+    if (!this.logisticsScrollDragging) return false;
+
+    this.logisticsScrollDragging = false;
+    return true;
+  }
+
+  handleWheel(pointer, _gameObjects, deltaX, deltaY) {
+    if (!this.canScrollLogistics() || !this.isPointerInsideLogisticsViewport(pointer)) return;
+
+    const scrollDelta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+    this.scrollLogisticsBy(scrollDelta);
   }
 
   /**
@@ -1052,6 +1239,9 @@ export default class MachineFactory {
       );
 
       machinePreview.on('pointerover', () => {
+        if (!isOperator && !this.isPointerInsideLogisticsViewport(this.scene.input.activePointer)) {
+          return;
+        }
         machinePreview.setScale(machinePreview.basePanelScale);
         slotFrame.fillColor = canAfford ? 0x1f3240 : 0x2a1d21;
         slotFrame.setStrokeStyle(
@@ -1059,7 +1249,8 @@ export default class MachineFactory {
           canAfford ? slotStyle.borderColor : 0xff7777,
           machineType.isLocked ? 0.55 : 1
         );
-        this.showMachineTooltip(machineType, this.x + itemX, this.y + itemY + 40);
+        const parentX = machinePreview.parentContainer?.x || 0;
+        this.showMachineTooltip(machineType, this.x + parentX + itemX, this.y + itemY + 40);
       });
 
       machinePreview.on('pointerout', () => {
@@ -1070,6 +1261,9 @@ export default class MachineFactory {
 
       machinePreview.on('pointerdown', (pointer) => {
         pointer.event.stopPropagation();
+        if (!isOperator && !this.isPointerInsideLogisticsViewport(pointer)) {
+          return;
+        }
         if (machineType.isLocked) {
           this.scene?.showPlacementHint?.(machineType.lockedReason || 'Locked', '#83f7ff');
           return;
@@ -1096,7 +1290,7 @@ export default class MachineFactory {
     if (!preview || typeof preview.iterate !== 'function') return;
 
     preview.iterate((child) => {
-      if (child?.type === 'Text') {
+      if (child?.type === 'Text' && !child.isOutputMarker) {
         child.setVisible(false);
       }
     });
@@ -1307,6 +1501,8 @@ export default class MachineFactory {
    * @param {Phaser.Input.Pointer} pointer
    */
   handlePointerDown(pointer) {
+    if (this.beginLogisticsScrollDrag(pointer)) return;
+
     // Check basic validity first
     if (!this.selectedMachineType) return;
     if (this.isPointerOverUI(pointer)) return;
@@ -1387,6 +1583,8 @@ export default class MachineFactory {
    * @param {Phaser.Input.Pointer} pointer
    */
   handlePointerMove(pointer) {
+    if (this.updateLogisticsScrollDrag(pointer)) return;
+
     if (!this.isDraggingConveyor) return;
 
     if (this.scene.factoryGrid && this.scene.factoryGrid.isPointerOverGrid(pointer)) {
@@ -1434,6 +1632,8 @@ export default class MachineFactory {
    * @param {Phaser.Input.Pointer} _pointer
    */
   handlePointerUp(_pointer) {
+    if (this.endLogisticsScrollDrag()) return;
+
     if (!this.isDraggingConveyor) return;
 
     this.isDraggingConveyor = false;
@@ -1837,6 +2037,7 @@ export default class MachineFactory {
     const direction = machineType.defaultDirection || 'right';
     const outputPos = machineType.ioByDirection?.[direction]?.outputPos ||
       machineType.outputCoord || { x: shapeWidth - 1, y: shapeHeight - 1 };
+    const usesOperatorOutputMarker = this.usesOperatorOutputMarker(machineType);
 
     // --- Generic Preview Drawing (Placeholder/Fallback) ---
     // All cells use the unique machine color
@@ -1861,7 +2062,9 @@ export default class MachineFactory {
           rect.setStrokeStyle(1, 0x555555);
           container.add(rect);
 
-          if (x === outputPos.x && y === outputPos.y) {
+          if (x === outputPos.x && y === outputPos.y && usesOperatorOutputMarker) {
+            this.drawOperatorOutputPreviewMarker(container, partX, partY, cellSize);
+          } else if (x === outputPos.x && y === outputPos.y) {
             const arrowSize = cellSize * 0.3;
             const outputArrow = this.scene.add
               .triangle(
@@ -1927,6 +2130,39 @@ export default class MachineFactory {
     return container;
   }
 
+  usesOperatorOutputMarker(machineType) {
+    if (!machineType) return false;
+    return (
+      machineType.machineFamily === 'operator' ||
+      machineType.category === 'operator' ||
+      Boolean(machineType.arithmeticOperation) ||
+      isProcessingPieceBodyId(machineType.id)
+    );
+  }
+
+  drawOperatorOutputPreviewMarker(container, x, y, cellSize) {
+    const outline = this.scene.add
+      .rectangle(x, y, cellSize - 2, cellSize - 2, 0x000000, 0)
+      .setOrigin(0.5)
+      .setStrokeStyle(2, 0x83f7ff, 0.95);
+    outline.setDepth(2);
+    outline.isOutputMarker = true;
+    container.add(outline);
+
+    const tagText = this.scene.add
+      .text(x, y + cellSize * 0.3, 'OUT', {
+        fontFamily: 'Arial Black, Arial, sans-serif',
+        fontSize: Math.max(5, cellSize * 0.34),
+        color: '#efffff',
+        stroke: '#05090d',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    tagText.setDepth(3);
+    tagText.isOutputMarker = true;
+    container.add(tagText);
+  }
+
   drawLogisticsBeltPreviewPath(
     container,
     machineType,
@@ -1967,11 +2203,6 @@ export default class MachineFactory {
       const arrow = this.createLogisticsArrow(center.x, center.y, direction, cellSize * 0.28);
       container.add(arrow);
     });
-
-    const start = getCenter(path[0]);
-    const startDot = this.scene.add.circle(start.x, start.y, cellSize * 0.16, 0x101820, 0.95);
-    startDot.setStrokeStyle(1, 0x83f7ff, 0.95);
-    container.add(startDot);
   }
 
   getLogisticsPathDirection(cell, nextCell, previousCell = null) {
@@ -2342,7 +2573,7 @@ export default class MachineFactory {
       lines.push('Alternates one input to two outputs.');
     } else if (machineType.id === 'filter-splitter') {
       lines.push(
-        'Routes high-tier or warm-colored items.',
+        'Routes high-level or warm-colored items.',
         'Falls back if preferred output is blocked.'
       );
     } else if (machineType.id === 'merger') {
