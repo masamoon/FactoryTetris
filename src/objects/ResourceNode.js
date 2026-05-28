@@ -2,11 +2,11 @@ import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { _UpgradeManager } from '../managers/UpgradeManager';
 import {
-  createPurityResource,
+  createLevelResource,
   getItemColorHex,
   getItemColorName,
   getSourceItemColor,
-} from '../utils/PurityUtils';
+} from '../utils/ResourceUtils';
 
 export default class ResourceNode {
   constructor(scene, config, round, upgradeManager) {
@@ -317,7 +317,7 @@ export default class ResourceNode {
   }
 
   createOutputItem(amount = 1) {
-    const item = createPurityResource(1, this.itemColor);
+    const item = createLevelResource(1, this.itemColor);
     item.amount = amount;
     item.itemColor = this.itemColor;
     item.sourceColor = this.itemColor;
@@ -377,12 +377,12 @@ export default class ResourceNode {
 
       // --- Priority 1: Push directly to adjacent processing Machine (non-belt) ---
       if (cell && cell.type === 'machine' && targetMachine && !isConveyorLike) {
-        // Create purity resource with initial purity 1
+        // Create level resource with initial level 1
         const itemToPush = this.createOutputItem();
         // Pass itemData to canAcceptInput for level-based validation
         if (
           targetMachine.canAcceptInput &&
-          targetMachine.canAcceptInput('purity-resource', itemToPush)
+          targetMachine.canAcceptInput('level-resource', itemToPush)
         ) {
           if (targetMachine.acceptItem(itemToPush)) {
             this.resources--; // Decrement node resources
@@ -406,12 +406,12 @@ export default class ResourceNode {
           if (offset.dy === -1 && targetMachine.direction !== 'down') isPointingAway = true;
         }
 
-        // Create purity resource with initial purity 1 for validation check
+        // Create level resource with initial level 1 for validation check
         const itemToPush = this.createOutputItem();
         if (
           isPointingAway &&
           targetMachine.canAcceptInput &&
-          targetMachine.canAcceptInput('purity-resource', itemToPush)
+          targetMachine.canAcceptInput('level-resource', itemToPush)
         ) {
           if (targetMachine.acceptItem(itemToPush, this)) {
             this.resources--; // Decrement node resources
@@ -522,7 +522,7 @@ export default class ResourceNode {
 
       this.updateResourceIndicator();
 
-      // Return purity resource with initial purity 1
+      // Return level resource with initial level 1
       return this.createOutputItem(amountExtracted);
     } else {
       //console.log(`ResourceNode at (${this.gridX}, ${this.gridY}) attempt to extract failed, no resources.`);

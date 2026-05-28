@@ -65,11 +65,11 @@ export const upgradesConfig = {
   },
   [UPGRADE_TYPES.HIGH_ROLLER]: {
     name: 'High Roller',
-    description: 'Deliveries touched by expensive Operators score more.',
+    description: 'Deliveries touched by Operators costing $20+ score more.',
     tiers: [
-      { level: 1, modifier: 1.2, description: 'Expensive Operator deliveries score x1.2' },
-      { level: 2, modifier: 1.4, description: 'Expensive Operator deliveries score x1.4' },
-      { level: 3, modifier: 1.7, description: 'Expensive Operator deliveries score x1.7' },
+      { level: 1, modifier: 1.2, description: '$20+ Operator deliveries score x1.2' },
+      { level: 2, modifier: 1.4, description: '$20+ Operator deliveries score x1.4' },
+      { level: 3, modifier: 1.7, description: '$20+ Operator deliveries score x1.7' },
     ],
   },
 };

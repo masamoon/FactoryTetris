@@ -55,7 +55,7 @@ export const TRAITS = [
     category: TRAIT_CATEGORIES.STAT,
     description: '+50% delivery score.',
     hooks: {
-      // The trait id is already appended to traitTags by processResource /
+      // The trait id is already appended to traitTags by processing /
       // completeProcessing. Tycoon needs no onProcess body — DeliveryNode
       // reads the 'tycoon' tag and applies the +50% bonus.
     },
@@ -70,9 +70,9 @@ export const TRAITS = [
         const consumedItems = Array.isArray(ctx?.consumedItems) ? ctx.consumedItems : [];
         const inputPurities =
           consumedItems.length > 0
-            ? consumedItems.map((item) => item?.purity || 1)
-            : [ctx && typeof ctx.inputPurity === 'number' ? ctx.inputPurity : resource.purity || 1];
-        const allInputsHighGrade = inputPurities.every((purity) => purity >= 3);
+            ? consumedItems.map((item) => item?.level || 1)
+            : [ctx && typeof ctx.inputLevel === 'number' ? ctx.inputLevel : resource.level || 1];
+        const allInputsHighGrade = inputPurities.every((level) => level >= 3);
 
         resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
         resource.traitTags = resource.traitTags.filter((t) => t !== 'polarized');
@@ -119,7 +119,7 @@ export const TRAITS = [
         if (!resource) return resource;
         resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
         resource.traitTags = resource.traitTags.filter((t) => t !== 'sequenced');
-        if ((resource.chainCount || 0) >= 2) {
+        if ((resource.machineUids?.length || 0) >= 2) {
           resource.traitTags.push('sequenced');
         }
         return resource;
@@ -197,7 +197,7 @@ export const TRAITS = [
     id: 'beacon',
     name: 'Beacon',
     category: TRAIT_CATEGORIES.RUN_WIDE,
-    description: '+0.1 chain multiplier while placed.',
+    description: '+0.1 delivery score multiplier while placed.',
     hooks: {
       onAttach: (machine, scene) => {
         if (scene && scene.traitRegistry) {
@@ -246,6 +246,13 @@ export function rollTrait() {
 
 export function rollBuildAroundTrait() {
   const pool = BUILD_AROUND_TRAIT_IDS.map((id) => getTraitById(id)).filter(Boolean);
+  if (pool.length === 0) return rollTrait();
+  const index = Math.floor(Math.random() * pool.length);
+  return pool[index].id;
+}
+
+export function rollTraitFromIds(traitIds = []) {
+  const pool = traitIds.map((id) => getTraitById(id)).filter(Boolean);
   if (pool.length === 0) return rollTrait();
   const index = Math.floor(Math.random() * pool.length);
   return pool[index].id;

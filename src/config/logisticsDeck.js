@@ -10,6 +10,7 @@ const LOGISTICS_BELT_TEMPLATES = [
       { x: 2, y: 0 },
     ],
     copies: 3,
+    unlockRound: 1,
   },
   {
     id: 'belt-line-4',
@@ -23,6 +24,7 @@ const LOGISTICS_BELT_TEMPLATES = [
       { x: 3, y: 0 },
     ],
     copies: 2,
+    unlockRound: 1,
   },
   {
     id: 'belt-elbow',
@@ -38,6 +40,7 @@ const LOGISTICS_BELT_TEMPLATES = [
       { x: 0, y: 1 },
     ],
     copies: 3,
+    unlockRound: 1,
   },
   {
     id: 'belt-hook',
@@ -55,6 +58,7 @@ const LOGISTICS_BELT_TEMPLATES = [
       { x: 1, y: 2 },
     ],
     copies: 2,
+    unlockRound: 3,
   },
   {
     id: 'belt-s',
@@ -71,6 +75,7 @@ const LOGISTICS_BELT_TEMPLATES = [
       { x: 2, y: 0 },
     ],
     copies: 2,
+    unlockRound: 4,
   },
   {
     id: 'belt-z',
@@ -87,13 +92,111 @@ const LOGISTICS_BELT_TEMPLATES = [
       { x: 2, y: 1 },
     ],
     copies: 2,
+    unlockRound: 4,
+  },
+  {
+    id: 'belt-long-elbow',
+    name: 'Long Elbow Belt',
+    shortName: 'Big L',
+    shape: [
+      [1, 0],
+      [1, 0],
+      [1, 1],
+    ],
+    path: [
+      { x: 0, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: 2 },
+      { x: 1, y: 2 },
+    ],
+    copies: 2,
+    unlockRound: 5,
+  },
+  {
+    id: 'belt-u',
+    name: 'U Belt',
+    shortName: 'U Belt',
+    shape: [
+      [1, 1, 1],
+      [1, 0, 1],
+    ],
+    path: [
+      { x: 0, y: 1 },
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+    ],
+    copies: 2,
+    unlockRound: 6,
+  },
+  {
+    id: 'belt-step-5',
+    name: 'Step Belt',
+    shortName: 'Step',
+    shape: [
+      [1, 1, 0],
+      [0, 1, 0],
+      [0, 1, 1],
+    ],
+    path: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 1, y: 2 },
+      { x: 2, y: 2 },
+    ],
+    copies: 2,
+    unlockRound: 7,
+  },
+  {
+    id: 'belt-crook',
+    name: 'Crook Belt',
+    shortName: 'Crook',
+    shape: [
+      [1, 1, 1],
+      [0, 0, 1],
+      [0, 1, 1],
+    ],
+    path: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+      { x: 2, y: 2 },
+      { x: 1, y: 2 },
+    ],
+    copies: 1,
+    unlockRound: 8,
+  },
+  {
+    id: 'belt-wide-hook',
+    name: 'Wide Hook Belt',
+    shortName: 'Wide J',
+    shape: [
+      [1, 1, 1],
+      [0, 0, 1],
+      [0, 0, 1],
+    ],
+    path: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+      { x: 2, y: 2 },
+    ],
+    copies: 1,
+    unlockRound: 9,
   },
 ];
 
 export const LOGISTICS_BELT_LIBRARY = LOGISTICS_BELT_TEMPLATES;
 
-export function createLogisticsDeckForRound() {
-  return expandLogisticsDeck(LOGISTICS_BELT_LIBRARY);
+export function createLogisticsDeckForRound(round = 1) {
+  const unlockedRound = Math.max(1, Math.floor(round || 1));
+  return expandLogisticsDeck(
+    LOGISTICS_BELT_LIBRARY.filter((entry) => (entry.unlockRound || 1) <= unlockedRound)
+  );
 }
 
 function expandLogisticsDeck(library) {

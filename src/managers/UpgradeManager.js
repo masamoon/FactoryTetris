@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { upgradesConfig, UPGRADE_TYPES, TIER_THRESHOLDS } from '../config/upgrades.js';
 import { BOON_POOL } from '../config/boons.js';
+import { BUILD_IDENTITIES, getBuildIdentityLevel } from '../config/buildIdentities.js';
 
 export class UpgradeManager {
   constructor() {
@@ -109,6 +110,37 @@ export class UpgradeManager {
     const isMixedRecipe = uniqueLevels.size > 1;
     const hasDuplicateInput = uniqueLevels.size < levels.length;
     return isMixedRecipe || hasDuplicateInput ? 1.25 : 1;
+  }
+
+  getBuildIdentityScores() {
+    return BUILD_IDENTITIES.map((identity) => {
+      let score = 0;
+
+      for (const upgradeType of identity.upgradeTypes || []) {
+        score += this.currentUpgrades[upgradeType] || 0;
+      }
+
+      for (const boonId of identity.boonIds || []) {
+        if (this.activeProceduralUpgrades.has(boonId)) score += 2;
+      }
+
+      const level = getBuildIdentityLevel(score);
+      return {
+        ...identity,
+        score,
+        level,
+      };
+    }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  }
+
+  getPrimaryBuildIdentity(minScore = 2) {
+    const [best] = this.getBuildIdentityScores();
+    return best && best.score >= minScore ? best : null;
+  }
+
+  getBuildIdentityFocusLevel(identityId) {
+    const identity = this.getPrimaryBuildIdentity();
+    return identity?.id === identityId ? identity.level || 0 : 0;
   }
 
   // --- Upgrade Application Logic ---

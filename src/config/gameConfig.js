@@ -94,45 +94,6 @@ export const GAME_CONFIG = {
     purple: { name: 'Purple', color: 0xb56cff, textColor: '#b56cff', scoreMultiplier: 1.2 },
   },
 
-  // Purity system configuration
-  purityConfig: {
-    // Base points per purity level: purity 1 = 5, purity 2 = 15, etc.
-    basePoints: [5, 15, 40, 100, 250],
-    // For purity 6+: points = 250 * 2^(purity - 5)
-
-    // Colors for each purity level (index 0 = purity 1)
-    colors: [
-      0x8b4513, // Purity 1: Brown (Raw Ore)
-      0xcd853f, // Purity 2: Orange (Refined)
-      0xffd700, // Purity 3: Gold (Purified)
-      0xfffacd, // Purity 4: White Gold (Crystal)
-      0xffffff, // Purity 5: White (Prismatic)
-      // Purity 6+: Rainbow shimmer (handled dynamically)
-    ],
-
-    // Glow settings per purity level
-    glowStart: 4, // Purity level at which glow begins
-
-    // Scale multiplier per purity level: 0.85 + (purity - 1) * 0.05
-    baseScale: 0.85,
-    scaleIncrement: 0.05,
-
-    // Trail types per purity level
-    trailStart: 3, // Purity level at which trails begin
-
-    // Soft chain cap to prevent exploits
-    maxChain: 20,
-  },
-
-  // Chain multiplier configuration
-  chainConfig: {
-    // Multipliers for chain counts
-    multipliers: [1.0, 1.2, 1.5, 2.0, 3.0], // chain 1-5
-    // For chain 6+: 3.0 + (chain - 5) * 0.5
-    baseMultiplierAfter5: 3.0,
-    incrementAfter5: 0.5,
-  },
-
   // Resource nodes
   initialNodeCount: 3,
   nodeSpawnRate: 15000, // ms
@@ -155,8 +116,8 @@ export const GAME_CONFIG = {
       id: 'painter',
       name: 'Color Painter',
       shape: [[1]],
-      inputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
-      outputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      inputTypes: ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      outputTypes: ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
       processingTime: 700,
       direction: 'right',
       description: 'Recolors passing items based on facing direction',
@@ -250,6 +211,33 @@ export const GAME_CONFIG = {
     roundsPerAct: 4,
     eliteRoundInAct: 3,
     bossRoundInAct: 4,
+    earlyRoundTimeLimits: {
+      1: 48,
+      2: 56,
+      3: 82,
+      4: 82,
+      5: 76,
+    },
+    earlyRoundQuotaMultipliers: {
+      1: 2.0,
+      2: 1.24,
+      3: 1.12,
+      4: 1.12,
+      5: 1.05,
+    },
+    earlyRoundCompletionScoreMultipliers: {
+      1: 0.65,
+      2: 0.72,
+      3: 1.0,
+      4: 0.86,
+      5: 0.92,
+    },
+    earlyRoundMinRequiredCounts: {
+      1: 2,
+    },
+    firstExactDemandRound: 5,
+    firstColorDemandRound: 7,
+    firstOperationDemandRound: 10,
     eliteQuotaMultiplier: 1.04,
     eliteSourceMultiplier: 1.05,
     eliteCompletionScoreMultiplier: 1.1,
@@ -271,9 +259,17 @@ export const GAME_CONFIG = {
   // Round / economy loop
   economy: {
     interest: {
-      cashPerInterest: 5,
+      cashPerInterest: 8,
       interestPerStep: 1,
-      maxInterest: 5,
+      maxInterest: 8,
+    },
+    capitalEdge: {
+      firstRounds: 5,
+      minInterest: 3,
+      edgePerStep: 1,
+      edgePerDividend: 4,
+      maxEdge: 24,
+      maxDividend: 6,
     },
   },
   startingMoney: 45,

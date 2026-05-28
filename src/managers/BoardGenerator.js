@@ -1,5 +1,10 @@
 import { GRID_CONFIG } from '../config/gameConfig';
-import { BOARD_TEMPLATE_SEQUENCE, BOARD_TEMPLATES, BOARD_TILE_TYPES } from '../config/boardConfig';
+import {
+  BOARD_OBSTACLE_TYPES,
+  BOARD_TEMPLATE_SEQUENCE,
+  BOARD_TEMPLATES,
+  BOARD_TILE_TYPES,
+} from '../config/boardConfig';
 
 const TEMPLATE_BY_ID = Object.values(BOARD_TEMPLATES).reduce((lookup, template) => {
   lookup[template.id] = template;
@@ -25,13 +30,13 @@ export default class BoardGenerator {
     const blockers = [];
     const specialTiles = [];
     const loanerUndergrounds = [];
-    const addBlocker = (x, y) => {
+    const addBlocker = (x, y, obstacleType = BOARD_OBSTACLE_TYPES.WALL) => {
       x = mirrorCellX(x);
       if (x <= 0 || x >= width - 1 || y < 0 || y >= height) return;
       const key = `${x},${y}`;
       if (blockers.some((cell) => `${cell.x},${cell.y}` === key)) return;
       if (specialTiles.some((cell) => `${cell.x},${cell.y}` === key)) return;
-      blockers.push({ x, y });
+      blockers.push({ x, y, obstacleType });
     };
     const addSpecialTile = (x, y, type) => {
       x = mirrorCellX(x);
@@ -121,6 +126,97 @@ export default class BoardGenerator {
       });
     }
 
+    if (templateId === BOARD_TEMPLATES.TOLL_MAZE.id) {
+      const spineY = this.clamp(midY + this.randomInt(rng, -1, 1), 2, height - 3);
+      const gateA = this.clamp(midX - 3 + this.randomInt(rng, -1, 1), 2, width - 5);
+      const gateB = this.clamp(midX + 3 + this.randomInt(rng, -1, 1), 4, width - 3);
+      for (let x = 2; x < width - 2; x++) {
+        if (Math.abs(x - gateA) <= 0 || Math.abs(x - gateB) <= 0) continue;
+        const type = x % 3 === 0 ? BOARD_OBSTACLE_TYPES.SCRAP : BOARD_OBSTACLE_TYPES.WALL;
+        addBlocker(x, spineY, type);
+      }
+      for (let y = 1; y < height - 1; y++) {
+        if (Math.abs(y - spineY) <= 1) continue;
+        const toothX = y % 2 === 0 ? gateA - 1 : gateB + 1;
+        addBlocker(toothX, y, BOARD_OBSTACLE_TYPES.LOCKED);
+      }
+      for (const x of this.uniqueColumns([gateA - 1, gateA, gateB, gateB + 1], width)) {
+        addSpecialTile(x, spineY, BOARD_TILE_TYPES.TAXED);
+      }
+      addSpecialTile(gateA, spineY - 1, BOARD_TILE_TYPES.POWER);
+      addSpecialTile(gateB, spineY + 1, BOARD_TILE_TYPES.QUALITY);
+      addLoanerUnderground(mirrorCellX(gateA - 1), spineY - 2, 'right', 'Toll bypass');
+      return this.createBoardFromTemplate(TEMPLATE_BY_ID[templateId], round, {
+        blockers,
+        specialTiles,
+        loanerUndergrounds,
+        sourceRows: this.shuffleRows(this.uniqueRows([spineY - 3, spineY + 2, midY], height), rng),
+        deliveryRows: this.shuffleRows(
+          this.uniqueRows([spineY + 3, spineY - 2, height - 2], height),
+          rng
+        ),
+      });
+    }
+
+    if (templateId === BOARD_TEMPLATES.TUNNEL_WORKS.id) {
+      const baffleA = this.clamp(midX - 3 + this.randomInt(rng, -1, 1), 2, width - 5);
+      const baffleB = this.clamp(midX + 3 + this.randomInt(rng, -1, 1), 4, width - 3);
+      const upperGate = this.clamp(midY - 2 + this.randomInt(rng, -1, 1), 1, height - 3);
+      const lowerGate = this.clamp(midY + 2 + this.randomInt(rng, -1, 1), 2, height - 2);
+      for (let y = 1; y < height - 1; y++) {
+        if (y !== upperGate) addBlocker(baffleA, y, BOARD_OBSTACLE_TYPES.LOCKED);
+        if (y !== lowerGate) addBlocker(baffleB, y, BOARD_OBSTACLE_TYPES.SCRAP);
+      }
+      for (let x = 3; x < width - 3; x += 3) {
+        if (Math.abs(x - baffleA) <= 1 || Math.abs(x - baffleB) <= 1) continue;
+        addBlocker(x, midY, BOARD_OBSTACLE_TYPES.WALL);
+      }
+      addSpecialTile(baffleA - 1, upperGate, BOARD_TILE_TYPES.QUALITY);
+      addSpecialTile(baffleB + 1, lowerGate, BOARD_TILE_TYPES.POWER);
+      addSpecialTile(midX, midY - 1, BOARD_TILE_TYPES.TAXED);
+      addSpecialTile(midX, midY + 1, BOARD_TILE_TYPES.TAXED);
+      addLoanerUnderground(mirrorCellX(baffleA - 1), upperGate, 'right', 'Upper service tunnel');
+      addLoanerUnderground(mirrorCellX(baffleB - 1), lowerGate, 'right', 'Lower service tunnel');
+      addLoanerUnderground(mirrorCellX(midX), midY - 1, 'down', 'Drop tunnel');
+      return this.createBoardFromTemplate(TEMPLATE_BY_ID[templateId], round, {
+        blockers,
+        specialTiles,
+        loanerUndergrounds,
+        sourceRows: this.shuffleRows(this.uniqueRows([upperGate, lowerGate, 1], height), rng),
+        deliveryRows: this.shuffleRows(
+          this.uniqueRows([lowerGate, upperGate, height - 2], height),
+          rng
+        ),
+      });
+    }
+
+    if (templateId === BOARD_TEMPLATES.FURNACE_ROWS.id) {
+      const rowA = this.clamp(midY - 2 + this.randomInt(rng, -1, 0), 1, height - 4);
+      const rowB = this.clamp(midY + 2 + this.randomInt(rng, 0, 1), 3, height - 2);
+      const gateA = this.clamp(midX - 2 + this.randomInt(rng, -1, 1), 2, width - 4);
+      const gateB = this.clamp(midX + 2 + this.randomInt(rng, -1, 1), 3, width - 3);
+      for (let x = 2; x < width - 2; x++) {
+        if (Math.abs(x - gateA) > 0) addBlocker(x, rowA, BOARD_OBSTACLE_TYPES.HEAT);
+        if (Math.abs(x - gateB) > 0) addBlocker(x, rowB, BOARD_OBSTACLE_TYPES.HEAT);
+      }
+      for (const x of this.uniqueColumns([gateA - 1, gateA + 1, gateB - 1, gateB + 1], width)) {
+        addSpecialTile(x, midY, BOARD_TILE_TYPES.TAXED);
+      }
+      addSpecialTile(gateA, rowA - 1, BOARD_TILE_TYPES.POWER);
+      addSpecialTile(gateB, rowB + 1, BOARD_TILE_TYPES.QUALITY);
+      addBlocker(midX, midY, BOARD_OBSTACLE_TYPES.SCRAP);
+      addBlocker(midX + 1, midY, BOARD_OBSTACLE_TYPES.LOCKED);
+      addLoanerUnderground(mirrorCellX(gateA), rowA - 1, 'down', 'Vent shaft');
+      addLoanerUnderground(mirrorCellX(gateB - 2), rowB, 'right', 'Furnace bypass');
+      return this.createBoardFromTemplate(TEMPLATE_BY_ID[templateId], round, {
+        blockers,
+        specialTiles,
+        loanerUndergrounds,
+        sourceRows: this.shuffleRows(this.uniqueRows([rowA - 1, midY, rowB + 1], height), rng),
+        deliveryRows: this.shuffleRows(this.uniqueRows([rowB + 1, rowA - 1, 1], height), rng),
+      });
+    }
+
     const islandShiftX = this.randomInt(rng, -1, 1);
     const islandRows = this.uniqueRows(
       [midY - 2 + this.randomInt(rng, -1, 0), midY + 2 + this.randomInt(rng, 0, 1)],
@@ -128,10 +224,10 @@ export default class BoardGenerator {
     );
     for (const centerY of islandRows) {
       const islandX = this.clamp(midX - 1 + islandShiftX, 2, width - 4);
-      addBlocker(islandX, centerY);
-      addBlocker(islandX + 1, centerY);
-      addBlocker(islandX, centerY + 1);
-      addBlocker(islandX + 1, centerY + 1);
+      addBlocker(islandX, centerY, BOARD_OBSTACLE_TYPES.SCRAP);
+      addBlocker(islandX + 1, centerY, BOARD_OBSTACLE_TYPES.SCRAP);
+      addBlocker(islandX, centerY + 1, BOARD_OBSTACLE_TYPES.WALL);
+      addBlocker(islandX + 1, centerY + 1, BOARD_OBSTACLE_TYPES.WALL);
     }
     const tileShiftY = this.randomInt(rng, -1, 1);
     addSpecialTile(midX - 2 + islandShiftX, midY + tileShiftY, BOARD_TILE_TYPES.POWER);
@@ -160,14 +256,28 @@ export default class BoardGenerator {
     }
 
     if (round > 1 && round % 4 === 0) {
-      return BOARD_TEMPLATE_SEQUENCE[(Math.floor(round / 4) - 1) % BOARD_TEMPLATE_SEQUENCE.length];
+      if (round >= 8) {
+        const advancedBossTemplates = [
+          BOARD_TEMPLATES.TOLL_MAZE.id,
+          BOARD_TEMPLATES.TUNNEL_WORKS.id,
+          BOARD_TEMPLATES.FURNACE_ROWS.id,
+        ];
+        return advancedBossTemplates[(Math.floor(round / 4) - 2) % advancedBossTemplates.length];
+      }
+      return BOARD_TEMPLATES.SPLIT_LANES.id;
     }
 
     const unlockedTemplates =
       round <= 4
         ? [BOARD_TEMPLATES.SPLIT_LANES.id, BOARD_TEMPLATES.CROSSFLOW_GATE.id]
-        : BOARD_TEMPLATE_SEQUENCE;
-    const fallbackId = BOARD_TEMPLATE_SEQUENCE[(round - 2) % BOARD_TEMPLATE_SEQUENCE.length];
+        : round < 8
+          ? [
+              BOARD_TEMPLATES.SPLIT_LANES.id,
+              BOARD_TEMPLATES.CROSSFLOW_GATE.id,
+              BOARD_TEMPLATES.FACTORY_ISLANDS.id,
+            ]
+          : BOARD_TEMPLATE_SEQUENCE;
+    const fallbackId = unlockedTemplates[(round - 2) % unlockedTemplates.length];
     return rng() < 0.55 ? this.pick(unlockedTemplates, rng) : fallbackId;
   }
 
@@ -185,6 +295,10 @@ export default class BoardGenerator {
 
   uniqueRows(rows, height) {
     return [...new Set(rows.map((row) => this.clamp(row, 0, height - 1)))];
+  }
+
+  uniqueColumns(columns, width) {
+    return [...new Set(columns.map((column) => this.clamp(column, 1, width - 2)))];
   }
 
   shuffleRows(rows, rng) {

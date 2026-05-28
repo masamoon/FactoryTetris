@@ -502,12 +502,12 @@ export function getProcessingPieceMachineConfigs() {
     isComplexBody: body.isComplexBody,
     name: body.name,
     shape: body.shape,
-    inputTypes: ['purity-resource'],
-    outputTypes: ['purity-resource'],
+    inputTypes: ['level-resource'],
+    outputTypes: ['level-resource'],
     processingTime: body.processingTime,
     direction: body.defaultDirection,
     defaultDirection: body.defaultDirection,
-    requiredInputs: { 'purity-resource': 1 },
+    requiredInputs: { 'level-resource': 1 },
     description: body.description,
   }));
 }

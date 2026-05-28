@@ -1,6 +1,6 @@
 import BaseMachine from './BaseMachine';
 import SplitterMachine from './SplitterMachine';
-import { getItemColorKey } from '../../utils/PurityUtils';
+import { getItemColorKey } from '../../utils/ResourceUtils';
 
 const WARM_OR_SPECIAL_COLORS = new Set(['yellow', 'red', 'purple']);
 
@@ -13,7 +13,7 @@ export default class FilterSplitterMachine extends SplitterMachine {
   }
 
   getPreferredOutputIndex(itemData) {
-    const tier = itemData?.purity || itemData?.level || 1;
+    const tier = itemData?.level || itemData?.level || 1;
     const color = getItemColorKey(itemData, null);
     return tier >= 3 || WARM_OR_SPECIAL_COLORS.has(color) ? 1 : 0;
   }
@@ -87,8 +87,8 @@ export default class FilterSplitterMachine extends SplitterMachine {
       name: 'Filter Splitter',
       description: 'Routes high-level or warm-colored items to its alternate output',
       shape: [[1], [1]],
-      inputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
-      outputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      inputTypes: ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      outputTypes: ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
       processingTime: 500,
       defaultDirection: 'right',
       inputCoord: { x: 0, y: 0 },

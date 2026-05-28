@@ -64,6 +64,33 @@ const GAME = {
     roundsPerAct: 4,
     eliteRoundInAct: 3,
     bossRoundInAct: 4,
+    earlyRoundTimeLimits: {
+      1: 48,
+      2: 56,
+      3: 82,
+      4: 82,
+      5: 76,
+    },
+    earlyRoundQuotaMultipliers: {
+      1: 2.0,
+      2: 1.24,
+      3: 1.12,
+      4: 1.12,
+      5: 1.05,
+    },
+    earlyRoundCompletionScoreMultipliers: {
+      1: 0.65,
+      2: 0.72,
+      3: 1.0,
+      4: 0.86,
+      5: 0.92,
+    },
+    earlyRoundMinRequiredCounts: {
+      1: 2,
+    },
+    firstExactDemandRound: 5,
+    firstColorDemandRound: 7,
+    firstOperationDemandRound: 10,
     eliteQuotaMultiplier: 1.04,
     eliteSourceMultiplier: 1.05,
     eliteCompletionScoreMultiplier: 1.1,
@@ -102,12 +129,33 @@ const BOARD_TEMPLATES = {
     quotaMultiplier: 1.12,
     sourceInventoryMultiplier: 1.18,
   },
+  TOLL_MAZE: {
+    id: 'toll-maze',
+    name: 'Toll Maze',
+    quotaMultiplier: 1.16,
+    sourceInventoryMultiplier: 1.18,
+  },
+  TUNNEL_WORKS: {
+    id: 'tunnel-works',
+    name: 'Tunnel Works',
+    quotaMultiplier: 1.18,
+    sourceInventoryMultiplier: 1.2,
+  },
+  FURNACE_ROWS: {
+    id: 'furnace-rows',
+    name: 'Furnace Rows',
+    quotaMultiplier: 1.2,
+    sourceInventoryMultiplier: 1.22,
+  },
 };
 
 const BOARD_TEMPLATE_SEQUENCE = [
   BOARD_TEMPLATES.SPLIT_LANES.id,
   BOARD_TEMPLATES.CROSSFLOW_GATE.id,
   BOARD_TEMPLATES.FACTORY_ISLANDS.id,
+  BOARD_TEMPLATES.TOLL_MAZE.id,
+  BOARD_TEMPLATES.TUNNEL_WORKS.id,
+  BOARD_TEMPLATES.FURNACE_ROWS.id,
 ];
 
 const OPERATION_TAGS = ['op:add-one', 'op:add-two', 'op:add'];
@@ -261,48 +309,74 @@ function createRoundBoard(round, runSeed) {
     };
   }
   if (pacing.isBoss) {
+    const advancedBossTemplates = [
+      BOARD_TEMPLATES.TOLL_MAZE.id,
+      BOARD_TEMPLATES.TUNNEL_WORKS.id,
+      BOARD_TEMPLATES.FURNACE_ROWS.id,
+    ];
+    const bossTemplateId =
+      round >= 8
+        ? advancedBossTemplates[(pacing.act - 2) % advancedBossTemplates.length]
+        : BOARD_TEMPLATES.SPLIT_LANES.id;
     const template =
-      Object.values(BOARD_TEMPLATES).find(
-        (entry) =>
-          entry.id === BOARD_TEMPLATE_SEQUENCE[(pacing.act - 1) % BOARD_TEMPLATE_SEQUENCE.length]
-      ) || BOARD_TEMPLATES.SPLIT_LANES;
-    const complexity =
-      template.id === BOARD_TEMPLATES.SPLIT_LANES.id
-        ? 0.18
-        : template.id === BOARD_TEMPLATES.CROSSFLOW_GATE.id
-          ? 0.26
-          : 0.31;
+      Object.values(BOARD_TEMPLATES).find((entry) => entry.id === bossTemplateId) ||
+      BOARD_TEMPLATES.SPLIT_LANES;
+    const stats = getTemplateBoardStats(template.id);
     return {
       ...template,
       round,
-      blockerCount: template.id === BOARD_TEMPLATES.FACTORY_ISLANDS.id ? 8 : 7,
-      specialTileCount: template.id === BOARD_TEMPLATES.FACTORY_ISLANDS.id ? 4 : 3,
-      laneComplexity: complexity,
+      blockerCount: stats.blockerCount + 1,
+      specialTileCount: stats.specialTileCount,
+      laneComplexity: stats.laneComplexity + 0.03,
     };
   }
   const unlocked =
     round <= 4
       ? [BOARD_TEMPLATES.SPLIT_LANES.id, BOARD_TEMPLATES.CROSSFLOW_GATE.id]
-      : BOARD_TEMPLATE_SEQUENCE;
-  const fallback = BOARD_TEMPLATE_SEQUENCE[(round - 2) % BOARD_TEMPLATE_SEQUENCE.length];
+      : round < 8
+        ? [
+            BOARD_TEMPLATES.SPLIT_LANES.id,
+            BOARD_TEMPLATES.CROSSFLOW_GATE.id,
+            BOARD_TEMPLATES.FACTORY_ISLANDS.id,
+          ]
+        : BOARD_TEMPLATE_SEQUENCE;
+  const fallback = unlocked[(round - 2) % unlocked.length];
   const templateId = rng() < 0.55 ? pick(unlocked, rng) : fallback;
   const template = Object.values(BOARD_TEMPLATES).find((entry) => entry.id === templateId);
+  return { ...template, round, ...getTemplateBoardStats(templateId) };
+}
 
+function getTemplateBoardStats(templateId) {
   if (templateId === BOARD_TEMPLATES.SPLIT_LANES.id) {
-    return { ...template, round, blockerCount: 5, specialTileCount: 3, laneComplexity: 0.18 };
+    return { blockerCount: 5, specialTileCount: 3, laneComplexity: 0.18 };
   }
   if (templateId === BOARD_TEMPLATES.CROSSFLOW_GATE.id) {
-    return { ...template, round, blockerCount: 7, specialTileCount: 3, laneComplexity: 0.26 };
+    return { blockerCount: 7, specialTileCount: 3, laneComplexity: 0.26 };
   }
-  return { ...template, round, blockerCount: 8, specialTileCount: 4, laneComplexity: 0.31 };
+  if (templateId === BOARD_TEMPLATES.FACTORY_ISLANDS.id) {
+    return { blockerCount: 8, specialTileCount: 4, laneComplexity: 0.31 };
+  }
+  if (templateId === BOARD_TEMPLATES.TOLL_MAZE.id) {
+    return { blockerCount: 11, specialTileCount: 6, laneComplexity: 0.39 };
+  }
+  if (templateId === BOARD_TEMPLATES.TUNNEL_WORKS.id) {
+    return { blockerCount: 13, specialTileCount: 4, laneComplexity: 0.43 };
+  }
+  if (templateId === BOARD_TEMPLATES.FURNACE_ROWS.id) {
+    return { blockerCount: 12, specialTileCount: 6, laneComplexity: 0.46 };
+  }
+  return { blockerCount: 8, specialTileCount: 4, laneComplexity: 0.31 };
 }
 
 function getRoundQuota(round, board) {
+  const earlyRoundMultiplier =
+    getRoundPacingOverride(GAME.pacingConfig.earlyRoundQuotaMultipliers, round, 1) || 1;
   return Math.round(
     (GAME.roundBaseQuota * Math.pow(GAME.roundQuotaGrowth, Math.max(0, round - 1)) +
       GAME.roundQuotaFlatGrowth * (round - 1)) *
       board.quotaMultiplier *
-      getRoundPacing(round).quotaMultiplier
+      getRoundPacing(round).quotaMultiplier *
+      earlyRoundMultiplier
   );
 }
 
@@ -321,6 +395,9 @@ function getRoundSourceInventory(round, board) {
 }
 
 function getRoundTimeLimit(round) {
+  const earlyLimit = getRoundPacingOverride(GAME.pacingConfig.earlyRoundTimeLimits, round);
+  if (typeof earlyLimit === 'number') return Math.max(30, earlyLimit);
+
   const pacing = getRoundPacing(round);
   const bossBonus = pacing.isBoss ? GAME.roundBossTimeBonus : 0;
   return Math.max(
@@ -348,16 +425,23 @@ function getDeliveryNodeCount(round) {
   return Math.min(GAME.maxDeliveryNodesPerRound, 2 + Math.floor(Math.max(0, round - 5) / 3));
 }
 
+function getRoundPacingOverride(overrides, round, fallback = null) {
+  if (!overrides) return fallback;
+  const key = String(Math.max(1, Math.floor(round || 1)));
+  return Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : fallback;
+}
+
 function createDeliveryCondition(round, index, runSeed) {
   const rng = createRng(`${runSeed}:delivery-${round}:${index}`);
   const pacing = getRoundPacing(round);
+  const pacingConfig = GAME.pacingConfig;
   const baseTier = 2 + Math.floor((round - 2 + Math.max(0, index)) / 3);
   const tierJitter = round >= 5 && rng() < 0.35 ? (rng() < 0.55 ? -1 : 1) : 0;
   const tier = round <= 2 ? 2 : Math.max(2, Math.min(6, baseTier + tierJitter));
   const exactOffset = round >= 3 ? randomInt(rng, 0, 1) : 0;
   const exact = pacing.isBoss
-    ? round >= 8 && (index === 0 || pacing.act >= 3)
-    : round >= 5 && (index + exactOffset) % 2 === 0;
+    ? round >= pacingConfig.firstExactDemandRound + 3 && (index === 0 || pacing.act >= 3)
+    : round >= pacingConfig.firstExactDemandRound && (index + exactOffset) % 2 === 0;
   const countJitter = round >= 4 ? randomInt(rng, -1, 1) : 0;
   let requiredCount = Math.max(
     1,
@@ -365,30 +449,37 @@ function createDeliveryCondition(round, index, runSeed) {
   );
   if (round <= 4) requiredCount = Math.min(requiredCount, 3);
   if (pacing.isBoss) requiredCount = Math.min(8, requiredCount + pacing.requiredCountBonus);
+  const minRequiredCount = getRoundPacingOverride(pacingConfig.earlyRoundMinRequiredCounts, round);
+  if (typeof minRequiredCount === 'number') {
+    requiredCount = Math.max(requiredCount, minRequiredCount);
+  }
   const nodeCount = getDeliveryNodeCount(round);
   const colorOffset = randomInt(rng, 0, GAME.sourceColorCycle.length - 1);
   const wantsColorDemand =
-    round >= 7 &&
+    round >= pacingConfig.firstColorDemandRound &&
     (round <= 8 ? index === nodeCount - 1 : !pacing.isBoss || pacing.act > 1 || index % 2 === 1);
   const itemColor = wantsColorDemand
     ? GAME.sourceColorCycle[(round + index + colorOffset - 2) % GAME.sourceColorCycle.length]
     : null;
   const requiredLastOperationTag =
-    round >= 10 &&
+    round >= pacingConfig.firstOperationDemandRound &&
     (index === nodeCount - 1 ||
       (pacing.isBoss && pacing.act >= 2 && index % 2 === 0) ||
-      (round >= 11 && index % 3 === 2))
+      (round >= pacingConfig.firstOperationDemandRound + 1 && index % 3 === 2))
       ? OPERATION_TAGS[
           (round + index + randomInt(rng, 0, OPERATION_TAGS.length - 1)) % OPERATION_TAGS.length
         ]
       : null;
+  const earlyCompletionScoreMultiplier =
+    getRoundPacingOverride(pacingConfig.earlyRoundCompletionScoreMultipliers, round, 1) || 1;
   const completionScoreReward = Math.floor(
     (GAME.deliveryNodeCompletionScoreBase +
       tier * GAME.deliveryNodeCompletionScorePerTier +
       requiredCount * GAME.deliveryNodeCompletionScorePerItem +
       (itemColor ? 180 : 0) +
       (requiredLastOperationTag ? 260 : 0)) *
-      pacing.completionScoreMultiplier
+      pacing.completionScoreMultiplier *
+      earlyCompletionScoreMultiplier
   );
   const completionScrapReward =
     Math.ceil(
@@ -412,28 +503,19 @@ function createDeliveryCondition(round, index, runSeed) {
   };
 }
 
-function getPurityPoints(purity) {
+function getLevelPoints(level) {
   const basePoints = [5, 15, 40, 100, 250];
-  if (purity <= basePoints.length) return basePoints[purity - 1];
-  return basePoints[4] * Math.pow(2, purity - 5);
-}
-
-function getChainMultiplier(chainCount) {
-  const multipliers = [1.0, 1.2, 1.5, 2.0, 3.0];
-  if (chainCount <= multipliers.length) return multipliers[chainCount - 1];
-  return 3.0 + (chainCount - 5) * 0.5;
+  if (level <= basePoints.length) return basePoints[level - 1];
+  return basePoints[4] * Math.pow(2, level - 5);
 }
 
 function getDeliveryItemScore(demand, state) {
   const tier = demand.tier;
-  const chainCount = Math.max(1, Math.min(tier, 7));
   const colorMultiplier = demand.itemColor
     ? GAME.itemColors[demand.itemColor].scoreMultiplier
     : 1.05;
   const qualityMultiplier = state.qualityUseRate > 0 ? 1 + 0.15 * state.qualityUseRate : 1;
-  return Math.floor(
-    getPurityPoints(tier) * getChainMultiplier(chainCount) * colorMultiplier * qualityMultiplier
-  );
+  return Math.floor(getLevelPoints(tier) * colorMultiplier * qualityMultiplier);
 }
 
 function getFlowDeliveryMultiplier(streak) {

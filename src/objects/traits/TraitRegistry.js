@@ -23,8 +23,7 @@ export default class TraitRegistry {
     return this.beaconCount;
   }
 
-  // Additive bonus the chain multiplier formula adds in.
-  getBeaconChainBonus() {
+  getBeaconDeliveryBonus() {
     return 0.1 * this.beaconCount;
   }
 

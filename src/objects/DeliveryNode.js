@@ -1,14 +1,5 @@
 import { GAME_CONFIG } from '../config/gameConfig';
-import {
-  calculateDeliveryScore,
-  getChainMultiplier,
-  getItemColorHex,
-  getItemColorKey,
-  getItemColorName,
-  getPurityColor,
-  getPurityName,
-  getPurityPoints,
-} from '../utils/PurityUtils';
+import { getItemColorHex, getItemColorKey, getItemColorName } from '../utils/ResourceUtils';
 import {
   getLevelPoints,
   getLevelName,
@@ -17,7 +8,6 @@ import {
 
 const DELIVERY_SCORE_POPUP_DURATION = 1700;
 const DELIVERY_DETAIL_POPUP_DURATION = 1450;
-const DELIVERY_CHAIN_POPUP_DURATION = 1800;
 const DELIVERY_POPUP_STACK_SPACING = 22;
 const DELIVERY_POPUP_COLUMN_SPACING = 28;
 const DELIVERY_POPUP_ROWS = 5;
@@ -293,7 +283,7 @@ export default class DeliveryNode {
   getItemTier(itemData) {
     if (!itemData) return 1;
     if (typeof itemData.level === 'number') return itemData.level;
-    if (typeof itemData.purity === 'number') return itemData.purity;
+    if (typeof itemData.level === 'number') return itemData.level;
     return 1;
   }
 
@@ -316,16 +306,13 @@ export default class DeliveryNode {
   /**
    * Apply trait-tag-based delivery score modifiers.
    *
-   * Single extension point for ALL delivery-time trait effects. Called from
-   * both the level-resource and purity-resource scoring branches so traits
-   * work regardless of which resource type the game actually delivers
-   * (machine output is purity-resource; level-resource is a legacy path).
+   * Single extension point for ALL delivery-time trait effects.
    *
    * Downstream tasks add their tag checks here:
    *   - Task 9: 'polarized' (x2)
    *   - Trait refresh: 'sequenced' (x1.75)
    *   - Task 10: 'resonant' (x1.5)
-   *   - Beacon additive via scene.traitRegistry.getBeaconChainBonus()
+   *   - Beacon additive via scene.traitRegistry.getBeaconDeliveryBonus()
    *
    * @param {number} basePoints - Pre-modifier score for this delivery.
    * @param {object} itemData - The delivered item (carries traitTags).
@@ -343,7 +330,7 @@ export default class DeliveryNode {
     const colorConfig = GAME_CONFIG.itemColors?.[itemColor];
     // Beacon: each placed Beacon adds +0.1 to the base delivery modifier.
     const beaconBonus =
-      reg && typeof reg.getBeaconChainBonus === 'function' ? reg.getBeaconChainBonus() : 0;
+      reg && typeof reg.getBeaconDeliveryBonus === 'function' ? reg.getBeaconDeliveryBonus() : 0;
     // Accumulate ALL modifiers multiplicatively, then floor ONCE below.
     let modifier = 1.0 + beaconBonus;
     if (colorConfig?.scoreMultiplier) {
@@ -476,66 +463,10 @@ export default class DeliveryNode {
       return true;
     }
 
-    // --- Handle purity resources ---
-    if (itemType === 'purity-resource') {
-      if (!this.matchesCondition(itemData)) {
-        this.scene?.recordDeliveryRejection?.(this, itemData);
-        return false;
-      }
-      const purity = itemData.purity || 1;
-      const chainCount = itemData.chainCount || 1;
-      const basePoints = getPurityPoints(purity);
-      const chainMultiplier = getChainMultiplier(chainCount);
-      const totalPoints = calculateDeliveryScore(purity, chainCount);
-      const traitBreakdown = this.getTraitDeliveryBreakdown(totalPoints, itemData);
-      const reward = this.applyFilledRewardPenalty(
-        this.scene.getDeliveryReward?.(traitBreakdown.points, purity, itemData) || {
-          points: traitBreakdown.points,
-          countsForFlow: true,
-        },
-        wasAlreadyFilled
-      );
-
-      // Add score
-      const awardedPoints =
-        this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow }) ||
-        reward.points;
-
-      if (this.scene.recordDeliveryFlow) {
-        this.scene.recordDeliveryFlow(itemData, purity, reward);
-      }
-
-      if (wasAlreadyFilled) {
-        this.recordOverflowDelivery(purity);
-      } else {
-        this.recordSatisfiedDelivery(purity);
-      }
-
-      // Visual feedback for purity resource
-      const purityName = getPurityName(purity);
-      this.createPurityAcceptEffect(purity, chainCount, awardedPoints, purityName, {
-        basePoints,
-        multiplier: awardedPoints / Math.max(1, basePoints),
-        itemColor: traitBreakdown.itemColor,
-        labels:
-          chainMultiplier > 1
-            ? this.getDeliveryLabels(
-                [`Chain x${this.formatMultiplier(chainMultiplier)}`, ...traitBreakdown.labels],
-                wasAlreadyFilled
-              )
-            : this.getDeliveryLabels(traitBreakdown.labels, wasAlreadyFilled),
-      });
-
-      console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted ${purityName} (Purity ${purity}, Chain x${chainCount}), +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}${wasAlreadyFilled ? ' (filled-node overflow)' : ''}`
-      );
-      return true;
-    }
-
     // --- Handle regular resources (legacy) ---
     const resourceType = itemType;
-    if (!this.matchesCondition({ ...itemData, purity: 1 })) {
-      this.scene?.recordDeliveryRejection?.(this, { ...itemData, purity: 1 });
+    if (!this.matchesCondition({ ...itemData, level: 1 })) {
+      this.scene?.recordDeliveryRejection?.(this, { ...itemData, level: 1 });
       return false;
     }
 
@@ -750,15 +681,9 @@ export default class DeliveryNode {
       if (!accepted) this.scene?.recordDeliveryRejection?.(this, itemData);
       return accepted;
     }
-    // Allow purity resources (legacy system)
-    if (itemType === 'purity-resource') {
-      const accepted = itemData ? this.matchesCondition(itemData) : true;
-      if (!accepted) this.scene?.recordDeliveryRejection?.(this, itemData);
-      return accepted;
-    }
     // Allow any resource type defined in the game config (legacy)
     if (GAME_CONFIG.resourceTypes.some((r) => r.id === itemType)) {
-      const candidate = { ...itemData, purity: 1 };
+      const candidate = { ...itemData, level: 1 };
       const accepted = itemData ? this.matchesCondition(candidate) : true;
       if (!accepted) this.scene?.recordDeliveryRejection?.(this, candidate);
       return accepted;
@@ -831,134 +756,6 @@ export default class DeliveryNode {
     particles.explode(10);
 
     // Optional: Brief flash of the node
-    this.scene.tweens.add({
-      targets: this.background,
-      fillAlpha: 0.5,
-      duration: 100,
-      yoyo: true,
-    });
-  }
-
-  /**
-   * Creates an enhanced visual effect for purity resources with chain info.
-   * @param {number} purity - The purity level of the resource.
-   * @param {number} chainCount - The chain count multiplier.
-   * @param {number} points - The total points awarded.
-   * @param {string} purityName - Display name for the purity level.
-   */
-  createPurityAcceptEffect(purity, chainCount, points, purityName, breakdown = null) {
-    const popupSlot = this.reserveDeliveryPopupSlot();
-    // Get color based on purity
-    const colors = [0x8b4513, 0xcd853f, 0xffd700, 0xfffacd, 0xffffff];
-    const purityColor = getPurityColor(purity, this.scene.time.now);
-    const color =
-      breakdown?.itemColor != null
-        ? getItemColorHex(breakdown.itemColor, colors[purity - 1] || 0xffffff)
-        : purity <= colors.length
-          ? colors[purity - 1]
-          : 0xffffff;
-
-    // Main score popup
-    const scoreText = this.scene.add
-      .text(popupSlot.x, popupSlot.y - 15, `+${points}`, {
-        fontFamily: 'Arial',
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#ffd700',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5);
-    scoreText.setDepth(this.container.depth + 3);
-    if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
-
-    // Chain multiplier text (if chain > 1)
-    if (chainCount > 1) {
-      const chainText = this.scene.add
-        .text(popupSlot.x + 30, popupSlot.y - 15, `x${chainCount}`, {
-          fontFamily: 'Arial',
-          fontSize: 12,
-          fontWeight: 'bold',
-          color: '#ff6600',
-          stroke: '#000000',
-          strokeThickness: 2,
-        })
-        .setOrigin(0.5);
-      chainText.setDepth(this.container.depth + 3);
-      if (this.scene.addToWorld) this.scene.addToWorld(chainText);
-
-      // Animate chain text
-      this.scene.tweens.add({
-        targets: chainText,
-        y: popupSlot.y - 42,
-        alpha: 0,
-        scaleX: 1.5,
-        scaleY: 1.5,
-        duration: DELIVERY_CHAIN_POPUP_DURATION,
-        ease: 'Power2',
-        onComplete: () => chainText.destroy(),
-      });
-    }
-
-    // Purity name text
-    const detailText = breakdown
-      ? this.getScoreBreakdownText(
-          `P${purity}`,
-          breakdown.basePoints,
-          breakdown.multiplier,
-          breakdown.labels
-        )
-      : purityName;
-    const purityText = this.scene.add
-      .text(popupSlot.x, popupSlot.y + 5, detailText, {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        color: `#${color.toString(16).padStart(6, '0')}`,
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5);
-    purityText.setDepth(this.container.depth + 3);
-    if (this.scene.addToWorld) this.scene.addToWorld(purityText);
-
-    // Animate score text
-    this.scene.tweens.add({
-      targets: scoreText,
-      y: popupSlot.y - 38,
-      alpha: 0,
-      scaleX: 1.3,
-      scaleY: 1.3,
-      duration: DELIVERY_SCORE_POPUP_DURATION,
-      ease: 'Power1',
-      onComplete: () => scoreText.destroy(),
-    });
-
-    // Animate purity text
-    this.scene.tweens.add({
-      targets: purityText,
-      y: popupSlot.y - 16,
-      alpha: 0,
-      duration: DELIVERY_DETAIL_POPUP_DURATION,
-      ease: 'Power1',
-      onComplete: () => purityText.destroy(),
-    });
-
-    // Particle burst effect with purity color
-    const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
-      color: [color, purityColor],
-      colorEase: 'quad.out',
-      lifespan: 500,
-      speed: { min: 60, max: 120 },
-      scale: { start: 0.8 + purity * 0.1, end: 0 },
-      gravityY: 100,
-      blendMode: 'ADD',
-      emitting: false,
-    });
-    particles.setDepth(this.container.depth + 1);
-    if (this.scene.addToWorld) this.scene.addToWorld(particles);
-    particles.explode(8 + purity * 2); // More particles for higher purity
-
-    // Brief flash
     this.scene.tweens.add({
       targets: this.background,
       fillAlpha: 0.5,

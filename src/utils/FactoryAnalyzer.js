@@ -22,7 +22,7 @@ import {
 export function getProducibleLevels(scene) {
   const producibleLevels = new Set();
 
-  // L1 is always producible from resource nodes so players can recover a chain.
+  // L1 is always producible from resource nodes so players can recover.
   producibleLevels.add(1);
 
   if (!scene || !scene.factoryGrid) {

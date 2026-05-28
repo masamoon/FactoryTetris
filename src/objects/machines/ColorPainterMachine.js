@@ -1,7 +1,7 @@
 import BaseMachine from './BaseMachine';
 import ConveyorMachine from './ConveyorMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
-import { getItemColorHex, getItemColorName } from '../../utils/PurityUtils';
+import { getItemColorHex, getItemColorName } from '../../utils/ResourceUtils';
 
 export const DIRECTION_PAINT_COLORS = {
   right: 'blue',
@@ -21,8 +21,8 @@ export default class ColorPainterMachine extends ConveyorMachine {
     this.name = 'Color Painter';
     this.description = 'Recolors passing items based on facing direction';
     this.processingTime = 700;
-    this.inputTypes = ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
-    this.outputTypes = ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
+    this.inputTypes = ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
+    this.outputTypes = ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'];
   }
 
   getPaintColorKey(direction = this.direction) {
@@ -114,8 +114,8 @@ export default class ColorPainterMachine extends ConveyorMachine {
       name: 'Color Painter',
       description: 'Recolors passing items by direction',
       shape: [[1]],
-      inputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
-      outputTypes: ['purity-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      inputTypes: ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
+      outputTypes: ['level-resource', 'basic-resource', 'advanced-resource', 'mega-resource'],
       processingTime: 700,
       direction: 'right',
     };

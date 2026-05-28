@@ -2,15 +2,15 @@ import Phaser from 'phaser';
 import BaseMachine from './BaseMachine';
 import { GAME_CONFIG } from '../../config/gameConfig';
 import {
-  getPurityColor,
-  getPurityScale,
-  shouldShowGlow,
-  getGlowIntensity,
+  getLevelDisplayColor,
+  getLevelScale,
+  shouldShowLevelGlow,
+  getLevelGlowIntensity,
   getItemColorHex,
   getItemColorKey,
   getItemColorName,
-  shouldShowTrail,
-} from '../../utils/PurityUtils';
+  shouldShowLevelTrail,
+} from '../../utils/ResourceUtils';
 import {
   ARITHMETIC_OPERATION_TAGS,
   getArithmeticOperationTagLabel,
@@ -558,7 +558,7 @@ export default class ConveyorMachine extends BaseMachine {
         return false;
       }
 
-      // Pass the full itemData to createItemVisual to support purity properties
+      // Pass the full itemData to createItemVisual to support level properties
       const visual = this.createItemVisual(itemData);
       if (!visual) {
         console.error(`[CONVEYOR] Could not create visual for item type: ${itemData.type}`);
@@ -619,23 +619,22 @@ export default class ConveyorMachine extends BaseMachine {
     const size = this.grid.cellSize * 0.3; // Visual size relative to cell
     let visual = null;
 
-    if (itemType === 'purity-resource') {
-      // --- PURITY RESOURCE VISUAL ---
-      const purity = itemData.purity || 1;
+    if (itemType === 'level-resource') {
+      const level = itemData.level || 1;
       const itemColorKey = getItemColorKey(itemData);
-      const itemColor = getItemColorHex(itemColorKey, getPurityColor(purity));
-      const purityColor = getPurityColor(purity);
-      const scale = getPurityScale(purity);
-      const showGlow = shouldShowGlow(purity);
+      const levelColor = getLevelDisplayColor(level, this.scene?.time?.now || 0);
+      const itemColor = getItemColorHex(itemColorKey, levelColor);
+      const scale = getLevelScale(level);
+      const showGlow = shouldShowLevelGlow(level);
 
       // Use a Container to handle complex visuals (layers, glow)
       const container = this.scene.add.container(0, 0);
 
       // Glow layer (behind)
       if (showGlow) {
-        const glowIntensity = getGlowIntensity(purity);
+        const glowIntensity = getLevelGlowIntensity(level);
         const glowSize = size * 2.0 * scale;
-        const glow = this.scene.add.circle(0, 0, glowSize / 2, purityColor, glowIntensity * 0.5);
+        const glow = this.scene.add.circle(0, 0, glowSize / 2, levelColor, glowIntensity * 0.5);
         // Add a tween for pulsing glow
         this.scene.tweens.add({
           targets: glow,
@@ -649,11 +648,11 @@ export default class ConveyorMachine extends BaseMachine {
         container.glowShape = glow; // Reference for updates
       }
 
-      // Main shape (diamond for purity resources to distinguish)
+      // Main shape (diamond for level resources to distinguish)
       // Draw a rotated square (diamond)
       const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, itemColor);
       diamond.rotation = Math.PI / 4;
-      diamond.setStrokeStyle(1.5, purityColor); // Tier color border keeps level readable
+      diamond.setStrokeStyle(1.5, levelColor); // Tier color border keeps level readable
 
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
@@ -661,7 +660,7 @@ export default class ConveyorMachine extends BaseMachine {
       container.itemColorName = getItemColorName(itemColorKey);
 
       const tierBadge = this.scene.add
-        .text(0, 0, `${purity}`, {
+        .text(0, 0, `${level}`, {
           fontFamily: 'Arial Black, Arial, sans-serif',
           fontSize: '10px',
           color: '#ffffff',
@@ -691,8 +690,8 @@ export default class ConveyorMachine extends BaseMachine {
       }
 
       visual = container;
-      visual.isPurityVisual = true; // Flag for updates
-      visual.purityLevel = purity; // Store for reference
+      visual.isLevelVisual = true;
+      visual.level = level;
     } else {
       // For legacy resources, use colored squares based on type (get color from config?)
       const resourceConf = GAME_CONFIG.resourceTypes.find((rt) => rt.id === itemType);
@@ -817,11 +816,11 @@ export default class ConveyorMachine extends BaseMachine {
       currentItem.visual.setPosition(newPos.x, newPos.y);
 
       // --- VISUAL UPDATE FOR RAINBOW/GLOW EFFECTS & TRAILS ---
-      if (currentItem.visual.isPurityVisual && this.scene) {
-        const purity = currentItem.visual.purityLevel;
+      if (currentItem.visual.isLevelVisual && this.scene) {
+        const level = currentItem.visual.level;
 
         // Particle Trail
-        if (shouldShowTrail(purity) && this.trailEmitter) {
+        if (shouldShowLevelTrail(level) && this.trailEmitter) {
           // Emit relative to item position.
           // Note: trailEmitter is in local container space (0,0 is center of machine)
           // item position is also in local container space.
@@ -829,9 +828,9 @@ export default class ConveyorMachine extends BaseMachine {
           this.trailEmitter.emitParticleAt(currentItem.visual.x, currentItem.visual.y);
         }
 
-        // Purity 6+ has rainbow effect on the tier glow/stroke while body keeps color lane identity.
-        if (purity >= 6) {
-          const newColor = getPurityColor(purity, this.scene.time.now);
+        // Level 6+ has rainbow effect on the tier glow/stroke while body keeps color lane identity.
+        if (level >= 13) {
+          const newColor = getLevelDisplayColor(level, this.scene.time.now);
           if (currentItem.visual.mainShape) {
             currentItem.visual.mainShape.setStrokeStyle(1.5, newColor);
           }
@@ -1044,7 +1043,7 @@ export default class ConveyorMachine extends BaseMachine {
     const firstItemProgress = this.itemsOnBelt.length > 0 ? this.itemsOnBelt[0].progress : 1;
     if (firstItemProgress < 0.1) return false;
 
-    if (resourceTypeId === 'purity-resource') return true;
+    if (resourceTypeId === 'level-resource') return true;
     const acceptsType = this.inputTypes.includes(resourceTypeId);
     return acceptsType;
   }

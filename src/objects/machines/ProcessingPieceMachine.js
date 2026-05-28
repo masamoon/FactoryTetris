@@ -85,10 +85,10 @@ export default class ProcessingPieceMachine extends BaseMachine {
     this.description = body.description || 'Operator body';
     this.shape = body.shape;
     this.defaultDirection = body.defaultDirection || 'right';
-    this.inputTypes = ['purity-resource'];
-    this.outputTypes = ['purity-resource'];
+    this.inputTypes = ['level-resource'];
+    this.outputTypes = ['level-resource'];
     this.processingTime = body.processingTime || 3000;
-    this.requiredInputs = { 'purity-resource': 1 };
+    this.requiredInputs = { 'level-resource': 1 };
     this.category = 'operator';
     this.machineFamily = 'operator';
     this.isComplexBody = Boolean(body.isComplexBody);
@@ -323,11 +323,11 @@ export default class ProcessingPieceMachine extends BaseMachine {
       name: body.name,
       description: body.description,
       shape: body.shape,
-      inputTypes: ['purity-resource'],
-      outputTypes: ['purity-resource'],
+      inputTypes: ['level-resource'],
+      outputTypes: ['level-resource'],
       processingTime: body.processingTime,
       defaultDirection: body.defaultDirection,
-      requiredInputs: { 'purity-resource': 1 },
+      requiredInputs: { 'level-resource': 1 },
       inputCoord: ioPositions.inputPos,
       outputCoord: ioPositions.outputPos,
       bodyId: body.id,

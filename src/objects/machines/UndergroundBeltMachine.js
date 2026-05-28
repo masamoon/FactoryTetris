@@ -70,12 +70,7 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
       const sourceX = this.gridX + option.offset.x;
       const sourceY = this.gridY + option.offset.y;
 
-      if (
-        sourceX < 0 ||
-        sourceX >= this.grid.width ||
-        sourceY < 0 ||
-        sourceY >= this.grid.height
-      ) {
+      if (sourceX < 0 || sourceX >= this.grid.width || sourceY < 0 || sourceY >= this.grid.height) {
         continue;
       }
 
@@ -335,6 +330,14 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
     }
 
     const endpoints = this.getEndpointCells();
+    const start = {
+      x: this.gridX + endpoints.start.x,
+      y: this.gridY + endpoints.start.y,
+    };
+    const end = {
+      x: this.gridX + endpoints.end.x,
+      y: this.gridY + endpoints.end.y,
+    };
     const beforeStart = {
       x: this.gridX + endpoints.beforeStart.x,
       y: this.gridY + endpoints.beforeStart.y,
@@ -343,6 +346,16 @@ export default class UndergroundBeltMachine extends ConveyorMachine {
       x: this.gridX + endpoints.afterEnd.x,
       y: this.gridY + endpoints.afterEnd.y,
     };
+
+    if (typeof sourceMachine.getTransferTargetCoords === 'function') {
+      const sourceTarget = sourceMachine.getTransferTargetCoords();
+      if (sourceTarget?.x === start.x && sourceTarget?.y === start.y) {
+        return { reverseTunnelRoute: false };
+      }
+      if (sourceTarget?.x === end.x && sourceTarget?.y === end.y) {
+        return { reverseTunnelRoute: true };
+      }
+    }
 
     const sourceCells =
       typeof sourceMachine.getOccupiedCells === 'function'

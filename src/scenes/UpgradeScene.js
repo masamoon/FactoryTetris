@@ -68,9 +68,11 @@ export class UpgradeScene extends Phaser.Scene {
 
     const subtitle = this.isStarterSpark
       ? 'Pick one boost for this run. You can only choose one.'
-      : this.isShop
-        ? 'Spend Scrap on pieces, upgrades, and run tools.'
-        : 'Pick the modifier that best fits this board.';
+      : this.isBoon
+        ? 'Pick one modifier for this run.'
+        : this.isShop
+          ? 'Spend Scrap on pieces, upgrades, and run tools.'
+          : 'Pick the modifier that best fits this board.';
     this.add
       .text(width / 2, height * 0.15 + 34, subtitle, {
         fontFamily: 'Arial',
@@ -152,14 +154,14 @@ export class UpgradeScene extends Phaser.Scene {
 
     const panelMargin = 28;
     const panelWidth = Math.min(940, Math.max(280, width - panelMargin * 2));
-    const panelHeight = Math.min(470, Math.max(340, height - 100));
-    const panelY = Math.min(height / 2 + 20, height - panelHeight / 2 - 20);
+    const panelHeight = Math.min(540, Math.max(420, height - 180));
+    const panelY = height - panelHeight / 2 - 24;
     const panelTop = panelY - panelHeight / 2;
     const panelBottom = panelY + panelHeight / 2;
     const cardGap = panelWidth < 820 ? 14 : 20;
-    const columns = panelWidth < 640 ? 2 : Math.max(1, offers.length);
+    const columns = panelWidth < 640 ? 1 : offers.length > 3 ? 2 : Math.max(1, offers.length);
     const rows = Math.ceil(offers.length / columns);
-    const cardAreaTop = panelTop + 82;
+    const cardAreaTop = panelTop + 76;
     const controlY = panelBottom - 36;
     const cardAreaBottom = controlY - 42;
     const cardAreaHeight = Math.max(230, cardAreaBottom - cardAreaTop);
@@ -189,6 +191,7 @@ export class UpgradeScene extends Phaser.Scene {
         align: 'center',
       })
       .setOrigin(0.5);
+    reelText.setText(`Available Scrap: ${scrap}`);
     this.tweens.add({
       targets: reelText,
       scaleX: 1.05,
@@ -228,25 +231,30 @@ export class UpgradeScene extends Phaser.Scene {
     const canAfford = !choice.purchased && (choice.isFree || scrap >= (choice.cost || 0));
     const isFeatured = Boolean(choice.isRecommended);
     const featuredColor = choice.kind === 'Boss Prep' ? 0xffd166 : 0x88ffcc;
-    const fillColor = canAfford ? (isFeatured ? 0x183127 : 0x173244) : 0x171d25;
-    const hoverColor = canAfford ? (isFeatured ? 0x254836 : 0x214b64) : 0x202633;
-    const strokeColor = canAfford ? (isFeatured ? featuredColor : 0x4aa3c7) : 0x4b5663;
-    const textColor = canAfford ? '#f4fbff' : '#8c98a3';
     const accentColor = this.getShopKindColor(choice.kind);
-    const compact = height < 210;
-    const headerY = y - height / 2 + 25;
-    const headerPad = 10;
-    const headerGap = 8;
+    const fillColor = canAfford ? (isFeatured ? 0x13251f : 0x111d28) : 0x171d25;
+    const hoverColor = canAfford ? (isFeatured ? 0x1d3b31 : 0x1a3041) : 0x202633;
+    const strokeColor = canAfford ? (isFeatured ? featuredColor : 0x345d72) : 0x4b5663;
+    const textColor = canAfford ? '#f4fbff' : '#8c98a3';
+    const compact = height < 220;
+    const left = x - width / 2;
+    const top = y - height / 2;
+    const right = x + width / 2;
+    const bottom = y + height / 2;
+    const pad = compact ? 12 : 15;
+    const headerY = top + 25;
     const costLabel = choice.purchased
       ? 'SOLD'
       : choice.isFree
         ? 'FREE'
         : `${choice.cost || 0} Scrap`;
-    const costWidth = Math.min(76, Math.max(54, costLabel.length * 6 + 18));
-    const kindWidth = Math.min(76, Math.max(54, width - headerPad * 2 - headerGap - costWidth));
-    const kindX = x - width / 2 + headerPad + kindWidth / 2;
-    const costX = x + width / 2 - headerPad - costWidth / 2;
+    const costWidth = Math.min(width < 240 ? 74 : 88, Math.max(58, costLabel.length * 6 + 20));
+    const costX = right - pad - costWidth / 2;
     const headerFontSize = width < 180 ? 10 : 11;
+    const iconSize = compact ? 34 : 42;
+    const iconX = left + pad + iconSize / 2;
+    const titleX = iconX + iconSize / 2 + 12;
+    const titleWidth = Math.max(76, costX - costWidth / 2 - titleX - 10);
 
     const bg = this.add
       .rectangle(x, y, width, height, fillColor, 0.98)
@@ -274,30 +282,39 @@ export class UpgradeScene extends Phaser.Scene {
         ease: 'Sine.easeInOut',
       });
       this.add
-        .text(x, y - height / 2 + 8, choice.recommendationLabel || 'GOOD FIT', {
+        .text(left + 10, top + 8, choice.recommendationLabel || 'GOOD FIT', {
           fontFamily: 'Arial Black',
           fontSize: 10,
           color: choice.kind === 'Boss Prep' ? '#fff3bf' : '#c8fff0',
-          align: 'center',
+          align: 'left',
           stroke: '#000000',
           strokeThickness: 3,
         })
-        .setOrigin(0.5);
+        .setOrigin(0, 0.5);
     }
 
-    const kindBadge = this.add
-      .rectangle(kindX, headerY, kindWidth, 26, accentColor, canAfford ? 1 : 0.45)
-      .setStrokeStyle(1, 0xffffff, 0.18);
+    this.add.rectangle(left + 4, y, 8, height - 12, accentColor, canAfford ? 0.95 : 0.45);
+
+    const iconBg = this.add
+      .circle(iconX, headerY + 14, iconSize / 2, accentColor, canAfford ? 0.98 : 0.38)
+      .setStrokeStyle(2, isFeatured ? featuredColor : 0xffffff, isFeatured ? 0.9 : 0.18);
     this.add
-      .text(kindBadge.x, kindBadge.y, choice.kind || 'Offer', {
-        fontFamily: 'Arial',
-        fontSize: headerFontSize,
-        fontStyle: 'bold',
+      .text(iconBg.x, iconBg.y, this.getShopKindIcon(choice.kind), {
+        fontFamily: 'Arial Black',
+        fontSize: compact ? 15 : 18,
         color: canAfford ? '#061018' : '#a9b2bb',
         align: 'center',
-        wordWrap: { width: kindWidth - 8 },
       })
       .setOrigin(0.5);
+
+    this.add
+      .text(titleX, top + 18, (choice.kind || 'Offer').toUpperCase(), {
+        fontFamily: 'Arial Black',
+        fontSize: 10,
+        color: canAfford ? `#${accentColor.toString(16).padStart(6, '0')}` : '#7d8892',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
 
     const costBg = this.add
       .rectangle(costX, headerY, costWidth, 26, 0x0c151d, 0.95)
@@ -313,50 +330,64 @@ export class UpgradeScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.add
-      .text(x, compact ? y - height / 2 + 62 : y - height * 0.26, choice.name, {
-        fontFamily: 'Arial',
-        fontSize: compact ? 15 : 18,
+    const titleText = this.add
+      .text(titleX, compact ? top + 43 : top + 48, choice.name, {
+        fontFamily: 'Arial Black',
+        fontSize: compact ? 14 : 17,
         fontStyle: 'bold',
         color: textColor,
-        align: 'center',
-        wordWrap: { width: width - 28 },
+        align: 'left',
+        wordWrap: { width: titleWidth },
+        maxLines: 2,
       })
-      .setOrigin(0.5);
+      .setOrigin(0, 0);
+
+    const payoffHeight = choice.effect ? (compact ? 34 : 42) : 0;
+    const payoffY = choice.effect ? bottom - pad - payoffHeight / 2 : null;
+    const descriptionTop = Math.max(
+      compact ? top + 82 : top + 94,
+      titleText.y + titleText.height + 7
+    );
+    const descriptionBottom = choice.effect ? payoffY - payoffHeight / 2 - 8 : bottom - pad - 4;
+    const descriptionFontSize = compact ? 10 : 12;
+    const descriptionLineSpacing = compact ? 0 : 2;
+    const descriptionLineHeight = descriptionFontSize + descriptionLineSpacing + 3;
+    const descriptionMaxLines = Math.max(
+      1,
+      Math.floor(Math.max(18, descriptionBottom - descriptionTop) / descriptionLineHeight)
+    );
 
     this.add
-      .text(x, compact ? y + 20 : y + height * 0.08, choice.description || '', {
+      .text(left + pad + 8, descriptionTop, choice.description || '', {
         fontFamily: 'Arial',
-        fontSize: compact ? 10 : 13,
+        fontSize: descriptionFontSize,
         color: canAfford ? '#cfe1ea' : '#7f8a94',
-        align: 'center',
-        lineSpacing: compact ? 1 : 4,
-        wordWrap: { width: width - 30 },
+        align: 'left',
+        lineSpacing: descriptionLineSpacing,
+        wordWrap: { width: width - pad * 2 - 12 },
+        maxLines: descriptionMaxLines,
+        fixedWidth: width - pad * 2 - 12,
+        fixedHeight: Math.max(18, descriptionBottom - descriptionTop),
       })
-      .setOrigin(0.5);
+      .setOrigin(0, 0);
 
     if (choice.effect) {
       this.add
-        .text(x, y + height / 2 - 39, choice.effect, {
-          fontFamily: 'Arial',
-          fontSize: 12,
+        .rectangle(x + 4, payoffY, width - pad * 2 - 8, payoffHeight, 0x071018, 0.78)
+        .setStrokeStyle(1, accentColor, canAfford ? 0.5 : 0.18);
+      this.add
+        .text(left + pad + 9, payoffY, choice.effect, {
+          fontFamily: 'Arial Black',
+          fontSize: compact ? 10 : 12,
           fontStyle: 'bold',
           color: canAfford ? '#ffd166' : '#8a7a52',
-          align: 'center',
-          wordWrap: { width: width - 28 },
+          align: 'left',
+          wordWrap: { width: width - pad * 2 - 18 },
+          maxLines: 2,
+          fixedWidth: width - pad * 2 - 18,
+          fixedHeight: payoffHeight - 8,
         })
-        .setOrigin(0.5);
-    }
-
-    if (!canAfford && !choice.purchased) {
-      this.add
-        .text(x, y + height / 2 - 25, 'Need more Scrap', {
-          fontFamily: 'Arial',
-          fontSize: 12,
-          color: '#ff8a8a',
-          align: 'center',
-        })
-        .setOrigin(0.5);
+        .setOrigin(0, 0.5);
     }
 
     bg.on('pointerover', () => {
@@ -435,6 +466,38 @@ export class UpgradeScene extends Phaser.Scene {
         return 0xa7c957;
       default:
         return 0x9fb8c8;
+    }
+  }
+
+  getShopKindIcon(kind) {
+    switch (kind) {
+      case 'Machine':
+      case 'Operator':
+        return '+';
+      case 'Special':
+        return '*';
+      case 'Board':
+        return '#';
+      case 'Color':
+        return 'C';
+      case 'Budget':
+        return '$';
+      case 'Plan':
+        return '!';
+      case 'Boss Prep':
+        return '!';
+      case 'Upgrade':
+      case 'Permanent':
+      case 'Blueprint':
+        return '^';
+      case 'Run':
+        return 'R';
+      case 'Sticker':
+        return '%';
+      case 'Utility':
+        return '?';
+      default:
+        return '+';
     }
   }
 

@@ -359,8 +359,8 @@ export default class MachineFactory {
       logisticsPieceCard: card,
       direction: 'right',
       defaultDirection: 'right',
-      inputTypes: ['basic-resource', 'advanced-resource', 'mega-resource', 'purity-resource'],
-      outputTypes: ['basic-resource', 'advanced-resource', 'mega-resource', 'purity-resource'],
+      inputTypes: ['basic-resource', 'advanced-resource', 'mega-resource', 'level-resource'],
+      outputTypes: ['basic-resource', 'advanced-resource', 'mega-resource', 'level-resource'],
       description: 'Free belt polyomino. Places one conveyor per cell along the shown path.',
     };
   }

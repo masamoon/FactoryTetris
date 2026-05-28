@@ -83,6 +83,20 @@ export default class Grid {
           this.graphics.fillRect(cellX, cellY, this.cellSize - 2, this.cellSize - 2);
           this.graphics.lineStyle(1, cell.borderColor || 0x88a6bb, 0.75);
           this.graphics.strokeRect(cellX + 2, cellY + 2, this.cellSize - 6, this.cellSize - 6);
+          if (cell.obstacleType === 'scrap') {
+            this.graphics.lineStyle(1, cell.borderColor || 0xffb36b, 0.55);
+            this.graphics.beginPath();
+            this.graphics.moveTo(cellX + 6, cellY + this.cellSize - 8);
+            this.graphics.lineTo(cellX + this.cellSize - 8, cellY + 6);
+            this.graphics.strokePath();
+          } else if (cell.obstacleType === 'heat') {
+            this.graphics.lineStyle(1, cell.borderColor || 0xff6b5f, 0.55);
+            this.graphics.strokeCircle(cellX + this.cellSize / 2, cellY + this.cellSize / 2, 6);
+            this.graphics.strokeCircle(cellX + this.cellSize / 2, cellY + this.cellSize / 2, 10);
+          } else if (cell.obstacleType === 'locked') {
+            this.graphics.lineStyle(1, cell.borderColor || 0x9aa7ff, 0.65);
+            this.graphics.strokeRect(cellX + 8, cellY + 8, this.cellSize - 18, this.cellSize - 18);
+          }
         } else if (cell && cell.type === 'board-tile') {
           const cellX = startX + x * this.cellSize + 1;
           const cellY = startY + y * this.cellSize + 1;

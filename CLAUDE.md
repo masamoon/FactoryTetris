@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Gridforge** (internal name: FactoryTetris) - A web-based rogue-lite factory automation game built with Phaser 3. Players place Tetris-shaped machines on a grid to create production chains that process resources through purity tiers.
+**Gridforge** (internal name: FactoryTetris) - A web-based rogue-lite factory automation game built with Phaser 3. Players place Tetris-shaped machines on a grid to create production lines that process resources by level and color.
 
 ## Commands
 
@@ -26,7 +26,7 @@ npm run format    # Format code with Prettier
 
 - `src/index.ts` - Game bootstrap, scene registration
 - `src/scenes/GameScene.js` - Main game loop (largest file, handles most game logic)
-- `src/config/gameConfig.js` - All game parameters (grid size, machine types, resources, purity levels)
+- `src/config/gameConfig.js` - All game parameters (grid size, machine types, resources, level/color rules)
 - `src/config/tierConfig.js` - Open-ended resource tier display and score helpers
 
 ### Key Directories
@@ -35,7 +35,7 @@ npm run format    # Format code with Prettier
 - `src/objects/machines/` - Machine implementations, all extend `BaseMachine.js`
 - `src/objects/` - Game entities: Grid, ResourceNode, DeliveryNode
 - `src/managers/` - System managers (UpgradeManager)
-- `src/utils/` - Utilities: PieceGenerator, FactoryAnalyzer, PurityUtils
+- `src/utils/` - Utilities: PieceGenerator, FactoryAnalyzer, ResourceUtils
 - `src/config/` - Static configuration files
 
 ### Machine Class Hierarchy
@@ -53,7 +53,7 @@ BaseMachine (base class with I/O, processing, rendering)
 **Resource Flow:**
 ResourceNodes → Machines (Conveyors/Processors) → DeliveryNodes
 
-**Purity System:** Resources have purity levels (1-12+) that increase through processing. Higher purity = more points.
+**Resource System:** Resources have a numeric level and a color. Machines transform levels; painters and source identity control color.
 
 **Rounds:** Each round generates board constraints, finite resources, delivery demands, and between-round shop rewards.
 
