@@ -35,26 +35,10 @@ export default class ColorPainterMachine extends ConveyorMachine {
     }
 
     const paintColor = this.getPaintColorKey();
-    const colorHistory = Array.isArray(itemData.colorHistory) ? [...itemData.colorHistory] : [];
-    if (itemData.itemColor && colorHistory[colorHistory.length - 1] !== itemData.itemColor) {
-      colorHistory.push(itemData.itemColor);
-    }
-    if (colorHistory[colorHistory.length - 1] !== paintColor) {
-      colorHistory.push(paintColor);
-    }
-
-    const routeTags = Array.isArray(itemData.routeTags) ? [...itemData.routeTags] : [];
-    ['painter', `paint:${paintColor}`].forEach((tag) => {
-      if (!routeTags.includes(tag)) routeTags.push(tag);
-    });
 
     return {
       ...itemData,
-      sourceColor: itemData.sourceColor || itemData.itemColor,
       itemColor: paintColor,
-      colorHistory,
-      routeTags,
-      paintedBy: this.uid,
     };
   }
 

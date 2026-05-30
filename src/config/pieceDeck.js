@@ -1,4 +1,10 @@
 import { ARITHMETIC_OPERATION_TYPES } from './resourceLevels';
+import { GAME_CONFIG } from './gameConfig';
+
+function getDefaultMachineColorForIndex(index = 0) {
+  const colorCycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
+  return colorCycle[index % colorCycle.length] || GAME_CONFIG.defaultItemColor || 'blue';
+}
 
 const CLASSIC_SINGLE_INPUT_BODIES = [
   { bodyId: 'operator-elbow', suffix: 'elbow-end', shortPrefix: 'L' },
@@ -129,10 +135,14 @@ export function getPieceDeckEntryById(pieceId) {
 }
 
 export function expandPieceDeck(library) {
-  return library.flatMap((entry) => {
+  return library.flatMap((entry, entryIndex) => {
     const copies = Math.max(1, Math.floor(entry.copies || 1));
     return Array.from({ length: copies }, (_unused, copyIndex) => ({
       ...entry,
+      outputItemColor:
+        entry.outputItemColor ||
+        entry.machineColor ||
+        getDefaultMachineColorForIndex(entryIndex + copyIndex),
       instanceId: `${entry.id}-${copyIndex + 1}`,
     }));
   });
@@ -152,6 +162,12 @@ function expandBodyVariantTemplates(templates) {
         name: `${variant.shortPrefix} ${template.name}`,
         shortName: `${variant.shortPrefix} ${template.shortName || template.name}`,
         bodyId: variant.bodyId,
+        outputItemColor:
+          variant.outputItemColor ||
+          variant.machineColor ||
+          entry.outputItemColor ||
+          entry.machineColor ||
+          getDefaultMachineColorForIndex(index),
       };
     });
   });

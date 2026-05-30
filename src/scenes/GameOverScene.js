@@ -167,7 +167,7 @@ export default class GameOverScene extends Phaser.Scene {
 
   getScoreLine() {
     const bestScore = this.bestRun?.score || 0;
-    return `SCORE ${this.score}   BEST ${Math.max(bestScore, this.score)}`;
+    return `REVENUE $${this.score}   BEST $${Math.max(bestScore, this.score)}`;
   }
 
   getProgressLine() {

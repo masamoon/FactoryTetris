@@ -25,7 +25,7 @@ export function getItemColorName(itemColor) {
 
 export function getItemColorKey(itemData, fallbackColor = GAME_CONFIG.defaultItemColor || 'blue') {
   if (typeof itemData === 'string') return itemData;
-  return itemData?.itemColor || itemData?.sourceColor || fallbackColor;
+  return itemData?.itemColor || fallbackColor;
 }
 
 export function getSourceItemColor(resourceTypeId, fallbackIndex = 0) {
@@ -42,6 +42,18 @@ export function getMixedItemColor() {
   return GAME_CONFIG.mixedItemColor || 'purple';
 }
 
+export function getWildcardItemColor() {
+  return GAME_CONFIG.wildcardItemColor || 'wild';
+}
+
+export function isWildcardItemColor(itemColor) {
+  return itemColor === getWildcardItemColor();
+}
+
+export function itemColorMatchesDemand(itemColor, demandColor) {
+  return !demandColor || itemColor === demandColor || isWildcardItemColor(itemColor);
+}
+
 export function getResourceLevel(itemData) {
   return Math.max(1, Math.floor(Number(itemData?.level) || 1));
 }
@@ -50,39 +62,19 @@ export function createLevelResource(level = 1, itemColor = null) {
   const colorKey = itemColor || GAME_CONFIG.defaultItemColor || 'blue';
   return {
     type: 'level-resource',
-    level,
+    level: getResourceLevel({ level }),
     itemColor: colorKey,
-    sourceColor: colorKey,
-    visitedMachines: new Set(),
-    machineUids: [],
-    routeTags: [],
-    operationTags: [],
-    traitTags: [],
     amount: 1,
   };
 }
 
-export function processLevelResource(resource, machineId, machineTrait = null) {
-  const newResource = {
-    ...resource,
+export function processLevelResource(resource) {
+  return {
     type: 'level-resource',
     level: getResourceLevel(resource) + 1,
-    visitedMachines: new Set(resource.visitedMachines || []),
-    machineUids: Array.isArray(resource.machineUids) ? [...resource.machineUids] : [],
-    routeTags: Array.isArray(resource.routeTags) ? [...resource.routeTags] : [],
-    operationTags: Array.isArray(resource.operationTags) ? [...resource.operationTags] : [],
-    traitTags: Array.isArray(resource.traitTags) ? [...resource.traitTags] : [],
+    itemColor: getItemColorKey(resource),
+    amount: resource?.amount || 1,
   };
-
-  if (!newResource.visitedMachines.has(machineId)) {
-    newResource.visitedMachines.add(machineId);
-  }
-
-  if (machineTrait) {
-    newResource.traitTags.push(machineTrait);
-  }
-
-  return newResource;
 }
 
 export function getLevelScale(level) {

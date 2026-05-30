@@ -1,4 +1,4 @@
-import { GRID_CONFIG } from '../config/gameConfig';
+import { GAME_CONFIG, GRID_CONFIG } from '../config/gameConfig';
 import {
   BOARD_OBSTACLE_TYPES,
   BOARD_TEMPLATE_SEQUENCE,
@@ -22,6 +22,8 @@ export default class BoardGenerator {
   createRoundBoard(round = 1, options = {}) {
     const width = options.width || this.gridConfig.width;
     const height = options.height || this.gridConfig.height;
+    this.roundWidth = width;
+    this.roundHeight = height;
     const midX = Math.floor(width / 2);
     const midY = Math.floor(height / 2);
     const rng = this.createRoundRng(round);
@@ -282,7 +284,7 @@ export default class BoardGenerator {
   }
 
   createBoardFromTemplate(template, round, overrides = {}) {
-    return {
+    const board = {
       ...template,
       round,
       blockers: overrides.blockers || [],
@@ -290,7 +292,280 @@ export default class BoardGenerator {
       loanerUndergrounds: overrides.loanerUndergrounds || [],
       sourceRows: overrides.sourceRows || [],
       deliveryRows: overrides.deliveryRows || [],
+      width: overrides.width || this.roundWidth || this.gridConfig.width,
+      height: overrides.height || this.roundHeight || this.gridConfig.height,
     };
+    this.applyScrapDoors(board, round);
+    if (overrides.shortcutContracts) {
+      board.shortcutContracts = overrides.shortcutContracts;
+    } else {
+      const shortcutContracts = this.createShortcutContracts(board, round);
+      board.shortcutContracts = shortcutContracts;
+      board.shortcutContracts = [
+        ...shortcutContracts,
+        ...this.createColorTollContracts(board, round),
+      ];
+    }
+    this.applyOverpasses(board, round);
+    return board;
+  }
+
+  applyScrapDoors(board, round) {
+    if (round < 3 || !board?.blockers?.length) return;
+
+    const rng = this.createRoundRng(`${round}:scrap-doors:${board.id}`);
+    const doorCount = round >= 8 && rng() < 0.45 ? 2 : 1;
+    const width = board.width || this.gridConfig.width;
+    const height = board.height || this.gridConfig.height;
+    const midX = Math.floor(width / 2);
+    const midY = Math.floor(height / 2);
+    const candidates = board.blockers
+      .filter(
+        (cell) =>
+          cell.x > 1 &&
+          cell.x < width - 2 &&
+          cell.y > 0 &&
+          cell.y < height - 1 &&
+          cell.obstacleType !== BOARD_OBSTACLE_TYPES.HEAT
+      )
+      .map((cell) => ({
+        cell,
+        score: Math.abs(cell.x - midX) + Math.abs(cell.y - midY) + rng() * 2,
+      }))
+      .sort((a, b) => a.score - b.score);
+
+    for (const candidate of candidates.slice(0, doorCount)) {
+      candidate.cell.obstacleType = BOARD_OBSTACLE_TYPES.SCRAP_DOOR;
+      candidate.cell.openCost = 4 + Math.floor(Math.max(0, round - 3) / 3);
+    }
+  }
+
+  createShortcutContracts(board, round) {
+    if (round < 4 || !board?.blockers?.length) return [];
+
+    const width = board.width || this.gridConfig.width;
+    const height = board.height || this.gridConfig.height;
+    const rng = this.createRoundRng(`${round}:shortcut:${board.id}`);
+    const shouldAddShortcut = round % 4 === 0 || rng() < Math.min(0.72, 0.42 + round * 0.03);
+    if (!shouldAddShortcut) return [];
+
+    const occupied = new Set([
+      ...(board.blockers || []).map((cell) => `${cell.x},${cell.y}`),
+      ...(board.specialTiles || []).map((cell) => `${cell.x},${cell.y}`),
+      ...(board.loanerUndergrounds || []).flatMap((loaner) => {
+        const endOffset =
+          loaner.direction === 'down'
+            ? { x: 0, y: 3 }
+            : loaner.direction === 'up'
+              ? { x: 0, y: -3 }
+              : loaner.direction === 'left'
+                ? { x: -3, y: 0 }
+                : { x: 3, y: 0 };
+        return [`${loaner.x},${loaner.y}`, `${loaner.x + endOffset.x},${loaner.y + endOffset.y}`];
+      }),
+    ]);
+
+    const midX = Math.floor(width / 2);
+    const midY = Math.floor(height / 2);
+    const candidates = [...board.blockers]
+      .filter((cell) => cell.x > 1 && cell.x < width - 2 && cell.y > 0 && cell.y < height - 1)
+      .map((cell) => ({
+        ...cell,
+        score: Math.abs(cell.x - midX) + Math.abs(cell.y - midY) + rng() * 1.5,
+      }))
+      .sort((a, b) => a.score - b.score);
+
+    for (const blocker of candidates) {
+      const unlockCells = this.getShortcutUnlockCells(blocker, board.blockers, width, height);
+      const node = this.findShortcutDeliveryCell(blocker, occupied, width, height);
+      if (!node || unlockCells.length === 0) continue;
+
+      return [
+        {
+          id: `shortcut-${board.id}-${round}`,
+          kind: 'shortcut',
+          x: node.x,
+          y: node.y,
+          unlockCells,
+          label: 'Shortcut order',
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  createColorTollContracts(board, round) {
+    if (round < 7 || !board?.blockers?.length) return [];
+
+    const colorCycle = GAME_CONFIG.sourceColorCycle || [GAME_CONFIG.defaultItemColor || 'blue'];
+    if (!colorCycle.length) return [];
+    const rng = this.createRoundRng(`${round}:color-toll:${board.id}`);
+    const shouldAddToll = round % 3 === 1 || rng() < Math.min(0.62, 0.26 + round * 0.025);
+    if (!shouldAddToll) return [];
+
+    const occupied = this.getBoardOccupiedKeys(board);
+    const width = board.width || this.gridConfig.width;
+    const height = board.height || this.gridConfig.height;
+    const midX = Math.floor(width / 2);
+    const midY = Math.floor(height / 2);
+    const candidates = [...board.blockers]
+      .filter(
+        (cell) =>
+          cell.x > 1 &&
+          cell.x < width - 2 &&
+          cell.y > 0 &&
+          cell.y < height - 1 &&
+          cell.obstacleType !== BOARD_OBSTACLE_TYPES.SCRAP_DOOR
+      )
+      .map((cell) => ({
+        ...cell,
+        score: Math.abs(cell.x - midX) + Math.abs(cell.y - midY) + rng() * 2,
+      }))
+      .sort((a, b) => a.score - b.score);
+
+    for (const blocker of candidates) {
+      const unlockCells = this.getShortcutUnlockCells(blocker, board.blockers, width, height);
+      const node = this.findShortcutDeliveryCell(blocker, occupied, width, height);
+      if (!node || unlockCells.length === 0) continue;
+
+      const itemColor = colorCycle[this.randomInt(rng, 0, colorCycle.length - 1)] || 'blue';
+      return [
+        {
+          id: `color-toll-${board.id}-${round}`,
+          kind: 'color-toll',
+          x: node.x,
+          y: node.y,
+          itemColor,
+          unlockCells,
+          label: 'Color toll',
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  applyOverpasses(board, round) {
+    if (round < 5) return;
+
+    const rng = this.createRoundRng(`${round}:overpass:${board.id}`);
+    const shouldAddOverpass = round % 5 === 0 || rng() < Math.min(0.68, 0.32 + round * 0.025);
+    if (!shouldAddOverpass) return;
+
+    const width = board.width || this.gridConfig.width;
+    const height = board.height || this.gridConfig.height;
+    const occupied = this.getBoardOccupiedKeys(board);
+    const midX = Math.floor(width / 2);
+    const midY = Math.floor(height / 2);
+    const candidates = [
+      { x: midX - 1, y: midY - 1 },
+      { x: midX - 2, y: midY },
+      { x: midX, y: midY - 2 },
+      { x: midX - 3, y: midY + 1 },
+      { x: midX + 1, y: midY - 3 },
+    ].sort(() => rng() - 0.5);
+
+    for (const candidate of candidates) {
+      const horizontal = { x: candidate.x - 1, y: candidate.y, direction: 'right' };
+      const vertical = { x: candidate.x, y: candidate.y - 1, direction: 'down' };
+      const endpoints = [
+        { x: horizontal.x, y: horizontal.y },
+        { x: horizontal.x + 3, y: horizontal.y },
+        { x: vertical.x, y: vertical.y },
+        { x: vertical.x, y: vertical.y + 3 },
+      ];
+      if (
+        endpoints.some(
+          (cell) =>
+            cell.x <= 0 ||
+            cell.x >= width - 1 ||
+            cell.y < 0 ||
+            cell.y >= height ||
+            occupied.has(`${cell.x},${cell.y}`)
+        )
+      ) {
+        continue;
+      }
+
+      board.loanerUndergrounds.push(
+        {
+          id: `overpass-h-${board.id}-${round}`,
+          ...horizontal,
+          label: 'Overpass',
+          gimmickType: 'overpass',
+        },
+        {
+          id: `overpass-v-${board.id}-${round}`,
+          ...vertical,
+          label: 'Overpass',
+          gimmickType: 'overpass',
+        }
+      );
+      return;
+    }
+  }
+
+  getBoardOccupiedKeys(board) {
+    return new Set([
+      ...(board.blockers || []).map((cell) => `${cell.x},${cell.y}`),
+      ...(board.specialTiles || []).map((cell) => `${cell.x},${cell.y}`),
+      ...(board.shortcutContracts || []).map((shortcut) => `${shortcut.x},${shortcut.y}`),
+      ...(board.loanerUndergrounds || []).flatMap((loaner) => {
+        const endOffset =
+          loaner.direction === 'down'
+            ? { x: 0, y: 3 }
+            : loaner.direction === 'up'
+              ? { x: 0, y: -3 }
+              : loaner.direction === 'left'
+                ? { x: -3, y: 0 }
+                : { x: 3, y: 0 };
+        return [`${loaner.x},${loaner.y}`, `${loaner.x + endOffset.x},${loaner.y + endOffset.y}`];
+      }),
+    ]);
+  }
+
+  getShortcutUnlockCells(anchor, blockers, width, height) {
+    const byKey = new Map(blockers.map((cell) => [`${cell.x},${cell.y}`, cell]));
+    const unlockCells = [{ x: anchor.x, y: anchor.y }];
+    const directions = [
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 },
+    ];
+
+    for (const direction of directions) {
+      const x = anchor.x + direction.x;
+      const y = anchor.y + direction.y;
+      if (x <= 0 || x >= width - 1 || y < 0 || y >= height) continue;
+      const neighbor = byKey.get(`${x},${y}`);
+      if (!neighbor) continue;
+      unlockCells.push({ x, y });
+      break;
+    }
+
+    return unlockCells;
+  }
+
+  findShortcutDeliveryCell(anchor, occupied, width, height) {
+    const candidates = [
+      { x: anchor.x, y: anchor.y - 1 },
+      { x: anchor.x, y: anchor.y + 1 },
+      { x: anchor.x - 1, y: anchor.y },
+      { x: anchor.x + 1, y: anchor.y },
+      { x: anchor.x - 1, y: anchor.y - 1 },
+      { x: anchor.x + 1, y: anchor.y + 1 },
+    ];
+
+    return candidates.find(
+      (cell) =>
+        cell.x > 0 &&
+        cell.x < width - 1 &&
+        cell.y >= 0 &&
+        cell.y < height &&
+        !occupied.has(`${cell.x},${cell.y}`)
+    );
   }
 
   uniqueRows(rows, height) {

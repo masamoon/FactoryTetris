@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { getProcessingPieceBody } from '../config/pieceBodies';
 
 const COLORS = {
   panel: 0x09131d,
@@ -52,13 +53,14 @@ export class UpgradeScene extends Phaser.Scene {
       : this.isBoon
         ? 'Choose a Run Boon'
         : this.isShop
-          ? 'Scrap Shop'
+          ? 'Shop'
           : this.isLevelUp
             ? 'Upgrade Ready'
             : 'Choose an Upgrade';
 
+    const titleY = this.isShop ? Math.max(52, height * 0.1) : height * 0.15;
     this.title = this.add
-      .text(width / 2, height * 0.15, titleText, {
+      .text(width / 2, titleY, titleText, {
         fontFamily: 'Arial Black',
         fontSize: 28,
         color: '#ffffff',
@@ -71,10 +73,10 @@ export class UpgradeScene extends Phaser.Scene {
       : this.isBoon
         ? 'Pick one modifier for this run.'
         : this.isShop
-          ? 'Spend Scrap on pieces, upgrades, and run tools.'
+          ? 'Spend cash on pieces, upgrades, and run tools.'
           : 'Pick the modifier that best fits this board.';
     this.add
-      .text(width / 2, height * 0.15 + 34, subtitle, {
+      .text(width / 2, titleY + 34, subtitle, {
         fontFamily: 'Arial',
         fontSize: 13,
         color: COLORS.muted,
@@ -145,37 +147,71 @@ export class UpgradeScene extends Phaser.Scene {
     const width = this.cameras.main.width;
     const height = this.cameras.main.height;
     const callingScene = this.scene.get(this.callingSceneKey);
-    const scrap = callingScene?.scrap || 0;
-    const offers = this.upgradeChoices.filter(
-      (choice) => !['reroll_shop', 'continue_run'].includes(choice.type)
+    const money = callingScene?.money || 0;
+    const nextRound = (callingScene?.currentRound || 1) + 1;
+    const reserve =
+      typeof callingScene?.getRoundStartingMoney === 'function'
+        ? callingScene.getRoundStartingMoney(nextRound)
+        : 0;
+    const safeSpend = Math.max(0, money - reserve);
+    const runOffers = this.upgradeChoices.filter((choice) =>
+      ['upgrade_permanent', 'boon'].includes(choice.type)
     );
+    const pieceOffers = this.upgradeChoices.filter((choice) => choice.type === 'shop_piece');
     const rerollChoice = this.upgradeChoices.find((choice) => choice.type === 'reroll_shop');
     const continueChoice = this.upgradeChoices.find((choice) => choice.type === 'continue_run');
 
-    const panelMargin = 28;
-    const panelWidth = Math.min(940, Math.max(280, width - panelMargin * 2));
-    const panelHeight = Math.min(540, Math.max(420, height - 180));
-    const panelY = height - panelHeight / 2 - 24;
+    const panelMargin = 24;
+    const panelBottomMargin = 14;
+    const panelWidth = Math.min(1100, Math.max(300, width - panelMargin * 2));
+    const panelHeight = Math.min(650, Math.max(500, height - 118));
+    const panelY = height - panelHeight / 2 - panelBottomMargin;
     const panelTop = panelY - panelHeight / 2;
     const panelBottom = panelY + panelHeight / 2;
-    const cardGap = panelWidth < 820 ? 14 : 20;
-    const columns = panelWidth < 640 ? 1 : offers.length > 3 ? 2 : Math.max(1, offers.length);
-    const rows = Math.ceil(offers.length / columns);
-    const cardAreaTop = panelTop + 76;
+    const panelLeft = width / 2 - panelWidth / 2;
+    const panelRight = width / 2 + panelWidth / 2;
+    const innerPad = panelWidth < 720 ? 18 : 24;
+    const showDeckSidebar = panelWidth >= 860;
+    const deckWidth = showDeckSidebar ? 235 : 0;
+    const contentGap = showDeckSidebar ? 18 : 0;
+    const shopLeft = panelLeft + innerPad;
+    const shopRight = panelRight - innerPad - deckWidth - contentGap;
+    const shopWidth = Math.max(260, shopRight - shopLeft);
+    const shopCenterX = shopLeft + shopWidth / 2;
+    const cardGap = shopWidth < 640 ? 12 : 16;
+    const compactHeight = panelHeight < 570;
+    const cardAreaTop = panelTop + (compactHeight ? 70 : 82);
     const controlY = panelBottom - 36;
-    const cardAreaBottom = controlY - 42;
-    const cardAreaHeight = Math.max(230, cardAreaBottom - cardAreaTop);
-    const cardWidth = Math.floor((panelWidth - 56 - (columns - 1) * cardGap) / columns);
-    const cardHeight = Math.floor((cardAreaHeight - (rows - 1) * cardGap) / rows);
-    const gridWidth = columns * cardWidth + (columns - 1) * cardGap;
-    const startX = width / 2 - gridWidth / 2 + cardWidth / 2;
+    const runLabelY = cardAreaTop;
+    const runTop = runLabelY + (compactHeight ? 14 : 18);
+    const runColumns = Math.max(1, Math.min(3, runOffers.length || 3));
+    const runCardWidth = Math.floor((shopWidth - (runColumns - 1) * cardGap) / runColumns);
+    const runCardHeight = compactHeight ? 104 : 152;
+    const runStartX = shopCenterX - (runColumns * runCardWidth + (runColumns - 1) * cardGap) / 2;
+    const pieceLabelY = runTop + runCardHeight + (compactHeight ? 24 : 34);
+    const pieceTop = pieceLabelY + (compactHeight ? 14 : 18);
+    const pieceColumns = shopWidth >= 680 ? 3 : shopWidth >= 460 ? 2 : 1;
+    const pieceRows = Math.max(1, Math.ceil(pieceOffers.length / pieceColumns));
+    const pieceCardWidth = Math.floor((shopWidth - (pieceColumns - 1) * cardGap) / pieceColumns);
+    const compactDeckReserve = showDeckSidebar ? 0 : 34;
+    const pieceAreaBottom = controlY - (compactHeight ? 44 : 54) - compactDeckReserve;
+    const pieceCardHeight = Math.max(
+      compactHeight ? 78 : 110,
+      Math.min(
+        compactHeight ? 104 : 136,
+        Math.floor((pieceAreaBottom - pieceTop - (pieceRows - 1) * cardGap) / pieceRows)
+      )
+    );
+    const pieceGridWidth = pieceColumns * pieceCardWidth + (pieceColumns - 1) * cardGap;
+    const pieceStartX = shopCenterX - pieceGridWidth / 2;
+    const pieceGridBottom = pieceTop + pieceRows * pieceCardHeight + (pieceRows - 1) * cardGap;
 
     this.add
       .rectangle(width / 2, panelY, panelWidth, panelHeight, 0x09131d, 0.94)
       .setStrokeStyle(2, 0x2f4d62, 0.95);
 
     this.add
-      .text(width / 2, panelTop + 24, 'SCRAP MARKET', {
+      .text(width / 2, panelTop + 24, 'SHOP', {
         fontFamily: 'Arial Black',
         fontSize: 18,
         color: '#88ffcc',
@@ -184,14 +220,14 @@ export class UpgradeScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const reelText = this.add
-      .text(width / 2, panelTop + 48, `◆  Available Scrap: ${scrap}  ◆`, {
+      .text(width / 2, panelTop + 48, `Cash $${money}   Safe spend $${safeSpend}`, {
         fontFamily: 'Arial',
         fontSize: 16,
         color: '#ffd166',
         align: 'center',
       })
       .setOrigin(0.5);
-    reelText.setText(`Available Scrap: ${scrap}`);
+    reelText.setText(`Cash $${money}   Next minimum $${reserve}   Safe spend $${safeSpend}`);
     this.tweens.add({
       targets: reelText,
       scaleX: 1.05,
@@ -202,33 +238,330 @@ export class UpgradeScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    offers.forEach((choice, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
+    this.createShopSectionLabel(
+      shopLeft,
+      runLabelY,
+      shopWidth,
+      'RUN-WIDE UPGRADES',
+      'Expensive picks that shape the whole run.'
+    );
+    runOffers.forEach((choice, index) => {
+      const column = index % runColumns;
       this.createShopOfferButton(
-        startX + column * (cardWidth + cardGap),
-        cardAreaTop + row * (cardHeight + cardGap) + cardHeight / 2,
-        cardWidth,
-        cardHeight,
+        runStartX + column * (runCardWidth + cardGap) + runCardWidth / 2,
+        runTop + runCardHeight / 2,
+        runCardWidth,
+        runCardHeight,
         choice,
-        scrap
+        money
       );
     });
+
+    this.createShopSectionLabel(
+      shopLeft,
+      pieceLabelY,
+      shopWidth,
+      'OPERATOR PIECES',
+      'Cards bought here are added to your Operator deck.'
+    );
+    pieceOffers.forEach((choice, index) => {
+      const column = index % pieceColumns;
+      const row = Math.floor(index / pieceColumns);
+      this.createShopOfferButton(
+        pieceStartX + column * (pieceCardWidth + cardGap) + pieceCardWidth / 2,
+        pieceTop + row * (pieceCardHeight + cardGap) + pieceCardHeight / 2,
+        pieceCardWidth,
+        pieceCardHeight,
+        choice,
+        money
+      );
+    });
+
+    const compactDeckSlotIndex = pieceOffers.length;
+    if (!showDeckSidebar && pieceColumns > 1 && compactDeckSlotIndex < pieceRows * pieceColumns) {
+      const column = compactDeckSlotIndex % pieceColumns;
+      const row = Math.floor(compactDeckSlotIndex / pieceColumns);
+      this.createMiniDeckCard(
+        pieceStartX + column * (pieceCardWidth + cardGap) + pieceCardWidth / 2,
+        pieceTop + row * (pieceCardHeight + cardGap) + pieceCardHeight / 2,
+        pieceCardWidth,
+        pieceCardHeight,
+        callingScene
+      );
+    }
+
+    if (showDeckSidebar) {
+      this.createShopDeckPanel(
+        panelRight - innerPad - deckWidth / 2,
+        panelTop + 82,
+        deckWidth,
+        panelBottom - panelTop - 154,
+        callingScene
+      );
+    } else {
+      this.createCompactDeckSummary(
+        shopCenterX,
+        Math.min(controlY - 26, pieceGridBottom + 18),
+        shopWidth,
+        callingScene
+      );
+    }
 
     const controlWidth = Math.min(250, Math.floor(panelWidth / 2 - 42));
     const controlGap = 28;
     const leftControlX = width / 2 - controlWidth / 2 - controlGap / 2;
     const rightControlX = width / 2 + controlWidth / 2 + controlGap / 2;
     if (rerollChoice) {
-      this.createShopSaveButton(leftControlX, controlY, controlWidth, 52, rerollChoice, scrap);
+      this.createShopSaveButton(leftControlX, controlY, controlWidth, 52, rerollChoice, money);
     }
     if (continueChoice) {
-      this.createShopSaveButton(rightControlX, controlY, controlWidth, 52, continueChoice, scrap);
+      this.createShopSaveButton(rightControlX, controlY, controlWidth, 52, continueChoice, money);
     }
   }
 
-  createShopOfferButton(x, y, width, height, choice, scrap) {
-    const canAfford = !choice.purchased && (choice.isFree || scrap >= (choice.cost || 0));
+  createShopSectionLabel(x, y, width, title, subtitle) {
+    this.add.rectangle(x, y, 6, 22, 0x88ffcc, 0.95).setOrigin(0, 0.5);
+    this.add
+      .text(x + 14, y - 2, title, {
+        fontFamily: 'Arial Black',
+        fontSize: 13,
+        color: '#f4fbff',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(x + width, y - 2, subtitle, {
+        fontFamily: 'Arial',
+        fontSize: 11,
+        color: COLORS.muted,
+        align: 'right',
+        wordWrap: { width: Math.max(160, width * 0.48) },
+      })
+      .setOrigin(1, 0.5);
+  }
+
+  createShopDeckPanel(x, top, width, height, callingScene) {
+    const left = x - width / 2;
+    const summary = this.getShopDeckSummary(callingScene);
+    this.add
+      .rectangle(x, top + height / 2, width, height, 0x0c1822, 0.96)
+      .setStrokeStyle(2, 0x446b80, 0.75);
+    this.add
+      .text(left + 14, top + 18, 'CURRENT DECK', {
+        fontFamily: 'Arial Black',
+        fontSize: 13,
+        color: '#88ffcc',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(
+        left + 14,
+        top + 42,
+        `Draw ${summary.counts.deck}   Discard ${summary.counts.discard}   Bought ${summary.counts.bonus}`,
+        {
+          fontFamily: 'Arial',
+          fontSize: 11,
+          color: '#ffd166',
+          align: 'left',
+        }
+      )
+      .setOrigin(0, 0.5);
+
+    const rows = summary.cards.slice(0, Math.max(0, Math.floor((height - 74) / 36)));
+    if (rows.length === 0) {
+      this.add
+        .text(left + 14, top + 80, 'No Operator cards found.', {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          color: COLORS.muted,
+          align: 'left',
+          wordWrap: { width: width - 28 },
+        })
+        .setOrigin(0, 0);
+      return;
+    }
+
+    rows.forEach((entry, index) => {
+      const rowY = top + 76 + index * 36;
+      this.add.rectangle(x, rowY, width - 22, 30, 0x111f2c, 0.92).setStrokeStyle(1, 0x274253, 0.55);
+      this.add.circle(left + 24, rowY, 6, this.getItemColorSwatchColor(entry.card), 0.95);
+      this.add
+        .text(left + 38, rowY - 6, this.getDeckCardName(entry.card), {
+          fontFamily: 'Arial Black',
+          fontSize: 10,
+          color: '#f4fbff',
+          align: 'left',
+          wordWrap: { width: width - 94 },
+          maxLines: 1,
+        })
+        .setOrigin(0, 0.5);
+      this.add
+        .text(left + 38, rowY + 8, `${entry.zone} - ${this.getDeckCardMeta(entry.card)}`, {
+          fontFamily: 'Arial',
+          fontSize: 9,
+          color: COLORS.muted,
+          align: 'left',
+          wordWrap: { width: width - 94 },
+          maxLines: 1,
+        })
+        .setOrigin(0, 0.5);
+    });
+  }
+
+  createCompactDeckSummary(x, y, width, callingScene) {
+    const summary = this.getShopDeckSummary(callingScene);
+    this.add.rectangle(x, y, width, 30, 0x0c1822, 0.96).setStrokeStyle(1, 0x446b80, 0.75);
+    this.add
+      .text(
+        x,
+        y,
+        `Current Deck: Draw ${summary.counts.deck} / Discard ${summary.counts.discard} / Bought ${summary.counts.bonus}`,
+        {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          color: '#f4fbff',
+          align: 'center',
+          wordWrap: { width: width - 20 },
+        }
+      )
+      .setOrigin(0.5);
+  }
+
+  createMiniDeckCard(x, y, width, height, callingScene) {
+    const left = x - width / 2;
+    const top = y - height / 2;
+    const summary = this.getShopDeckSummary(callingScene);
+    this.add.rectangle(x, y, width, height, 0x0c1822, 0.96).setStrokeStyle(1, 0x446b80, 0.75);
+    this.add.rectangle(left + 4, y, 7, height - 10, 0x88ffcc, 0.9);
+    this.add
+      .text(left + 18, top + 15, 'CURRENT DECK', {
+        fontFamily: 'Arial Black',
+        fontSize: 9,
+        color: '#88ffcc',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(
+        left + 18,
+        top + 33,
+        `Draw ${summary.counts.deck} / Discard ${summary.counts.discard}`,
+        {
+          fontFamily: 'Arial',
+          fontSize: 10,
+          color: '#ffd166',
+          align: 'left',
+        }
+      )
+      .setOrigin(0, 0.5);
+
+    summary.cards.slice(0, height < 96 ? 2 : 3).forEach((entry, index) => {
+      const rowY = top + 52 + index * 15;
+      this.add.circle(left + 22, rowY, 4, this.getItemColorSwatchColor(entry.card), 0.95);
+      this.add
+        .text(left + 32, rowY, `${entry.zone}: ${this.getDeckCardName(entry.card)}`, {
+          fontFamily: 'Arial',
+          fontSize: 9,
+          color: '#d7e7ef',
+          align: 'left',
+          wordWrap: { width: width - 44 },
+          maxLines: 1,
+        })
+        .setOrigin(0, 0.5);
+    });
+  }
+
+  getShopDeckSummary(callingScene) {
+    const factory = callingScene?.machineFactory;
+    const counts = factory?.getDeckCounts?.() || { deck: 0, discard: 0, bonus: 0 };
+    const draw = (factory?.processorDeck || []).filter(Boolean);
+    const discard = (factory?.processorDiscard || []).filter(Boolean);
+    const cards = [
+      ...draw.map((card) => ({ zone: 'DRAW', card })),
+      ...discard.map((card) => ({ zone: 'DISCARD', card })),
+    ];
+
+    return {
+      counts,
+      cards,
+    };
+  }
+
+  getDeckCardName(card) {
+    if (!card) return 'Unknown';
+    return card.shortName || card.pieceShortName || card.name || card.pieceName || 'Operator';
+  }
+
+  getDeckCardMeta(card) {
+    const color = card?.outputItemColor || card?.machineColor || 'item';
+    const operation = card?.arithmeticOperation;
+    if (operation?.type === 'add-constant') return `${color} +${operation.value || 1}`;
+    if (operation?.type === 'add') return `${color} add`;
+    if (operation?.type === 'multiply') return `${color} multiply`;
+    if (operation?.type === 'divide') return `${color} divide`;
+    return color;
+  }
+
+  getItemColorSwatchColor(card) {
+    switch (card?.outputItemColor || card?.machineColor) {
+      case 'red':
+        return 0xff5b5b;
+      case 'yellow':
+        return 0xffd166;
+      case 'green':
+        return 0x88ff88;
+      case 'purple':
+        return 0xc084fc;
+      case 'orange':
+        return 0xff9f45;
+      case 'wild':
+        return 0xffffff;
+      case 'blue':
+      default:
+        return 0x70d6ff;
+    }
+  }
+
+  createShopPieceThumbnail(x, y, size, card, options = {}) {
+    const body = getProcessingPieceBody(card?.bodyId);
+    const shape = body?.shape || [[1]];
+    const rowCount = shape.length;
+    const columnCount = Math.max(...shape.map((row) => row.length));
+    const largestAxis = Math.max(rowCount, columnCount);
+    const gap = Math.max(1, Math.floor(size * 0.06));
+    const cellSize = Math.max(4, Math.floor((size - gap * (largestAxis - 1)) / largestAxis));
+    const thumbnailWidth = columnCount * cellSize + Math.max(0, columnCount - 1) * gap;
+    const thumbnailHeight = rowCount * cellSize + Math.max(0, rowCount - 1) * gap;
+    const startX = x - thumbnailWidth / 2;
+    const startY = y - thumbnailHeight / 2;
+    const enabled = options.enabled !== false;
+    const color = this.getItemColorSwatchColor(card);
+
+    this.add
+      .rectangle(x, y, thumbnailWidth + 8, thumbnailHeight + 8, 0x061018, enabled ? 0.82 : 0.42)
+      .setStrokeStyle(1, color, enabled ? 0.62 : 0.25);
+
+    shape.forEach((row, rowIndex) => {
+      row.forEach((cell, columnIndex) => {
+        if (!cell) return;
+
+        this.add
+          .rectangle(
+            startX + columnIndex * (cellSize + gap) + cellSize / 2,
+            startY + rowIndex * (cellSize + gap) + cellSize / 2,
+            cellSize,
+            cellSize,
+            color,
+            enabled ? 0.95 : 0.45
+          )
+          .setStrokeStyle(1, 0xffffff, enabled ? 0.28 : 0.12);
+      });
+    });
+  }
+
+  createShopOfferButton(x, y, width, height, choice, money) {
+    const canAfford = !choice.purchased && (choice.isFree || money >= (choice.cost || 0));
     const isFeatured = Boolean(choice.isRecommended);
     const featuredColor = choice.kind === 'Boss Prep' ? 0xffd166 : 0x88ffcc;
     const accentColor = this.getShopKindColor(choice.kind);
@@ -237,17 +570,38 @@ export class UpgradeScene extends Phaser.Scene {
     const strokeColor = canAfford ? (isFeatured ? featuredColor : 0x345d72) : 0x4b5663;
     const textColor = canAfford ? '#f4fbff' : '#8c98a3';
     const compact = height < 220;
+    const veryCompact = height < 150;
     const left = x - width / 2;
     const top = y - height / 2;
     const right = x + width / 2;
     const bottom = y + height / 2;
+
+    if (height <= 120) {
+      this.createCompactShopOfferButton({
+        x,
+        y,
+        width,
+        height,
+        choice,
+        canAfford,
+        isFeatured,
+        featuredColor,
+        accentColor,
+        fillColor,
+        hoverColor,
+        strokeColor,
+        textColor,
+        left,
+        top,
+        right,
+        bottom,
+      });
+      return;
+    }
+
     const pad = compact ? 12 : 15;
     const headerY = top + 25;
-    const costLabel = choice.purchased
-      ? 'SOLD'
-      : choice.isFree
-        ? 'FREE'
-        : `${choice.cost || 0} Scrap`;
+    const costLabel = choice.purchased ? 'SOLD' : choice.isFree ? 'FREE' : `$${choice.cost || 0}`;
     const costWidth = Math.min(width < 240 ? 74 : 88, Math.max(58, costLabel.length * 6 + 20));
     const costX = right - pad - costWidth / 2;
     const headerFontSize = width < 180 ? 10 : 11;
@@ -298,14 +652,20 @@ export class UpgradeScene extends Phaser.Scene {
     const iconBg = this.add
       .circle(iconX, headerY + 14, iconSize / 2, accentColor, canAfford ? 0.98 : 0.38)
       .setStrokeStyle(2, isFeatured ? featuredColor : 0xffffff, isFeatured ? 0.9 : 0.18);
-    this.add
-      .text(iconBg.x, iconBg.y, this.getShopKindIcon(choice.kind), {
-        fontFamily: 'Arial Black',
-        fontSize: compact ? 15 : 18,
-        color: canAfford ? '#061018' : '#a9b2bb',
-        align: 'center',
-      })
-      .setOrigin(0.5);
+    if (choice.type === 'shop_piece') {
+      this.createShopPieceThumbnail(iconBg.x, iconBg.y, iconSize - 12, choice.pieceCard, {
+        enabled: canAfford,
+      });
+    } else {
+      this.add
+        .text(iconBg.x, iconBg.y, this.getShopKindIcon(choice.kind), {
+          fontFamily: 'Arial Black',
+          fontSize: compact ? 15 : 18,
+          color: canAfford ? '#061018' : '#a9b2bb',
+          align: 'center',
+        })
+        .setOrigin(0.5);
+    }
 
     this.add
       .text(titleX, top + 18, (choice.kind || 'Offer').toUpperCase(), {
@@ -333,16 +693,16 @@ export class UpgradeScene extends Phaser.Scene {
     const titleText = this.add
       .text(titleX, compact ? top + 43 : top + 48, choice.name, {
         fontFamily: 'Arial Black',
-        fontSize: compact ? 14 : 17,
+        fontSize: veryCompact ? 13 : compact ? 14 : 17,
         fontStyle: 'bold',
         color: textColor,
         align: 'left',
         wordWrap: { width: titleWidth },
-        maxLines: 2,
+        maxLines: veryCompact ? 1 : 2,
       })
       .setOrigin(0, 0);
 
-    const payoffHeight = choice.effect ? (compact ? 34 : 42) : 0;
+    const payoffHeight = choice.effect ? (veryCompact ? 30 : compact ? 34 : 42) : 0;
     const payoffY = choice.effect ? bottom - pad - payoffHeight / 2 : null;
     const descriptionTop = Math.max(
       compact ? top + 82 : top + 94,
@@ -352,24 +712,24 @@ export class UpgradeScene extends Phaser.Scene {
     const descriptionFontSize = compact ? 10 : 12;
     const descriptionLineSpacing = compact ? 0 : 2;
     const descriptionLineHeight = descriptionFontSize + descriptionLineSpacing + 3;
-    const descriptionMaxLines = Math.max(
-      1,
-      Math.floor(Math.max(18, descriptionBottom - descriptionTop) / descriptionLineHeight)
-    );
+    const descriptionHeight = descriptionBottom - descriptionTop;
+    const descriptionMaxLines = Math.floor(descriptionHeight / descriptionLineHeight);
 
-    this.add
-      .text(left + pad + 8, descriptionTop, choice.description || '', {
-        fontFamily: 'Arial',
-        fontSize: descriptionFontSize,
-        color: canAfford ? '#cfe1ea' : '#7f8a94',
-        align: 'left',
-        lineSpacing: descriptionLineSpacing,
-        wordWrap: { width: width - pad * 2 - 12 },
-        maxLines: descriptionMaxLines,
-        fixedWidth: width - pad * 2 - 12,
-        fixedHeight: Math.max(18, descriptionBottom - descriptionTop),
-      })
-      .setOrigin(0, 0);
+    if (choice.description && descriptionMaxLines > 0) {
+      this.add
+        .text(left + pad + 8, descriptionTop, choice.description, {
+          fontFamily: 'Arial',
+          fontSize: descriptionFontSize,
+          color: canAfford ? '#cfe1ea' : '#7f8a94',
+          align: 'left',
+          lineSpacing: descriptionLineSpacing,
+          wordWrap: { width: width - pad * 2 - 12 },
+          maxLines: descriptionMaxLines,
+          fixedWidth: width - pad * 2 - 12,
+          fixedHeight: descriptionMaxLines * descriptionLineHeight,
+        })
+        .setOrigin(0, 0);
+    }
 
     if (choice.effect) {
       this.add
@@ -378,12 +738,12 @@ export class UpgradeScene extends Phaser.Scene {
       this.add
         .text(left + pad + 9, payoffY, choice.effect, {
           fontFamily: 'Arial Black',
-          fontSize: compact ? 10 : 12,
+          fontSize: veryCompact ? 9 : compact ? 10 : 12,
           fontStyle: 'bold',
           color: canAfford ? '#ffd166' : '#8a7a52',
           align: 'left',
           wordWrap: { width: width - pad * 2 - 18 },
-          maxLines: 2,
+          maxLines: veryCompact ? 1 : 2,
           fixedWidth: width - pad * 2 - 18,
           fixedHeight: payoffHeight - 8,
         })
@@ -404,15 +764,124 @@ export class UpgradeScene extends Phaser.Scene {
     });
   }
 
-  createShopSaveButton(x, y, width, height, choice, scrap = 0) {
-    const canAfford = choice.isFree || scrap >= (choice.cost || 0);
+  createCompactShopOfferButton({
+    x,
+    y,
+    width,
+    height,
+    choice,
+    canAfford,
+    isFeatured,
+    featuredColor,
+    accentColor,
+    fillColor,
+    hoverColor,
+    strokeColor,
+    textColor,
+    left,
+    top,
+    right,
+    bottom,
+  }) {
+    const hasPieceThumbnail = choice.type === 'shop_piece' && choice.pieceCard;
+    const thumbnailSize = hasPieceThumbnail ? Math.min(34, Math.max(24, height - 48)) : 0;
+    const contentLeft = hasPieceThumbnail ? left + 58 : left + 18;
+    const costLabel = choice.purchased ? 'SOLD' : choice.isFree ? 'FREE' : `$${choice.cost || 0}`;
+    const costWidth = Math.min(82, Math.max(58, costLabel.length * 6 + 18));
+    const costX = right - 12 - costWidth / 2;
+    const titleWidth = Math.max(92, costX - costWidth / 2 - contentLeft - 8);
+    const bg = this.add
+      .rectangle(x, y, width, height, fillColor, 0.98)
+      .setStrokeStyle(isFeatured ? 2 : 1, strokeColor, canAfford ? 0.95 : 0.55)
+      .setInteractive({ useHandCursor: true });
+
+    this.add.rectangle(left + 4, y, 7, height - 10, accentColor, canAfford ? 0.95 : 0.45);
+    if (hasPieceThumbnail) {
+      this.createShopPieceThumbnail(left + 30, y + 5, thumbnailSize, choice.pieceCard, {
+        enabled: canAfford,
+      });
+    }
+    this.add
+      .text(contentLeft, top + 15, (choice.kind || 'Offer').toUpperCase(), {
+        fontFamily: 'Arial Black',
+        fontSize: 9,
+        color: canAfford ? `#${accentColor.toString(16).padStart(6, '0')}` : '#7d8892',
+        align: 'left',
+      })
+      .setOrigin(0, 0.5);
+
+    if (isFeatured) {
+      this.add
+        .text(contentLeft, top + 31, choice.recommendationLabel || 'GOOD FIT', {
+          fontFamily: 'Arial Black',
+          fontSize: 8,
+          color: featuredColor === 0xffd166 ? '#fff3bf' : '#c8fff0',
+          align: 'left',
+        })
+        .setOrigin(0, 0.5);
+    }
+
+    this.add
+      .rectangle(costX, top + 18, costWidth, 24, 0x0c151d, 0.95)
+      .setStrokeStyle(1, 0xffd166, canAfford ? 0.8 : 0.35);
+    this.add
+      .text(costX, top + 18, costLabel, {
+        fontFamily: 'Arial',
+        fontSize: 10,
+        fontStyle: 'bold',
+        color: canAfford ? '#ffd166' : '#8a7a52',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+
+    this.add
+      .text(contentLeft, top + (isFeatured ? 43 : 36), choice.name, {
+        fontFamily: 'Arial Black',
+        fontSize: 13,
+        color: textColor,
+        align: 'left',
+        wordWrap: { width: titleWidth },
+        maxLines: 1,
+      })
+      .setOrigin(0, 0.5);
+
+    if (choice.effect) {
+      this.add
+        .text(contentLeft, bottom - 17, choice.effect, {
+          fontFamily: 'Arial',
+          fontSize: 10,
+          fontStyle: 'bold',
+          color: canAfford ? '#ffd166' : '#8a7a52',
+          align: 'left',
+          wordWrap: { width: right - contentLeft - 16 },
+          maxLines: 1,
+        })
+        .setOrigin(0, 0.5);
+    }
+
+    bg.on('pointerover', () => {
+      bg.fillColor = hoverColor;
+      bg.setStrokeStyle(2, canAfford ? 0x7ad7ff : 0x66717d, canAfford ? 1 : 0.65);
+    });
+    bg.on('pointerout', () => {
+      bg.fillColor = fillColor;
+      bg.setStrokeStyle(isFeatured ? 2 : 1, strokeColor, canAfford ? 0.95 : 0.55);
+    });
+    bg.on('pointerdown', () => {
+      if (choice.purchased) return;
+      this.handleShopChoice(choice);
+    });
+  }
+
+  createShopSaveButton(x, y, width, height, choice, money = 0) {
+    const canAfford = choice.isFree || money >= (choice.cost || 0);
     const label = choice.type === 'reroll_shop' ? 'SPIN REROLL' : choice.name;
     const bg = this.add
       .rectangle(x, y, width, height, canAfford ? 0x26313b : 0x171d25, 0.98)
       .setStrokeStyle(2, canAfford ? 0x6b7c8c : 0x4b5663, 0.9)
       .setInteractive({ useHandCursor: true });
     this.add
-      .text(x, y, choice.cost ? `${label} (${choice.cost} Scrap)` : label, {
+      .text(x, y, choice.cost ? `${label} ($${choice.cost})` : label, {
         fontFamily: 'Arial',
         fontSize: width < 220 ? 15 : 18,
         fontStyle: 'bold',
@@ -430,7 +899,7 @@ export class UpgradeScene extends Phaser.Scene {
     });
     bg.on('pointerdown', () => {
       if (!canAfford) {
-        this.showShopMessage('Not enough Scrap.');
+        this.showShopMessage('Not enough cash.');
         return;
       }
       this.handleShopChoice(choice);
@@ -455,6 +924,8 @@ export class UpgradeScene extends Phaser.Scene {
       case 'Plan':
         return 0x88ffcc;
       case 'Boss Prep':
+        return 0xffd166;
+      case 'Run Upgrade':
         return 0xffd166;
       case 'Upgrade':
       case 'Permanent':
@@ -486,6 +957,8 @@ export class UpgradeScene extends Phaser.Scene {
         return '!';
       case 'Boss Prep':
         return '!';
+      case 'Run Upgrade':
+        return '^';
       case 'Upgrade':
       case 'Permanent':
       case 'Blueprint':
@@ -536,7 +1009,7 @@ export class UpgradeScene extends Phaser.Scene {
       .setStrokeStyle(2, strokeColor, 0.85)
       .setInteractive({ useHandCursor: true });
 
-    const costText = this.isShop ? ` [${choice.cost || 0} Scrap]` : '';
+    const costText = this.isShop ? ` [$${choice.cost || 0}]` : '';
     const badgeText =
       choice.kind || (isSpark ? 'Spark' : choice.level ? `L${choice.level}` : 'Upgrade');
     const badgeWidth = Math.min(92, Math.max(58, badgeText.length * 7 + 18));

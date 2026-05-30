@@ -89,6 +89,13 @@ export default class Grid {
             this.graphics.moveTo(cellX + 6, cellY + this.cellSize - 8);
             this.graphics.lineTo(cellX + this.cellSize - 8, cellY + 6);
             this.graphics.strokePath();
+          } else if (cell.obstacleType === 'scrap-door') {
+            this.graphics.lineStyle(2, cell.borderColor || 0xffd166, 0.7);
+            this.graphics.strokeCircle(cellX + this.cellSize / 2, cellY + this.cellSize / 2, 8);
+            this.graphics.beginPath();
+            this.graphics.moveTo(cellX + this.cellSize / 2, cellY + 8);
+            this.graphics.lineTo(cellX + this.cellSize / 2, cellY + this.cellSize - 8);
+            this.graphics.strokePath();
           } else if (cell.obstacleType === 'heat') {
             this.graphics.lineStyle(1, cell.borderColor || 0xff6b5f, 0.55);
             this.graphics.strokeCircle(cellX + this.cellSize / 2, cellY + this.cellSize / 2, 6);
@@ -625,8 +632,7 @@ export default class Grid {
 
     try {
       // Check if the machine can be placed
-      const machineId = machine.machineType?.id || machine.id || machine.type;
-      if (!this.canPlaceMachine(machineId, gridX, gridY, direction)) {
+      if (!this.canPlaceMachine(machine, gridX, gridY, direction)) {
         return false;
       }
 

@@ -85,6 +85,7 @@ export const GAME_CONFIG = {
   // Color identity: easy-to-read lanes that can later grow into archetypes.
   defaultItemColor: 'blue',
   mixedItemColor: 'purple',
+  wildcardItemColor: 'wild',
   sourceColorCycle: ['blue', 'yellow', 'red', 'green'],
   itemColors: {
     blue: { name: 'Blue', color: 0x3f8cff, textColor: '#3f8cff', scoreMultiplier: 1.05 },
@@ -92,6 +93,7 @@ export const GAME_CONFIG = {
     red: { name: 'Red', color: 0xff5f57, textColor: '#ff5f57', scoreMultiplier: 1.15 },
     green: { name: 'Green', color: 0x4dd47e, textColor: '#4dd47e', scoreMultiplier: 1.05 },
     purple: { name: 'Purple', color: 0xb56cff, textColor: '#b56cff', scoreMultiplier: 1.2 },
+    wild: { name: 'Wild', color: 0xf4fbff, textColor: '#f4fbff', scoreMultiplier: 1 },
   },
 
   // Resource nodes
@@ -192,7 +194,12 @@ export const GAME_CONFIG = {
   shopSpecialLogisticsBlueprintChance: 0.08,
   shopPieceTraitChance: 0.3,
   shopPieceTraitCost: 3,
+  shopWildcardOperatorChance: 0.04,
   shopSourceLifespan: 180,
+  overlevelScoreBonusPerLevel: 0.06,
+  overlevelScoreBonusCap: 1.3,
+  overlevelBudgetPerLevel: 1,
+  overlevelBudgetCap: 6,
   yellowScorePerScrap: 120,
   draftCycleCost: 2,
   draftRedrawCost: 4,
@@ -205,7 +212,7 @@ export const GAME_CONFIG = {
     milestoneStreaks: [3, 6, 10],
   },
   boardPowerProcessingMultiplier: 0.78,
-  boardQualityScoreMultiplier: 1.15,
+  boardQualityLevelBonus: 1,
   boardTaxedCellSurcharge: 3,
   pacingConfig: {
     roundsPerAct: 4,
@@ -259,9 +266,9 @@ export const GAME_CONFIG = {
   // Round / economy loop
   economy: {
     interest: {
-      cashPerInterest: 8,
-      interestPerStep: 1,
-      maxInterest: 8,
+      cashPerInterest: 100,
+      interestPerStep: 10,
+      maxInterest: 50,
     },
     capitalEdge: {
       firstRounds: 5,
@@ -272,10 +279,12 @@ export const GAME_CONFIG = {
       maxDividend: 6,
     },
   },
-  startingMoney: 45,
-  roundBaseMoney: 28,
-  roundMoneyGrowth: 8,
-  roundClearBonus: 18,
+  startingMoney: 90,
+  roundBaseMoney: 90,
+  roundMoneyGrowth: 18,
+  shopCostMultiplier: 10,
+  budgetCarryoverCapBase: 0,
+  budgetCarryoverCapGrowth: 0,
   deliveryNodeCompletionScoreBase: 420,
   deliveryNodeCompletionScorePerTier: 160,
   deliveryNodeCompletionScorePerItem: 85,
@@ -285,7 +294,7 @@ export const GAME_CONFIG = {
   filledDeliveryNodeRewardMultiplier: 0.35,
   maxDeliveryNodesPerRound: 7,
   machinePlacementCosts: {
-    conveyor: 1,
+    conveyor: 4,
     logisticsBeltPiece: 0,
     splitter: 4,
     'filter-splitter': 42,

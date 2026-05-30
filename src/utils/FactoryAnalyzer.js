@@ -38,7 +38,8 @@ export function getProducibleLevels(scene) {
       machine.id === 'conveyor' ||
       machine.id === 'splitter' ||
       machine.id === 'merger' ||
-      machine.id === 'underground-belt'
+      machine.id === 'underground-belt' ||
+      machine.id === 'logistics-tunnel'
     ) {
       continue;
     }
@@ -89,7 +90,8 @@ export function getFreeOutputs(scene) {
       machine.id === 'conveyor' ||
       machine.id === 'splitter' ||
       machine.id === 'merger' ||
-      machine.id === 'underground-belt'
+      machine.id === 'underground-belt' ||
+      machine.id === 'logistics-tunnel'
     ) {
       continue;
     }

@@ -11,10 +11,14 @@ import {
   getItemColorName,
   shouldShowLevelTrail,
 } from '../../utils/ResourceUtils';
-import {
-  ARITHMETIC_OPERATION_TAGS,
-  getArithmeticOperationTagLabel,
-} from '../../config/resourceLevels';
+
+function getReadableTextColor(hexColor) {
+  const r = (hexColor >> 16) & 0xff;
+  const g = (hexColor >> 8) & 0xff;
+  const b = hexColor & 0xff;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.58 ? '#07111a' : '#ffffff';
+}
 
 /**
  * Conveyor Belt Machine
@@ -116,6 +120,8 @@ export default class ConveyorMachine extends BaseMachine {
     this.outputTypes = ['basic-resource', 'advanced-resource', 'mega-resource'];
     this.processingTime = 1000; // 1 second
     this.defaultDirection = 'right';
+    this.isLogisticsBeltSegment = this.config?.isLogisticsBeltSegment === true;
+    this.isLogisticsTunnelSegment = this.config?.isLogisticsTunnelSegment === true;
 
     console.log(
       `[${this.name}] Initialized with shape dimensions: ${this.shape.length}x${this.shape[0].length}`
@@ -149,13 +155,20 @@ export default class ConveyorMachine extends BaseMachine {
     const centerY = 0;
 
     // Create the conveyor base (slightly darker blue)
+    const baseColor = this.isLogisticsTunnelSegment ? 0x2f3440 : 0x888888;
+    const beltColor = this.isLogisticsTunnelSegment ? 0x151a24 : 0x666666;
+    const rollerColor = this.isLogisticsTunnelSegment ? 0xb56cff : 0x888888;
+
     const base = this.scene.add.rectangle(
       centerX,
       centerY,
       this.grid.cellSize - 4,
       this.grid.cellSize - 4,
-      0x888888 // Updated to gray for conveyor base
+      baseColor
     );
+    if (this.isLogisticsTunnelSegment) {
+      base.setStrokeStyle(2, 0xb56cff, 0.9);
+    }
     this.container.add(base);
     console.log('[CONVEYOR] Created base with color:', base.fillColor.toString(16));
 
@@ -171,7 +184,7 @@ export default class ConveyorMachine extends BaseMachine {
         centerY + offset,
         beltWidth,
         beltHeight,
-        0x666666 // Keep dark gray for belt lines
+        beltColor
       );
       this.container.add(belt);
       console.log('[CONVEYOR] Created belt line with color:', belt.fillColor.toString(16));
@@ -221,8 +234,8 @@ export default class ConveyorMachine extends BaseMachine {
         break;
     }
 
-    const roller1 = this.scene.add.circle(roller1X, roller1Y, rollerRadius, 0x888888); // Gray rollers
-    const roller2 = this.scene.add.circle(roller2X, roller2Y, rollerRadius, 0x888888); // Gray rollers
+    const roller1 = this.scene.add.circle(roller1X, roller1Y, rollerRadius, rollerColor);
+    const roller2 = this.scene.add.circle(roller2X, roller2Y, rollerRadius, rollerColor);
     this.container.add(roller1);
     this.container.add(roller2);
     console.log('[CONVEYOR] Created rollers with color:', roller1.fillColor.toString(16));
@@ -231,10 +244,10 @@ export default class ConveyorMachine extends BaseMachine {
 
     // Add machine type indicator
     const machineLabel = this.scene.add
-      .text(centerX, centerY, 'C', {
+      .text(centerX, centerY, this.isLogisticsTunnelSegment ? 'T' : 'C', {
         fontFamily: 'Arial',
         fontSize: 14,
-        color: '#ffffff',
+        color: this.isLogisticsTunnelSegment ? '#d9b6ff' : '#ffffff',
       })
       .setOrigin(0.5);
     this.container.add(machineLabel);
@@ -478,7 +491,7 @@ export default class ConveyorMachine extends BaseMachine {
       this.lastExtractTime = now;
 
       console.log(
-        `[CONVEYOR_EXTRACT] Extracted ${extractedItem.itemColor || extractedItem.sourceColor || 'uncolored'} item '${extractedItem.type}' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`
+        `[CONVEYOR_EXTRACT] Extracted ${extractedItem.itemColor || 'uncolored'} item '${extractedItem.type}' (amount: ${extractedItem.amount || 1}) from (${sourceX}, ${sourceY}) onto conveyor (${this.gridX}, ${this.gridY})`
       );
 
       // --- ADD ITEM VISUAL LOGIC ---
@@ -616,7 +629,7 @@ export default class ConveyorMachine extends BaseMachine {
     }
     // --- END Safety Check ---
 
-    const size = this.grid.cellSize * 0.3; // Visual size relative to cell
+    const size = this.grid.cellSize * 0.38; // Visual size relative to cell
     let visual = null;
 
     if (itemType === 'level-resource') {
@@ -630,10 +643,10 @@ export default class ConveyorMachine extends BaseMachine {
       // Use a Container to handle complex visuals (layers, glow)
       const container = this.scene.add.container(0, 0);
 
-      // Glow layer (behind)
+      // Glow layer (behind). This communicates high tier without taking over item color identity.
       if (showGlow) {
         const glowIntensity = getLevelGlowIntensity(level);
-        const glowSize = size * 2.0 * scale;
+        const glowSize = size * 1.65 * scale;
         const glow = this.scene.add.circle(0, 0, glowSize / 2, levelColor, glowIntensity * 0.5);
         // Add a tween for pulsing glow
         this.scene.tweens.add({
@@ -648,27 +661,37 @@ export default class ConveyorMachine extends BaseMachine {
         container.glowShape = glow; // Reference for updates
       }
 
-      // Main shape (diamond for level resources to distinguish)
-      // Draw a rotated square (diamond)
+      // Main shape owns item paint color. Level gets a separate badge below so L2 green
+      // never overwhelms a blue/yellow/red item at conveyor speed.
       const diamond = this.scene.add.rectangle(0, 0, size * scale, size * scale, itemColor);
       diamond.rotation = Math.PI / 4;
-      diamond.setStrokeStyle(1.5, levelColor); // Tier color border keeps level readable
+      diamond.setStrokeStyle(2, 0x07111a, 0.95);
 
       container.add(diamond);
       container.mainShape = diamond; // Reference for updates
       container.itemColorKey = itemColorKey;
       container.itemColorName = getItemColorName(itemColorKey);
 
+      const levelBadgeRadius = Math.max(5, size * 0.34);
+      const levelBadgeX = size * 0.43;
+      const levelBadgeY = size * 0.43;
+      const levelBadgeBg = this.scene.add
+        .circle(levelBadgeX, levelBadgeY, levelBadgeRadius, levelColor, 1)
+        .setStrokeStyle(1.5, 0xffffff, 0.95);
+      container.add(levelBadgeBg);
+      container.levelBadgeBg = levelBadgeBg;
+
       const tierBadge = this.scene.add
-        .text(0, 0, `${level}`, {
+        .text(levelBadgeX, levelBadgeY, `${level}`, {
           fontFamily: 'Arial Black, Arial, sans-serif',
-          fontSize: '10px',
-          color: '#ffffff',
+          fontSize: level >= 10 ? '7px' : '8px',
+          color: getReadableTextColor(levelColor),
           stroke: '#000000',
-          strokeThickness: 2,
+          strokeThickness: 1,
         })
         .setOrigin(0.5);
       container.add(tierBadge);
+      container.levelBadgeText = tierBadge;
 
       const operationBadgeText = this.getItemOperationBadgeText(itemData);
       if (operationBadgeText) {
@@ -708,18 +731,8 @@ export default class ConveyorMachine extends BaseMachine {
     return visual;
   }
 
-  getItemOperationBadgeText(itemData) {
-    const tags = Array.isArray(itemData?.operationTags) ? itemData.operationTags : [];
-    const lastTag = itemData?.lastOperationTag || tags[tags.length - 1];
-
-    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD_ONE) return '+1';
-    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD_TWO) return '+2';
-    if (lastTag === ARITHMETIC_OPERATION_TAGS.ADD) return 'M';
-    if (lastTag === ARITHMETIC_OPERATION_TAGS.MULTIPLY) return 'x';
-    if (lastTag === ARITHMETIC_OPERATION_TAGS.DIVIDE) return '/';
-
-    const label = getArithmeticOperationTagLabel(lastTag);
-    return label ? label.charAt(0).toUpperCase() : null;
+  getItemOperationBadgeText(_itemData) {
+    return null;
   }
 
   /**
@@ -831,8 +844,11 @@ export default class ConveyorMachine extends BaseMachine {
         // Level 6+ has rainbow effect on the tier glow/stroke while body keeps color lane identity.
         if (level >= 13) {
           const newColor = getLevelDisplayColor(level, this.scene.time.now);
-          if (currentItem.visual.mainShape) {
-            currentItem.visual.mainShape.setStrokeStyle(1.5, newColor);
+          if (currentItem.visual.levelBadgeBg) {
+            currentItem.visual.levelBadgeBg.setFillStyle(newColor, 1);
+          }
+          if (currentItem.visual.levelBadgeText) {
+            currentItem.visual.levelBadgeText.setColor(getReadableTextColor(newColor));
           }
           if (currentItem.visual.glowShape) {
             currentItem.visual.glowShape.fillColor = newColor;
@@ -1023,7 +1039,7 @@ export default class ConveyorMachine extends BaseMachine {
     this.addItemVisual(routedItem); // This adds to itemsOnBelt with progress 0
 
     console.log(
-      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted ${routedItem.itemColor || routedItem.sourceColor || 'uncolored'} item: ${routedItem.type} (amount: ${routedItem.amount || 1})`
+      `[CONVEYOR] (${this.gridX}, ${this.gridY}) accepted ${routedItem.itemColor || 'uncolored'} item: ${routedItem.type} (amount: ${routedItem.amount || 1})`
     );
     return true;
   }

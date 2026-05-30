@@ -10,7 +10,6 @@ import {
   ARITHMETIC_OPERATION_TYPES,
   estimateArithmeticOutput,
   getConfigsForBlockCount,
-  getArithmeticOperationTags,
   isArithmeticConfig,
 } from '../config/resourceLevels';
 import { getProducibleLevels, isPieceUsable } from './FactoryAnalyzer';
@@ -111,7 +110,6 @@ function selectWeightedConfig(configs, producibleLevels, scene = null) {
   const rarityFactor = 3.0;
 
   // Calculate weights
-  const contractOperationTags = getActiveContractOperationTags(scene);
   const weights = configs.map((config) => {
     const outputLevel = getDraftOutputLevel(config, producibleLevels);
     // Calculate distance from the current draft apex tier.
@@ -132,13 +130,6 @@ function selectWeightedConfig(configs, producibleLevels, scene = null) {
     // Minor boosting for new levels to ensure they appear
     if (!producibleLevels.has(outputLevel)) {
       weight *= 1.2;
-    }
-
-    if (contractOperationTags.size > 0 && isArithmeticConfig(config)) {
-      const operationTags = getArithmeticOperationTags(config.arithmeticOperation);
-      if (operationTags.some((tag) => contractOperationTags.has(tag))) {
-        weight *= 2.4;
-      }
     }
 
     return weight;
@@ -342,20 +333,4 @@ function doesArithmeticOperationMatch(operation, forcedOperation) {
     return operation.value === forcedOperation.value;
   }
   return true;
-}
-
-function getActiveContractOperationTags(scene) {
-  const tags = new Set();
-  if (!scene || scene.runState !== 'ROUND_ACTIVE' || !scene.contract) {
-    return tags;
-  }
-
-  for (const demand of scene.contract.demands || []) {
-    if (demand.delivered >= demand.quantity) continue;
-    if (demand.requiredLastOperationTag) {
-      tags.add(demand.requiredLastOperationTag);
-    }
-  }
-
-  return tags;
 }

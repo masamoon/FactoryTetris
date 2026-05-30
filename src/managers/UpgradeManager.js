@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { upgradesConfig, UPGRADE_TYPES, TIER_THRESHOLDS } from '../config/upgrades.js';
 import { BOON_POOL } from '../config/boons.js';
 import { BUILD_IDENTITIES, getBuildIdentityLevel } from '../config/buildIdentities.js';
+import { GAME_CONFIG } from '../config/gameConfig.js';
 
 export class UpgradeManager {
   constructor() {
@@ -58,7 +59,7 @@ export class UpgradeManager {
   }
 
   getExtractionSpeedModifier() {
-    return 1;
+    return this.getModifier(UPGRADE_TYPES.SHIFT_HANDOFF);
   }
 
   getBudgetBonus() {
@@ -77,8 +78,84 @@ export class UpgradeManager {
     return tierInfo ? tierInfo.modifier : 0;
   }
 
-  getHighRollerMultiplier() {
-    return this.getModifier(UPGRADE_TYPES.HIGH_ROLLER);
+  getColorCalibrationModifier() {
+    const level = this.currentUpgrades[UPGRADE_TYPES.COLOR_CALIBRATION] || 0;
+    if (level === 0) return 1;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.COLOR_CALIBRATION]?.tiers.find(
+      (t) => t.level === level
+    );
+    return tierInfo ? tierInfo.modifier : 1;
+  }
+
+  getWildcardOperatorShopChance() {
+    const baseChance = GAME_CONFIG.shopWildcardOperatorChance || 0;
+    const level = this.currentUpgrades[UPGRADE_TYPES.WILDCARD_LICENSING] || 0;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.WILDCARD_LICENSING]?.tiers.find(
+      (t) => t.level === level
+    );
+    const upgradeChance = tierInfo ? tierInfo.modifier : 0;
+    const marketChance = this.activeProceduralUpgrades.has('boon_prism_market') ? 0.18 : 0;
+    return Math.min(0.75, baseChance + upgradeChance + marketChance);
+  }
+
+  getClosingFloatBonus() {
+    const level = this.currentUpgrades[UPGRADE_TYPES.CLOSING_FLOAT] || 0;
+    if (level === 0) return 0;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.CLOSING_FLOAT]?.tiers.find(
+      (t) => t.level === level
+    );
+    return tierInfo ? tierInfo.modifier : 0;
+  }
+
+  getColorDeliveryScoreModifier({ itemColor, conditionColor, wildcardColor = 'wild' } = {}) {
+    if (!conditionColor || !itemColor || itemColor === wildcardColor) return 1;
+    if (itemColor !== conditionColor) return 1;
+
+    let modifier = this.getColorCalibrationModifier();
+    if (this.activeProceduralUpgrades.has('boon_suit_streak')) {
+      modifier *= 1.25;
+    }
+    return modifier;
+  }
+
+  getShadeGaugeModifier({ itemColor, conditionColor, itemLevel = 1, wildcardColor = 'wild' } = {}) {
+    if (!conditionColor || !itemColor || itemColor === wildcardColor) return 1;
+    if (itemColor !== conditionColor) return 1;
+
+    const level = this.currentUpgrades[UPGRADE_TYPES.SHADE_GAUGE] || 0;
+    if (level === 0) return 1;
+
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.SHADE_GAUGE]?.tiers.find(
+      (t) => t.level === level
+    );
+    const perLevel = tierInfo ? tierInfo.modifier : 0;
+    const extraLevels = Math.max(0, Math.floor(itemLevel || 1) - 1);
+    return 1 + extraLevels * perLevel;
+  }
+
+  getLevelDeliveryScoreModifier({ itemLevel = 1, conditionTier = 1, exact = false } = {}) {
+    if (exact) return 1;
+
+    const perLevel = GAME_CONFIG.overlevelScoreBonusPerLevel ?? 0.06;
+    const cap = GAME_CONFIG.overlevelScoreBonusCap ?? 1.3;
+    const overage = Math.max(0, Math.floor(itemLevel || 1) - Math.floor(conditionTier || 1));
+    return Math.min(cap, 1 + overage * perLevel);
+  }
+
+  getLevelDeliveryBudgetBonus({ itemLevel = 1, conditionTier = 1, exact = false } = {}) {
+    if (exact) return 0;
+
+    const perLevel = GAME_CONFIG.overlevelBudgetPerLevel ?? 1;
+    const cap = GAME_CONFIG.overlevelBudgetCap ?? 6;
+    const overage = Math.max(0, Math.floor(itemLevel || 1) - Math.floor(conditionTier || 1));
+    return Math.min(cap, Math.floor(overage * perLevel));
+  }
+
+  getColorMatchProcessingModifier(machine, scene) {
+    if (!this.activeProceduralUpgrades.has('boon_chromatic_alignment')) return 1;
+    const outputColor = machine?.outputItemColor || null;
+    if (!outputColor || outputColor === 'wild') return 1;
+    return scene?.hasActiveDeliveryDemandColor?.(outputColor) ? 1.2 : 1;
   }
 
   // --- Boon-derived modifiers ---
@@ -87,29 +164,91 @@ export class UpgradeManager {
   }
 
   getInventoryCapacityBonus() {
-    return this.activeProceduralUpgrades.has('boon_lean_lines') ? -1 : 0;
+    const level = this.currentUpgrades[UPGRADE_TYPES.STAGING_RACKS] || 0;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.STAGING_RACKS]?.tiers.find(
+      (t) => t.level === level
+    );
+    const stagingBonus = tierInfo ? tierInfo.modifier : 0;
+    const leanPenalty = this.activeProceduralUpgrades.has('boon_lean_lines') ? -1 : 0;
+    return stagingBonus + leanPenalty;
   }
 
   getArchetypeProcessingModifier(machine) {
-    if (!machine || !this.activeProceduralUpgrades.has('boon_recipe_lattice')) {
+    if (!machine) {
       return 1;
     }
 
-    if (
+    const isArithmeticRecipe =
       machine.arithmeticOperation &&
       typeof machine.getArithmeticRequiredInputCount === 'function' &&
-      machine.getArithmeticRequiredInputCount() > 1
-    ) {
-      return 1.25;
-    }
+      machine.getArithmeticRequiredInputCount() > 1;
 
     const levels = Array.isArray(machine.inputLevels) ? machine.inputLevels : [];
-    if (levels.length < 2) return 1;
-
     const uniqueLevels = new Set(levels);
-    const isMixedRecipe = uniqueLevels.size > 1;
-    const hasDuplicateInput = uniqueLevels.size < levels.length;
-    return isMixedRecipe || hasDuplicateInput ? 1.25 : 1;
+    const isLevelRecipe =
+      levels.length >= 2 && (uniqueLevels.size > 1 || uniqueLevels.size < levels.length);
+    const isRecipeMachine = isArithmeticRecipe || isLevelRecipe;
+
+    if (!isRecipeMachine) return 1;
+
+    const level = this.currentUpgrades[UPGRADE_TYPES.MATCHED_DIES] || 0;
+    const tierInfo = upgradesConfig[UPGRADE_TYPES.MATCHED_DIES]?.tiers.find(
+      (t) => t.level === level
+    );
+    const matchedDiesModifier = tierInfo ? tierInfo.modifier : 1;
+    const latticeModifier = this.activeProceduralUpgrades.has('boon_recipe_lattice') ? 1.25 : 1;
+    return matchedDiesModifier * latticeModifier;
+  }
+
+  applyColorLevelProcessingUpgrades(nextItem, _machine, scene, ctx = {}) {
+    if (!nextItem || nextItem.type !== 'level-resource') return nextItem;
+
+    let adjustedItem = nextItem;
+    const wildcardColor = GAME_CONFIG.wildcardItemColor || 'wild';
+    const consumedItems = Array.isArray(ctx.consumedItems) ? ctx.consumedItems : [];
+    const consumedColors = consumedItems
+      .map((item) => item?.itemColor)
+      .filter((itemColor) => itemColor && itemColor !== wildcardColor);
+    const uniqueConsumedColors = new Set(consumedColors);
+
+    const sortingLevel = this.currentUpgrades[UPGRADE_TYPES.SORTING_JIG] || 0;
+    const sortingTier = upgradesConfig[UPGRADE_TYPES.SORTING_JIG]?.tiers.find(
+      (t) => t.level === sortingLevel
+    );
+    if (
+      sortingTier &&
+      uniqueConsumedColors.size >= 2 &&
+      Math.floor(adjustedItem.level || 1) >= sortingTier.modifier
+    ) {
+      adjustedItem = {
+        ...adjustedItem,
+        itemColor: wildcardColor,
+      };
+    }
+
+    const indexLevel = this.currentUpgrades[UPGRADE_TYPES.INDEX_MARKS] || 0;
+    const indexTier = upgradesConfig[UPGRADE_TYPES.INDEX_MARKS]?.tiers.find(
+      (t) => t.level === indexLevel
+    );
+    if (indexTier && adjustedItem.itemColor && adjustedItem.itemColor !== wildcardColor) {
+      const targetTier =
+        typeof scene?.getHighestActiveDeliveryDemandTierForColor === 'function'
+          ? scene.getHighestActiveDeliveryDemandTierForColor(adjustedItem.itemColor)
+          : 0;
+      const currentLevel = Math.floor(adjustedItem.level || 1);
+      const bonus = Math.min(
+        Math.max(0, indexTier.modifier || 0),
+        Math.max(0, targetTier - currentLevel)
+      );
+      if (bonus > 0) {
+        adjustedItem = {
+          ...adjustedItem,
+          level: currentLevel + bonus,
+        };
+      }
+    }
+
+    return adjustedItem;
   }
 
   getBuildIdentityScores() {

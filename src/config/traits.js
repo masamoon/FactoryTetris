@@ -50,106 +50,24 @@ export const TRAITS = [
     },
   },
   {
-    id: 'tycoon',
-    name: 'Tycoon',
-    category: TRAIT_CATEGORIES.STAT,
-    description: '+50% delivery score.',
-    hooks: {
-      // The trait id is already appended to traitTags by processing /
-      // completeProcessing. Tycoon needs no onProcess body — DeliveryNode
-      // reads the 'tycoon' tag and applies the +50% bonus.
-    },
-  },
-  {
-    id: 'polarized',
-    name: 'Polarized',
-    category: TRAIT_CATEGORIES.RULE,
-    description: 'x2 score if all inputs are L3+.',
-    hooks: {
-      onProcess: (resource, machine, scene, ctx) => {
-        const consumedItems = Array.isArray(ctx?.consumedItems) ? ctx.consumedItems : [];
-        const inputPurities =
-          consumedItems.length > 0
-            ? consumedItems.map((item) => item?.level || 1)
-            : [ctx && typeof ctx.inputLevel === 'number' ? ctx.inputLevel : resource.level || 1];
-        const allInputsHighGrade = inputPurities.every((level) => level >= 3);
-
-        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
-        resource.traitTags = resource.traitTags.filter((t) => t !== 'polarized');
-        if (allInputsHighGrade) {
-          resource.traitTags.push('polarized');
-        }
-        return resource;
-      },
-    },
-  },
-  {
     id: 'twin',
     name: 'Twin',
     category: TRAIT_CATEGORIES.RULE,
     description: 'Duplicates each output.',
     hooks: {
       onProcess: (resource, machine) => {
-        // Prevent exponential compounding: a resource already marked twinned
-        // does not produce another duplicate.
-        if (resource && resource.twinned) return resource;
+        if (!resource) return resource;
         const dup = {
-          ...resource,
-          visitedMachines: new Set(resource.visitedMachines),
-          traitTags: Array.isArray(resource.traitTags) ? [...resource.traitTags] : [],
-          twinned: true,
+          type: resource.type,
+          level: resource.level,
+          itemColor: resource.itemColor,
+          amount: resource.amount || 1,
         };
         if (Array.isArray(machine.outputQueue)) {
           machine.outputQueue.push(dup);
           console.log(
             `[trait:twin] ${machine.id} duplicated output, queue size now ${machine.outputQueue.length}`
           );
-        }
-        return resource;
-      },
-    },
-  },
-  {
-    id: 'sequenced',
-    name: 'Sequenced',
-    category: TRAIT_CATEGORIES.RULE,
-    description: '+75% score after another operator.',
-    hooks: {
-      onProcess: (resource) => {
-        if (!resource) return resource;
-        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
-        resource.traitTags = resource.traitTags.filter((t) => t !== 'sequenced');
-        if ((resource.machineUids?.length || 0) >= 2) {
-          resource.traitTags.push('sequenced');
-        }
-        return resource;
-      },
-    },
-  },
-  {
-    id: 'resonant',
-    name: 'Resonant',
-    category: TRAIT_CATEGORIES.ADJACENCY,
-    description: '+50% score near same-tier output.',
-    hooks: {
-      onProcess: (resource, machine, scene) => {
-        if (!resource) return resource;
-        const neighbors = getOrthogonalNeighborMachines(machine, scene);
-        const machineTier =
-          machine.outputLevel || machine.lastOutputLevel || machine.previewOutputLevel;
-        const sameTier = neighbors.some(
-          (n) =>
-            (n.outputLevel || n.lastOutputLevel || n.previewOutputLevel) != null &&
-            (n.outputLevel || n.lastOutputLevel || n.previewOutputLevel) === machineTier
-        );
-        resource.traitTags = Array.isArray(resource.traitTags) ? resource.traitTags : [];
-        // completeProcessing already auto-appended 'resonant'. Keep it ONLY if
-        // adjacency is satisfied; strip it otherwise so DeliveryNode's +50%
-        // applies exclusively when the adjacency condition holds.
-        resource.traitTags = resource.traitTags.filter((t) => t !== 'resonant');
-        if (sameTier) {
-          resource.traitTags.push('resonant');
-          console.log(`[trait:resonant] ${machine.id} adjacency satisfied; +50% queued`);
         }
         return resource;
       },
@@ -197,7 +115,7 @@ export const TRAITS = [
     id: 'beacon',
     name: 'Beacon',
     category: TRAIT_CATEGORIES.RUN_WIDE,
-    description: '+0.1 delivery score multiplier while placed.',
+    description: '+0.1 delivery revenue multiplier while placed.',
     hooks: {
       onAttach: (machine, scene) => {
         if (scene && scene.traitRegistry) {
@@ -217,14 +135,7 @@ export const TRAITS = [
 
 const TRAITS_BY_ID = new Map(TRAITS.map((t) => [t.id, t]));
 
-const BUILD_AROUND_TRAIT_IDS = [
-  'overclocked',
-  'twin',
-  'sequenced',
-  'resonant',
-  'conductor',
-  'beacon',
-];
+const BUILD_AROUND_TRAIT_IDS = ['overclocked', 'twin', 'conductor', 'beacon'];
 
 export function getTraitById(id) {
   return TRAITS_BY_ID.get(id) || null;

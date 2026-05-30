@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { getItemColorKey, processLevelResource } from '../../utils/ResourceUtils';
+import {
+  getItemColorHex,
+  getItemColorKey,
+  getItemColorName,
+  processLevelResource,
+} from '../../utils/ResourceUtils';
 import {
   ARITHMETIC_OPERATION_TAGS,
   calculateArithmeticOutput,
@@ -20,6 +25,7 @@ const MACHINE_COLORS = {
   splitter: 0xaa88ff, // light purple
   merger: 0xff88aa, // light pink
   'underground-belt': 0x444444, // dark gray
+  'logistics-tunnel': 0xb56cff, // routed logistics tunnel
 };
 export { MACHINE_COLORS };
 
@@ -91,6 +97,8 @@ export default class BaseMachine {
     this.initMachineProperties();
 
     this.applyRuntimeRecipeConfig(config || {});
+    this.outputItemColor =
+      config?.outputItemColor || config?.machineColor || this.outputItemColor || null;
 
     // Allow config to provide trait id (set by MachineFactory for higher-tier pieces).
     // Read AFTER initMachineProperties so child classes can override defaults but
@@ -200,6 +208,7 @@ export default class BaseMachine {
     this.arithmeticOperation = null;
     this.arithmeticInputCount = 0;
     this.trait = null;
+    this.outputItemColor = null;
   }
 
   isArithmeticMachine() {
@@ -448,7 +457,7 @@ export default class BaseMachine {
       });
     }
 
-    // Initialize queues for preserving item data such as level, color, and tags.
+    // Initialize queues for preserving resource level and color.
     this.inputQueue = [];
     this.outputQueue = [];
   }
@@ -550,24 +559,10 @@ export default class BaseMachine {
     return true;
   }
 
-  tagItemRoute(itemData, routeTag = null) {
+  tagItemRoute(itemData, _routeTag = null) {
     if (!itemData || typeof itemData !== 'object') return itemData;
 
-    const machineUids = Array.isArray(itemData.machineUids) ? [...itemData.machineUids] : [];
-    if (this.uid && !machineUids.includes(this.uid)) {
-      machineUids.push(this.uid);
-    }
-
-    const routeTags = Array.isArray(itemData.routeTags) ? [...itemData.routeTags] : [];
-    if (routeTag && !routeTags.includes(routeTag)) {
-      routeTags.push(routeTag);
-    }
-
-    return {
-      ...itemData,
-      machineUids,
-      routeTags,
-    };
+    return itemData;
   }
 
   getFlowStatus() {
@@ -644,6 +639,17 @@ export default class BaseMachine {
    */
   getDescription() {
     return this.description;
+  }
+
+  getOutputItemColor(fallbackItem = null) {
+    return this.outputItemColor || getItemColorKey(fallbackItem);
+  }
+
+  getMachineTintColor() {
+    const fallbackColor = MACHINE_COLORS[this.id] || 0x44ff44;
+    return this.outputItemColor
+      ? getItemColorHex(this.outputItemColor, fallbackColor)
+      : fallbackColor;
   }
 
   /**
@@ -855,7 +861,7 @@ export default class BaseMachine {
 
     // Loop through each cell in the ROTATED shape
     // All cells use the unique machine color for easy identification
-    const machineColor = MACHINE_COLORS[this.id] || 0x44ff44;
+    const machineColor = this.getMachineTintColor();
 
     for (let y = 0; y < shapeHeight; y++) {
       for (let x = 0; x < shapeWidth; x++) {
@@ -1228,7 +1234,7 @@ export default class BaseMachine {
     // Add hover effect
     this.container.on('pointerover', () => {
       // Highlight the machine - brighten all cells uniformly
-      const machineColor = MACHINE_COLORS[this.id] || 0x44ff44;
+      const machineColor = this.getMachineTintColor();
       const brightenedColor = this.brightenColor(machineColor, 40);
 
       this.container.list.forEach((part) => {
@@ -1243,7 +1249,7 @@ export default class BaseMachine {
 
     this.container.on('pointerout', () => {
       // Remove highlight - restore to unique machine color for all cells
-      const machineColor = MACHINE_COLORS[this.id] || 0x44ff44;
+      const machineColor = this.getMachineTintColor();
 
       this.container.list.forEach((part) => {
         if (part.type === 'Rectangle' && part !== this.progressBar && !part.isResourceIndicator) {
@@ -1408,6 +1414,9 @@ export default class BaseMachine {
 
     // Create tooltip text with inventory info
     let tooltipContent = `${this.name} (${this.direction})`;
+    if (this.outputItemColor) {
+      tooltipContent += `\nOutput color: ${getItemColorName(this.outputItemColor)}`;
+    }
 
     // Show Efficiency/Interference warning
     if (this.efficiency !== undefined && this.efficiency < 1.0) {
@@ -1652,6 +1661,12 @@ export default class BaseMachine {
         if (typeof this.scene.upgradeManager.getArchetypeProcessingModifier === 'function') {
           effectiveDelta *= this.scene.upgradeManager.getArchetypeProcessingModifier(this);
         }
+        if (typeof this.scene.upgradeManager.getColorMatchProcessingModifier === 'function') {
+          effectiveDelta *= this.scene.upgradeManager.getColorMatchProcessingModifier(
+            this,
+            this.scene
+          );
+        }
       }
       if (this.scene && typeof this.scene.getFlowSpeedMultiplier === 'function') {
         effectiveDelta *= this.scene.getFlowSpeedMultiplier();
@@ -1827,7 +1842,6 @@ export default class BaseMachine {
             level: 1,
             amount: 1,
             itemColor: resourceNode.itemColor,
-            sourceColor: resourceNode.itemColor,
           };
           if (this.canAcceptInput('level-resource', mockItemData)) {
             const extractedItem = resourceNode.extractResource();
@@ -2266,75 +2280,13 @@ export default class BaseMachine {
         const inputLevels = consumedItems.map((item) => item.level || 1);
         const arithmeticOutput = calculateArithmeticOutput(this.arithmeticOperation, inputLevels);
         const nextLevel = arithmeticOutput || processedItem.level || 1;
-        const operationTags = getArithmeticOperationTags(this.arithmeticOperation);
-        const sourceItems = consumedItems.length > 0 ? consumedItems : [processedItem];
-        const mergedMachineUids = [];
-        const mergedRouteTags = [];
-        const mergedTraitTags = [];
-        const mergedOperationTags = [];
-        const mergedVisitedMachines = new Set();
-        const sourceColors = [];
-        sourceItems.forEach((item) => {
-          const itemColorKey = getItemColorKey(item, null);
-          if (itemColorKey && !sourceColors.includes(itemColorKey)) {
-            sourceColors.push(itemColorKey);
-          }
-          (Array.isArray(item.machineUids) ? item.machineUids : []).forEach((uid) => {
-            if (!mergedMachineUids.includes(uid)) mergedMachineUids.push(uid);
-          });
-          (Array.isArray(item.routeTags) ? item.routeTags : []).forEach((tag) => {
-            if (!mergedRouteTags.includes(tag)) mergedRouteTags.push(tag);
-          });
-          (Array.isArray(item.traitTags) ? item.traitTags : []).forEach((tag) => {
-            if (!mergedTraitTags.includes(tag)) mergedTraitTags.push(tag);
-          });
-          (Array.isArray(item.operationTags) ? item.operationTags : []).forEach((tag) => {
-            if (!mergedOperationTags.includes(tag)) mergedOperationTags.push(tag);
-          });
-          const visited = item.visitedMachines || [];
-          visited.forEach((machineUid) => mergedVisitedMachines.add(machineUid));
-        });
-        const itemColor = getItemColorKey(processedItem, sourceColors[0] || null);
-        const lastOperationTag =
-          operationTags.find(
-            (tag) =>
-              tag !== ARITHMETIC_OPERATION_TAGS.ADD_CONSTANT &&
-              tag !== ARITHMETIC_OPERATION_TAGS.BINARY
-          ) ||
-          operationTags[0] ||
-          processedItem.lastOperationTag ||
-          null;
         nextItem = {
-          ...processedItem,
           type: 'level-resource',
           level: nextLevel,
-          visitedMachines: mergedVisitedMachines,
-          machineUids: mergedMachineUids,
-          routeTags: mergedRouteTags,
-          traitTags: mergedTraitTags,
-          operationTags: mergedOperationTags,
-          lastOperationTag,
-          itemColor,
-          sourceColor: processedItem.sourceColor || sourceColors[0] || itemColor,
+          itemColor: this.getOutputItemColor(processedItem),
+          amount: processedItem.amount || 1,
         };
-        operationTags.forEach((tag) => {
-          if (!nextItem.operationTags.includes(tag)) {
-            nextItem.operationTags.push(tag);
-          }
-        });
         this.lastOutputLevel = nextLevel;
-        if (this.uid && !nextItem.machineUids.includes(this.uid)) {
-          nextItem.machineUids.push(this.uid);
-        }
-        if (!nextItem.routeTags.includes('operator')) {
-          nextItem.routeTags.push('operator');
-        }
-        if (!nextItem.visitedMachines.has(this.uid)) {
-          nextItem.visitedMachines.add(this.uid);
-        }
-        if (this.trait) {
-          nextItem.traitTags.push(this.trait);
-        }
         console.log(
           `[${this.id}] Arithmetic ${this.notation || this.arithmeticOperation.type}: [${inputLevels.join(',')}] -> L${nextLevel}`
         );
@@ -2342,36 +2294,45 @@ export default class BaseMachine {
         // Create output resource with the configured outputLevel as its level
         // Always ensure type is 'level-resource' for the new level system
         nextItem = {
-          ...processedItem,
           type: 'level-resource', // Explicitly set type to prevent undefined issues
           level: this.outputLevel,
-          itemColor: getItemColorKey(processedItem, null),
-          sourceColor: processedItem.sourceColor || getItemColorKey(processedItem, null),
-          visitedMachines: new Set(processedItem.visitedMachines || []),
-          machineUids: Array.isArray(processedItem.machineUids)
-            ? [...processedItem.machineUids]
-            : [],
-          routeTags: Array.isArray(processedItem.routeTags) ? [...processedItem.routeTags] : [],
-          traitTags: Array.isArray(processedItem.traitTags) ? [...processedItem.traitTags] : [],
+          itemColor: this.getOutputItemColor(processedItem),
+          amount: processedItem.amount || 1,
         };
-        if (this.uid && !nextItem.machineUids.includes(this.uid)) {
-          nextItem.machineUids.push(this.uid);
-        }
-        if (!nextItem.routeTags.includes('operator')) {
-          nextItem.routeTags.push('operator');
-        }
-        if (!nextItem.visitedMachines.has(this.id)) {
-          nextItem.visitedMachines.add(this.id);
-        }
-        if (this.trait) {
-          nextItem.traitTags.push(this.trait);
-        }
         console.log(
-          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.level}), tags: [${nextItem.traitTags.join(',')}]`
+          `[${this.id}] Set output to level ${this.outputLevel} (was ${processedItem.level})`
         );
       } else {
         // Legacy: Process it as a plain level increment.
-        nextItem = processLevelResource(processedItem, this.id, this.trait || null);
+        nextItem = {
+          ...processLevelResource(processedItem),
+          itemColor: this.getOutputItemColor(processedItem),
+        };
+      }
+
+      if (nextItem?.type === 'level-resource' && this.boardQualityLevelBonus > 0) {
+        const bonus = Math.max(0, Math.floor(this.boardQualityLevelBonus));
+        nextItem = {
+          ...nextItem,
+          level: (nextItem.level || 1) + bonus,
+        };
+        this.lastOutputLevel = nextItem.level;
+      }
+
+      if (
+        nextItem?.type === 'level-resource' &&
+        typeof this.scene?.upgradeManager?.applyColorLevelProcessingUpgrades === 'function'
+      ) {
+        nextItem = this.scene.upgradeManager.applyColorLevelProcessingUpgrades(
+          nextItem,
+          this,
+          this.scene,
+          {
+            inputLevel: processedItem.level,
+            consumedItems: consumedItems.length > 0 ? consumedItems : [processedItem],
+          }
+        );
+        this.lastOutputLevel = nextItem?.level || this.lastOutputLevel;
       }
 
       // Fire trait onProcess hook. Hook may MUTATE nextItem or return a
@@ -3131,7 +3092,10 @@ export default class BaseMachine {
     // --- Enhanced Debug for Preview ---
 
     // All cells use the unique machine color
-    const machineColor = MACHINE_COLORS[machineId] || 0x44ff44;
+    const fallbackMachineColor = MACHINE_COLORS[machineId] || 0x44ff44;
+    const machineColor = options.outputItemColor
+      ? getItemColorHex(options.outputItemColor, fallbackMachineColor)
+      : fallbackMachineColor;
 
     // Draw the machine shape
     for (let r = 0; r < shape.length; r++) {

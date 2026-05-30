@@ -6,6 +6,7 @@ export const BOARD_BLOCKER_CELL_STYLE = {
 export const BOARD_OBSTACLE_TYPES = {
   WALL: 'wall',
   SCRAP: 'scrap',
+  SCRAP_DOOR: 'scrap-door',
   HEAT: 'heat',
   LOCKED: 'locked',
 };
@@ -18,10 +19,16 @@ export const BOARD_OBSTACLE_STYLES = {
     description: 'Blocks machine placement.',
   },
   [BOARD_OBSTACLE_TYPES.SCRAP]: {
-    name: 'Scrap Heap',
+    name: 'Debris Heap',
     color: 0x3f3430,
     borderColor: 0xffb36b,
     description: 'Blocks machine placement.',
+  },
+  [BOARD_OBSTACLE_TYPES.SCRAP_DOOR]: {
+    name: 'Cash Door',
+    color: 0x463421,
+    borderColor: 0xffd166,
+    description: 'Can be opened during planning for cash.',
   },
   [BOARD_OBSTACLE_TYPES.HEAT]: {
     name: 'Heat Vent',
@@ -58,7 +65,7 @@ export const BOARD_TILE_STYLES = {
     color: 0x4d4320,
     borderColor: 0xffd166,
     glowColor: 0xffd166,
-    description: 'Machines built here boost delivery score.',
+    description: 'Machines built here output a higher level.',
   },
   [BOARD_TILE_TYPES.TAXED]: {
     name: 'Taxed Cell',
@@ -66,7 +73,7 @@ export const BOARD_TILE_STYLES = {
     color: 0x4a2430,
     borderColor: 0xff7a90,
     glowColor: 0xff7a90,
-    description: 'Machines built here cost extra Budget.',
+    description: 'Machines built here cost extra cash.',
   },
 };
 

@@ -1,5 +1,10 @@
 import { GAME_CONFIG } from '../config/gameConfig';
-import { getItemColorHex, getItemColorKey, getItemColorName } from '../utils/ResourceUtils';
+import {
+  getItemColorHex,
+  getItemColorKey,
+  getItemColorName,
+  getWildcardItemColor,
+} from '../utils/ResourceUtils';
 import {
   getLevelPoints,
   getLevelName,
@@ -31,9 +36,10 @@ export default class DeliveryNode {
       exact: false,
       requiredCount: 3,
       completionScoreReward: GAME_CONFIG.deliveryNodeCompletionScoreBase || 420,
-      completionScrapReward: GAME_CONFIG.deliveryNodeCompletionScrapBase || 2,
+      completionScrapReward: 0,
       label: 'L1+ x3',
     };
+    this.isShortcutNode = Boolean(config.isShortcutNode || this.condition.shortcut);
     this.deliveredCount = 0;
     this.completed = false;
     this.lifespan = config.lifespan || GAME_CONFIG.nodeLifespan; // Use default lifespan if not provided
@@ -101,14 +107,19 @@ export default class DeliveryNode {
     this.container.add(this.inputChevronRight);
 
     this.conditionText = this.scene.add
-      .text(0, -6, 'IN', {
-        fontFamily: 'Arial Black',
-        fontSize: 8,
-        color: '#ffd166',
-        align: 'center',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
+      .text(
+        0,
+        -6,
+        this.condition.shortcutKind === 'color-toll' ? 'TOLL' : this.isShortcutNode ? 'KEY' : 'IN',
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 8,
+          color: '#ffd166',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 2,
+        }
+      )
       .setOrigin(0.5);
     this.container.add(this.conditionText);
 
@@ -171,7 +182,8 @@ export default class DeliveryNode {
   createContractTag(borderColor) {
     // Delivery nodes live on the right edge, so keep the contract tag outside
     // the playable grid instead of covering the routeable cells to the left.
-    this.contractTag = this.scene.add.container(48, 0);
+    const offset = this.isShortcutNode ? { x: 0, y: -42 } : { x: 48, y: 0 };
+    this.contractTag = this.scene.add.container(offset.x, offset.y);
     this.contractTagBg = this.scene.add.rectangle(
       0,
       0,
@@ -242,8 +254,7 @@ export default class DeliveryNode {
     const tier = this.condition.tier || 1;
     const tierLabel = `${this.condition.exact ? '=' : ''}L${tier}${this.condition.exact ? '' : '+'}`;
     const colorName = this.getConditionColorName();
-    const operationLabel = this.condition.operationLabel || null;
-    return [colorName ? colorName.charAt(0).toUpperCase() : null, operationLabel, tierLabel]
+    return [colorName ? colorName.charAt(0).toUpperCase() : null, tierLabel]
       .filter(Boolean)
       .join(' ');
   }
@@ -261,8 +272,7 @@ export default class DeliveryNode {
   getHudLabel() {
     const required = Math.max(1, this.condition.requiredCount || 1);
     const scoreReward = this.condition.completionScoreReward || this.condition.payout || 0;
-    const scrapReward = this.condition.completionScrapReward || 0;
-    const rewardText = scrapReward > 0 ? `+${scoreReward}/+${scrapReward}S` : `+${scoreReward}`;
+    const rewardText = `$${scoreReward}`;
     return `${this.getConditionShortLabel()} ${this.deliveredCount}/${required}  ${rewardText}`;
   }
 
@@ -283,7 +293,6 @@ export default class DeliveryNode {
   getItemTier(itemData) {
     if (!itemData) return 1;
     if (typeof itemData.level === 'number') return itemData.level;
-    if (typeof itemData.level === 'number') return itemData.level;
     return 1;
   }
 
@@ -295,27 +304,20 @@ export default class DeliveryNode {
     const tier = this.getItemTier(itemData);
     const requiredTier = this.condition.tier || 1;
     const tierMatches = this.condition.exact ? tier === requiredTier : tier >= requiredTier;
+    const requiredItemColor =
+      this.condition.requiredItemColor ||
+      (this.condition.strictItemColor ? this.condition.itemColor : null);
+    const itemColor = this.getItemColorKey(itemData);
     const colorMatches =
-      !this.condition.itemColor || this.getItemColorKey(itemData) === this.condition.itemColor;
-    const operationMatches =
-      !this.condition.requiredLastOperationTag ||
-      itemData?.lastOperationTag === this.condition.requiredLastOperationTag;
-    return tierMatches && colorMatches && operationMatches;
+      !requiredItemColor || itemColor === requiredItemColor || itemColor === getWildcardItemColor();
+    return tierMatches && colorMatches;
   }
 
   /**
-   * Apply trait-tag-based delivery score modifiers.
-   *
-   * Single extension point for ALL delivery-time trait effects.
-   *
-   * Downstream tasks add their tag checks here:
-   *   - Task 9: 'polarized' (x2)
-   *   - Trait refresh: 'sequenced' (x1.75)
-   *   - Task 10: 'resonant' (x1.5)
-   *   - Beacon additive via scene.traitRegistry.getBeaconDeliveryBonus()
+   * Apply delivery score modifiers that do not require resource history.
    *
    * @param {number} basePoints - Pre-modifier score for this delivery.
-   * @param {object} itemData - The delivered item (carries traitTags).
+   * @param {object} itemData - The delivered item.
    * @returns {number} Adjusted (floored) score.
    */
   applyTraitDeliveryModifiers(basePoints, itemData) {
@@ -323,9 +325,9 @@ export default class DeliveryNode {
   }
 
   getTraitDeliveryBreakdown(basePoints, itemData) {
-    const tags = Array.isArray(itemData.traitTags) ? itemData.traitTags : [];
     const reg = this.scene && this.scene.traitRegistry;
     const labels = [];
+    const breakdownSteps = [];
     const itemColor = this.getItemColorKey(itemData);
     const colorConfig = GAME_CONFIG.itemColors?.[itemColor];
     // Beacon: each placed Beacon adds +0.1 to the base delivery modifier.
@@ -336,41 +338,70 @@ export default class DeliveryNode {
     if (colorConfig?.scoreMultiplier) {
       modifier *= colorConfig.scoreMultiplier;
       labels.push(colorConfig.name || getItemColorName(itemColor));
+      breakdownSteps.push({
+        label: colorConfig.name || getItemColorName(itemColor),
+        multiplier: colorConfig.scoreMultiplier,
+      });
     }
-    if (beaconBonus > 0) labels.push('Beacon');
-    if (tags.includes('tycoon')) {
-      modifier *= 1.5;
-      labels.push('Tycoon');
+    const colorDeliveryModifier =
+      typeof this.scene?.upgradeManager?.getColorDeliveryScoreModifier === 'function'
+        ? this.scene.upgradeManager.getColorDeliveryScoreModifier({
+            itemColor,
+            itemLevel: itemData?.level || 1,
+            conditionColor: this.condition.itemColor,
+            wildcardColor: getWildcardItemColor(),
+          })
+        : 1;
+    if (colorDeliveryModifier !== 1) {
+      modifier *= colorDeliveryModifier;
+      labels.push('Color Match');
+      breakdownSteps.push({
+        label: 'Color Match',
+        multiplier: colorDeliveryModifier,
+      });
     }
-    if (tags.includes('polarized')) {
-      modifier *= 2.0;
-      labels.push('Polarized');
+    const shadeGaugeModifier =
+      typeof this.scene?.upgradeManager?.getShadeGaugeModifier === 'function'
+        ? this.scene.upgradeManager.getShadeGaugeModifier({
+            itemColor,
+            itemLevel: itemData?.level || 1,
+            conditionColor: this.condition.itemColor,
+            wildcardColor: getWildcardItemColor(),
+          })
+        : 1;
+    if (shadeGaugeModifier !== 1) {
+      modifier *= shadeGaugeModifier;
+      labels.push('Shade Gauge');
+      breakdownSteps.push({
+        label: 'Shade Gauge',
+        multiplier: shadeGaugeModifier,
+      });
     }
-    if (tags.includes('sequenced')) {
-      modifier *= 1.75;
-      labels.push('Sequenced');
-    }
-    if (tags.includes('resonant')) {
-      modifier *= 1.5;
-      labels.push('Resonant');
+    if (beaconBonus > 0) {
+      labels.push('Beacon');
+      breakdownSteps.push({ label: 'Beacon', multiplier: 1 + beaconBonus });
     }
     const adjusted = Math.floor(basePoints * modifier);
     if (modifier !== 1.0) {
-      console.log(
-        `[DeliveryNode] trait-adjusted score: ${basePoints} -> ${adjusted} (tags: ${tags.join(',')})`
-      );
+      console.log(`[DeliveryNode] adjusted score: ${basePoints} -> ${adjusted}`);
     }
     return {
       points: adjusted,
       multiplier: modifier,
       labels,
       itemColor,
+      breakdownSteps,
     };
   }
 
   formatMultiplier(multiplier) {
     const rounded = Math.round((multiplier || 1) * 10) / 10;
     return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
+  }
+
+  formatScoreMultiplier(multiplier) {
+    const rounded = Math.round((Number(multiplier) || 1) * 100) / 100;
+    return rounded.toFixed(2).replace(/\.?0+$/, '');
   }
 
   getScoreBreakdownText(resourceLabel, basePoints, multiplier, labels = []) {
@@ -386,10 +417,20 @@ export default class DeliveryNode {
 
   applyFilledRewardPenalty(reward, wasAlreadyFilled) {
     if (!wasAlreadyFilled) return reward;
+    const multiplier = this.getFilledRewardMultiplier();
+    const points = Math.floor((reward?.points || 0) * multiplier);
 
     return {
       ...reward,
-      points: Math.floor((reward?.points || 0) * this.getFilledRewardMultiplier()),
+      points,
+      breakdownSteps: [
+        ...(reward?.breakdownSteps || []),
+        {
+          label: 'Overflow',
+          multiplier,
+          points,
+        },
+      ],
       filledDelivery: true,
     };
   }
@@ -425,10 +466,16 @@ export default class DeliveryNode {
       const level = itemData.level || 1;
       const totalPoints = getLevelPoints(level);
       const traitBreakdown = this.getTraitDeliveryBreakdown(totalPoints, itemData);
+      const countsForQuota = this.condition.countsForQuota !== false;
       const reward = this.applyFilledRewardPenalty(
-        this.scene.getDeliveryReward?.(traitBreakdown.points, level, itemData) || {
+        this.scene.getDeliveryReward?.(traitBreakdown.points, level, {
+          ...itemData,
+          countsForQuota,
+          deliveryCondition: this.condition,
+          filledDelivery: wasAlreadyFilled,
+        }) || {
           points: traitBreakdown.points,
-          countsForFlow: true,
+          countsForFlow: countsForQuota,
         },
         wasAlreadyFilled
       );
@@ -455,6 +502,7 @@ export default class DeliveryNode {
         multiplier: awardedPoints / Math.max(1, totalPoints),
         itemColor: traitBreakdown.itemColor,
         labels: this.getDeliveryLabels(traitBreakdown.labels, wasAlreadyFilled),
+        steps: [...(traitBreakdown.breakdownSteps || []), ...(reward.breakdownSteps || [])],
       });
 
       console.log(
@@ -487,7 +535,7 @@ export default class DeliveryNode {
     }
 
     // Add score
-    this.scene.addScore(totalPoints, { countsForFlow: false });
+    this.scene.addScore(totalPoints, { countsForFlow: this.condition.countsForQuota !== false });
     if (wasAlreadyFilled) {
       this.recordOverflowDelivery(1);
     } else {
@@ -600,7 +648,7 @@ export default class DeliveryNode {
       .text(
         this.container.x,
         this.container.y - 24,
-        `+${this.completionScoreReward || 0}  +${this.completionScrapReward || 0}S`,
+        this.isShortcutNode ? 'OPEN' : `+$${this.completionScoreReward || 0}`,
         {
           fontFamily: 'Arial Black',
           fontSize: 18,
@@ -704,7 +752,7 @@ export default class DeliveryNode {
     const popupSlot = this.reserveDeliveryPopupSlot();
     const color =
       itemType === 'upgrade' ? 0xcc00ff : GAME_CONFIG.resourceColors[itemType] || 0xaaaaaa;
-    const textToShow = itemType === 'upgrade' ? 'Upgrade!' : `+${points}`;
+    const textToShow = itemType === 'upgrade' ? 'Upgrade!' : `+$${points}`;
     const textColor = itemType === 'upgrade' ? '#cc00ff' : '#ffd700';
 
     // Score/Upgrade popup text
@@ -784,7 +832,7 @@ export default class DeliveryNode {
 
     // Main score popup
     const scoreText = this.scene.add
-      .text(popupSlot.x, popupSlot.y - 15, `+${points}`, {
+      .text(popupSlot.x, popupSlot.y - 15, `+$${points}`, {
         fontFamily: 'Arial',
         fontSize: 14,
         fontWeight: 'bold',
@@ -796,26 +844,13 @@ export default class DeliveryNode {
     scoreText.setDepth(this.container.depth + 3);
     if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
 
-    // Level name text
-    const detailText = breakdown
-      ? this.getScoreBreakdownText(
-          `L${level} ${levelName}`,
-          breakdown.basePoints,
-          breakdown.multiplier,
-          breakdown.labels
-        )
-      : `L${level} ${levelName}`;
-    const levelText = this.scene.add
-      .text(popupSlot.x, popupSlot.y + 5, detailText, {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        color: `#${color.toString(16).padStart(6, '0')}`,
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5);
-    levelText.setDepth(this.container.depth + 3);
-    if (this.scene.addToWorld) this.scene.addToWorld(levelText);
+    const breakdownPanel =
+      this.scene.showWorldDeliveryBreakdowns === true
+        ? this.createScoreBreakdownPanel(popupSlot, level, levelName, points, {
+            ...breakdown,
+            color,
+          })
+        : null;
 
     // Animate score text
     this.scene.tweens.add({
@@ -829,15 +864,16 @@ export default class DeliveryNode {
       onComplete: () => scoreText.destroy(),
     });
 
-    // Animate level text
-    this.scene.tweens.add({
-      targets: levelText,
-      y: popupSlot.y - 16,
-      alpha: 0,
-      duration: DELIVERY_DETAIL_POPUP_DURATION,
-      ease: 'Power1',
-      onComplete: () => levelText.destroy(),
-    });
+    if (breakdownPanel) {
+      this.scene.tweens.add({
+        targets: breakdownPanel,
+        y: popupSlot.y - 8,
+        alpha: 0,
+        duration: DELIVERY_DETAIL_POPUP_DURATION + 220,
+        ease: 'Power1',
+        onComplete: () => breakdownPanel.destroy(),
+      });
+    }
 
     // Particle burst effect with level color
     const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
@@ -861,6 +897,92 @@ export default class DeliveryNode {
       duration: 100,
       yoyo: true,
     });
+  }
+
+  createScoreBreakdownPanel(popupSlot, level, levelName, points, breakdown = null) {
+    const basePoints = Math.max(0, Math.floor(breakdown?.basePoints || points || 0));
+    const steps = Array.isArray(breakdown?.steps) ? breakdown.steps : [];
+    const rows = [
+      {
+        label: `L${level} ${levelName}`,
+        value: `${basePoints}`,
+        color: '#f4fbff',
+      },
+    ];
+
+    for (const step of steps) {
+      if (!step || !step.label || !step.multiplier) continue;
+      rows.push({
+        label: step.label,
+        value: `x${this.formatScoreMultiplier(step.multiplier)}`,
+        color: '#ffd166',
+      });
+    }
+
+    rows.push({
+      label: 'Total',
+      value: `$${points}`,
+      color: '#88ffcc',
+    });
+
+    const maxRows = 6;
+    const visibleRows =
+      rows.length > maxRows
+        ? [
+            ...rows.slice(0, maxRows - 2),
+            {
+              label: 'More',
+              value: `+${rows.length - maxRows + 1}`,
+              color: '#9fb8c8',
+            },
+            rows[rows.length - 1],
+          ]
+        : rows;
+    const lineHeight = 13;
+    const width = Math.min(
+      184,
+      Math.max(96, ...visibleRows.map((row) => `${row.label} ${row.value}`.length * 6 + 22))
+    );
+    const height = visibleRows.length * lineHeight + 10;
+    const panel = this.scene.add.container(popupSlot.x, popupSlot.y + 11);
+    panel.setDepth(this.container.depth + 3);
+
+    const bg = this.scene.add
+      .rectangle(0, height / 2 - 5, width, height, 0x07111a, 0.82)
+      .setStrokeStyle(1, breakdown?.color || 0xffffff, 0.65);
+    panel.add(bg);
+
+    visibleRows.forEach((row, index) => {
+      const y = index * lineHeight + 1;
+      const labelText = this.scene.add
+        .text(-width / 2 + 8, y, row.label.toUpperCase(), {
+          fontFamily: 'Arial Black',
+          fontSize: 8,
+          color:
+            index === 0
+              ? `#${(breakdown?.color || 0xffffff).toString(16).padStart(6, '0')}`
+              : row.color,
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0, 0);
+      const valueText = this.scene.add
+        .text(width / 2 - 8, y, row.value, {
+          fontFamily: 'Arial Black',
+          fontSize: 9,
+          color: row.color,
+          align: 'right',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(1, 0);
+      panel.add(labelText);
+      panel.add(valueText);
+    });
+
+    panel.setAlpha(0.98);
+    if (this.scene.addToWorld) this.scene.addToWorld(panel);
+    return panel;
   }
 
   /**

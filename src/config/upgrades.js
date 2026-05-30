@@ -5,17 +5,25 @@ export const UPGRADE_TYPES = {
   CONVEYOR_SPEED: 'conveyor_speed',
   INVENTORY_CAPACITY: 'inventory_capacity',
   PROCUREMENT_REBATE: 'procurement_rebate',
-  HIGH_ROLLER: 'high_roller',
+  COLOR_CALIBRATION: 'color_calibration',
+  WILDCARD_LICENSING: 'wildcard_licensing',
+  SHIFT_HANDOFF: 'shift_handoff',
+  STAGING_RACKS: 'staging_racks',
+  CLOSING_FLOAT: 'closing_float',
+  MATCHED_DIES: 'matched_dies',
+  SHADE_GAUGE: 'shade_gauge',
+  SORTING_JIG: 'sorting_jig',
+  INDEX_MARKS: 'index_marks',
 };
 
 export const upgradesConfig = {
   [UPGRADE_TYPES.BUDGET]: {
-    name: 'Budget Increase',
-    description: 'Start each round with more Budget.',
+    name: 'Starting Cash',
+    description: 'Start each round with more cash.',
     tiers: [
-      { level: 1, modifier: 10, description: '+$10 starting Budget each round' },
-      { level: 2, modifier: 22, description: '+$22 starting Budget each round' },
-      { level: 3, modifier: 38, description: '+$38 starting Budget each round' },
+      { level: 1, modifier: 10, description: '+$10 starting cash each round' },
+      { level: 2, modifier: 22, description: '+$22 starting cash each round' },
+      { level: 3, modifier: 38, description: '+$38 starting cash each round' },
     ],
   },
   [UPGRADE_TYPES.SUPPLY_BOUNTY]: {
@@ -56,20 +64,112 @@ export const upgradesConfig = {
   },
   [UPGRADE_TYPES.PROCUREMENT_REBATE]: {
     name: 'Procurement Engine',
-    description: 'Completed delivery nodes refund Budget.',
+    description: 'Completed delivery nodes refund cash.',
     tiers: [
       { level: 1, modifier: 2, description: '+$2 per completed delivery node' },
       { level: 2, modifier: 4, description: '+$4 per completed delivery node' },
       { level: 3, modifier: 7, description: '+$7 per completed delivery node' },
     ],
   },
-  [UPGRADE_TYPES.HIGH_ROLLER]: {
-    name: 'High Roller',
-    description: 'Deliveries touched by Operators costing $20+ score more.',
+  [UPGRADE_TYPES.COLOR_CALIBRATION]: {
+    name: 'Color Calibration',
+    description: 'Exact-color deliveries earn more revenue.',
     tiers: [
-      { level: 1, modifier: 1.2, description: '$20+ Operator deliveries score x1.2' },
-      { level: 2, modifier: 1.4, description: '$20+ Operator deliveries score x1.4' },
-      { level: 3, modifier: 1.7, description: '$20+ Operator deliveries score x1.7' },
+      {
+        level: 1,
+        modifier: 1.1,
+        description: '+10% revenue when item color exactly matches demand',
+      },
+      {
+        level: 2,
+        modifier: 1.22,
+        description: '+22% revenue when item color exactly matches demand',
+      },
+      {
+        level: 3,
+        modifier: 1.38,
+        description: '+38% revenue when item color exactly matches demand',
+      },
+    ],
+  },
+  [UPGRADE_TYPES.WILDCARD_LICENSING]: {
+    name: 'Wildcard Licensing',
+    description: 'Shop Operator cards are more likely to output Wild items.',
+    tiers: [
+      { level: 1, modifier: 0.08, description: '+8% Wild Operator chance in the shop' },
+      { level: 2, modifier: 0.16, description: '+16% Wild Operator chance in the shop' },
+      { level: 3, modifier: 0.28, description: '+28% Wild Operator chance in the shop' },
+    ],
+  },
+  [UPGRADE_TYPES.SHIFT_HANDOFF]: {
+    name: 'Shift Handoff',
+    description: 'Sources hand items to belts more often.',
+    tiers: [
+      { level: 1, modifier: 0.88, description: 'Source pickup cooldown -12%' },
+      { level: 2, modifier: 0.76, description: 'Source pickup cooldown -24%' },
+      { level: 3, modifier: 0.62, description: 'Source pickup cooldown -38%' },
+    ],
+  },
+  [UPGRADE_TYPES.STAGING_RACKS]: {
+    name: 'Staging Racks',
+    description: 'Operators and conveyors keep a little more work in reach.',
+    tiers: [
+      { level: 1, modifier: 1, description: '+1 queue slot on Operators and conveyors' },
+      { level: 2, modifier: 2, description: '+2 queue slots on Operators and conveyors' },
+      { level: 3, modifier: 3, description: '+3 queue slots on Operators and conveyors' },
+    ],
+  },
+  [UPGRADE_TYPES.CLOSING_FLOAT]: {
+    name: 'Closing Float',
+    description: 'Raises the cash floor and interest payouts.',
+    tiers: [
+      { level: 1, modifier: 1, description: '+$1 interest; +$2 floor; +$4 carry cap' },
+      { level: 2, modifier: 2, description: '+$2 interest; +$4 floor; +$8 carry cap' },
+      { level: 3, modifier: 4, description: '+$4 interest; +$8 floor; +$16 carry cap' },
+    ],
+  },
+  [UPGRADE_TYPES.MATCHED_DIES]: {
+    name: 'Matched Dies',
+    description: 'Operators that wait on more than one input complete work faster.',
+    tiers: [
+      { level: 1, modifier: 1.1, description: '+10% speed for multi-input Operators' },
+      { level: 2, modifier: 1.22, description: '+22% speed for multi-input Operators' },
+      { level: 3, modifier: 1.38, description: '+38% speed for multi-input Operators' },
+    ],
+  },
+  [UPGRADE_TYPES.SHADE_GAUGE]: {
+    name: 'Shade Gauge',
+    description: 'Matched-color deliveries care more about item level.',
+    tiers: [
+      { level: 1, modifier: 0.02, description: '+2% color-match revenue per item level above L1' },
+      {
+        level: 2,
+        modifier: 0.035,
+        description: '+3.5% color-match revenue per item level above L1',
+      },
+      {
+        level: 3,
+        modifier: 0.055,
+        description: '+5.5% color-match revenue per item level above L1',
+      },
+    ],
+  },
+  [UPGRADE_TYPES.SORTING_JIG]: {
+    name: 'Sorting Jig',
+    description: 'Mixed-color multi-input work can leave the line color-flexible.',
+    tiers: [
+      { level: 1, modifier: 7, description: 'Mixed-color recipes output Wild at L7+' },
+      { level: 2, modifier: 5, description: 'Mixed-color recipes output Wild at L5+' },
+      { level: 3, modifier: 4, description: 'Mixed-color recipes output Wild at L4+' },
+    ],
+  },
+  [UPGRADE_TYPES.INDEX_MARKS]: {
+    name: 'Index Marks',
+    description: 'Color-marked output can climb toward waiting color orders.',
+    tiers: [
+      { level: 1, modifier: 1, description: '+1 output level toward active same-color orders' },
+      { level: 2, modifier: 1, description: '+1 output level toward active same-color orders' },
+      { level: 3, modifier: 2, description: '+2 output levels toward active same-color orders' },
     ],
   },
 };

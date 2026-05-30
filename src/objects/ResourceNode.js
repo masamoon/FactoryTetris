@@ -319,10 +319,6 @@ export default class ResourceNode {
   createOutputItem(amount = 1) {
     const item = createLevelResource(1, this.itemColor);
     item.amount = amount;
-    item.itemColor = this.itemColor;
-    item.sourceColor = this.itemColor;
-    item.sourceGridX = this.gridX;
-    item.sourceGridY = this.gridY;
     return item;
   }
 
@@ -397,7 +393,7 @@ export default class ResourceNode {
       // --- Priority 2: Push to adjacent belt-like machine pointing AWAY ---
       else if (cell && cell.type === 'machine' && targetMachine && isConveyorLike) {
         let isPointingAway = false;
-        if (targetMachine.id === 'underground-belt') {
+        if (targetMachine.id === 'underground-belt' || targetMachine.acceptsBidirectionalTunnel) {
           isPointingAway = true;
         } else {
           if (offset.dx === 1 && targetMachine.direction !== 'left') isPointingAway = true;
