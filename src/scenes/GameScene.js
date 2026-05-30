@@ -8944,6 +8944,9 @@ export default class GameScene extends Phaser.Scene {
           'blue'
         : this.rollShopOperatorOutputColor());
     const outputColorName = getItemColorName(outputItemColor);
+    const operationLabel = this.getOperationShopLabel(operation);
+    const operationDescription = this.getOperationDescription(operation);
+    const operationExample = this.getOperationExample(operation);
     const card = {
       ...template,
       trait,
@@ -8961,11 +8964,11 @@ export default class GameScene extends Phaser.Scene {
         ? `${outputColorName} ${traitDef.name} ${template.shortName || template.name}`
         : `${outputColorName} ${template.name}`,
       description: traitDef
-        ? `${template.name}. Outputs ${outputColorName}. Special property: ${traitDef.description}`
-        : `Permanent Operator card. Outputs ${outputColorName}. ${this.getOperationDescription(operation)}`,
-      effect: traitDef
-        ? `${traitDef.name}; ${outputColorName} output`
-        : this.getOperationExample(operation),
+        ? `${template.name}. ${operationDescription} Outputs ${outputColorName}. Special property: ${traitDef.description}`
+        : `Permanent Operator card. ${operationDescription} Outputs ${outputColorName}.`,
+      effect: traitDef ? `${operationLabel}; ${traitDef.name}` : operationExample,
+      operationLabel,
+      operationExample,
       cost: operationCost + traitCost,
       purchased: false,
     };
@@ -9005,6 +9008,21 @@ export default class GameScene extends Phaser.Scene {
         return 'Multiplies two different input levels together.';
       default:
         return 'Transforms numeric resources.';
+    }
+  }
+
+  getOperationShopLabel(operation) {
+    switch (operation?.type) {
+      case 'add-constant':
+        return `Operation: +${operation.value || 1}`;
+      case 'add':
+        return 'Operation: add';
+      case 'divide':
+        return 'Operation: divide';
+      case 'multiply':
+        return 'Operation: multiply';
+      default:
+        return 'Operation: transform';
     }
   }
 

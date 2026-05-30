@@ -503,6 +503,16 @@ export class UpgradeScene extends Phaser.Scene {
     return color;
   }
 
+  getShopPieceOperationLabel(choice) {
+    const operation = choice?.pieceCard?.arithmeticOperation;
+    if (choice?.operationLabel) return choice.operationLabel;
+    if (operation?.type === 'add-constant') return `Operation: +${operation.value || 1}`;
+    if (operation?.type === 'add') return 'Operation: add';
+    if (operation?.type === 'multiply') return 'Operation: multiply';
+    if (operation?.type === 'divide') return 'Operation: divide';
+    return choice?.type === 'shop_piece' ? 'Operation: transform' : '';
+  }
+
   getItemColorSwatchColor(card) {
     switch (card?.outputItemColor || card?.machineColor) {
       case 'red':
@@ -609,6 +619,8 @@ export class UpgradeScene extends Phaser.Scene {
     const iconX = left + pad + iconSize / 2;
     const titleX = iconX + iconSize / 2 + 12;
     const titleWidth = Math.max(76, costX - costWidth / 2 - titleX - 10);
+    const operationLabel =
+      choice.type === 'shop_piece' ? this.getShopPieceOperationLabel(choice) : '';
 
     const bg = this.add
       .rectangle(x, y, width, height, fillColor, 0.98)
@@ -676,6 +688,19 @@ export class UpgradeScene extends Phaser.Scene {
       })
       .setOrigin(0, 0.5);
 
+    if (operationLabel) {
+      this.add
+        .text(titleX, top + 32, operationLabel.toUpperCase(), {
+          fontFamily: 'Arial Black',
+          fontSize: width < 180 ? 8 : 9,
+          color: canAfford ? '#ffd166' : '#8a7a52',
+          align: 'left',
+          wordWrap: { width: titleWidth },
+          maxLines: 1,
+        })
+        .setOrigin(0, 0.5);
+    }
+
     const costBg = this.add
       .rectangle(costX, headerY, costWidth, 26, 0x0c151d, 0.95)
       .setStrokeStyle(1, 0xffd166, canAfford ? 0.8 : 0.35);
@@ -691,21 +716,26 @@ export class UpgradeScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const titleText = this.add
-      .text(titleX, compact ? top + 43 : top + 48, choice.name, {
-        fontFamily: 'Arial Black',
-        fontSize: veryCompact ? 13 : compact ? 14 : 17,
-        fontStyle: 'bold',
-        color: textColor,
-        align: 'left',
-        wordWrap: { width: titleWidth },
-        maxLines: veryCompact ? 1 : 2,
-      })
+      .text(
+        titleX,
+        operationLabel ? (compact ? top + 50 : top + 56) : compact ? top + 43 : top + 48,
+        choice.name,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: veryCompact ? 13 : compact ? 14 : 17,
+          fontStyle: 'bold',
+          color: textColor,
+          align: 'left',
+          wordWrap: { width: titleWidth },
+          maxLines: veryCompact ? 1 : 2,
+        }
+      )
       .setOrigin(0, 0);
 
     const payoffHeight = choice.effect ? (veryCompact ? 30 : compact ? 34 : 42) : 0;
     const payoffY = choice.effect ? bottom - pad - payoffHeight / 2 : null;
     const descriptionTop = Math.max(
-      compact ? top + 82 : top + 94,
+      operationLabel ? (compact ? top + 88 : top + 102) : compact ? top + 82 : top + 94,
       titleText.y + titleText.height + 7
     );
     const descriptionBottom = choice.effect ? payoffY - payoffHeight / 2 - 8 : bottom - pad - 4;
@@ -786,6 +816,7 @@ export class UpgradeScene extends Phaser.Scene {
     const hasPieceThumbnail = choice.type === 'shop_piece' && choice.pieceCard;
     const thumbnailSize = hasPieceThumbnail ? Math.min(34, Math.max(24, height - 48)) : 0;
     const contentLeft = hasPieceThumbnail ? left + 58 : left + 18;
+    const operationLabel = hasPieceThumbnail ? this.getShopPieceOperationLabel(choice) : '';
     const costLabel = choice.purchased ? 'SOLD' : choice.isFree ? 'FREE' : `$${choice.cost || 0}`;
     const costWidth = Math.min(82, Math.max(58, costLabel.length * 6 + 18));
     const costX = right - 12 - costWidth / 2;
@@ -845,9 +876,9 @@ export class UpgradeScene extends Phaser.Scene {
       })
       .setOrigin(0, 0.5);
 
-    if (choice.effect) {
+    if (operationLabel || choice.effect) {
       this.add
-        .text(contentLeft, bottom - 17, choice.effect, {
+        .text(contentLeft, bottom - 17, operationLabel || choice.effect, {
           fontFamily: 'Arial',
           fontSize: 10,
           fontStyle: 'bold',
