@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getProcessingPieceBody } from '../config/pieceBodies';
+import { getTraitById } from '../config/traits';
 
 const COLORS = {
   panel: 0x09131d,
@@ -513,6 +514,14 @@ export class UpgradeScene extends Phaser.Scene {
     return choice?.type === 'shop_piece' ? 'Operation: transform' : '';
   }
 
+  getShopPieceTraitLabel(choice) {
+    const traitId = choice?.trait || choice?.pieceCard?.trait;
+    if (!traitId) return '';
+    const traitDef = getTraitById(traitId);
+    if (!traitDef) return '';
+    return `Trait: ${traitDef.name} - ${traitDef.description}`;
+  }
+
   getItemColorSwatchColor(card) {
     switch (card?.outputItemColor || card?.machineColor) {
       case 'red':
@@ -621,6 +630,9 @@ export class UpgradeScene extends Phaser.Scene {
     const titleWidth = Math.max(76, costX - costWidth / 2 - titleX - 10);
     const operationLabel =
       choice.type === 'shop_piece' ? this.getShopPieceOperationLabel(choice) : '';
+    const traitLabel =
+      choice.type === 'shop_piece' ? this.getShopPieceTraitLabel(choice) : '';
+    const payoffText = traitLabel || choice.effect;
 
     const bg = this.add
       .rectangle(x, y, width, height, fillColor, 0.98)
@@ -732,13 +744,13 @@ export class UpgradeScene extends Phaser.Scene {
       )
       .setOrigin(0, 0);
 
-    const payoffHeight = choice.effect ? (veryCompact ? 30 : compact ? 34 : 42) : 0;
-    const payoffY = choice.effect ? bottom - pad - payoffHeight / 2 : null;
+    const payoffHeight = payoffText ? (veryCompact ? 30 : compact ? 34 : 42) : 0;
+    const payoffY = payoffText ? bottom - pad - payoffHeight / 2 : null;
     const descriptionTop = Math.max(
       operationLabel ? (compact ? top + 88 : top + 102) : compact ? top + 82 : top + 94,
       titleText.y + titleText.height + 7
     );
-    const descriptionBottom = choice.effect ? payoffY - payoffHeight / 2 - 8 : bottom - pad - 4;
+    const descriptionBottom = payoffText ? payoffY - payoffHeight / 2 - 8 : bottom - pad - 4;
     const descriptionFontSize = compact ? 10 : 12;
     const descriptionLineSpacing = compact ? 0 : 2;
     const descriptionLineHeight = descriptionFontSize + descriptionLineSpacing + 3;
@@ -761,12 +773,12 @@ export class UpgradeScene extends Phaser.Scene {
         .setOrigin(0, 0);
     }
 
-    if (choice.effect) {
+    if (payoffText) {
       this.add
         .rectangle(x + 4, payoffY, width - pad * 2 - 8, payoffHeight, 0x071018, 0.78)
         .setStrokeStyle(1, accentColor, canAfford ? 0.5 : 0.18);
       this.add
-        .text(left + pad + 9, payoffY, choice.effect, {
+        .text(left + pad + 9, payoffY, payoffText, {
           fontFamily: 'Arial Black',
           fontSize: veryCompact ? 9 : compact ? 10 : 12,
           fontStyle: 'bold',
@@ -817,6 +829,8 @@ export class UpgradeScene extends Phaser.Scene {
     const thumbnailSize = hasPieceThumbnail ? Math.min(34, Math.max(24, height - 48)) : 0;
     const contentLeft = hasPieceThumbnail ? left + 58 : left + 18;
     const operationLabel = hasPieceThumbnail ? this.getShopPieceOperationLabel(choice) : '';
+    const traitLabel = hasPieceThumbnail ? this.getShopPieceTraitLabel(choice) : '';
+    const detailLabel = traitLabel || operationLabel || choice.effect;
     const costLabel = choice.purchased ? 'SOLD' : choice.isFree ? 'FREE' : `$${choice.cost || 0}`;
     const costWidth = Math.min(82, Math.max(58, costLabel.length * 6 + 18));
     const costX = right - 12 - costWidth / 2;
@@ -876,9 +890,9 @@ export class UpgradeScene extends Phaser.Scene {
       })
       .setOrigin(0, 0.5);
 
-    if (operationLabel || choice.effect) {
+    if (detailLabel) {
       this.add
-        .text(contentLeft, bottom - 17, operationLabel || choice.effect, {
+        .text(contentLeft, bottom - 17, detailLabel, {
           fontFamily: 'Arial',
           fontSize: 10,
           fontStyle: 'bold',

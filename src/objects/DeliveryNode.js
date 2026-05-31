@@ -641,33 +641,35 @@ export default class DeliveryNode {
   createCompletionBurst() {
     const tierColor = this.getConditionBorderColor();
     const itemColor = this.getConditionColor();
+    const burstInfo =
+      this.scene && typeof this.scene.getDeliveryNodeCompletionBurstInfo === 'function'
+        ? this.scene.getDeliveryNodeCompletionBurstInfo(this)
+        : {
+            label: this.isShortcutNode ? 'OPEN' : 'DONE',
+            color: '#88ffcc',
+            isRank: false,
+          };
     this.scene.cameras.main.shake(120, 0.004);
     this.scene.cameras.main.flash(90, 255, 255, 255, true);
 
     const burstText = this.scene.add
-      .text(
-        this.container.x,
-        this.container.y - 24,
-        this.isShortcutNode ? 'OPEN' : `+$${this.completionScoreReward || 0}`,
-        {
-          fontFamily: 'Arial Black',
-          fontSize: 18,
-          color: '#88ffcc',
-          stroke: '#000000',
-          strokeThickness: 4,
-        }
-      )
+      .text(this.container.x, this.container.y - 24, burstInfo.label, {
+        fontFamily: 'Arial Black',
+        fontSize: burstInfo.isRank ? 34 : 18,
+        color: burstInfo.color || '#88ffcc',
+        stroke: '#000000',
+        strokeThickness: burstInfo.isRank ? 7 : 4,
+      })
       .setOrigin(0.5);
     burstText.setDepth(this.container.depth + 4);
     if (this.scene.addToWorld) this.scene.addToWorld(burstText);
 
     this.scene.tweens.add({
       targets: burstText,
-      y: this.container.y - 60,
       alpha: 0,
-      scaleX: 1.35,
-      scaleY: 1.35,
-      duration: 900,
+      scaleX: burstInfo.isRank ? 1.5 : 1.2,
+      scaleY: burstInfo.isRank ? 1.5 : 1.2,
+      duration: burstInfo.isRank ? 1250 : 780,
       ease: 'Power2',
       onComplete: () => burstText.destroy(),
     });
@@ -749,39 +751,44 @@ export default class DeliveryNode {
    * @param {number} points - The points awarded (0 for upgrades).
    */
   createAcceptEffect(itemType, points) {
-    const popupSlot = this.reserveDeliveryPopupSlot();
+    const suppressScorePopup =
+      this.scene?.roundClearing || this.scene?.runState === 'ROUND_CLEARED';
+    const popupSlot = suppressScorePopup ? null : this.reserveDeliveryPopupSlot();
     const color =
       itemType === 'upgrade' ? 0xcc00ff : GAME_CONFIG.resourceColors[itemType] || 0xaaaaaa;
-    const textToShow = itemType === 'upgrade' ? 'Upgrade!' : `+$${points}`;
-    const textColor = itemType === 'upgrade' ? '#cc00ff' : '#ffd700';
 
-    // Score/Upgrade popup text
-    const popupText = this.scene.add
-      .text(popupSlot.x, popupSlot.y - 15, textToShow, {
-        fontFamily: 'Arial',
-        fontSize: 12,
-        color: textColor,
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5);
-    popupText.setDepth(this.container.depth + 2);
+    if (!suppressScorePopup) {
+      const textToShow = itemType === 'upgrade' ? 'Upgrade!' : `+$${points}`;
+      const textColor = itemType === 'upgrade' ? '#cc00ff' : '#ffd700';
 
-    // Ensure text is on the world camera
-    if (this.scene.addToWorld) {
-      this.scene.addToWorld(popupText);
+      // Score/Upgrade popup text
+      const popupText = this.scene.add
+        .text(popupSlot.x, popupSlot.y - 15, textToShow, {
+          fontFamily: 'Arial',
+          fontSize: 12,
+          color: textColor,
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+      popupText.setDepth(this.container.depth + 2);
+
+      // Ensure text is on the world camera
+      if (this.scene.addToWorld) {
+        this.scene.addToWorld(popupText);
+      }
+
+      this.scene.tweens.add({
+        targets: popupText,
+        y: popupSlot.y - 34,
+        alpha: 0,
+        duration: DELIVERY_SCORE_POPUP_DURATION,
+        ease: 'Power1',
+        onComplete: () => {
+          popupText.destroy();
+        },
+      });
     }
-
-    this.scene.tweens.add({
-      targets: popupText,
-      y: popupSlot.y - 34,
-      alpha: 0,
-      duration: DELIVERY_SCORE_POPUP_DURATION,
-      ease: 'Power1',
-      onComplete: () => {
-        popupText.destroy();
-      },
-    });
 
     // Particle burst effect
     const particles = this.scene.add.particles(this.container.x, this.container.y, 'particle', {
@@ -819,7 +826,9 @@ export default class DeliveryNode {
    * @param {string} levelName - Display name for the level.
    */
   createLevelAcceptEffect(level, points, levelName, breakdown = null) {
-    const popupSlot = this.reserveDeliveryPopupSlot();
+    const suppressScorePopup =
+      this.scene?.roundClearing || this.scene?.runState === 'ROUND_CLEARED';
+    const popupSlot = suppressScorePopup ? null : this.reserveDeliveryPopupSlot();
     // Level colors: Gray (1), Green (2), Blue (3), Gold (4)
     const colors = [0x888888, 0x22cc22, 0x2288ff, 0xffcc00];
     const tierColor = level <= colors.length ? colors[level - 1] : 0xffffff;
@@ -830,49 +839,51 @@ export default class DeliveryNode {
           ? colors[level - 1]
           : 0xffffff;
 
-    // Main score popup
-    const scoreText = this.scene.add
-      .text(popupSlot.x, popupSlot.y - 15, `+$${points}`, {
-        fontFamily: 'Arial',
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#ffd700',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5);
-    scoreText.setDepth(this.container.depth + 3);
-    if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
+    if (!suppressScorePopup) {
+      // Main score popup
+      const scoreText = this.scene.add
+        .text(popupSlot.x, popupSlot.y - 15, `+$${points}`, {
+          fontFamily: 'Arial',
+          fontSize: 14,
+          fontWeight: 'bold',
+          color: '#ffd700',
+          stroke: '#000000',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+      scoreText.setDepth(this.container.depth + 3);
+      if (this.scene.addToWorld) this.scene.addToWorld(scoreText);
 
-    const breakdownPanel =
-      this.scene.showWorldDeliveryBreakdowns === true
-        ? this.createScoreBreakdownPanel(popupSlot, level, levelName, points, {
-            ...breakdown,
-            color,
-          })
-        : null;
+      const breakdownPanel =
+        this.scene.showWorldDeliveryBreakdowns === true
+          ? this.createScoreBreakdownPanel(popupSlot, level, levelName, points, {
+              ...breakdown,
+              color,
+            })
+          : null;
 
-    // Animate score text
-    this.scene.tweens.add({
-      targets: scoreText,
-      y: popupSlot.y - 38,
-      alpha: 0,
-      scaleX: 1.3,
-      scaleY: 1.3,
-      duration: DELIVERY_SCORE_POPUP_DURATION,
-      ease: 'Power1',
-      onComplete: () => scoreText.destroy(),
-    });
-
-    if (breakdownPanel) {
+      // Animate score text
       this.scene.tweens.add({
-        targets: breakdownPanel,
-        y: popupSlot.y - 8,
+        targets: scoreText,
+        y: popupSlot.y - 38,
         alpha: 0,
-        duration: DELIVERY_DETAIL_POPUP_DURATION + 220,
+        scaleX: 1.3,
+        scaleY: 1.3,
+        duration: DELIVERY_SCORE_POPUP_DURATION,
         ease: 'Power1',
-        onComplete: () => breakdownPanel.destroy(),
+        onComplete: () => scoreText.destroy(),
       });
+
+      if (breakdownPanel) {
+        this.scene.tweens.add({
+          targets: breakdownPanel,
+          y: popupSlot.y - 8,
+          alpha: 0,
+          duration: DELIVERY_DETAIL_POPUP_DURATION + 220,
+          ease: 'Power1',
+          onComplete: () => breakdownPanel.destroy(),
+        });
+      }
     }
 
     // Particle burst effect with level color

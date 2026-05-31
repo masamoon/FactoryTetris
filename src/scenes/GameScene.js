@@ -164,6 +164,9 @@ export default class GameScene extends Phaser.Scene {
     this.lastRoundSpeedScrap = 0;
     this.lastRoundQuotaPayout = 0;
     this.lastRoundOverDelivery = 0;
+    this.lastRoundPaidBeltFreeBonus = 0;
+    this.paidBeltPlacementsThisRound = 0;
+    this.paidBeltSpendThisRound = 0;
     this.lastDeliveryBreakdown = null;
     this.deliveryRejectionStats = {};
     this.lastDeliveryRejection = null;
@@ -269,6 +272,7 @@ export default class GameScene extends Phaser.Scene {
     this.capitalEdge = 0;
     this.lastRoundCapitalEdgeGain = 0;
     this.lastRoundCapitalDividend = 0;
+    this.resetRoundPaidBeltUsage();
     this.specialLogisticsInventory = {};
     this.permanentSpecialLogistics = {};
     this.starterSparkOffered = false;
@@ -3360,12 +3364,6 @@ export default class GameScene extends Phaser.Scene {
     this.updateRoundState({ score: this.roundScore });
     this.updateRoundUI();
 
-    if (this.roundScore >= this.roundQuota && !this.roundSurvived) {
-      this.roundSurvived = true;
-      this.showRoundSurvivedFeedback('Quota met\nround clear');
-      this.updateRoundAdvanceButton();
-    }
-
     this.tryCompleteRound();
   }
 
@@ -3521,7 +3519,9 @@ export default class GameScene extends Phaser.Scene {
     const quotaMet = (this.roundScore || 0) >= (this.roundQuota || 0);
     if (quotaMet && !this.roundSurvived) {
       this.roundSurvived = true;
-      this.showRoundSurvivedFeedback();
+      if (!deliveryMapComplete) {
+        this.showRoundSurvivedFeedback();
+      }
       this.updateRoundAdvanceButton();
     }
 
@@ -4449,6 +4449,7 @@ export default class GameScene extends Phaser.Scene {
       clearResources: false,
       clearDeliveries: false,
     });
+    this.resetRoundPaidBeltUsage();
 
     if (refund > 0) {
       this.addMoney(refund, 'board reset');
@@ -5715,6 +5716,9 @@ export default class GameScene extends Phaser.Scene {
       }
 
       machineObj.placementCost = placementCost;
+      if (!isRepositionedMachine) {
+        this.recordPaidBeltPlacement(machineObj, placementCost);
+      }
       this.applyBoardTileEffectsToMachine(machineObj, boardTileEffects);
       this.addMoney(-placementCost, machineObj.id);
       this.consumeSpecialLogisticsPlacement(machineType, machineObj);
@@ -6759,6 +6763,94 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  resetRoundPaidBeltUsage() {
+    this.paidBeltPlacementsThisRound = 0;
+    this.paidBeltSpendThisRound = 0;
+  }
+
+  isPaidBeltPlacement(machineType, placementCost) {
+    return machineType?.id === 'conveyor' && Math.max(0, Math.floor(placementCost || 0)) > 0;
+  }
+
+  recordPaidBeltPlacement(machine, placementCost) {
+    if (!machine || !this.isPaidBeltPlacement(machine, placementCost)) return;
+
+    const cost = Math.max(0, Math.floor(placementCost || 0));
+    machine.isPaidBeltPlacement = true;
+    machine.paidBeltPlacementCost = cost;
+    this.paidBeltPlacementsThisRound = Math.max(0, (this.paidBeltPlacementsThisRound || 0) + 1);
+    this.paidBeltSpendThisRound = Math.max(0, (this.paidBeltSpendThisRound || 0) + cost);
+  }
+
+  unrecordBuildPhasePaidBelt(machine) {
+    if (!machine?.isPaidBeltPlacement || this.runState !== 'BUILD_PHASE') return;
+
+    this.paidBeltPlacementsThisRound = Math.max(0, (this.paidBeltPlacementsThisRound || 0) - 1);
+    this.paidBeltSpendThisRound = Math.max(
+      0,
+      (this.paidBeltSpendThisRound || 0) -
+        Math.max(0, Math.floor(machine.paidBeltPlacementCost || machine.placementCost || 0))
+    );
+    machine.isPaidBeltPlacement = false;
+    machine.paidBeltPlacementCost = 0;
+  }
+
+  getRoundCashPayoutBreakdown(score = this.roundScore, quota = this.roundQuota) {
+    const quotaRevenue = Math.min(Math.max(0, Math.floor(score || 0)), Math.max(0, quota || 0));
+    const overDeliveryRevenue = Math.max(0, Math.floor(score || 0) - Math.max(0, quota || 0));
+    const multiplier = Math.max(0, Number(GAME_CONFIG.roundCashPayoutMultiplier ?? 1));
+
+    return {
+      quotaRevenue,
+      overDeliveryRevenue,
+      quotaCash: Math.floor(quotaRevenue * multiplier),
+      overDeliveryCash: Math.floor(overDeliveryRevenue * multiplier),
+      multiplier,
+    };
+  }
+
+  getPaidBeltFreeClearBonus(round = this.currentRound) {
+    if ((this.paidBeltPlacementsThisRound || 0) > 0) return 0;
+
+    const base = Math.max(0, Math.floor(GAME_CONFIG.paidBeltFreeClearBonusBase || 0));
+    const growth = Math.max(0, Math.floor(GAME_CONFIG.paidBeltFreeClearBonusGrowth || 0));
+    const cap = Math.max(0, Math.floor(GAME_CONFIG.paidBeltFreeClearBonusCap || 0));
+    const bonus = base + Math.max(0, Math.floor(round || 1) - 1) * growth;
+    return cap > 0 ? Math.min(cap, bonus) : bonus;
+  }
+
+  getRoundClearRankInfo(score = this.roundScore, quota = this.roundQuota) {
+    const safeQuota = Math.max(1, Math.floor(quota || 0));
+    const ratio = Math.max(0, Math.floor(score || 0)) / safeQuota;
+
+    if (ratio >= 1.2) return { label: 'S', color: '#ffd166', ratio };
+    if (ratio >= 1.08) return { label: 'A', color: '#88ffcc', ratio };
+    if (ratio >= 1) return { label: 'B', color: '#83f7ff', ratio };
+    if (ratio >= 0.88) return { label: 'C', color: '#b7cbd6', ratio };
+    return { label: 'D', color: '#ff9f88', ratio };
+  }
+
+  getDeliveryNodeCompletionBurstInfo(node) {
+    if (node?.isShortcutNode) {
+      return { label: 'OPEN', color: '#88ffcc', isRank: false };
+    }
+
+    const deliveryNodes = this.getQuotaDeliveryNodes();
+    const completesMap =
+      deliveryNodes.length > 0 &&
+      deliveryNodes.every((delivery) => delivery === node || delivery.completed);
+    const projectedScore =
+      (this.roundScore || 0) +
+      Math.max(0, Math.floor(this.pendingDeliveryCompletionScore || 0)) +
+      Math.max(0, Math.floor(node?.completionScoreReward || 0));
+
+    if (completesMap && projectedScore >= (this.roundQuota || 0)) {
+      return { ...this.getRoundClearRankInfo(projectedScore, this.roundQuota), isRank: true };
+    }
+
+    return { label: 'DONE', color: '#88ffcc', isRank: false };
+  }
+
   getRoundStartingMoney(round = this.currentRound) {
     const base = GAME_CONFIG.roundBaseMoney || 28;
     const growth = GAME_CONFIG.roundMoneyGrowth || 8;
@@ -7273,11 +7365,12 @@ export default class GameScene extends Phaser.Scene {
         this.nextDemandText.setText(this.getLastDeliveryFormulaText());
         this.nextDemandText.setColor('#ffe28a');
       } else {
+        const payout = this.getRoundCashPayoutBreakdown();
+        const bonus = this.lastRoundPaidBeltFreeBonus || this.getPaidBeltFreeClearBonus();
         this.nextDemandText.setText(
-          `Payout: $${Math.min(this.roundScore || 0, this.roundQuota || 0)} quota + $${Math.max(
-            0,
-            (this.roundScore || 0) - (this.roundQuota || 0)
-          )} over`
+          `Cash: $${payout.quotaCash} quota + $${payout.overDeliveryCash} over${
+            bonus > 0 ? ` + $${bonus} no paid belts` : ''
+          }`
         );
         this.nextDemandText.setColor('#88ffcc');
       }
@@ -7845,6 +7938,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   startRound(round = this.currentRound, options = {}) {
+    this.destroyRoundEconomySummary();
     this.currentRound = round;
     if (this.shouldShowTutorialPanel()) {
       this.createTutorialPanel();
@@ -7859,10 +7953,10 @@ export default class GameScene extends Phaser.Scene {
     this.lastRoundSpeedScrap = 0;
     this.lastRoundQuotaPayout = 0;
     this.lastRoundOverDelivery = 0;
+    this.lastRoundPaidBeltFreeBonus = 0;
+    this.lastRoundReinvestmentCash = 0;
     this.lastDeliveryBreakdown = null;
-    this.lastRoundQuotaPayout = 0;
-    this.lastRoundOverDelivery = 0;
-    this.lastDeliveryBreakdown = null;
+    this.resetRoundPaidBeltUsage();
     this.roundTimeLimitMs = this.getRoundTimeLimitSeconds(round) * 1000;
     this.roundTimeRemainingMs = this.roundTimeLimitMs;
     this.roundEndsAt = 0;
@@ -8052,14 +8146,18 @@ export default class GameScene extends Phaser.Scene {
     this.lastRoundSpeedScrap = this.getRoundSpeedScrap();
     this.setRoundPhase('ROUND_CLEARED');
     const pacing = this.getRoundPacing(this.currentRound);
-    const quotaPayout = Math.min(this.roundScore || 0, this.roundQuota || 0);
-    const overDelivery = Math.max(0, (this.roundScore || 0) - (this.roundQuota || 0));
-    this.lastRoundQuotaPayout = quotaPayout;
-    this.lastRoundOverDelivery = overDelivery;
-    this.addMoney(quotaPayout + overDelivery);
+    const payout = this.getRoundCashPayoutBreakdown();
+    const paidBeltFreeBonus = this.getPaidBeltFreeClearBonus();
+    let reinvestedBudget = 0;
+    this.lastRoundQuotaPayout = payout.quotaCash;
+    this.lastRoundOverDelivery = payout.overDeliveryCash;
+    this.lastRoundPaidBeltFreeBonus = paidBeltFreeBonus;
+    this.lastRoundReinvestmentCash = 0;
+    this.addMoney(payout.quotaCash + payout.overDeliveryCash + paidBeltFreeBonus);
     if (this.upgradeManager?.isProceduralUpgradeActive('boon_reinvestment_loop')) {
-      const reinvestedBudget = Math.floor(overDelivery / 500);
+      reinvestedBudget = Math.floor(payout.overDeliveryRevenue / 500);
       if (reinvestedBudget > 0) {
+        this.lastRoundReinvestmentCash = reinvestedBudget;
         this.addMoney(reinvestedBudget, 'reinvest');
       }
     }
@@ -8082,8 +8180,7 @@ export default class GameScene extends Phaser.Scene {
       });
       const nextRoundDelay = Math.max(900, entitiesToClear * 50 + 700);
       this.time.delayedCall(nextRoundDelay, () => {
-        this.pendingRoundAdvanceAfterBoon = true;
-        this.showShopScreen();
+        this.showRoundEconomySummary();
       });
     });
   }
@@ -8093,56 +8190,30 @@ export default class GameScene extends Phaser.Scene {
   }
 
   showRoundClearFeedback() {
-    const pacing = this.getRoundPacing(this.currentRound);
-    const edgeGain = this.lastRoundCapitalEdgeGain || 0;
-    const edgeDividend = this.lastRoundCapitalDividend || 0;
-    const quotaPayout = this.lastRoundQuotaPayout || 0;
-    const overDelivery = this.lastRoundOverDelivery || 0;
-    const interestLabel =
-      edgeDividend > 0
-        ? `+$${this.lastRoundInterest} INTEREST\nEDGE +$${edgeDividend}`
-        : `+$${this.lastRoundInterest} INTEREST${edgeGain > 0 ? `\nCAPITAL EDGE +${edgeGain}` : ''}`;
-    const message = [
-      pacing.isBoss ? `BOSS CLEAR` : 'ROUND CLEAR',
-      `QUOTA PAYOUT +$${quotaPayout}`,
-      overDelivery > 0 ? `OVER DELIVERY +$${overDelivery}` : null,
-      this.lastRoundInterest > 0 ? interestLabel : null,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const rank = this.getRoundClearRankInfo();
     const x = this.scale.width / 2 - this.rightPanelWidth / 2;
     const y = 118;
     const text = this.add
-      .text(x, y, message, {
+      .text(x, y, rank.label, {
         fontFamily: 'Arial Black',
-        fontSize: overDelivery > 0 ? 30 : pacing.isBoss ? 30 : 34,
-        color: overDelivery > 0 ? '#ffd166' : '#88ffcc',
+        fontSize: 72,
+        color: rank.color,
         align: 'center',
         stroke: '#000000',
-        strokeThickness: 6,
+        strokeThickness: 10,
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
     text.setDepth(1000);
     this.addToUI(text);
-    this.cameras.main.flash(
-      overDelivery > 0 ? 260 : 180,
-      120,
-      255,
-      overDelivery > 0 ? 255 : 210,
-      true
-    );
-    if (overDelivery > 0) {
-      this.cameras.main.shake(220, 0.0045);
-      this.showOverDeliveryFeedback(overDelivery);
-    }
+    this.cameras.main.flash(180, 120, 255, 210, true);
 
     this.tweens.add({
       targets: text,
-      scaleX: 1.2,
-      scaleY: 1.2,
+      scaleX: 1.32,
+      scaleY: 1.32,
       alpha: 0,
-      duration: 1200,
+      duration: 1100,
       ease: 'Power2',
       onComplete: () => text.destroy(),
     });
@@ -8177,6 +8248,212 @@ export default class GameScene extends Phaser.Scene {
       ease: 'Back.easeOut',
       onComplete: () => text.destroy(),
     });
+  }
+
+  getRoundEconomySummaryRows() {
+    const payout = this.getRoundCashPayoutBreakdown();
+    const shippedRevenue = payout.quotaRevenue + payout.overDeliveryRevenue;
+    const convertedCash = (this.lastRoundQuotaPayout || 0) + (this.lastRoundOverDelivery || 0);
+    const paidBeltCount = Math.max(0, Math.floor(this.paidBeltPlacementsThisRound || 0));
+    const paidBeltSpend = Math.max(0, Math.floor(this.paidBeltSpendThisRound || 0));
+    const noPaidBeltBonus = Math.max(0, Math.floor(this.lastRoundPaidBeltFreeBonus || 0));
+    const reinvestmentCash = Math.max(0, Math.floor(this.lastRoundReinvestmentCash || 0));
+    const interestCash = Math.max(0, Math.floor(this.lastRoundInterest || 0));
+    const conversionPercent = Math.round((payout.multiplier || 0) * 100);
+    const rows = [
+      {
+        label: 'Revenue shipped',
+        value: `$${shippedRevenue}`,
+        detail: `$${payout.quotaRevenue} quota${
+          payout.overDeliveryRevenue > 0 ? ` + $${payout.overDeliveryRevenue} over` : ''
+        }`,
+        color: '#ffe28a',
+      },
+      {
+        label: 'Cash conversion',
+        value: `+$${convertedCash}`,
+        detail: `${conversionPercent}% of shipped revenue becomes shop cash`,
+        color: '#88ffcc',
+      },
+      {
+        label: 'Paid belt bonus',
+        value: noPaidBeltBonus > 0 ? `+$${noPaidBeltBonus}` : '$0',
+        detail:
+          paidBeltCount > 0
+            ? `${paidBeltCount} paid belt${paidBeltCount === 1 ? '' : 's'} used for $${paidBeltSpend}`
+            : 'No paid conveyor belts used',
+        color: noPaidBeltBonus > 0 ? '#83f7ff' : '#b7cbd6',
+      },
+    ];
+
+    if (reinvestmentCash > 0) {
+      rows.push({
+        label: 'Reinvestment',
+        value: `+$${reinvestmentCash}`,
+        detail: 'Over-delivery turned into extra budget',
+        color: '#ffd166',
+      });
+    }
+
+    rows.push({
+      label: 'Interest',
+      value: `+$${interestCash}`,
+      detail:
+        this.lastRoundCapitalDividend > 0
+          ? `Includes capital edge +$${this.lastRoundCapitalDividend}`
+          : this.lastRoundCapitalEdgeGain > 0
+            ? `Capital edge grew by ${this.lastRoundCapitalEdgeGain}`
+            : 'Based on cash held after payout',
+      color: interestCash > 0 ? '#ffd166' : '#b7cbd6',
+    });
+
+    return rows;
+  }
+
+  showRoundEconomySummary() {
+    if (this.gameOver) return;
+    this.destroyRoundEconomySummary();
+
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const panelWidth = Math.min(680, Math.max(300, width - 36));
+    const panelHeight = Math.min(520, Math.max(360, height - 58));
+    const panelX = Phaser.Math.Clamp(
+      width / 2 - this.rightPanelWidth / 2,
+      panelWidth / 2 + 18,
+      width - panelWidth / 2 - 18
+    );
+    const panelY = height / 2;
+    const top = panelY - panelHeight / 2;
+    const left = panelX - panelWidth / 2;
+    const rows = this.getRoundEconomySummaryRows();
+    const rowTop = top + 108;
+    const footerY = top + panelHeight - 88;
+    const preferredRowHeight = panelHeight < 470 ? 54 : 62;
+    const rowHeight = Phaser.Math.Clamp(
+      Math.floor((footerY - rowTop - 10) / Math.max(1, rows.length)),
+      48,
+      preferredRowHeight
+    );
+    const compactRows = rowHeight < 56;
+    const totalCash =
+      (this.lastRoundQuotaPayout || 0) +
+      (this.lastRoundOverDelivery || 0) +
+      (this.lastRoundPaidBeltFreeBonus || 0) +
+      (this.lastRoundReinvestmentCash || 0) +
+      (this.lastRoundInterest || 0);
+    const container = this.add.container(0, 0).setScrollFactor(0).setDepth(2100);
+    const blocker = this.add
+      .rectangle(0, 0, width, height, 0x03070c, 0.84)
+      .setOrigin(0, 0)
+      .setInteractive();
+    const panel = this.add
+      .rectangle(panelX, panelY, panelWidth, panelHeight, 0x09131d, 0.98)
+      .setStrokeStyle(2, 0x70d6ff, 0.9);
+    const accent = this.add.rectangle(left, top, 7, panelHeight, 0x88ffcc, 0.95).setOrigin(0, 0.5);
+    const title = this.add
+      .text(panelX, top + 38, `ROUND ${this.currentRound} CLEAR`, {
+        fontFamily: 'Arial Black',
+        fontSize: panelHeight < 470 ? 22 : 26,
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    const subtitle = this.add
+      .text(panelX, top + 70, 'Revenue clears the map. Cash funds the shop.', {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        color: '#b7cbd6',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    container.add([blocker, panel, accent, title, subtitle]);
+
+    rows.forEach((row, index) => {
+      const y = rowTop + index * rowHeight;
+      const rowBg = this.add
+        .rectangle(panelX, y + rowHeight / 2, panelWidth - 48, rowHeight - 8, 0x132232, 0.72)
+        .setStrokeStyle(1, 0x2f4d62, 0.6);
+      const label = this.add
+        .text(left + 38, y + (compactRows ? 14 : 17), row.label, {
+          fontFamily: 'Arial Black',
+          fontSize: compactRows ? 12 : 13,
+          color: '#f4fbff',
+        })
+        .setOrigin(0, 0.5);
+      const detail = this.add
+        .text(left + 38, y + (compactRows ? 33 : 39), row.detail, {
+          fontFamily: 'Arial',
+          fontSize: compactRows ? 11 : 12,
+          color: '#b7cbd6',
+          wordWrap: { width: panelWidth - 210 },
+        })
+        .setOrigin(0, 0.5);
+      const value = this.add
+        .text(left + panelWidth - 42, y + rowHeight / 2, row.value, {
+          fontFamily: 'Arial Black',
+          fontSize: compactRows ? 18 : 20,
+          color: row.color,
+          align: 'right',
+        })
+        .setOrigin(1, 0.5);
+      container.add([rowBg, label, detail, value]);
+    });
+
+    const total = this.add
+      .text(
+        panelX,
+        footerY,
+        `Cash gained this round: +$${totalCash}     Current cash: $${this.money || 0}`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 15,
+          color: '#88ffcc',
+          align: 'center',
+        }
+      )
+      .setOrigin(0.5);
+    const button = this.add
+      .rectangle(panelX, top + panelHeight - 38, 240, 44, 0x2c7a55, 1)
+      .setStrokeStyle(2, 0x88ffcc, 0.95)
+      .setInteractive({ useHandCursor: true });
+    const buttonText = this.add
+      .text(panelX, top + panelHeight - 38, 'OPEN SHOP', {
+        fontFamily: 'Arial Black',
+        fontSize: 15,
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5);
+    button.on('pointerover', () => {
+      button.fillColor = 0x3f9f72;
+    });
+    button.on('pointerout', () => {
+      button.fillColor = 0x2c7a55;
+    });
+    button.on('pointerdown', () => {
+      this.playSound('click');
+      this.continueFromRoundEconomySummary();
+    });
+    container.add([total, button, buttonText]);
+    this.roundEconomySummaryOverlay = container;
+    this.addToUI(container);
+
+    this.input.keyboard?.once('keydown-SPACE', () => this.continueFromRoundEconomySummary());
+    this.input.keyboard?.once('keydown-ENTER', () => this.continueFromRoundEconomySummary());
+  }
+
+  destroyRoundEconomySummary() {
+    if (!this.roundEconomySummaryOverlay) return;
+    this.roundEconomySummaryOverlay.destroy(true);
+    this.roundEconomySummaryOverlay = null;
+  }
+
+  continueFromRoundEconomySummary() {
+    if (!this.roundEconomySummaryOverlay) return;
+    this.destroyRoundEconomySummary();
+    this.pendingRoundAdvanceAfterBoon = true;
+    this.showShopScreen();
   }
 
   showStretchJackpotBurst(x, y) {
@@ -8960,13 +9237,16 @@ export default class GameScene extends Phaser.Scene {
       type: 'shop_piece',
       kind: trait ? 'Special' : 'Operator',
       pieceCard: card,
+      trait,
+      traitName: traitDef?.name || null,
+      traitDescription: traitDef?.description || null,
       name: traitDef
         ? `${outputColorName} ${traitDef.name} ${template.shortName || template.name}`
         : `${outputColorName} ${template.name}`,
       description: traitDef
-        ? `${template.name}. ${operationDescription} Outputs ${outputColorName}. Special property: ${traitDef.description}`
+        ? `${template.name}. ${operationDescription} Outputs ${outputColorName}. Trait: ${traitDef.name} - ${traitDef.description}`
         : `Permanent Operator card. ${operationDescription} Outputs ${outputColorName}.`,
-      effect: traitDef ? `${operationLabel}; ${traitDef.name}` : operationExample,
+      effect: traitDef ? `${traitDef.name}: ${traitDef.description}` : operationExample,
       operationLabel,
       operationExample,
       cost: operationCost + traitCost,
@@ -9691,6 +9971,7 @@ export default class GameScene extends Phaser.Scene {
     if (refund > 0) {
       this.addMoney(refund, 'refund');
     }
+    this.unrecordBuildPhasePaidBelt(machine);
 
     // 2. Remove from the scene's machines array
     const machineIndex = this.machines.indexOf(machine);
