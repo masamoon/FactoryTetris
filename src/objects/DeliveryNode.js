@@ -304,9 +304,7 @@ export default class DeliveryNode {
     const tier = this.getItemTier(itemData);
     const requiredTier = this.condition.tier || 1;
     const tierMatches = this.condition.exact ? tier === requiredTier : tier >= requiredTier;
-    const requiredItemColor =
-      this.condition.requiredItemColor ||
-      (this.condition.strictItemColor ? this.condition.itemColor : null);
+    const requiredItemColor = this.condition.requiredItemColor || this.condition.itemColor || null;
     const itemColor = this.getItemColorKey(itemData);
     const colorMatches =
       !requiredItemColor || itemColor === requiredItemColor || itemColor === getWildcardItemColor();
@@ -375,6 +373,36 @@ export default class DeliveryNode {
       breakdownSteps.push({
         label: 'Shade Gauge',
         multiplier: shadeGaugeModifier,
+      });
+    }
+    const colorSpecialization =
+      typeof this.scene?.upgradeManager?.getColorSpecializationDeliveryModifier === 'function'
+        ? this.scene.upgradeManager.getColorSpecializationDeliveryModifier({
+            itemColor,
+            itemLevel: itemData?.level || 1,
+            wildcardColor: getWildcardItemColor(),
+          })
+        : null;
+    if (colorSpecialization?.modifier && colorSpecialization.modifier !== 1) {
+      modifier *= colorSpecialization.modifier;
+      labels.push(colorSpecialization.label || 'Color Specialty');
+      breakdownSteps.push({
+        label: colorSpecialization.label || 'Color Specialty',
+        multiplier: colorSpecialization.modifier,
+      });
+    }
+    const parityDelivery =
+      typeof this.scene?.upgradeManager?.getParityDeliveryScoreModifier === 'function'
+        ? this.scene.upgradeManager.getParityDeliveryScoreModifier({
+            itemLevel: itemData?.level || 1,
+          })
+        : null;
+    if (parityDelivery?.modifier && parityDelivery.modifier !== 1) {
+      modifier *= parityDelivery.modifier;
+      labels.push(parityDelivery.label || 'Parity');
+      breakdownSteps.push({
+        label: parityDelivery.label || 'Parity',
+        multiplier: parityDelivery.modifier,
       });
     }
     if (beaconBonus > 0) {

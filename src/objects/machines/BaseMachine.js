@@ -1667,6 +1667,9 @@ export default class BaseMachine {
             this.scene
           );
         }
+        if (typeof this.scene.upgradeManager.getParityProcessingModifier === 'function') {
+          effectiveDelta *= this.scene.upgradeManager.getParityProcessingModifier(this);
+        }
       }
       if (this.scene && typeof this.scene.getFlowSpeedMultiplier === 'function') {
         effectiveDelta *= this.scene.getFlowSpeedMultiplier();

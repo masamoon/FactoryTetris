@@ -4,6 +4,13 @@ import { BOON_POOL } from '../config/boons.js';
 import { BUILD_IDENTITIES, getBuildIdentityLevel } from '../config/buildIdentities.js';
 import { GAME_CONFIG } from '../config/gameConfig.js';
 
+const WARM_ITEM_COLORS = new Set(['red', 'yellow']);
+const COOL_ITEM_COLORS = new Set(['blue', 'green']);
+const CHROMA_COUPLER_PAIRS = [
+  ['red', 'yellow'],
+  ['blue', 'green'],
+];
+
 export class UpgradeManager {
   constructor() {
     // Stores the current level of each acquired upgrade type
@@ -24,6 +31,12 @@ export class UpgradeManager {
     // Find the tier object for the current level
     const tierInfo = upgradesConfig[upgradeType]?.tiers.find((t) => t.level === level);
     return tierInfo ? tierInfo.modifier : 1;
+  }
+
+  getUpgradeTierInfo(upgradeType) {
+    const level = this.currentUpgrades[upgradeType] || 0;
+    if (level === 0) return null;
+    return upgradesConfig[upgradeType]?.tiers?.find((t) => t.level === level) || null;
   }
 
   getProcessorSpeedModifier() {
@@ -133,6 +146,27 @@ export class UpgradeManager {
     return 1 + extraLevels * perLevel;
   }
 
+  getColorSpecializationDeliveryModifier({ itemColor, wildcardColor = 'wild' } = {}) {
+    if (!itemColor || itemColor === wildcardColor) return { modifier: 1, label: null };
+
+    const warmTier = this.getUpgradeTierInfo(UPGRADE_TYPES.WARM_CONTRACTS);
+    if (warmTier && WARM_ITEM_COLORS.has(itemColor)) {
+      return { modifier: warmTier.modifier || 1, label: 'Warm Contract' };
+    }
+
+    return { modifier: 1, label: null };
+  }
+
+  getParityDeliveryScoreModifier({ itemLevel = 1 } = {}) {
+    const level = Math.max(1, Math.floor(itemLevel || 1));
+    if (level % 2 !== 0) return { modifier: 1, label: null };
+
+    const evenTier = this.getUpgradeTierInfo(UPGRADE_TYPES.EVEN_CALIPERS);
+    if (!evenTier) return { modifier: 1, label: null };
+
+    return { modifier: evenTier.modifier || 1, label: 'Even Calipers' };
+  }
+
   getLevelDeliveryScoreModifier({ itemLevel = 1, conditionTier = 1, exact = false } = {}) {
     if (exact) return 1;
 
@@ -151,11 +185,27 @@ export class UpgradeManager {
     return Math.min(cap, Math.floor(overage * perLevel));
   }
 
+  getOddDeliveryBudgetBonus({ itemLevel = 1 } = {}) {
+    const level = Math.max(1, Math.floor(itemLevel || 1));
+    if (level % 2 === 0) return 0;
+
+    const oddTier = this.getUpgradeTierInfo(UPGRADE_TYPES.ODD_LOTS);
+    return oddTier ? Math.max(0, Math.floor(oddTier.modifier || 0)) : 0;
+  }
+
   getColorMatchProcessingModifier(machine, scene) {
-    if (!this.activeProceduralUpgrades.has('boon_chromatic_alignment')) return 1;
-    const outputColor = machine?.outputItemColor || null;
-    if (!outputColor || outputColor === 'wild') return 1;
-    return scene?.hasActiveDeliveryDemandColor?.(outputColor) ? 1.2 : 1;
+    let modifier = 1;
+    const outputColor =
+      machine?.outputItemColor || machine?.currentProcessingItems?.[0]?.itemColor || null;
+
+    const coolantTier = this.getUpgradeTierInfo(UPGRADE_TYPES.COOLANT_LOOP);
+    if (coolantTier && outputColor && COOL_ITEM_COLORS.has(outputColor)) {
+      modifier *= coolantTier.modifier || 1;
+    }
+
+    if (!this.activeProceduralUpgrades.has('boon_chromatic_alignment')) return modifier;
+    if (!outputColor || outputColor === 'wild') return modifier;
+    return scene?.hasActiveDeliveryDemandColor?.(outputColor) ? modifier * 1.2 : modifier;
   }
 
   // --- Boon-derived modifiers ---
@@ -200,6 +250,21 @@ export class UpgradeManager {
     return matchedDiesModifier * latticeModifier;
   }
 
+  getParityProcessingModifier(machine) {
+    const parityTier = this.getUpgradeTierInfo(UPGRADE_TYPES.PARITY_GEARBOX);
+    if (!parityTier) return 1;
+
+    const items = Array.isArray(machine?.currentProcessingItems)
+      ? machine.currentProcessingItems
+      : [];
+    if (items.length < 2) return 1;
+
+    const parities = new Set(
+      items.map((item) => Math.max(1, Math.floor(item?.level || 1)) % 2)
+    );
+    return parities.size === 1 ? parityTier.modifier || 1 : 1;
+  }
+
   applyColorLevelProcessingUpgrades(nextItem, _machine, scene, ctx = {}) {
     if (!nextItem || nextItem.type !== 'level-resource') return nextItem;
 
@@ -210,6 +275,19 @@ export class UpgradeManager {
       .map((item) => item?.itemColor)
       .filter((itemColor) => itemColor && itemColor !== wildcardColor);
     const uniqueConsumedColors = new Set(consumedColors);
+
+    const couplerTier = this.getUpgradeTierInfo(UPGRADE_TYPES.CHROMA_COUPLERS);
+    const hasCoupledPair = CHROMA_COUPLER_PAIRS.some(([a, b]) => {
+      return uniqueConsumedColors.has(a) && uniqueConsumedColors.has(b);
+    });
+    if (couplerTier && hasCoupledPair) {
+      adjustedItem = {
+        ...adjustedItem,
+        level:
+          Math.max(1, Math.floor(adjustedItem.level || 1)) +
+          Math.max(0, couplerTier.modifier || 0),
+      };
+    }
 
     const sortingLevel = this.currentUpgrades[UPGRADE_TYPES.SORTING_JIG] || 0;
     const sortingTier = upgradesConfig[UPGRADE_TYPES.SORTING_JIG]?.tiers.find(

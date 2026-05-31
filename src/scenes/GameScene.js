@@ -3711,6 +3711,10 @@ export default class GameScene extends Phaser.Scene {
       return node.condition.exact ? `needs exact L${requiredTier}` : `needs L${requiredTier}+`;
     }
 
+    if (node.condition.itemColor) {
+      return `needs ${getItemColorName(node.condition.itemColor)}`;
+    }
+
     return 'wrong item';
   }
 
@@ -3841,6 +3845,16 @@ export default class GameScene extends Phaser.Scene {
           : 0;
       if (budgetBonus > 0) {
         this.addMoney(budgetBonus, 'overlevel');
+      }
+
+      const oddBudgetBonus =
+        !filledDelivery && typeof this.upgradeManager?.getOddDeliveryBudgetBonus === 'function'
+          ? this.upgradeManager.getOddDeliveryBudgetBonus({
+              itemLevel: tier,
+            })
+          : 0;
+      if (oddBudgetBonus > 0) {
+        this.addMoney(oddBudgetBonus, 'odd lots');
       }
 
       if (
@@ -7245,6 +7259,8 @@ export default class GameScene extends Phaser.Scene {
       pacingStage: pacing.stage,
       scoreSink: true,
       itemColor,
+      requiredItemColor: itemColor,
+      strictItemColor: Boolean(itemColor),
       requiredCount,
       completionScoreReward,
       completionScrapReward: 0,
@@ -7274,7 +7290,7 @@ export default class GameScene extends Phaser.Scene {
     const steps = [`make L${highestTier}`, 'connect source -> operator -> delivery'];
 
     if (needsExact) steps.push('avoid over-leveling exact orders');
-    if (needsColor) steps.push('match color for bonus');
+    if (needsColor) steps.push('match demanded color');
     if (activeShortcuts.length > 0) steps.push('optional key order opens a shortcut');
 
     return `${steps.join(' | ')} | ${this.formatRoundTime(this.getRoundTimeLimitSeconds())}`;
@@ -8932,7 +8948,7 @@ export default class GameScene extends Phaser.Scene {
       boonId: boon.id,
       name: boon.name,
       description: boon.description,
-      effect: boon.rarity === 'rare' ? 'Rare run-wide rule.' : 'Run-wide rule.',
+      effect: this.getRunRuleEffectText(boon),
       cost: (boon.rarity === 'rare' ? 9 : 7) * this.getShopCostMultiplier(),
       purchased: false,
     };
@@ -8946,7 +8962,6 @@ export default class GameScene extends Phaser.Scene {
 
   createRunWideShopOffers(count = 3) {
     const upgradeTypes = Object.values(UPGRADE_TYPES);
-    const identity = this.getPrimaryBuildIdentity();
     const permanentOffers = upgradeTypes
       .map((upgradeType) => this.createPermanentUpgradeChoice(upgradeType))
       .filter(Boolean);
@@ -8958,18 +8973,7 @@ export default class GameScene extends Phaser.Scene {
         : [];
     const offers = [...permanentOffers, ...boonOffers].filter(Boolean);
 
-    offers.forEach((offer) => {
-      if (identity?.upgradeTypes?.includes(offer.upgradeType)) {
-        this.applySynergyRecommendation(offer, identity, 'BUILD FIT');
-      }
-      if (identity?.boonIds?.includes(offer.boonId)) {
-        this.applySynergyRecommendation(offer, identity, 'BUILD FIT');
-      }
-    });
-
-    return Phaser.Utils.Array.Shuffle(offers)
-      .sort((a, b) => Number(Boolean(b.isRecommended)) - Number(Boolean(a.isRecommended)))
-      .slice(0, count);
+    return Phaser.Utils.Array.Shuffle(offers).slice(0, count);
   }
 
   createBoonShopChoice(boon) {
@@ -8981,10 +8985,14 @@ export default class GameScene extends Phaser.Scene {
       boonId: boon.id,
       name: boon.name,
       description: boon.description,
-      effect: boon.rarity === 'rare' ? 'Rare run-wide rule.' : 'Run-wide rule.',
+      effect: this.getRunRuleEffectText(boon),
       cost: (boon.rarity === 'rare' ? 18 : 14) * this.getShopCostMultiplier(),
       purchased: false,
     };
+  }
+
+  getRunRuleEffectText(rule) {
+    return rule?.effect || rule?.description || 'Run-wide rule.';
   }
 
   createSpecialLogisticsShopOffer() {

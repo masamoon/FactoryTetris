@@ -14,6 +14,12 @@ export const UPGRADE_TYPES = {
   SHADE_GAUGE: 'shade_gauge',
   SORTING_JIG: 'sorting_jig',
   INDEX_MARKS: 'index_marks',
+  WARM_CONTRACTS: 'warm_contracts',
+  COOLANT_LOOP: 'coolant_loop',
+  CHROMA_COUPLERS: 'chroma_couplers',
+  EVEN_CALIPERS: 'even_calipers',
+  ODD_LOTS: 'odd_lots',
+  PARITY_GEARBOX: 'parity_gearbox',
 };
 
 export const upgradesConfig = {
@@ -73,22 +79,22 @@ export const upgradesConfig = {
   },
   [UPGRADE_TYPES.COLOR_CALIBRATION]: {
     name: 'Color Calibration',
-    description: 'Exact-color deliveries earn more revenue.',
+    description: 'Non-Wild deliveries that match a color demand earn more revenue.',
     tiers: [
       {
         level: 1,
         modifier: 1.1,
-        description: '+10% revenue when item color exactly matches demand',
+        description: '+10% revenue when a non-Wild item matches a color demand',
       },
       {
         level: 2,
         modifier: 1.22,
-        description: '+22% revenue when item color exactly matches demand',
+        description: '+22% revenue when a non-Wild item matches a color demand',
       },
       {
         level: 3,
         modifier: 1.38,
-        description: '+38% revenue when item color exactly matches demand',
+        description: '+38% revenue when a non-Wild item matches a color demand',
       },
     ],
   },
@@ -170,6 +176,72 @@ export const upgradesConfig = {
       { level: 1, modifier: 1, description: '+1 output level toward active same-color orders' },
       { level: 2, modifier: 1, description: '+1 output level toward active same-color orders' },
       { level: 3, modifier: 2, description: '+2 output levels toward active same-color orders' },
+    ],
+  },
+  [UPGRADE_TYPES.WARM_CONTRACTS]: {
+    name: 'Warm Contracts',
+    description: 'Red and Yellow deliveries pay extra.',
+    tiers: [
+      { level: 1, modifier: 1.08, description: '+8% revenue from Red or Yellow deliveries' },
+      { level: 2, modifier: 1.18, description: '+18% revenue from Red or Yellow deliveries' },
+      { level: 3, modifier: 1.32, description: '+32% revenue from Red or Yellow deliveries' },
+    ],
+  },
+  [UPGRADE_TYPES.COOLANT_LOOP]: {
+    name: 'Coolant Loop',
+    description: 'Blue and Green Operators run faster.',
+    tiers: [
+      { level: 1, modifier: 1.1, description: '+10% speed for Blue or Green Operators' },
+      { level: 2, modifier: 1.22, description: '+22% speed for Blue or Green Operators' },
+      { level: 3, modifier: 1.38, description: '+38% speed for Blue or Green Operators' },
+    ],
+  },
+  [UPGRADE_TYPES.CHROMA_COUPLERS]: {
+    name: 'Chroma Couplers',
+    description: 'Certain color pairs strengthen multi-input recipes.',
+    tiers: [
+      { level: 1, modifier: 1, description: 'Red+Yellow or Blue+Green recipes output +1 level' },
+      { level: 2, modifier: 2, description: 'Red+Yellow or Blue+Green recipes output +2 levels' },
+      { level: 3, modifier: 3, description: 'Red+Yellow or Blue+Green recipes output +3 levels' },
+    ],
+  },
+  [UPGRADE_TYPES.EVEN_CALIPERS]: {
+    name: 'Even Calipers',
+    description: 'Even-level deliveries pay extra.',
+    tiers: [
+      { level: 1, modifier: 1.08, description: '+8% revenue from even-level deliveries' },
+      { level: 2, modifier: 1.18, description: '+18% revenue from even-level deliveries' },
+      { level: 3, modifier: 1.32, description: '+32% revenue from even-level deliveries' },
+    ],
+  },
+  [UPGRADE_TYPES.ODD_LOTS]: {
+    name: 'Odd Lots',
+    description: 'Odd-level deliveries return cash to the line.',
+    tiers: [
+      { level: 1, modifier: 1, description: '+$1 cash on odd-level deliveries' },
+      { level: 2, modifier: 2, description: '+$2 cash on odd-level deliveries' },
+      { level: 3, modifier: 4, description: '+$4 cash on odd-level deliveries' },
+    ],
+  },
+  [UPGRADE_TYPES.PARITY_GEARBOX]: {
+    name: 'Parity Gearbox',
+    description: 'Multi-input Operators like inputs with matching parity.',
+    tiers: [
+      {
+        level: 1,
+        modifier: 1.1,
+        description: '+10% speed when recipe inputs are all even or all odd',
+      },
+      {
+        level: 2,
+        modifier: 1.22,
+        description: '+22% speed when recipe inputs are all even or all odd',
+      },
+      {
+        level: 3,
+        modifier: 1.38,
+        description: '+38% speed when recipe inputs are all even or all odd',
+      },
     ],
   },
 };
