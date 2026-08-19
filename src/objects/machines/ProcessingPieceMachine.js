@@ -1,5 +1,6 @@
 import BaseMachine from './BaseMachine';
 import { getProcessingPieceBody, normalizeProcessingPieceBodyId } from '../../config/pieceBodies';
+import { getFunctionalOutputPorts } from '../../rules/factorySystems.mjs';
 
 const CARDINAL_DIRECTIONS = ['right', 'down', 'left', 'up'];
 
@@ -92,6 +93,10 @@ export default class ProcessingPieceMachine extends BaseMachine {
     this.category = 'operator';
     this.machineFamily = 'operator';
     this.isComplexBody = Boolean(body.isComplexBody);
+    this.shapeTopology = body.topology;
+    this.inputCapacity = 10 + (body.topology?.bufferBonus || 0);
+    this.outputCapacity = 5 + (body.topology?.bufferBonus || 0);
+    this.topologyOutputCursor = 0;
 
     const baseIO = body.io?.right || ProcessingPieceMachine.getIOPositionsForBody(body.id, 'right');
     this.inputCoord = clonePos(this.config?.inputCoord || baseIO.inputPos);
@@ -181,6 +186,10 @@ export default class ProcessingPieceMachine extends BaseMachine {
   renderOutputCellMarker() {
     if (!this.container || !this.grid) return;
 
+    for (const marker of this.topologyOutputMarkers || []) {
+      marker.destroy?.();
+    }
+    this.topologyOutputMarkers = [];
     if (this.outputArrow) {
       this.outputArrow.destroy();
       this.outputArrow = null;
@@ -190,36 +199,36 @@ export default class ProcessingPieceMachine extends BaseMachine {
     const rotatedShape = getRotatedShape(this.shape, direction);
     const shapeWidth = rotatedShape[0]?.length || 1;
     const shapeHeight = rotatedShape.length || 1;
-    const outputPos = this.getIOPositionsForDirection(direction)?.outputPos;
-    if (!outputPos || rotatedShape[outputPos.y]?.[outputPos.x] !== 1) return;
+    const outputPositions = this.getTopologyOutputPositions(direction);
+    if (outputPositions.length === 0) return;
 
     const cellSize = this.grid.cellSize;
     const visualCenterX = ((shapeWidth - 1) / 2) * cellSize + cellSize / 2;
     const visualCenterY = ((shapeHeight - 1) / 2) * cellSize + cellSize / 2;
-    const x = outputPos.x * cellSize + cellSize / 2 - visualCenterX;
-    const y = outputPos.y * cellSize + cellSize / 2 - visualCenterY;
-
-    const outline = this.scene.add
-      .rectangle(x, y, cellSize - 5, cellSize - 5, 0x000000, 0)
-      .setOrigin(0.5)
-      .setStrokeStyle(3, 0x83f7ff, 0.95);
-    outline.setDepth(5);
-    outline.isOutputMarker = true;
-    this.container.add(outline);
-
-    const tagY = y + cellSize * 0.31;
-    const tagText = this.scene.add
-      .text(x, tagY, 'OUT', {
-        fontFamily: 'Arial Black, Arial, sans-serif',
-        fontSize: 7,
-        color: '#efffff',
-        stroke: '#05090d',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5);
-    tagText.setDepth(7);
-    tagText.isOutputMarker = true;
-    this.container.add(tagText);
+    outputPositions.forEach((outputPos, index) => {
+      if (!outputPos || rotatedShape[outputPos.y]?.[outputPos.x] !== 1) return;
+      const x = outputPos.x * cellSize + cellSize / 2 - visualCenterX;
+      const y = outputPos.y * cellSize + cellSize / 2 - visualCenterY;
+      const outline = this.scene.add
+        .rectangle(x, y, cellSize - 5, cellSize - 5, 0x000000, 0)
+        .setOrigin(0.5)
+        .setStrokeStyle(index === 0 ? 3 : 2, 0x83f7ff, index === 0 ? 0.95 : 0.72);
+      outline.setDepth(5);
+      outline.isOutputMarker = true;
+      const tagText = this.scene.add
+        .text(x, y + cellSize * 0.31, outputPositions.length > 1 ? `O${index + 1}` : 'OUT', {
+          fontFamily: 'Arial Black, Arial, sans-serif',
+          fontSize: 7,
+          color: '#efffff',
+          stroke: '#05090d',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5);
+      tagText.setDepth(7);
+      tagText.isOutputMarker = true;
+      this.container.add([outline, tagText]);
+      this.topologyOutputMarkers.push(outline, tagText);
+    });
   }
 
   startProcessing() {
@@ -278,6 +287,84 @@ export default class ProcessingPieceMachine extends BaseMachine {
     }
 
     return ProcessingPieceMachine.getIOPositionsForBody(this.bodyId, normalizedDirection);
+  }
+
+  getTopologyOutputPositions(direction = this.direction || this.defaultDirection || 'right') {
+    const normalizedDirection = CARDINAL_DIRECTIONS.includes(direction) ? direction : 'right';
+    const rotatedShape = getRotatedShape(this.shape, normalizedDirection);
+    const io = this.getIOPositionsForDirection(normalizedDirection);
+    const openManifolds = Boolean(
+      this.scene?.upgradeManager?.isProceduralUpgradeActive?.('boon_open_manifolds')
+    );
+    return getFunctionalOutputPorts({
+      shape: rotatedShape,
+      inputPos: io.inputPos,
+      configuredOutputPos: io.outputPos,
+      openManifolds,
+    });
+  }
+
+  isSourceAtInputPort(source) {
+    if (!source || !this.grid) return true;
+    const inputPos = this.getIOPositionsForDirection()?.inputPos;
+    if (!inputPos) return true;
+    const inputCell = { x: this.gridX + inputPos.x, y: this.gridY + inputPos.y };
+    const sourceCells =
+      typeof source.getOccupiedCells === 'function'
+        ? source.getOccupiedCells()
+        : [{ x: source.gridX, y: source.gridY }];
+    return sourceCells.some(
+      (cell) =>
+        Number.isFinite(cell?.x) &&
+        Number.isFinite(cell?.y) &&
+        Math.abs(cell.x - inputCell.x) + Math.abs(cell.y - inputCell.y) === 1
+    );
+  }
+
+  acceptItem(itemData, sourceMachine = null) {
+    if (!this.isSourceAtInputPort(sourceMachine)) return false;
+    return super.acceptItem(itemData, sourceMachine);
+  }
+
+  findTargetForOutput() {
+    if (!this.grid) return super.findTargetForOutput();
+
+    const outputPositions = this.getTopologyOutputPositions();
+    if (outputPositions.length === 0) return null;
+
+    const occupiedCells = this.getOccupiedCells();
+    const facing = this.getDirectionOffset(this.direction);
+    const directions = [
+      facing,
+      ...CARDINAL_DIRECTIONS.map((direction) => this.getDirectionOffset(direction)).filter(
+        (offset) => offset.dx !== facing.dx || offset.dy !== facing.dy
+      ),
+    ];
+    const targets = [];
+
+    for (const outputPos of outputPositions) {
+      const outputCell = { x: this.gridX + outputPos.x, y: this.gridY + outputPos.y };
+      for (const direction of directions) {
+        const target = this.checkForTargetInDirection([outputCell], occupiedCells, direction);
+        if (
+          target &&
+          !targets.some(
+            (candidate) =>
+              candidate.target === target.target &&
+              candidate.outputFaceX === target.outputFaceX &&
+              candidate.outputFaceY === target.outputFaceY
+          )
+        ) {
+          targets.push(target);
+          break;
+        }
+      }
+    }
+
+    if (targets.length === 0) return null;
+    const target = targets[this.topologyOutputCursor % targets.length];
+    this.topologyOutputCursor = (this.topologyOutputCursor + 1) % Math.max(1, targets.length);
+    return target;
   }
 
   static getIOPositionsForBody(bodyId, direction = 'right') {

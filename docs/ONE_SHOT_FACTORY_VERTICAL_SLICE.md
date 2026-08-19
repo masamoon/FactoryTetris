@@ -8,28 +8,31 @@ The central tension is therefore not “can I farm enough score?” It is “can
 
 ## This slice
 
-1. **Orders are mandatory.** Shipped value is a payout input, not an alternate victory condition. A round clears only after every primary delivery order is complete.
-2. **Planning has room to breathe.** Normal Factory Shift rounds are untimed. Surge and Boss rounds remain timed spikes that test throughput.
-3. **Production is a commitment.** Starting production locks new construction and deletion. The player gets one emergency rewire per round, spent by picking up an existing machine and placing it again.
-4. **The objective is singular.** The live HUD tracks completed orders. Revenue is shown as shipped value and converted into shop cash after the round; it is not presented as a second target.
-5. **Unfair judgment is removed.** Flow scoring and the factory grade are cut until the game can measure efficiency against a board-specific baseline.
-6. **Dominant anti-play is removed.** Completed delivery docks no longer advance rewards, and the oversized “no paid belts” payout is replaced by a transparent construction-spend summary.
+1. **Shape is function.** Operator inputs are enforced at their marked port. Tees and crosses are manifolds with several live outputs; closed bodies are reservoirs with extra buffers; cavity shapes are sockets with a smaller buffer. The shape is now a routing rule rather than a footprint tax.
+2. **Orders share a production spine.** Every authored puzzle creates a tier ladder with a common routing group. Exact intermediate orders must leave the line before later refinement, so independent point-to-point factories are no longer the obvious answer.
+3. **Execution is a finite batch.** Planning remains open-ended, but Start Production commits the design to a short batch of 24–52 one-second cycles. The batch clears when every order is filled and fails when its cycles run out.
+4. **Upgrades alter topology.** The regular upgrade pool opens new output faces, removes a central blocker, adds a powered center spine, or converts taxed floor into quality floor. Percentage throughput and payout boons are removed from that pool.
+5. **Generation wraps authored puzzles.** Each board family has an authored routing premise—trunk, fork, ladder, bus, spine, or tunnel. Round, order count, tier, color, inventory, and par values vary inside that premise.
+6. **The grade judges the factory.** Clear results independently medal construction cost, discarded overflow, and cycles used against template-specific pars, then combine them into an S–C rank.
 
 ## Acceptance criteria
 
-- Completing all primary orders is the only way to clear the round.
-- The live objective panel shows completed orders, not a revenue quota.
-- Factory Shift rounds show `UNTIMED`; Surge and Boss rounds retain countdowns and timeout failure.
-- New machines, quick belts, and deletion are blocked during production.
-- Picking up one existing non-fixed machine during production spends the emergency rewire; a second pickup is rejected.
-- Delivery timing does not multiply score and round clear does not assign an arbitrary grade.
-- Completed delivery nodes award no repeat-delivery revenue.
-- The rules module has deterministic automated tests and the production build succeeds.
+- Completing all primary orders is the only way to clear a batch.
+- An Operator only accepts items at its marked input and only emits from functional output cells.
+- A manifold can distribute one processed stream across several connected branches.
+- Multi-order rounds ask for exact intermediate tiers and a later refined tier from one routing group.
+- The HUD shows the authored puzzle, branch requirements, and current/maximum batch cycle.
+- Every production phase has a finite cycle horizon and reports `BATCH ENDED` when it expires.
+- Regular upgrade offers are topology-changing rules, not percentage modifiers.
+- Every generated board family selects a matching authored puzzle profile.
+- The clear screen reports cost, waste, and cycles against explicit template pars.
+- Deterministic tests cover topology, shared orders, batch cycles, and grading.
 
 ## Deferred follow-ups
 
+- Playtest and tune each template's inventory, cycle limit, and medal pars.
 - Add a limited test-pulse mode before commitment.
-- Author operation and topology contracts that demand specific operator families and routing structures.
-- Give each Boss audit a bespoke rule rather than only stronger pacing numbers.
-- Reduce the upgrade pool to fewer, more transformative factory archetypes.
-- Bring the engagement simulator into parity with the live economy and order rules.
+- Preview live input/output ports on the placement ghost and explain topology in the tutorial.
+- Add a deterministic solvability validator for generated board/template combinations.
+- Give Boss audits bespoke topology constraints instead of only stronger pacing numbers.
+- Bring the engagement simulator into parity with finite batches and shared order ladders.

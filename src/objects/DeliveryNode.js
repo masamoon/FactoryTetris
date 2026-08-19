@@ -584,6 +584,7 @@ export default class DeliveryNode {
   }
 
   recordOverflowDelivery(tier) {
+    this.scene?.recordBatchWaste?.(1, 'completed-dock overflow');
     this.createFillPulse(tier);
     if (this.scene && typeof this.scene.updateRoundUI === 'function') {
       this.scene.updateRoundUI();

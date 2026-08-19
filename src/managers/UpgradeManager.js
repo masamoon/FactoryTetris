@@ -40,11 +40,7 @@ export class UpgradeManager {
   }
 
   getProcessorSpeedModifier() {
-    let modifier = this.getModifier(UPGRADE_TYPES.OPERATOR_EFFICIENCY);
-    if (this.activeProceduralUpgrades.has('boon_heavy_haulers')) {
-      modifier *= 0.85;
-    }
-    return modifier;
+    return this.getModifier(UPGRADE_TYPES.OPERATOR_EFFICIENCY);
   }
 
   getResourceBountyModifier() {
@@ -56,11 +52,7 @@ export class UpgradeManager {
   }
 
   getConveyorSpeedModifier() {
-    let modifier = this.getModifier(UPGRADE_TYPES.CONVEYOR_SPEED);
-    if (this.activeProceduralUpgrades.has('boon_lean_lines')) {
-      modifier *= 1.25;
-    }
-    return modifier;
+    return this.getModifier(UPGRADE_TYPES.CONVEYOR_SPEED);
   }
 
   getNodeLongevityModifier() {
@@ -107,8 +99,7 @@ export class UpgradeManager {
       (t) => t.level === level
     );
     const upgradeChance = tierInfo ? tierInfo.modifier : 0;
-    const marketChance = this.activeProceduralUpgrades.has('boon_prism_market') ? 0.18 : 0;
-    return Math.min(0.75, baseChance + upgradeChance + marketChance);
+    return Math.min(0.75, baseChance + upgradeChance);
   }
 
   getClosingFloatBonus() {
@@ -124,11 +115,7 @@ export class UpgradeManager {
     if (!conditionColor || !itemColor || itemColor === wildcardColor) return 1;
     if (itemColor !== conditionColor) return 1;
 
-    let modifier = this.getColorCalibrationModifier();
-    if (this.activeProceduralUpgrades.has('boon_suit_streak')) {
-      modifier *= 1.25;
-    }
-    return modifier;
+    return this.getColorCalibrationModifier();
   }
 
   getShadeGaugeModifier({ itemColor, conditionColor, itemLevel = 1, wildcardColor = 'wild' } = {}) {
@@ -203,14 +190,12 @@ export class UpgradeManager {
       modifier *= coolantTier.modifier || 1;
     }
 
-    if (!this.activeProceduralUpgrades.has('boon_chromatic_alignment')) return modifier;
-    if (!outputColor || outputColor === 'wild') return modifier;
-    return scene?.hasActiveDeliveryDemandColor?.(outputColor) ? modifier * 1.2 : modifier;
+    return modifier;
   }
 
   // --- Boon-derived modifiers ---
   getConveyorCapacityBonus() {
-    return this.activeProceduralUpgrades.has('boon_heavy_haulers') ? 1 : 0;
+    return 0;
   }
 
   getInventoryCapacityBonus() {
@@ -219,8 +204,7 @@ export class UpgradeManager {
       (t) => t.level === level
     );
     const stagingBonus = tierInfo ? tierInfo.modifier : 0;
-    const leanPenalty = this.activeProceduralUpgrades.has('boon_lean_lines') ? -1 : 0;
-    return stagingBonus + leanPenalty;
+    return stagingBonus;
   }
 
   getArchetypeProcessingModifier(machine) {
@@ -246,8 +230,7 @@ export class UpgradeManager {
       (t) => t.level === level
     );
     const matchedDiesModifier = tierInfo ? tierInfo.modifier : 1;
-    const latticeModifier = this.activeProceduralUpgrades.has('boon_recipe_lattice') ? 1.25 : 1;
-    return matchedDiesModifier * latticeModifier;
+    return matchedDiesModifier;
   }
 
   getParityProcessingModifier(machine) {

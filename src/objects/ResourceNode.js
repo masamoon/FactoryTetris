@@ -380,7 +380,7 @@ export default class ResourceNode {
           targetMachine.canAcceptInput &&
           targetMachine.canAcceptInput('level-resource', itemToPush)
         ) {
-          if (targetMachine.acceptItem(itemToPush)) {
+          if (targetMachine.acceptItem(itemToPush, this)) {
             this.resources--; // Decrement node resources
             this.lastPushTime = now; // Reset cooldown
             this.updateResourceIndicator();
