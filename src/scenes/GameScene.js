@@ -48,6 +48,12 @@ import {
   saveGameSettings,
   saveMetaUnlocks,
 } from '../utils/GameSettings';
+import {
+  evaluateRoundPerformance,
+  getFactoryEditPermissions,
+  getRoundCompletionState,
+  isTimedRound,
+} from '../rules/roundPerformance.mjs';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -95,6 +101,10 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundQuota = 0;
     this.roundSurvived = false;
+    this.roundRevenueTargetMet = false;
+    this.roundInitialSourceResources = 0;
+    this.lastRoundPerformance = null;
+    this.emergencyRewiresRemaining = GAME_CONFIG.emergencyRewiresPerRound ?? 1;
     this.pendingDeliveryCompletionScore = 0;
     this.roundTimerEvent = null;
     this.contract = null; // legacy HUD/modifier shell; replaced by round quota loop
@@ -260,6 +270,10 @@ export default class GameScene extends Phaser.Scene {
     this.currentRound = 1;
     this.roundScore = 0;
     this.roundSurvived = false;
+    this.roundRevenueTargetMet = false;
+    this.roundInitialSourceResources = 0;
+    this.lastRoundPerformance = null;
+    this.emergencyRewiresRemaining = GAME_CONFIG.emergencyRewiresPerRound ?? 1;
     this.pendingDeliveryCompletionScore = 0;
     this.currentMomentum = 0;
     this.flowStreak = 0;
@@ -1033,8 +1047,7 @@ export default class GameScene extends Phaser.Scene {
     let hint = `Pick an Operator card from the bottom deck. It turns source items into ${cargoLabel}.${rewardText}`;
 
     if (state.scored) {
-      hint =
-        'First delivery paid out revenue. Keep adding operators and belts until the quota is full.';
+      hint = 'First delivery paid out revenue. Complete every order to clear the factory shift.';
     } else if (state.started) {
       hint = 'Watch the flow. If items stall, use the next build phase to rotate or reroute.';
     } else if (state.logisticsPlaced) {
@@ -1666,6 +1679,11 @@ export default class GameScene extends Phaser.Scene {
 
   tryStartQuickConveyorPlacement(pointer, gridPos) {
     if (this.paused || this.gameOver || this.isDraggingCamera) return false;
+    const editPermissions = getFactoryEditPermissions({ phase: this.runState });
+    if (!editPermissions.canQuickBuild) {
+      this.showPlacementHint('Factory locked during production', '#ffcc88');
+      return false;
+    }
     if (!this.machineFactory || this.machineFactory.selectedMachineType) return false;
     if (!gridPos || !this.grid) return false;
 
@@ -3148,6 +3166,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getRoundTimeLimitSeconds(round = this.currentRound) {
+    if (GAME_CONFIG.untimedBuildRounds !== false && !this.isRoundTimed(round)) {
+      return Infinity;
+    }
+
     const earlyLimit = this.getRoundPacingOverride(
       GAME_CONFIG.pacingConfig?.earlyRoundTimeLimits,
       round
@@ -3166,6 +3188,10 @@ export default class GameScene extends Phaser.Scene {
     );
   }
 
+  isRoundTimed(round = this.currentRound) {
+    return isTimedRound(this.getRoundPacing(round));
+  }
+
   getRoundTimeRemainingMs() {
     if (this.runState !== 'ROUND_ACTIVE') return this.roundTimeLimitMs || 0;
     if (typeof this.roundTimeRemainingMs === 'number') {
@@ -3180,6 +3206,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   formatRoundTime(seconds = this.getRoundTimeRemainingSeconds()) {
+    if (!Number.isFinite(seconds)) return 'UNTIMED';
+
     const safeSeconds = Math.max(0, Math.floor(seconds || 0));
     const minutes = Math.floor(safeSeconds / 60);
     const remainder = safeSeconds % 60;
@@ -3188,6 +3216,7 @@ export default class GameScene extends Phaser.Scene {
 
   evaluateRoundTimeLimit() {
     if (this.runState !== 'ROUND_ACTIVE' || this.roundClearing || this.roundSurvived) return;
+    if (!Number.isFinite(this.roundTimeLimitMs)) return;
     if (this.getRoundTimeRemainingMs() > 0) return;
 
     this.failRoundFromTimeLimit();
@@ -3269,6 +3298,11 @@ export default class GameScene extends Phaser.Scene {
 
   advanceRoundClock(delta = 0) {
     if (this.runState !== 'ROUND_ACTIVE' || this.roundClearing) return;
+    if (!Number.isFinite(this.roundTimeLimitMs)) {
+      this.roundTimeRemainingMs = Infinity;
+      this.roundEndsAt = 0;
+      return;
+    }
     if (typeof this.roundTimeRemainingMs !== 'number') {
       this.roundTimeRemainingMs = this.roundTimeLimitMs || 0;
     }
@@ -3511,21 +3545,29 @@ export default class GameScene extends Phaser.Scene {
   tryCompleteRound() {
     if (this.runState !== 'ROUND_ACTIVE' || this.roundClearing) return;
 
-    const deliveryMapComplete = this.areDeliveryNodesComplete();
-    if (deliveryMapComplete) {
+    const primaryOrdersComplete = this.areDeliveryNodesComplete();
+    if (primaryOrdersComplete) {
       this.awardPendingDeliveryCompletionScore();
     }
 
-    const quotaMet = (this.roundScore || 0) >= (this.roundQuota || 0);
-    if (quotaMet && !this.roundSurvived) {
-      this.roundSurvived = true;
-      if (!deliveryMapComplete) {
-        this.showRoundSurvivedFeedback();
+    const completion = getRoundCompletionState({
+      primaryOrdersComplete,
+      revenue: this.roundScore,
+      target: this.roundQuota,
+    });
+    if (completion.revenueTargetMet && !this.roundRevenueTargetMet) {
+      this.roundRevenueTargetMet = true;
+      if (!completion.primaryOrdersComplete) {
+        this.showRoundSurvivedFeedback('Revenue target met — finish orders');
       }
+    }
+
+    if (completion.cleared && !this.roundSurvived) {
+      this.roundSurvived = true;
       this.updateRoundAdvanceButton();
     }
 
-    if (quotaMet) {
+    if (completion.cleared) {
       this.clearRound();
     }
   }
@@ -3753,6 +3795,9 @@ export default class GameScene extends Phaser.Scene {
 
   getFailureSnapshot(prefix = 'Run ended') {
     const missing = Math.max(0, (this.roundQuota || 0) - (this.roundScore || 0));
+    const primaryOrders = this.getQuotaDeliveryNodes();
+    const completedOrders = primaryOrders.filter((node) => node?.completed).length;
+    const remainingOrders = Math.max(0, primaryOrders.length - completedOrders);
     const topRejection = Object.entries(this.deliveryRejectionStats || {}).sort(
       (a, b) => b[1] - a[1]
     )[0];
@@ -3776,15 +3821,22 @@ export default class GameScene extends Phaser.Scene {
       lesson = 'That was close. One faster delivery line likely clears it.';
     }
 
-    const summary = topReason
-      ? `${prefix}. ${quotaPercent}% of quota. Misses: ${topReason}.`
-      : `${prefix}. ${quotaPercent}% of quota. Needed $${missing} more revenue.`;
+    const summary =
+      remainingOrders > 0
+        ? `${prefix}. ${completedOrders}/${primaryOrders.length} orders complete.${
+            topReason ? ` Misses: ${topReason}.` : ''
+          }`
+        : topReason
+          ? `${prefix}. ${quotaPercent}% of target. Misses: ${topReason}.`
+          : `${prefix}. ${quotaPercent}% of target. Needed $${missing} more revenue.`;
 
     return {
       summary,
       lesson,
       missingScore: missing,
       quotaPercent,
+      completedOrders,
+      remainingOrders,
       topRejectionReason: topReason,
       roundScore: this.roundScore || 0,
       roundQuota: this.roundQuota || 0,
@@ -3952,6 +4004,7 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundQuota = this.getRoundQuota(round);
     this.roundSurvived = false;
+    this.roundRevenueTargetMet = false;
     this.flowStreak = 0;
     this.currentMomentum = 0;
     this.lastFlowDeliveryAt = 0;
@@ -5521,10 +5574,18 @@ export default class GameScene extends Phaser.Scene {
         this.showPlacementHint('Invalid piece', '#ff8888');
         return null;
       }
+      const isRepositionedMachine = Boolean(machineType.fromPlacedMachine);
+      const editPermissions = getFactoryEditPermissions({
+        phase: this.runState,
+        isRelocation: isRepositionedMachine,
+      });
+      if (!editPermissions.canPlace) {
+        this.showPlacementHint('Factory locked — use an emergency rewire', '#ffcc88');
+        return null;
+      }
       if (machineType.isLogisticsBeltPiece) {
         return this.placeLogisticsBeltPiece(machineType, gridX, gridY, rotation);
       }
-      const isRepositionedMachine = Boolean(machineType.fromPlacedMachine);
 
       // Get direction from rotation (assuming degrees for now)
       const direction = this.getDirectionFromRotation(rotation);
@@ -6833,15 +6894,67 @@ export default class GameScene extends Phaser.Scene {
     return cap > 0 ? Math.min(cap, bonus) : bonus;
   }
 
-  getRoundClearRankInfo(score = this.roundScore, quota = this.roundQuota) {
-    const safeQuota = Math.max(1, Math.floor(quota || 0));
-    const ratio = Math.max(0, Math.floor(score || 0)) / safeQuota;
+  getFactoryFootprintCellCount() {
+    if (!Array.isArray(this.grid?.cells)) return 0;
 
-    if (ratio >= 1.2) return { label: 'S', color: '#ffd166', ratio };
-    if (ratio >= 1.08) return { label: 'A', color: '#88ffcc', ratio };
-    if (ratio >= 1) return { label: 'B', color: '#83f7ff', ratio };
-    if (ratio >= 0.88) return { label: 'C', color: '#b7cbd6', ratio };
-    return { label: 'D', color: '#ff9f88', ratio };
+    let occupiedCells = 0;
+    for (const row of this.grid.cells) {
+      for (const cell of row || []) {
+        const machine = cell?.object || cell?.machine;
+        if (
+          cell?.type === 'machine' &&
+          machine &&
+          !machine.isFixedInfrastructure &&
+          !machine.isBoardLoaner
+        ) {
+          occupiedCells += 1;
+        }
+      }
+    }
+    return occupiedCells;
+  }
+
+  getRoundCompactnessBudget() {
+    const demandBudget = this.getQuotaDeliveryNodes().reduce((total, node) => {
+      const tier = Math.max(1, Math.floor(node?.condition?.tier || 1));
+      const count = Math.max(1, Math.floor(node?.condition?.requiredCount || 1));
+      return total + tier * 2 + count;
+    }, 8);
+    return Math.max(14, demandBudget);
+  }
+
+  getRoundPerformanceSnapshot() {
+    const inputs = {
+      remainingSupply: this.getRemainingSourceResources(),
+      initialSupply: this.roundInitialSourceResources,
+      footprintCells: this.getFactoryFootprintCellCount(),
+      compactnessBudget: this.getRoundCompactnessBudget(),
+      bestFlowStreak: this.bestFlowStreak,
+    };
+    return { ...evaluateRoundPerformance(inputs), inputs };
+  }
+
+  formatPerformanceMedal(medal = 'none') {
+    return medal === 'none' ? 'NONE' : medal.toUpperCase();
+  }
+
+  getRoundClearRankInfo() {
+    const performance =
+      this.runState === 'ROUND_CLEARED' && this.lastRoundPerformance
+        ? this.lastRoundPerformance
+        : this.getRoundPerformanceSnapshot();
+    const colors = {
+      S: '#ffd166',
+      A: '#88ffcc',
+      B: '#83f7ff',
+      C: '#b7cbd6',
+    };
+
+    return {
+      label: performance.rank,
+      color: colors[performance.rank] || '#b7cbd6',
+      performance,
+    };
   }
 
   getDeliveryNodeCompletionBurstInfo(node) {
@@ -6853,13 +6966,9 @@ export default class GameScene extends Phaser.Scene {
     const completesMap =
       deliveryNodes.length > 0 &&
       deliveryNodes.every((delivery) => delivery === node || delivery.completed);
-    const projectedScore =
-      (this.roundScore || 0) +
-      Math.max(0, Math.floor(this.pendingDeliveryCompletionScore || 0)) +
-      Math.max(0, Math.floor(node?.completionScoreReward || 0));
 
-    if (completesMap && projectedScore >= (this.roundQuota || 0)) {
-      return { ...this.getRoundClearRankInfo(projectedScore, this.roundQuota), isRank: true };
+    if (completesMap) {
+      return { ...this.getRoundClearRankInfo(), isRank: true };
     }
 
     return { label: 'DONE', color: '#88ffcc', isRank: false };
@@ -7382,11 +7491,8 @@ export default class GameScene extends Phaser.Scene {
         this.nextDemandText.setColor('#ffe28a');
       } else {
         const payout = this.getRoundCashPayoutBreakdown();
-        const bonus = this.lastRoundPaidBeltFreeBonus || this.getPaidBeltFreeClearBonus();
         this.nextDemandText.setText(
-          `Cash: $${payout.quotaCash} quota + $${payout.overDeliveryCash} over${
-            bonus > 0 ? ` + $${bonus} no paid belts` : ''
-          }`
+          `Cash: $${payout.quotaCash} target + $${payout.overDeliveryCash} over`
         );
         this.nextDemandText.setColor('#88ffcc');
       }
@@ -7399,11 +7505,16 @@ export default class GameScene extends Phaser.Scene {
         if (this.roundSurvived) {
           this.deliveryStatusText.setText('Clearing');
           this.deliveryStatusText.setColor('#88ffcc');
-        } else if (this.getRoundTimeRemainingSeconds() <= 10) {
+        } else if (this.isRoundTimed() && this.getRoundTimeRemainingSeconds() <= 10) {
           this.deliveryStatusText.setText(`Time ${this.formatRoundTime()}`);
           this.deliveryStatusText.setColor('#ff8888');
-        } else if (this.getRemainingSourceResources() > 0) {
+        } else if (this.isRoundTimed() && this.getRemainingSourceResources() > 0) {
           this.deliveryStatusText.setText(`Time ${this.formatRoundTime()}`);
+          this.deliveryStatusText.setColor('#88ccff');
+        } else if (this.getRemainingSourceResources() > 0) {
+          this.deliveryStatusText.setText(
+            `Orders ${activeNodes.length} | Supply ${this.getRemainingSourceResources()}`
+          );
           this.deliveryStatusText.setColor('#88ccff');
         } else if (this.roundExhaustionStartedAt) {
           const graceMs = GAME_CONFIG.roundExhaustionGraceMs || 4500;
@@ -7461,11 +7572,17 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (this.runState === 'ROUND_ACTIVE') {
-      const timeLeft = this.formatRoundTime();
       const supply = this.getRemainingSourceResources();
+      const remainingOrders = this.getQuotaDeliveryNodes().filter((node) => !node.completed).length;
+      const rewire = Math.max(0, this.emergencyRewiresRemaining || 0);
+      const pressure = this.isRoundTimed()
+        ? `${this.formatRoundTime()} left`
+        : `${remainingOrders} order${remainingOrders === 1 ? '' : 's'} left`;
       const body = this.roundSurvived
-        ? 'Quota met. Let the remaining items finish clearing.'
-        : `Watch for stalls. ${timeLeft} left, ${supply} supply remaining.`;
+        ? 'All orders complete. Finalizing the factory grade.'
+        : `${
+            this.roundRevenueTargetMet ? 'Revenue target met. ' : ''
+          }${pressure}, ${supply} supply, ${rewire} emergency rewire${rewire === 1 ? '' : 's'}.`;
       this.setActionHint('Round Live', body, this.roundSurvived ? 0x88ffcc : 0x88ccff);
       return;
     }
@@ -7945,7 +8062,9 @@ export default class GameScene extends Phaser.Scene {
     this.roundClearing = false;
     this.roundStartedAt = this.time?.now || 0;
     this.roundTimeRemainingMs = this.roundTimeLimitMs || 0;
-    this.roundEndsAt = this.roundStartedAt + (this.roundTimeLimitMs || 0);
+    this.roundEndsAt = Number.isFinite(this.roundTimeLimitMs)
+      ? this.roundStartedAt + (this.roundTimeLimitMs || 0)
+      : 0;
     this.setProductionPaused(false);
     this.setBuildPhaseUIVisible(false);
     this.updateRoundUI();
@@ -7972,6 +8091,12 @@ export default class GameScene extends Phaser.Scene {
     this.lastRoundPaidBeltFreeBonus = 0;
     this.lastRoundReinvestmentCash = 0;
     this.lastDeliveryBreakdown = null;
+    this.roundRevenueTargetMet = false;
+    this.roundInitialSourceResources = 0;
+    this.emergencyRewiresRemaining = Math.max(
+      0,
+      Math.floor(GAME_CONFIG.emergencyRewiresPerRound ?? 1)
+    );
     this.resetRoundPaidBeltUsage();
     this.roundTimeLimitMs = this.getRoundTimeLimitSeconds(round) * 1000;
     this.roundTimeRemainingMs = this.roundTimeLimitMs;
@@ -7990,6 +8115,7 @@ export default class GameScene extends Phaser.Scene {
     this.money = Math.max(this.money || 0, minimumBudget);
     this.applyBudgetCarryoverCap(round);
     this.createInitialResourceNodes();
+    this.roundInitialSourceResources = this.getRemainingSourceResources();
     if (this.machineFactory) {
       this.machineFactory.refreshAvailableProcessors();
       this.machineFactory.displayCurrentProcessorPreview();
@@ -8158,6 +8284,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.roundClearing) return;
     this.roundClearing = true;
     this.lastRoundClearWasStretchComplete = this.areDeliveryNodesComplete();
+    this.lastRoundPerformance = this.getRoundPerformanceSnapshot();
     this.lastRoundTimeBonus = this.awardRoundTimeBonus();
     this.lastRoundSpeedScrap = this.getRoundSpeedScrap();
     this.setRoundPhase('ROUND_CLEARED');
@@ -8272,15 +8399,20 @@ export default class GameScene extends Phaser.Scene {
     const convertedCash = (this.lastRoundQuotaPayout || 0) + (this.lastRoundOverDelivery || 0);
     const paidBeltCount = Math.max(0, Math.floor(this.paidBeltPlacementsThisRound || 0));
     const paidBeltSpend = Math.max(0, Math.floor(this.paidBeltSpendThisRound || 0));
-    const noPaidBeltBonus = Math.max(0, Math.floor(this.lastRoundPaidBeltFreeBonus || 0));
     const reinvestmentCash = Math.max(0, Math.floor(this.lastRoundReinvestmentCash || 0));
     const interestCash = Math.max(0, Math.floor(this.lastRoundInterest || 0));
     const conversionPercent = Math.round((payout.multiplier || 0) * 100);
+    const performance = this.lastRoundPerformance || this.getRoundPerformanceSnapshot();
+    const performanceDetail = [
+      `Material ${this.formatPerformanceMedal(performance.dimensions.material.medal)}`,
+      `Space ${this.formatPerformanceMedal(performance.dimensions.space.medal)}`,
+      `Flow ${this.formatPerformanceMedal(performance.dimensions.flow.medal)}`,
+    ].join(' • ');
     const rows = [
       {
         label: 'Revenue shipped',
         value: `$${shippedRevenue}`,
-        detail: `$${payout.quotaRevenue} quota${
+        detail: `$${payout.quotaRevenue} target${
           payout.overDeliveryRevenue > 0 ? ` + $${payout.overDeliveryRevenue} over` : ''
         }`,
         color: '#ffe28a',
@@ -8292,13 +8424,19 @@ export default class GameScene extends Phaser.Scene {
         color: '#88ffcc',
       },
       {
-        label: 'Paid belt bonus',
-        value: noPaidBeltBonus > 0 ? `+$${noPaidBeltBonus}` : '$0',
+        label: 'Construction spend',
+        value: `$${paidBeltSpend}`,
         detail:
           paidBeltCount > 0
-            ? `${paidBeltCount} paid belt${paidBeltCount === 1 ? '' : 's'} used for $${paidBeltSpend}`
-            : 'No paid conveyor belts used',
-        color: noPaidBeltBonus > 0 ? '#83f7ff' : '#b7cbd6',
+            ? `${paidBeltCount} paid conveyor belt${paidBeltCount === 1 ? '' : 's'}`
+            : 'No paid conveyor belts',
+        color: paidBeltSpend > 0 ? '#83f7ff' : '#b7cbd6',
+      },
+      {
+        label: 'Factory grade',
+        value: performance.rank,
+        detail: performanceDetail,
+        color: this.getRoundClearRankInfo().color,
       },
     ];
 
@@ -8376,7 +8514,7 @@ export default class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const subtitle = this.add
-      .text(panelX, top + 70, 'Revenue clears the map. Cash funds the shop.', {
+      .text(panelX, top + 70, 'Orders clear the map. Revenue funds the shop.', {
         fontFamily: 'Arial',
         fontSize: 14,
         color: '#b7cbd6',
@@ -9919,11 +10057,23 @@ export default class GameScene extends Phaser.Scene {
       this.showPlacementHint('Fixed board tunnel', '#83f7ff');
       return;
     }
+    const editPermissions = getFactoryEditPermissions({
+      phase: this.runState,
+      rewiresRemaining: this.emergencyRewiresRemaining,
+    });
+    if (!editPermissions.canPickUp) {
+      this.showPlacementHint('Emergency rewire already used', '#ff8888');
+      return;
+    }
 
     const machineType = this.createMachineTypeFromPlacedMachine(machine);
     if (!machineType) {
       console.warn('[PICKUP] Could not create placement data for clicked machine.');
       return;
+    }
+
+    if (this.runState === 'ROUND_ACTIVE') {
+      this.emergencyRewiresRemaining = Math.max(0, this.emergencyRewiresRemaining - 1);
     }
 
     this.clearMachineRuntimeItems(machine);
@@ -9949,12 +10099,17 @@ export default class GameScene extends Phaser.Scene {
       this.playSound('destroy');
     }
     this.showProcessorReplacementFeedback('Picked up\nplace for free');
+    this.updateRoundUI();
   }
 
   deleteLogisticsOnClick(machine) {
     if (this.paused || this.gameOver || !machine) return;
     if (machine.isFixedInfrastructure) {
       this.showPlacementHint('Fixed board tunnel', '#83f7ff');
+      return;
+    }
+    if (!getFactoryEditPermissions({ phase: this.runState }).canDelete) {
+      this.showPlacementHint('Factory locked — use an emergency rewire', '#ffcc88');
       return;
     }
 

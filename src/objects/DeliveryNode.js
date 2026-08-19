@@ -439,7 +439,7 @@ export default class DeliveryNode {
   }
 
   getFilledRewardMultiplier() {
-    const multiplier = GAME_CONFIG.filledDeliveryNodeRewardMultiplier ?? 0.35;
+    const multiplier = GAME_CONFIG.filledDeliveryNodeRewardMultiplier ?? 0;
     return Math.max(0, Math.min(1, multiplier));
   }
 
