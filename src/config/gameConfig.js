@@ -25,7 +25,8 @@ export const GAME_CONFIG = {
 
   metaProgression: {
     undergroundBeltsUnlockedByDefault: false,
-    advancedLogisticsUnlockRound: 4,
+    advancedLogisticsUnlockRound: 6,
+    playerTunnelOfferRound: 6,
     freeDraftRedrawsPerRound: 1,
   },
 
@@ -123,16 +124,6 @@ export const GAME_CONFIG = {
       processingTime: 700,
       direction: 'right',
       description: 'Recolors passing items based on facing direction',
-    },
-    {
-      id: 'splitter',
-      name: 'Splitter',
-      shape: [[1, 1]],
-      inputTypes: ['basic-resource', 'advanced-resource', 'mega-resource'],
-      outputTypes: ['basic-resource', 'advanced-resource', 'mega-resource'],
-      processingTime: 500,
-      direction: 'right',
-      description: 'Distributes items between two output paths',
     },
     {
       id: 'merger',
@@ -293,9 +284,7 @@ export const GAME_CONFIG = {
   filledDeliveryNodeRewardMultiplier: 0,
   maxDeliveryNodesPerRound: 7,
   machinePlacementCosts: {
-    conveyor: 4,
-    logisticsBeltPiece: 0,
-    splitter: 4,
+    conveyor: 2,
     'filter-splitter': 42,
     merger: 4,
     'underground-belt': 5,

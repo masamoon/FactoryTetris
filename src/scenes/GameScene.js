@@ -56,6 +56,7 @@ import {
 import {
   evaluateFactoryBatch,
   getBatchCycleState as calculateBatchCycleState,
+  shouldOfferPlayerTunnel,
 } from '../rules/factorySystems.mjs';
 import { createFactoryPuzzle } from '../config/factoryPuzzleTemplates.mjs';
 
@@ -984,7 +985,7 @@ export default class GameScene extends Phaser.Scene {
 
   isTutorialLogisticsMachine(machine) {
     const id = String(machine?.id || machine?.type || '').toLowerCase();
-    return ['conveyor', 'splitter', 'merger', 'underground-belt', 'painter'].includes(id);
+    return ['conveyor', 'merger', 'underground-belt', 'painter'].includes(id);
   }
 
   getFirstDeliveryTutorialState() {
@@ -2098,8 +2099,6 @@ export default class GameScene extends Phaser.Scene {
     const direction = orientation.direction;
 
     const machineId = machine.id || (machine.machineType ? machine.machineType.id : 'unknown');
-    const isLogisticsBeltPiece =
-      machine.isLogisticsBeltPiece === true || machine.machineType?.isLogisticsBeltPiece === true;
     const usesOperatorOutputMarker =
       machine.machineFamily === 'operator' ||
       machine.category === 'operator' ||
@@ -2217,11 +2216,6 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     }
-    if (isLogisticsBeltPiece) {
-      inputPos = { x: -1, y: -1 };
-      outputPos = { x: -1, y: -1 };
-    }
-
     // Use direct positioning instead of offsets
     // Draw each cell at its exact grid position
     for (let y = 0; y < rotatedShape.length; y++) {
@@ -2339,10 +2333,6 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    if (isLogisticsBeltPiece) {
-      this.drawLogisticsBeltPlacementPreview(machine, previewGridPos, direction, canPlace);
-    }
-
     this.drawPlacementTraitPreview(machine, previewGridPos, rotatedShape, canPlace);
 
     // Draw a marker at the center position
@@ -2350,7 +2340,7 @@ export default class GameScene extends Phaser.Scene {
     this.placementPreview.strokeCircle(centerWorldPos.x, centerWorldPos.y, 3);
 
     // Draw direction indicator if we have a direction
-    if (direction !== 'none' && !isLogisticsBeltPiece && !usesOperatorOutputMarker) {
+    if (direction !== 'none' && !usesOperatorOutputMarker) {
       const indicatorColor = 0xff9500; // Orange
       const indicatorSize = this.grid.cellSize / 3;
 
@@ -2455,95 +2445,6 @@ export default class GameScene extends Phaser.Scene {
     this.placementPreview.fillCircle(outputX, outputY, radius);
     this.placementPreview.lineStyle(1.5, 0xffffff, alpha);
     this.placementPreview.strokeCircle(outputX, outputY, radius);
-  }
-
-  drawLogisticsBeltPlacementPreview(machine, gridPos, direction, canPlace) {
-    if (!this.placementPreview || !this.grid || !machine || !gridPos) return;
-
-    const machineType = machine.machineType || machine;
-    const beltCells = this.getRotatedLogisticsBeltCells(machineType, direction);
-    if (beltCells.length === 0) return;
-
-    const alpha = canPlace ? 0.95 : 0.45;
-    const cellSize = this.grid.cellSize;
-    const isTunnel = machineType.isLogisticsTunnelPiece === true;
-    const pathColor = isTunnel ? 0xb56cff : 0x83f7ff;
-    const arrowColor = isTunnel ? 0xd9b6ff : 0xfff3bf;
-    const getCenter = (cell) => this.grid.gridToWorld(gridPos.x + cell.x, gridPos.y + cell.y);
-
-    this.placementPreview.lineStyle(Math.max(5, cellSize * 0.2), 0x07111a, alpha * 0.9);
-    for (let i = 0; i < beltCells.length - 1; i++) {
-      const from = getCenter(beltCells[i]);
-      const to = getCenter(beltCells[i + 1]);
-      this.placementPreview.lineBetween(from.x, from.y, to.x, to.y);
-    }
-
-    this.placementPreview.lineStyle(Math.max(3, cellSize * 0.12), pathColor, alpha);
-    for (let i = 0; i < beltCells.length - 1; i++) {
-      const from = getCenter(beltCells[i]);
-      const to = getCenter(beltCells[i + 1]);
-      this.placementPreview.lineBetween(from.x, from.y, to.x, to.y);
-    }
-
-    beltCells.forEach((cell, index) => {
-      const nextCell = beltCells[index + 1] || null;
-      const prevCell = beltCells[index - 1] || null;
-      const beltDirection = this.getDirectionBetweenCells(
-        cell,
-        nextCell,
-        nextCell ? null : prevCell
-      );
-      const center = getCenter(cell);
-      this.drawPlacementArrow(center.x, center.y, beltDirection, cellSize * 0.3, arrowColor, alpha);
-    });
-
-    const start = getCenter(beltCells[0]);
-    const end = getCenter(beltCells[beltCells.length - 1]);
-    this.placementPreview.fillStyle(0x101820, alpha);
-    this.placementPreview.lineStyle(1.5, pathColor, alpha);
-    this.placementPreview.fillCircle(start.x, start.y, cellSize * 0.16);
-    this.placementPreview.strokeCircle(start.x, start.y, cellSize * 0.16);
-    this.placementPreview.lineStyle(2, arrowColor, alpha);
-    this.placementPreview.strokeCircle(end.x, end.y, cellSize * 0.22);
-  }
-
-  drawPlacementArrow(x, y, direction, size, color = 0xffffff, alpha = 1) {
-    let angle = 0;
-    switch (direction) {
-      case 'down':
-        angle = Math.PI / 2;
-        break;
-      case 'left':
-        angle = Math.PI;
-        break;
-      case 'up':
-        angle = (3 * Math.PI) / 2;
-        break;
-      case 'right':
-      default:
-        angle = 0;
-        break;
-    }
-
-    const tip = { x: x + Math.cos(angle) * size, y: y + Math.sin(angle) * size };
-    const left = {
-      x: x + Math.cos(angle + 2.55) * size,
-      y: y + Math.sin(angle + 2.55) * size,
-    };
-    const right = {
-      x: x + Math.cos(angle - 2.55) * size,
-      y: y + Math.sin(angle - 2.55) * size,
-    };
-
-    this.placementPreview.lineStyle(1.5, 0x07111a, alpha);
-    this.placementPreview.fillStyle(color, alpha);
-    this.placementPreview.beginPath();
-    this.placementPreview.moveTo(tip.x, tip.y);
-    this.placementPreview.lineTo(left.x, left.y);
-    this.placementPreview.lineTo(right.x, right.y);
-    this.placementPreview.closePath();
-    this.placementPreview.fillPath();
-    this.placementPreview.strokePath();
   }
 
   getPreviewTraitId(machine) {
@@ -3775,7 +3676,6 @@ export default class GameScene extends Phaser.Scene {
       if (oddBudgetBonus > 0) {
         this.addMoney(oddBudgetBonus, 'odd lots');
       }
-
     }
 
     if (countsForRound) {
@@ -4179,35 +4079,25 @@ export default class GameScene extends Phaser.Scene {
     const selectedCategory = this.machineFactory?.lastSelectedCategory || null;
     const selectedProcessorSlot =
       selectedCategory === 'operator' ? this.machineFactory.lastSelectedSlotIndex : -1;
-    const selectedLogisticsSlot =
-      selectedCategory === 'logistics' ? this.machineFactory.lastSelectedSlotIndex : -1;
     const canCycleSelectedSlot =
       selectedProcessorSlot >= 0 &&
       this.machineFactory?.canCycleProcessorSlot?.(selectedProcessorSlot) === true;
-    const canCycleSelectedLogisticsSlot =
-      selectedLogisticsSlot >= 0 &&
-      this.machineFactory?.canCycleLogisticsSlot?.(selectedLogisticsSlot) === true;
-    const canCycleAnySelectedSlot = canCycleSelectedSlot || canCycleSelectedLogisticsSlot;
-    const cost = canCycleAnySelectedSlot
-      ? GAME_CONFIG.draftCycleCost || 2
-      : this.getDraftRedrawCost();
+    const cost = canCycleSelectedSlot ? GAME_CONFIG.draftCycleCost || 2 : this.getDraftRedrawCost();
     const inBuildPhase =
       this.runState === 'BUILD_PHASE' && !this.gameOver && !this.paused && !this.isPausedForUpgrade;
 
     return {
       affordable: (this.money || 0) >= cost,
-      canCycleSelectedLogisticsSlot,
-      canCycleSelectedSlot: canCycleAnySelectedSlot,
+      canCycleSelectedSlot,
       cost,
       enabled: inBuildPhase,
       inBuildPhase,
-      label: canCycleAnySelectedSlot
+      label: canCycleSelectedSlot
         ? `CYCLE $${cost}`
         : cost === 0
           ? 'REDRAW FREE'
           : `REDRAW $${cost}`,
       selectedCategory,
-      selectedLogisticsSlot,
       selectedProcessorSlot,
     };
   }
@@ -4227,9 +4117,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     let success = false;
-    if (state.canCycleSelectedLogisticsSlot) {
-      success = this.machineFactory?.cycleLogisticsSlot?.(state.selectedLogisticsSlot);
-    } else if (state.canCycleSelectedSlot) {
+    if (state.canCycleSelectedSlot) {
       success = this.machineFactory?.cycleProcessorSlot?.(state.selectedProcessorSlot);
     } else {
       success = this.machineFactory?.redrawBuildHand?.();
@@ -4558,11 +4446,6 @@ export default class GameScene extends Phaser.Scene {
     return this.isLogisticsMachineUnlocked(machineType) ? machineType : null;
   }
 
-  shouldShowLockedLogisticsMachine(machineType) {
-    const machineId = String(machineType?.id || machineType || '').toLowerCase();
-    return machineId === 'underground-belt';
-  }
-
   isLogisticsMachineUnlocked(machineType) {
     const machineId = String(machineType?.id || machineType || '').toLowerCase();
     if (this.isSpecialLogisticsMachine(machineId)) {
@@ -4572,7 +4455,12 @@ export default class GameScene extends Phaser.Scene {
       );
     }
     if (machineId === 'underground-belt') {
-      return this.isUndergroundBeltUnlocked();
+      return shouldOfferPlayerTunnel({
+        round: this.currentRound,
+        boardId: this.currentRoundBoard?.id,
+        unlocked: this.isUndergroundBeltUnlocked(),
+        unlockRound: GAME_CONFIG.metaProgression?.playerTunnelOfferRound || 6,
+      });
     }
     return true;
   }
@@ -4580,8 +4468,8 @@ export default class GameScene extends Phaser.Scene {
   getLogisticsUnlockHint(machineType) {
     const machineId = String(machineType?.id || machineType || '').toLowerCase();
     if (machineId === 'underground-belt') {
-      const unlockRound = GAME_CONFIG.metaProgression?.advancedLogisticsUnlockRound || 4;
-      return `Clear round ${unlockRound} to unlock Advanced Logistics. Board loaner tunnels stay free.`;
+      const unlockRound = GAME_CONFIG.metaProgression?.playerTunnelOfferRound || 6;
+      return `From round ${unlockRound}, underground belts appear only on boards built around crossings.`;
     }
     return 'Locked for now.';
   }
@@ -4595,7 +4483,7 @@ export default class GameScene extends Phaser.Scene {
     });
     this.machineFactory?.refreshAvailableLogistics?.();
     this.machineFactory?.displayCurrentProcessorPreview?.();
-    this.showMetaUnlockFeedback('ADVANCED LOGISTICS\nUNDERGROUND BELTS');
+    this.showMetaUnlockFeedback('UNDERGROUND BELTS\nCROSSING BOARDS ONLY');
     console.log(`[META] Unlocked underground belts (${reason})`);
     return true;
   }
@@ -4650,9 +4538,9 @@ export default class GameScene extends Phaser.Scene {
     return true;
   }
 
-  maybeUnlockAdvancedLogistics(pacing = this.getRoundPacing(this.currentRound)) {
-    const unlockRound = GAME_CONFIG.metaProgression?.advancedLogisticsUnlockRound || 4;
-    if (this.currentRound >= unlockRound || pacing?.isBoss) {
+  maybeUnlockAdvancedLogistics() {
+    const unlockRound = GAME_CONFIG.metaProgression?.advancedLogisticsUnlockRound || 6;
+    if (this.currentRound >= unlockRound) {
       return this.unlockAdvancedLogistics(`round ${this.currentRound} clear`);
     }
     return false;
@@ -5404,10 +5292,6 @@ export default class GameScene extends Phaser.Scene {
         this.showPlacementHint('Factory locked — use an emergency rewire', '#ffcc88');
         return null;
       }
-      if (machineType.isLogisticsBeltPiece) {
-        return this.placeLogisticsBeltPiece(machineType, gridX, gridY, rotation);
-      }
-
       // Get direction from rotation (assuming degrees for now)
       const direction = this.getDirectionFromRotation(rotation);
 
@@ -5645,238 +5529,6 @@ export default class GameScene extends Phaser.Scene {
       );
       return null;
     }
-  }
-
-  placeLogisticsBeltPiece(machineType, gridX, gridY, rotation = 0) {
-    const direction = this.getDirectionFromRotation(rotation);
-    const boardTileEffects = this.getBoardTilePlacementEffects(
-      machineType,
-      gridX,
-      gridY,
-      direction
-    );
-    const placementCost = this.getMachinePlacementCost(machineType, boardTileEffects);
-
-    if (this.money < placementCost) {
-      this.showMoneyFeedback(-placementCost, 'needed');
-      this.showPlacementHint(`Need $${placementCost}`, '#ff8888');
-      return null;
-    }
-
-    if (!this.grid.canPlaceMachine(machineType, gridX, gridY, direction)) {
-      this.showPlacementHint('Blocked placement', '#ff8888');
-      return null;
-    }
-
-    const logisticsMachineId = machineType.logisticsMachineId || 'conveyor';
-    if (logisticsMachineId === 'tunnel') {
-      return this.placeLogisticsMachinePiece(
-        machineType,
-        'logistics-tunnel',
-        gridX,
-        gridY,
-        direction,
-        rotation,
-        placementCost
-      );
-    }
-
-    if (logisticsMachineId !== 'conveyor' && logisticsMachineId !== 'tunnel') {
-      return this.placeLogisticsMachinePiece(
-        machineType,
-        logisticsMachineId,
-        gridX,
-        gridY,
-        direction,
-        rotation,
-        placementCost
-      );
-    }
-
-    const beltCells = this.getRotatedLogisticsBeltCells(machineType, direction);
-    if (beltCells.length === 0) {
-      this.showPlacementHint('Invalid belt piece', '#ff8888');
-      return null;
-    }
-
-    const placedBelts = [];
-    for (let index = 0; index < beltCells.length; index++) {
-      const cell = beltCells[index];
-      const nextCell = beltCells[index + 1] || null;
-      const prevCell = beltCells[index - 1] || null;
-      const beltDirection = this.getDirectionBetweenCells(
-        cell,
-        nextCell,
-        nextCell ? null : prevCell
-      );
-      const beltRotation = this.getRotationFromDirection(beltDirection);
-      const conveyorType = {
-        ...(this.machineFactory?.conveyorMachineType || { id: 'conveyor' }),
-        id: 'conveyor',
-        placementCost: 0,
-        isLogisticsBeltSegment: true,
-        isLogisticsTunnelSegment: logisticsMachineId === 'tunnel',
-      };
-      const machineObj = this.machineFactory.createMachine(
-        conveyorType,
-        gridX + cell.x,
-        gridY + cell.y,
-        beltDirection,
-        beltRotation,
-        this.grid
-      );
-
-      if (!machineObj) {
-        placedBelts.forEach((belt) => {
-          this.grid.removeMachine(belt);
-          this.machines = this.machines.filter((machine) => machine !== belt);
-          belt.destroy?.();
-        });
-        this.showPlacementHint('Belt placement failed', '#ff8888');
-        return null;
-      }
-
-      const placedOnGrid = this.grid.placeMachine(
-        machineObj,
-        gridX + cell.x,
-        gridY + cell.y,
-        beltDirection
-      );
-      if (!placedOnGrid) {
-        machineObj.destroy?.();
-        placedBelts.forEach((belt) => {
-          this.grid.removeMachine(belt);
-          this.machines = this.machines.filter((machine) => machine !== belt);
-          belt.destroy?.();
-        });
-        this.showPlacementHint('Belt placement failed', '#ff8888');
-        return null;
-      }
-      this.machines.push(machineObj);
-      machineObj.placedAtTime = this.time?.now || 0;
-      machineObj.placementCost = 0;
-      machineObj.logisticsPieceId = machineType.logisticsPieceCard?.id || machineType.pieceName;
-      this.addToWorld(machineObj);
-      placedBelts.push(machineObj);
-    }
-
-    if (placementCost > 0) {
-      if (placedBelts[0]) {
-        placedBelts[0].placementCost = placementCost;
-        this.recordConstructionSpend(placedBelts[0], placementCost);
-      }
-      this.addMoney(-placementCost, machineType.pieceName || 'belt piece');
-    } else {
-      this.updateRoundUI();
-    }
-    this.showPlacementHint(
-      logisticsMachineId === 'tunnel' ? 'Tunnel piece placed' : 'Belt piece placed',
-      '#88ffcc'
-    );
-    this.refreshTutorialPanel();
-    this.playSound('place');
-    this.exitMachinePlacementMode();
-    return placedBelts[0] || null;
-  }
-
-  placeLogisticsMachinePiece(
-    machineType,
-    logisticsMachineId,
-    gridX,
-    gridY,
-    direction,
-    rotation,
-    placementCost
-  ) {
-    const placementType = {
-      ...machineType,
-      id: logisticsMachineId,
-      placementCost: 0,
-      isLogisticsBeltPiece: false,
-      isLogisticsDraftPiece: true,
-    };
-    const machineObj = this.machineFactory.createMachine(
-      placementType,
-      gridX,
-      gridY,
-      direction,
-      rotation,
-      this.grid
-    );
-
-    if (!machineObj) {
-      this.showPlacementHint('Logistics placement failed', '#ff8888');
-      return null;
-    }
-
-    const placedOnGrid = this.grid.placeMachine(machineObj, gridX, gridY, direction);
-    if (!placedOnGrid) {
-      machineObj.destroy?.();
-      this.showPlacementHint('Logistics placement failed', '#ff8888');
-      return null;
-    }
-
-    this.machines.push(machineObj);
-    machineObj.placedAtTime = this.time?.now || 0;
-    machineObj.placementCost = 0;
-    machineObj.logisticsPieceId = machineType.logisticsPieceCard?.id || machineType.pieceName;
-    machineObj.isLogisticsDraftPiece = true;
-    this.addToWorld(machineObj);
-    if (placementCost > 0) {
-      machineObj.placementCost = placementCost;
-      this.recordConstructionSpend(machineObj, placementCost);
-      this.addMoney(-placementCost, machineType.pieceName || 'logistics piece');
-    } else {
-      this.updateRoundUI();
-    }
-    this.showPlacementHint(
-      `${machineType.pieceShortName || machineType.pieceName} placed`,
-      '#88ffcc'
-    );
-    this.refreshTutorialPanel();
-    this.playSound('place');
-    this.exitMachinePlacementMode();
-    return machineObj;
-  }
-
-  getRotatedLogisticsBeltCells(machineType, direction) {
-    const path = Array.isArray(machineType?.logisticsPath) ? machineType.logisticsPath : [];
-    const shape = machineType?.shape || [[1]];
-    return path.map((cell) => this.rotateLogisticsBeltCell(cell, shape, direction));
-  }
-
-  rotateLogisticsBeltCell(cell, shape, direction) {
-    const height = shape.length;
-    const width = shape[0]?.length || 1;
-
-    switch (direction) {
-      case 'down':
-        return { x: height - 1 - cell.y, y: cell.x };
-      case 'left':
-        return { x: width - 1 - cell.x, y: height - 1 - cell.y };
-      case 'up':
-        return { x: cell.y, y: width - 1 - cell.x };
-      case 'right':
-      default:
-        return { x: cell.x, y: cell.y };
-    }
-  }
-
-  getDirectionBetweenCells(cell, nextCell, previousCell = null) {
-    const target = nextCell || cell;
-    let dx = target.x - cell.x;
-    let dy = target.y - cell.y;
-
-    if (dx === 0 && dy === 0 && previousCell) {
-      dx = cell.x - previousCell.x;
-      dy = cell.y - previousCell.y;
-    }
-
-    if (dx > 0) return 'right';
-    if (dx < 0) return 'left';
-    if (dy > 0) return 'down';
-    if (dy < 0) return 'up';
-    return 'right';
   }
 
   getRotationFromDirection(direction) {
@@ -6838,9 +6490,7 @@ export default class GameScene extends Phaser.Scene {
     return Math.max(
       1,
       Math.floor(
-        (base + Math.max(0, round - 1) * growth + wave) *
-          boardMultiplier *
-          pacingMultiplier
+        (base + Math.max(0, round - 1) * growth + wave) * boardMultiplier * pacingMultiplier
       )
     );
   }
@@ -6867,7 +6517,9 @@ export default class GameScene extends Phaser.Scene {
       return this.currentFactoryPuzzle;
     }
     const board =
-      this.currentRoundBoard?.round === round ? this.currentRoundBoard : this.createRoundBoard(round);
+      this.currentRoundBoard?.round === round
+        ? this.currentRoundBoard
+        : this.createRoundBoard(round);
     const puzzle = this.createFactoryPuzzleForRound(round, board);
     return { ...puzzle, round };
   }
@@ -7047,7 +6699,8 @@ export default class GameScene extends Phaser.Scene {
       const midY = (editedBoard.height || this.grid?.height || GRID_CONFIG.height) / 2;
       editedBoard.blockers.sort(
         (a, b) =>
-          Math.abs(a.x - midX) + Math.abs(a.y - midY) -
+          Math.abs(a.x - midX) +
+          Math.abs(a.y - midY) -
           (Math.abs(b.x - midX) + Math.abs(b.y - midY))
       );
       editedBoard.blockers.shift();
@@ -7385,11 +7038,12 @@ export default class GameScene extends Phaser.Scene {
       const hasMachines = (this.machines || []).length > 0;
       const puzzle = this.getFactoryPuzzle(this.currentRound);
       const title = `${puzzle.name} • Round ${this.currentRound}`;
+      const beltCost = GAME_CONFIG.machinePlacementCosts?.conveyor || 2;
       const body = hasMachines
-        ? `${puzzle.instruction} Start the batch when every branch is connected.`
+        ? `${puzzle.instruction} Drag empty cells to draw belts ($${beltCost} per cell), then start the batch.`
         : activeNodes.length > 0
-          ? `${puzzle.instruction} Pick an Operator and build the shared stage first.`
-          : 'Study the board, draft a piece, and prepare the first route.';
+          ? `${puzzle.instruction} Pick an Operator, then drag empty cells to route belts ($${beltCost} per cell).`
+          : 'Study the board, pick an Operator, and drag the first paid belt route.';
       this.setActionHint(title, body, 0x88ffcc);
       return;
     }
@@ -7738,13 +7392,9 @@ export default class GameScene extends Phaser.Scene {
     if (typeof machineType?.placementCost === 'number' && machineType.specialLogisticsSource) {
       return machineType.placementCost;
     }
-    if (machineType?.isLogisticsBeltPiece) {
-      return GAME_CONFIG.machinePlacementCosts?.logisticsBeltPiece || 0;
-    }
     const costs = GAME_CONFIG.machinePlacementCosts || {};
     const id = machineType?.id || '';
     if (id === 'conveyor') return costs.conveyor || 1;
-    if (id === 'splitter') return costs.splitter || 4;
     if (id === 'filter-splitter') return costs['filter-splitter'] || 42;
     if (id === 'merger') return costs.merger || 4;
     if (id === 'underground-belt') return costs['underground-belt'] || 5;
@@ -9439,7 +9089,7 @@ export default class GameScene extends Phaser.Scene {
         title: 'Advanced Logistics',
         value: 'META',
         description:
-          'Underground belts are now available in the logistics tray. Fixed board tunnels still stay free.',
+          'Available only on later boards whose layout visibly calls for a crossing. Fixed board tunnels remain free infrastructure.',
         color: 0x83f7ff,
       });
     }
@@ -9994,9 +9644,6 @@ export default class GameScene extends Phaser.Scene {
       trait: this.selectedMachineType.trait || null,
       outputLevel: this.selectedMachineType.outputLevel || null,
       previewOutputLevel: this.selectedMachineType.previewOutputLevel || null,
-      isLogisticsBeltPiece: this.selectedMachineType.isLogisticsBeltPiece === true,
-      logisticsPath: this.selectedMachineType.logisticsPath || null,
-      logisticsMachineId: this.selectedMachineType.logisticsMachineId || null,
       machineType: this.selectedMachineType,
       gridX: gridPos.x,
       gridY: gridPos.y,
