@@ -522,6 +522,18 @@ export class UpgradeScene extends Phaser.Scene {
     return `Trait: ${traitDef.name} - ${traitDef.description}`;
   }
 
+  getCompactShopPieceDetailLabel(choice) {
+    const operationLabel = this.getShopPieceOperationLabel(choice).replace(
+      /^Operation:\s*/i,
+      'OP '
+    );
+    const traitId = choice?.trait || choice?.pieceCard?.trait;
+    const traitDef = traitId ? getTraitById(traitId) : null;
+    const traitLabel = traitDef ? `TRAIT ${traitDef.name}` : '';
+
+    return [operationLabel, traitLabel].filter(Boolean).join(' • ') || choice?.effect || '';
+  }
+
   getItemColorSwatchColor(card) {
     switch (card?.outputItemColor || card?.machineColor) {
       case 'red':
@@ -828,9 +840,9 @@ export class UpgradeScene extends Phaser.Scene {
     const hasPieceThumbnail = choice.type === 'shop_piece' && choice.pieceCard;
     const thumbnailSize = hasPieceThumbnail ? Math.min(34, Math.max(24, height - 48)) : 0;
     const contentLeft = hasPieceThumbnail ? left + 58 : left + 18;
-    const operationLabel = hasPieceThumbnail ? this.getShopPieceOperationLabel(choice) : '';
-    const traitLabel = hasPieceThumbnail ? this.getShopPieceTraitLabel(choice) : '';
-    const detailLabel = traitLabel || operationLabel || choice.effect;
+    const detailLabel = hasPieceThumbnail
+      ? this.getCompactShopPieceDetailLabel(choice)
+      : choice.effect;
     const costLabel = choice.purchased ? 'SOLD' : choice.isFree ? 'FREE' : `$${choice.cost || 0}`;
     const costWidth = Math.min(82, Math.max(58, costLabel.length * 6 + 18));
     const costX = right - 12 - costWidth / 2;
