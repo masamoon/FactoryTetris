@@ -1428,10 +1428,26 @@ export default class MachineFactory {
     if (!preview || typeof preview.iterate !== 'function') return;
 
     preview.iterate((child) => {
-      if (child?.type === 'Text' && !child.isOutputMarker) {
+      if (child?.type === 'Text' && !child.isOutputMarker && !child.isOperationLabel) {
         child.setVisible(false);
       }
     });
+  }
+
+  getOperatorOperationLabel(machineType) {
+    const operation = machineType?.arithmeticOperation;
+    switch (operation?.type) {
+      case ARITHMETIC_OPERATION_TYPES.ADD_CONSTANT:
+        return `+${operation.value || 0}`;
+      case ARITHMETIC_OPERATION_TYPES.ADD:
+        return 'ADD';
+      case ARITHMETIC_OPERATION_TYPES.MULTIPLY:
+        return 'x';
+      case ARITHMETIC_OPERATION_TYPES.DIVIDE:
+        return '/';
+      default:
+        return '';
+    }
   }
 
   getTraitBadgeLabel(name) {
@@ -2239,15 +2255,21 @@ export default class MachineFactory {
     }
     // --- End Generic Preview Drawing ---
 
-    // Add a label (use machine ID if available)
-    const labelText = machineType.id ? machineType.id.substring(0, 3).toUpperCase() : '?';
+    // Keep the operation visible inside the tray preview even when the card also has a trait.
+    const operationLabel = this.getOperatorOperationLabel(machineType);
+    const labelText =
+      operationLabel || (machineType.id ? machineType.id.substring(0, 3).toUpperCase() : '?');
     const label = this.scene.add
       .text(0, 0, labelText, {
-        fontFamily: 'Arial',
-        fontSize: Math.max(8, cellSize * 0.6), // Scale font size
-        color: '#ffffff',
+        fontFamily: operationLabel ? 'Arial Black, Arial, sans-serif' : 'Arial',
+        fontSize: operationLabel ? Math.max(9, cellSize * 0.64) : Math.max(8, cellSize * 0.6),
+        color: operationLabel ? '#ffd966' : '#ffffff',
+        stroke: operationLabel ? '#05090d' : undefined,
+        strokeThickness: operationLabel ? 2 : 0,
       })
       .setOrigin(0.5);
+    label.isOperationLabel = Boolean(operationLabel);
+    label.setDepth(operationLabel ? 2 : 0);
     if (!machineType.isLogisticsBeltPiece) {
       container.add(label);
     }
