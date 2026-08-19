@@ -423,12 +423,14 @@ export default class DeliveryNode {
   }
 
   formatMultiplier(multiplier) {
-    const rounded = Math.round((multiplier || 1) * 10) / 10;
+    const value = Number(multiplier);
+    const rounded = Math.round((Number.isFinite(value) ? value : 1) * 10) / 10;
     return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
   }
 
   formatScoreMultiplier(multiplier) {
-    const rounded = Math.round((Number(multiplier) || 1) * 100) / 100;
+    const value = Number(multiplier);
+    const rounded = Math.round((Number.isFinite(value) ? value : 1) * 100) / 100;
     return rounded.toFixed(2).replace(/\.?0+$/, '');
   }
 
@@ -503,18 +505,18 @@ export default class DeliveryNode {
           filledDelivery: wasAlreadyFilled,
         }) || {
           points: traitBreakdown.points,
-          countsForFlow: countsForQuota,
+          countsForRound: countsForQuota && !wasAlreadyFilled,
         },
         wasAlreadyFilled
       );
 
       // Add score
       const awardedPoints =
-        this.scene.addScore(reward.points, { countsForFlow: reward.countsForFlow }) ||
+        this.scene.addScore(reward.points, { countsForRound: reward.countsForRound }) ||
         reward.points;
 
-      if (this.scene.recordDeliveryFlow) {
-        this.scene.recordDeliveryFlow(itemData, level, reward);
+      if (this.scene.recordDelivery) {
+        this.scene.recordDelivery(itemData, level, reward);
       }
 
       if (wasAlreadyFilled) {
@@ -534,7 +536,7 @@ export default class DeliveryNode {
       });
 
       console.log(
-        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForFlow ? '' : ' (off-contract salvage)'}${wasAlreadyFilled ? ' (filled-node overflow)' : ''}`
+        `DeliveryNode at (${this.gridX}, ${this.gridY}) accepted Level ${level} (${levelName}) resource, +${reward.points} points${reward.countsForRound ? '' : ' (off-contract salvage)'}${wasAlreadyFilled ? ' (filled-node overflow)' : ''}`
       );
       return true;
     }
@@ -563,7 +565,9 @@ export default class DeliveryNode {
     }
 
     // Add score
-    this.scene.addScore(totalPoints, { countsForFlow: this.condition.countsForQuota !== false });
+    this.scene.addScore(totalPoints, {
+      countsForRound: this.condition.countsForQuota !== false && !wasAlreadyFilled,
+    });
     if (wasAlreadyFilled) {
       this.recordOverflowDelivery(1);
     } else {
