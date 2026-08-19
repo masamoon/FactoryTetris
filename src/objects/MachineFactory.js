@@ -6,7 +6,7 @@ import { assignLevelsToShape } from '../utils/PieceGenerator';
 import { getTraitById, getTraitBandColor } from '../config/traits';
 import { ARITHMETIC_OPERATION_TYPES } from '../config/resourceLevels';
 import { createPieceDeckForRound, getPieceDeckEntryById } from '../config/pieceDeck';
-import { createLogisticsDeckForRound } from '../config/logisticsDeck';
+import { isBinaryArithmeticOperation } from '../rules/factorySystems.mjs';
 import {
   getProcessingPieceBody,
   isProcessingPieceBodyId,
@@ -42,13 +42,10 @@ export default class MachineFactory {
     this.lastSelectedSlotIndex = -1; // Track which slot was last selected for refresh
     this.processorPreviewContainer = null; // Will be created in createVisuals
     this.conveyorMachineType = null; // Store conveyor type separately
-    this.numLogisticsSlots = 3; // Free Tetris-shaped belt pieces
-    this.availableLogistics = []; // Array of currently available free logistics pieces
-    this.logisticsDeck = [];
-    this.logisticsDiscard = [];
     this.availableSpecialLogistics = [];
-    this.lockedLogistics = []; // Logistics shown as future meta unlocks
-    this.logisticsTypes = []; // Pool of logistics machine types
+    this.logisticsTypes = []; // Contextual and earned routing tools
+    this.mergerMachineType = null;
+    this.undergroundMachineType = null;
     this.logisticsScrollX = 0;
     this.logisticsScrollMax = 0;
     this.logisticsScrollViewport = null;
@@ -156,9 +153,6 @@ export default class MachineFactory {
           trait: this.selectedMachineType.trait || null,
           outputLevel: this.selectedMachineType.outputLevel || null,
           previewOutputLevel: this.selectedMachineType.previewOutputLevel || null,
-          isLogisticsBeltPiece: this.selectedMachineType.isLogisticsBeltPiece === true,
-          logisticsPath: this.selectedMachineType.logisticsPath || null,
-          logisticsMachineId: this.selectedMachineType.logisticsMachineId || null,
           machineType: this.selectedMachineType,
         };
 
@@ -179,10 +173,13 @@ export default class MachineFactory {
         isProcessingPieceBodyId(type.id)
     );
 
-    // Filter for logistics machines
+    // Routing tools are contextual or earned; conveyors are always drawn directly on the board.
     this.logisticsTypes = allMachineTypes.filter((type) =>
-      ['painter', 'filter-splitter'].includes(type.id.toLowerCase())
+      ['painter', 'filter-splitter', 'merger', 'underground-belt'].includes(type.id.toLowerCase())
     );
+    this.mergerMachineType = this.logisticsTypes.find((type) => type.id === 'merger') || null;
+    this.undergroundMachineType =
+      this.logisticsTypes.find((type) => type.id === 'underground-belt') || null;
 
     // Get the conveyor type
     this.conveyorMachineType = allMachineTypes.find((type) => type.id.toLowerCase() === 'conveyor');
@@ -266,25 +263,9 @@ export default class MachineFactory {
     this.refreshProcessorHand({ rebuildDeck: true });
   }
 
-  // Populate logistics slots
-  refreshAvailableLogistics(options = {}) {
-    const rebuildDeck = options.rebuildDeck !== false;
-    if (rebuildDeck || this.logisticsDeck.length === 0) {
-      this.buildLogisticsDeck();
-    } else if (options.discardCurrentHand) {
-      for (const logisticsPiece of this.availableLogistics) {
-        if (logisticsPiece?.logisticsPieceCard) {
-          this.logisticsDiscard.push(logisticsPiece.logisticsPieceCard);
-        }
-      }
-    }
-
-    this.availableLogistics = [];
-    for (let i = 0; i < this.numLogisticsSlots; i++) {
-      this.availableLogistics.push(this.drawLogisticsPiece());
-    }
-
+  refreshAvailableLogistics() {
     this.availableSpecialLogistics = this.logisticsTypes
+      .filter((type) => !['merger', 'underground-belt'].includes(type.id))
       .map((type) => {
         if (typeof this.scene?.getLogisticsMachinePanelType === 'function') {
           return this.scene.getLogisticsMachinePanelType(type);
@@ -295,117 +276,32 @@ export default class MachineFactory {
         return type;
       })
       .filter(Boolean);
-
-    const availableIds = new Set(this.availableSpecialLogistics.map((type) => type.id));
-    this.lockedLogistics = this.logisticsTypes
-      .filter((type) => {
-        if (availableIds.has(type.id)) return false;
-        if (typeof this.scene?.shouldShowLockedLogisticsMachine === 'function') {
-          return this.scene.shouldShowLockedLogisticsMachine(type);
-        }
-        if (typeof this.scene?.isLogisticsMachineUnlocked === 'function') {
-          return !this.scene.isLogisticsMachineUnlocked(type);
-        }
-        return false;
-      })
-      .map((type) => ({
-        ...type,
-        isLocked: true,
-        lockedReason:
-          this.scene?.getLogisticsUnlockHint?.(type) ||
-          'Unlock this tool through meta progression.',
-      }));
   }
 
   getDisplayedLogisticsTypes() {
-    return [...this.availableLogistics, ...this.availableSpecialLogistics, ...this.lockedLogistics];
-  }
-
-  buildLogisticsDeck() {
-    this.logisticsDeck = createLogisticsDeckForRound(this.scene?.currentRound || 1);
-    this.shuffleLogisticsDeck();
-    this.logisticsDiscard = [];
-  }
-
-  shuffleLogisticsDeck() {
-    for (let i = this.logisticsDeck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [this.logisticsDeck[i], this.logisticsDeck[j]] = [
-        this.logisticsDeck[j],
-        this.logisticsDeck[i],
-      ];
+    const contextual = [];
+    if (this.hasBinaryOperatorAvailable() && this.mergerMachineType) {
+      contextual.push(this.mergerMachineType);
     }
+    if (
+      this.undergroundMachineType &&
+      this.scene?.isLogisticsMachineUnlocked?.(this.undergroundMachineType)
+    ) {
+      contextual.push(this.undergroundMachineType);
+    }
+    return [...contextual, ...this.availableSpecialLogistics];
   }
 
-  drawLogisticsCard() {
-    if (this.logisticsDeck.length === 0) {
-      this.logisticsDeck = [...this.logisticsDiscard];
-      this.logisticsDiscard = [];
-      this.shuffleLogisticsDeck();
-    }
-
-    return this.logisticsDeck.pop() || null;
-  }
-
-  drawLogisticsPiece() {
-    const card = this.drawLogisticsCard();
-    if (!card) return null;
-
-    const logisticsMachineId = card.machineId || 'conveyor';
-    const isPathPiece = logisticsMachineId === 'conveyor' || logisticsMachineId === 'tunnel';
-    const shape =
-      logisticsMachineId === 'tunnel'
-        ? this.createLogisticsTunnelEndpointShape(card.shape, card.path)
-        : card.shape;
-
-    return {
-      id: isPathPiece ? 'belt-piece' : logisticsMachineId,
-      name: card.name,
-      pieceName: card.name,
-      pieceShortName: card.shortName || card.name,
-      shape,
-      logisticsPath: card.path,
-      logisticsMachineId,
-      isLogisticsTunnelPiece: logisticsMachineId === 'tunnel',
-      placementCost: 0,
-      isLogisticsBeltPiece: true,
-      logisticsPieceCard: card,
-      direction: 'right',
-      defaultDirection: 'right',
-      inputTypes: ['basic-resource', 'advanced-resource', 'mega-resource', 'level-resource'],
-      outputTypes: ['basic-resource', 'advanced-resource', 'mega-resource', 'level-resource'],
-      description:
-        logisticsMachineId === 'conveyor'
-          ? 'Free belt polyomino. Places one conveyor per cell along the shown path.'
-          : logisticsMachineId === 'tunnel'
-            ? 'Rare free tunnel polyomino. Only the ends occupy cells; cargo travels under the shown path.'
-            : `Free one-use ${card.name}.`,
-    };
-  }
-
-  createLogisticsTunnelEndpointShape(shape, path) {
-    if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0])) {
-      return [[1]];
-    }
-    if (!Array.isArray(path) || path.length === 0) {
-      return shape;
-    }
-
-    const endpointShape = shape.map((row) => row.map(() => 0));
-    const start = path[0];
-    const end = path[path.length - 1];
-    [start, end].forEach((cell) => {
-      if (
-        cell &&
-        cell.y >= 0 &&
-        cell.y < endpointShape.length &&
-        cell.x >= 0 &&
-        cell.x < endpointShape[cell.y].length
-      ) {
-        endpointShape[cell.y][cell.x] = 1;
-      }
-    });
-    return endpointShape;
+  hasBinaryOperatorAvailable() {
+    const candidates = [
+      ...this.availableProcessors,
+      ...(Array.isArray(this.scene?.machines) ? this.scene.machines : []),
+    ];
+    return candidates.some(
+      (machine) =>
+        (machine?.arithmeticInputCount || 0) > 1 ||
+        isBinaryArithmeticOperation(machine?.arithmeticOperation)
+    );
   }
 
   // Replace the used piece with the next card from the deck.
@@ -680,22 +576,8 @@ export default class MachineFactory {
     return this.availableProcessors.length > 0;
   }
 
-  redrawLogisticsHand() {
-    this.refreshAvailableLogistics({ rebuildDeck: false, discardCurrentHand: true });
-    this.displayCurrentProcessorPreview();
-    if (this.lastSelectedCategory === 'logistics') {
-      this.clearSelection();
-      this.lastSelectedCategory = null;
-      this.lastSelectedSlotIndex = -1;
-    }
-    return this.availableLogistics.some(Boolean);
-  }
-
   redrawBuildHand() {
-    const processorSuccess = this.redrawProcessorHand();
-    const logisticsSuccess = this.redrawLogisticsHand();
-    this.displayCurrentProcessorPreview();
-    return processorSuccess || logisticsSuccess;
+    return this.redrawProcessorHand();
   }
 
   addPieceCardToRunDeck(pieceId) {
@@ -748,43 +630,6 @@ export default class MachineFactory {
     return Phaser.Utils.Array.GetRandom(colorCycle) || GAME_CONFIG.defaultItemColor || 'blue';
   }
 
-  // Replace a used free logistics piece with the next belt card.
-  rotateLogistics(removedSlotIndex) {
-    if (removedSlotIndex < 0 || removedSlotIndex >= this.availableLogistics.length) return;
-
-    const usedPiece = this.availableLogistics[removedSlotIndex];
-    if (!usedPiece?.isLogisticsBeltPiece) return;
-    if (usedPiece.logisticsPieceCard) {
-      this.logisticsDiscard.push(usedPiece.logisticsPieceCard);
-    }
-    this.availableLogistics[removedSlotIndex] = this.drawLogisticsPiece();
-  }
-
-  canCycleLogisticsSlot(slotIndex) {
-    return (
-      slotIndex >= 0 &&
-      slotIndex < this.availableLogistics.length &&
-      Boolean(this.availableLogistics[slotIndex]?.isLogisticsBeltPiece)
-    );
-  }
-
-  cycleLogisticsSlot(slotIndex) {
-    if (!this.canCycleLogisticsSlot(slotIndex)) {
-      return false;
-    }
-
-    this.rotateLogistics(slotIndex);
-    this.displayCurrentProcessorPreview();
-
-    if (this.lastSelectedCategory === 'logistics' && this.lastSelectedSlotIndex === slotIndex) {
-      this.clearSelection();
-      this.lastSelectedCategory = null;
-      this.lastSelectedSlotIndex = -1;
-    }
-
-    return Boolean(this.availableLogistics[slotIndex]);
-  }
-
   // Renamed and repurposed method
   createProcessorSelectionPanel() {
     // Ensure we have processor types before displaying
@@ -830,14 +675,27 @@ export default class MachineFactory {
       })
       .setOrigin(0, 0.5);
     const logisticsLabel = this.scene.add
-      .text(-this.width / 2 + 32, 8, 'LOGISTICS', {
+      .text(-this.width / 2 + 32, 8, 'ROUTING', {
         fontFamily: 'Arial Black',
         fontSize: 10,
         color: '#ffd166',
         align: 'left',
       })
       .setOrigin(0, 0.5);
-    this.processorPreviewContainer.add([processorLabel, logisticsLabel]);
+    const routingHint = this.scene.add
+      .text(
+        this.width / 2 - 32,
+        8,
+        `DRAG GRID • $${GAME_CONFIG.machinePlacementCosts?.conveyor || 2}/CELL`,
+        {
+          fontFamily: 'Arial Black',
+          fontSize: 9,
+          color: '#83f7ff',
+          align: 'right',
+        }
+      )
+      .setOrigin(1, 0.5);
+    this.processorPreviewContainer.add([processorLabel, logisticsLabel, routingHint]);
 
     const divider = this.scene.add.rectangle(0, 10, this.width - 56, 1, 0x355466, 0.55);
     this.processorPreviewContainer.add(divider);
@@ -860,24 +718,23 @@ export default class MachineFactory {
     this.processorPreviewContainer = this.logisticsScrollContainer;
     this.logisticsScrollItems = [];
 
-    // --- Display Logistics ---
-    for (let slotIndex = 0; slotIndex < logisticsSlotCount; slotIndex++) {
-      const machineType = logisticsDisplayTypes[slotIndex];
-      const itemX = logisticsStartX + slotIndex * logisticsSpacing;
-
-      this.addLogisticsPreviewToScroll(machineType, itemX, logisticsY, slotIndex, 'logistics');
-    }
-
-    // --- Display Conveyor ---
-    const conveyorX = logisticsStartX + logisticsSlotCount * logisticsSpacing;
+    // Drag belts are the default routing verb, so keep them first and always visible.
     if (this.conveyorMachineType) {
       this.addLogisticsPreviewToScroll(
         this.conveyorMachineType,
-        conveyorX,
+        logisticsStartX,
         logisticsY,
         -1,
         'conveyor'
       );
+    }
+
+    // Contextual and earned routing tools follow the default belt.
+    for (let slotIndex = 0; slotIndex < logisticsSlotCount; slotIndex++) {
+      const machineType = logisticsDisplayTypes[slotIndex];
+      const itemX = logisticsStartX + (slotIndex + 1) * logisticsSpacing;
+
+      this.addLogisticsPreviewToScroll(machineType, itemX, logisticsY, slotIndex, 'logistics');
     }
     this.processorPreviewContainer = rootPreviewContainer;
     this.updateLogisticsScrollPosition();
@@ -1260,23 +1117,6 @@ export default class MachineFactory {
           .setOrigin(0.5);
         this.processorPreviewContainer.add(logisticsLabel);
         machinePreview.nameLabel = logisticsLabel;
-        if (machineType.isLogisticsBeltPiece) {
-          const freeBadge = this.scene.add
-            .rectangle(itemX - 18, itemY - slotHeight / 2 + 10, 38, 14, 0x07111a, 0.96)
-            .setStrokeStyle(1, slotStyle.borderColor, 0.62);
-          const freeBadgeLabel = this.scene.add
-            .text(freeBadge.x, freeBadge.y, '1 USE', {
-              fontFamily: 'Arial Black',
-              fontSize: 7,
-              color: slotStyle.textColor,
-              align: 'center',
-            })
-            .setOrigin(0.5);
-          this.processorPreviewContainer.add(freeBadge);
-          this.processorPreviewContainer.add(freeBadgeLabel);
-          machinePreview.freeBadge = freeBadge;
-          machinePreview.freeBadgeLabel = freeBadgeLabel;
-        }
         if (machineType.specialLogisticsSource) {
           const badgeText =
             machineType.specialLogisticsSource === 'permanent'
@@ -1494,12 +1334,6 @@ export default class MachineFactory {
     }
 
     const styles = {
-      'belt-piece': {
-        label: machineType.pieceShortName || 'BELT',
-        borderColor: 0x83f7ff,
-        textColor: '#83f7ff',
-      },
-      splitter: { label: 'SPLIT', borderColor: 0xffd166, textColor: '#ffd166' },
       'filter-splitter': { label: 'FILTER', borderColor: 0xfff3bf, textColor: '#fff3bf' },
       merger: { label: 'MERGE', borderColor: 0x88ffcc, textColor: '#88ffcc' },
       'underground-belt': { label: 'UNDER', borderColor: 0xb56cff, textColor: '#d9b6ff' },
@@ -1607,9 +1441,6 @@ export default class MachineFactory {
         trait: machineType.trait || null,
         outputLevel: machineType.outputLevel || null,
         previewOutputLevel: machineType.previewOutputLevel || null,
-        isLogisticsBeltPiece: machineType.isLogisticsBeltPiece === true,
-        logisticsPath: machineType.logisticsPath || null,
-        logisticsMachineId: machineType.logisticsMachineId || null,
         machineType: machineType, // Pass the full object
       };
       this.scene.createPlacementPreview(previewData);
@@ -2044,18 +1875,13 @@ export default class MachineFactory {
               // Reset category and slot for processors only (as they deselect)
               this.lastSelectedCategory = null;
               this.lastSelectedSlotIndex = -1;
-            } else if (
-              this.lastSelectedCategory === 'logistics' &&
-              this.lastSelectedSlotIndex >= 0
-            ) {
-              const consumedFreeBeltPiece = this.selectedMachineType?.isLogisticsBeltPiece === true;
+            } else if (this.lastSelectedCategory === 'logistics') {
               const depletedTemporarySpecial =
                 this.selectedMachineType?.specialLogisticsSource === 'temporary' &&
                 typeof this.scene?.getSpecialLogisticsInventoryCount === 'function' &&
                 this.scene.getSpecialLogisticsInventoryCount(this.selectedMachineType.id) <= 0;
-              this.rotateLogistics(this.lastSelectedSlotIndex);
               this.displayCurrentProcessorPreview();
-              if (consumedFreeBeltPiece || depletedTemporarySpecial) {
+              if (depletedTemporarySpecial) {
                 this.clearSelection();
                 this.lastSelectedCategory = null;
                 this.lastSelectedSlotIndex = -1;
@@ -2243,16 +2069,6 @@ export default class MachineFactory {
       }
     }
 
-    if (machineType.isLogisticsBeltPiece) {
-      this.drawLogisticsBeltPreviewPath(
-        container,
-        machineType,
-        cellSize,
-        shapeWidth,
-        shapeHeight,
-        visualCenterX
-      );
-    }
     // --- End Generic Preview Drawing ---
 
     // Keep the operation visible inside the tray preview even when the card also has a trait.
@@ -2270,9 +2086,7 @@ export default class MachineFactory {
       .setOrigin(0.5);
     label.isOperationLabel = Boolean(operationLabel);
     label.setDepth(operationLabel ? 2 : 0);
-    if (!machineType.isLogisticsBeltPiece) {
-      container.add(label);
-    }
+    container.add(label);
 
     // Remove the old direction indicator (now using output arrow instead)
     return container;
@@ -2309,99 +2123,6 @@ export default class MachineFactory {
     tagText.setDepth(3);
     tagText.isOutputMarker = true;
     container.add(tagText);
-  }
-
-  drawLogisticsBeltPreviewPath(
-    container,
-    machineType,
-    cellSize,
-    shapeWidth,
-    shapeHeight,
-    visualCenterX
-  ) {
-    const path = Array.isArray(machineType.logisticsPath) ? machineType.logisticsPath : [];
-    if (path.length === 0) return;
-    const isTunnel = machineType.isLogisticsTunnelPiece === true;
-    const pathColor = isTunnel ? 0xb56cff : 0x83f7ff;
-    const arrowColor = isTunnel ? 0xd9b6ff : 0xfff3bf;
-
-    const getCenter = (cell) => ({
-      x: cell.x * cellSize + cellSize / 2 - visualCenterX,
-      y: (cell.y - shapeHeight + 1) * cellSize + cellSize / 2,
-    });
-
-    const graphics = this.scene.add.graphics();
-    graphics.lineStyle(Math.max(3, cellSize * 0.18), 0x07111a, 0.85);
-    for (let i = 0; i < path.length - 1; i++) {
-      const from = getCenter(path[i]);
-      const to = getCenter(path[i + 1]);
-      graphics.lineBetween(from.x, from.y, to.x, to.y);
-    }
-
-    graphics.lineStyle(Math.max(2, cellSize * 0.12), pathColor, 0.95);
-    for (let i = 0; i < path.length - 1; i++) {
-      const from = getCenter(path[i]);
-      const to = getCenter(path[i + 1]);
-      graphics.lineBetween(from.x, from.y, to.x, to.y);
-    }
-    container.add(graphics);
-
-    path.forEach((cell, index) => {
-      const nextCell = path[index + 1] || null;
-      const prevCell = path[index - 1] || null;
-      const direction = this.getLogisticsPathDirection(cell, nextCell, prevCell);
-      const center = getCenter(cell);
-      const arrow = this.createLogisticsArrow(
-        center.x,
-        center.y,
-        direction,
-        cellSize * 0.28,
-        arrowColor
-      );
-      container.add(arrow);
-    });
-  }
-
-  getLogisticsPathDirection(cell, nextCell, previousCell = null) {
-    const target = nextCell || cell;
-    let dx = target.x - cell.x;
-    let dy = target.y - cell.y;
-
-    if (dx === 0 && dy === 0 && previousCell) {
-      dx = cell.x - previousCell.x;
-      dy = cell.y - previousCell.y;
-    }
-
-    if (dx > 0) return 'right';
-    if (dx < 0) return 'left';
-    if (dy > 0) return 'down';
-    if (dy < 0) return 'up';
-    return 'right';
-  }
-
-  createLogisticsArrow(x, y, direction, size, color = 0xfff3bf) {
-    const arrow = this.scene.add
-      .triangle(x, y, size, 0, -size * 0.75, -size * 0.68, -size * 0.75, size * 0.68, color)
-      .setOrigin(0.5, 0.5);
-    arrow.setStrokeStyle?.(1, 0x07111a, 0.9);
-
-    switch (direction) {
-      case 'down':
-        arrow.rotation = Math.PI / 2;
-        break;
-      case 'left':
-        arrow.rotation = Math.PI;
-        break;
-      case 'up':
-        arrow.rotation = (3 * Math.PI) / 2;
-        break;
-      case 'right':
-      default:
-        arrow.rotation = 0;
-        break;
-    }
-
-    return arrow;
   }
 
   // Create a direction indicator for machine previews
@@ -2650,21 +2371,6 @@ export default class MachineFactory {
         if (typeOrId.isFixedInfrastructure) {
           config.isFixedInfrastructure = true;
         }
-        if (typeOrId.isLogisticsBeltSegment) {
-          config.isLogisticsBeltSegment = true;
-        }
-        if (typeOrId.isLogisticsTunnelSegment) {
-          config.isLogisticsTunnelSegment = true;
-        }
-        if (typeOrId.isLogisticsTunnelPiece) {
-          config.isLogisticsTunnelPiece = true;
-          config.logisticsTunnelPath = Array.isArray(typeOrId.logisticsPath)
-            ? typeOrId.logisticsPath.map((cell) => ({ ...cell }))
-            : [];
-          config.logisticsTunnelShape = Array.isArray(typeOrId.shape)
-            ? typeOrId.shape.map((row) => [...row])
-            : [[1]];
-        }
       }
       // Call the registry
       const machine = this.machineRegistry.createMachine(machineTypeId, this.scene, config);
@@ -2726,29 +2432,8 @@ export default class MachineFactory {
       lines.push(`Outputs ${getItemColorName(machineType.outputItemColor)} items.`);
     }
 
-    // Simplified descriptions for logistics items
-    if (machineType.isLogisticsBeltPiece) {
-      const logisticsMachineId = machineType.logisticsMachineId || 'conveyor';
-      if (logisticsMachineId === 'conveyor') {
-        lines.push('One-use free conveyor shape.', 'Places one conveyor on each path cell.');
-      } else if (logisticsMachineId === 'tunnel') {
-        lines.push(
-          'Rare one-use tunnel shape.',
-          'Only endpoints occupy cells; the route passes under the board.'
-        );
-      } else if (logisticsMachineId === 'underground-belt') {
-        lines.push('One-use free tunnel.', 'Passes items under machines and belts.');
-      } else if (logisticsMachineId === 'splitter') {
-        lines.push('One-use free splitter.', 'Alternates one input to two outputs.');
-      } else if (logisticsMachineId === 'merger') {
-        lines.push('One-use free merger.', 'Combines multiple inputs into one output.');
-      } else {
-        lines.push('One-use free logistics piece.');
-      }
-    } else if (machineType.id === 'conveyor') {
-      lines.push('Moves items along arrows.', 'Extracts from source nodes.');
-    } else if (machineType.id === 'splitter') {
-      lines.push('Alternates one input to two outputs.');
+    if (machineType.id === 'conveyor') {
+      lines.push('Drag to draw a route.', 'Each occupied belt cell adds to construction cost.');
     } else if (machineType.id === 'filter-splitter') {
       lines.push(
         'Routes high-level or warm-colored items.',

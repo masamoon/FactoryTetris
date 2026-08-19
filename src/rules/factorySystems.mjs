@@ -12,6 +12,32 @@ const GRADE_VALUE = {
   gold: 3,
 };
 
+export const PLAYER_TUNNEL_BOARD_IDS = new Set([
+  'crossflow-gate',
+  'factory-islands',
+  'toll-maze',
+  'tunnel-works',
+  'furnace-rows',
+]);
+
+export function isBinaryArithmeticOperation(operation) {
+  const type = typeof operation === 'string' ? operation : operation?.type;
+  return type === 'add' || type === 'multiply' || type === 'divide';
+}
+
+export function shouldOfferPlayerTunnel({
+  round = 1,
+  boardId = '',
+  unlocked = false,
+  unlockRound = 6,
+} = {}) {
+  return (
+    Boolean(unlocked) &&
+    Number(round) >= Number(unlockRound) &&
+    PLAYER_TUNNEL_BOARD_IDS.has(String(boardId))
+  );
+}
+
 function normalizeShape(shape) {
   if (!Array.isArray(shape) || shape.length === 0) return [[1]];
   return shape.map((row) => (Array.isArray(row) ? row.map((cell) => (cell ? 1 : 0)) : []));

@@ -6,6 +6,8 @@ import {
   evaluateFactoryBatch,
   getBatchCycleState,
   getFunctionalOutputPorts,
+  isBinaryArithmeticOperation,
+  shouldOfferPlayerTunnel,
 } from '../src/rules/factorySystems.mjs';
 import {
   createFactoryPuzzle,
@@ -109,4 +111,30 @@ test('factory grading measures cost, waste, and cycles against authored par', ()
   assert.equal(grade.dimensions.cost.medal, 'gold');
   assert.equal(grade.dimensions.waste.medal, 'silver');
   assert.equal(grade.dimensions.cycles.medal, 'silver');
+});
+
+test('mergers enter the toolset only with a binary Operator', () => {
+  assert.equal(isBinaryArithmeticOperation({ type: 'add-constant', value: 2 }), false);
+  assert.equal(isBinaryArithmeticOperation({ type: 'add' }), true);
+  assert.equal(isBinaryArithmeticOperation({ type: 'multiply' }), true);
+  assert.equal(isBinaryArithmeticOperation({ type: 'divide' }), true);
+});
+
+test('player tunnels require both late progression and a crossing board', () => {
+  assert.equal(
+    shouldOfferPlayerTunnel({ round: 5, boardId: 'tunnel-works', unlocked: true, unlockRound: 6 }),
+    false
+  );
+  assert.equal(
+    shouldOfferPlayerTunnel({ round: 8, boardId: 'open-floor', unlocked: true, unlockRound: 6 }),
+    false
+  );
+  assert.equal(
+    shouldOfferPlayerTunnel({ round: 8, boardId: 'tunnel-works', unlocked: false, unlockRound: 6 }),
+    false
+  );
+  assert.equal(
+    shouldOfferPlayerTunnel({ round: 8, boardId: 'tunnel-works', unlocked: true, unlockRound: 6 }),
+    true
+  );
 });

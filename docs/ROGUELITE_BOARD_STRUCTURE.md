@@ -70,7 +70,7 @@ Later board modifiers can add stronger roguelite texture:
 
 - Conveyor-only lanes.
 - Color conversion tiles.
-- Splitter or merger bonus zones.
+- Manifold or merger bonus zones.
 - Reward resonance zones.
 - Temporary hazard cells.
 - Optional challenge outputs for bonus rewards.

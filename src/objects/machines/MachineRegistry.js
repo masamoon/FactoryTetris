@@ -2,11 +2,9 @@ import ConveyorMachine from './ConveyorMachine';
 // import ExtractorMachine from './ExtractorMachine';
 import ProcessingPieceMachine from './ProcessingPieceMachine';
 import { getProcessingPieceBodies, getProcessingPieceBodyAliases } from '../../config/pieceBodies';
-import SplitterMachine from './SplitterMachine';
 import FilterSplitterMachine from './FilterSplitterMachine';
 import MergerMachine from './MergerMachine';
 import UndergroundBeltMachine from './UndergroundBeltMachine';
-import LogisticsTunnelMachine from './LogisticsTunnelMachine';
 import ColorPainterMachine from './ColorPainterMachine';
 
 /**
@@ -33,11 +31,9 @@ export default class MachineRegistry {
         aliasFor: bodyId,
       });
     }
-    this.registerMachineType('splitter', SplitterMachine);
     this.registerMachineType('filter-splitter', FilterSplitterMachine);
     this.registerMachineType('merger', MergerMachine);
     this.registerMachineType('underground-belt', UndergroundBeltMachine);
-    this.registerMachineType('logistics-tunnel', LogisticsTunnelMachine);
     this.registerMachineType('painter', ColorPainterMachine);
   }
 
