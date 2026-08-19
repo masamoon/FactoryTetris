@@ -204,13 +204,6 @@ export const GAME_CONFIG = {
   draftCycleCost: 2,
   draftRedrawCost: 4,
   fastForwardSpeedMultiplier: 3,
-  flowConfig: {
-    deliveryWindowMs: 5200,
-    maxStreak: 12,
-    multiplierPerStep: 0.035,
-    maxMultiplier: 1.35,
-    milestoneStreaks: [3, 6, 10],
-  },
   boardPowerProcessingMultiplier: 0.78,
   boardQualityLevelBonus: 1,
   boardTaxedCellSurcharge: 3,

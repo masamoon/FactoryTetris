@@ -6,7 +6,7 @@ export const BUILD_IDENTITIES = [
     name: 'Velocity Engine',
     shortName: 'Velocity',
     color: 0x70d6ff,
-    description: 'A flow build: fast belts, fast operators, and streak scoring.',
+    description: 'A throughput build: fast belts and fast operators keep dense lines moving.',
     upgradeTypes: [
       UPGRADE_TYPES.CONVEYOR_SPEED,
       UPGRADE_TYPES.OPERATOR_EFFICIENCY,

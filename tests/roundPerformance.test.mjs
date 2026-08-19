@@ -2,38 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  evaluateRoundPerformance,
+  deliveryCountsForRound,
   getFactoryEditPermissions,
   getRoundCompletionState,
   isTimedRound,
 } from '../src/rules/roundPerformance.mjs';
 
-test('revenue target alone never clears a round with unfinished orders', () => {
+test('unfinished orders never clear a round', () => {
   assert.deepEqual(
     getRoundCompletionState({
       primaryOrdersComplete: false,
-      revenue: 900,
-      target: 500,
     }),
     {
       cleared: false,
       primaryOrdersComplete: false,
-      revenueTargetMet: true,
     }
   );
 });
 
-test('finishing every primary order clears even below the revenue target', () => {
+test('finishing every primary order clears the round', () => {
   assert.deepEqual(
     getRoundCompletionState({
       primaryOrdersComplete: true,
-      revenue: 420,
-      target: 500,
     }),
     {
       cleared: true,
       primaryOrdersComplete: true,
-      revenueTargetMet: false,
     }
   );
 });
@@ -61,39 +55,14 @@ test('production locks construction but permits one picked-up relocation', () =>
   );
 });
 
-test('factory performance combines material, space, and flow medals', () => {
-  assert.deepEqual(
-    evaluateRoundPerformance({
-      remainingSupply: 40,
-      initialSupply: 100,
-      footprintCells: 9,
-      compactnessBudget: 12,
-      bestFlowStreak: 5,
-    }),
-    {
-      rank: 'S',
-      score: 8,
-      dimensions: {
-        material: { medal: 'gold', ratio: 0.4 },
-        space: { medal: 'gold', ratio: 0.75 },
-        flow: { medal: 'silver', streak: 5 },
-      },
-    }
+test('completed docks cannot advance round delivery rewards', () => {
+  assert.equal(deliveryCountsForRound({ phase: 'ROUND_ACTIVE' }), true);
+  assert.equal(
+    deliveryCountsForRound({ phase: 'ROUND_ACTIVE', filledDelivery: true }),
+    false
   );
-});
-
-test('a wasteful, sprawling, stop-start clear still earns a completion grade', () => {
-  const result = evaluateRoundPerformance({
-    remainingSupply: 0,
-    initialSupply: 100,
-    footprintCells: 20,
-    compactnessBudget: 12,
-    bestFlowStreak: 1,
-  });
-
-  assert.equal(result.rank, 'C');
-  assert.equal(result.score, 0);
-  assert.equal(result.dimensions.material.medal, 'none');
-  assert.equal(result.dimensions.space.medal, 'none');
-  assert.equal(result.dimensions.flow.medal, 'none');
+  assert.equal(
+    deliveryCountsForRound({ phase: 'ROUND_ACTIVE', countsForQuota: false }),
+    false
+  );
 });

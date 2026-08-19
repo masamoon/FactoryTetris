@@ -49,7 +49,7 @@ import {
   saveMetaUnlocks,
 } from '../utils/GameSettings';
 import {
-  evaluateRoundPerformance,
+  deliveryCountsForRound,
   getFactoryEditPermissions,
   getRoundCompletionState,
   isTimedRound,
@@ -101,9 +101,8 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundQuota = 0;
     this.roundSurvived = false;
-    this.roundRevenueTargetMet = false;
     this.roundInitialSourceResources = 0;
-    this.lastRoundPerformance = null;
+    this.lastRoundCompletedOrderCount = 0;
     this.emergencyRewiresRemaining = GAME_CONFIG.emergencyRewiresPerRound ?? 1;
     this.pendingDeliveryCompletionScore = 0;
     this.roundTimerEvent = null;
@@ -111,13 +110,6 @@ export default class GameScene extends Phaser.Scene {
     this.contractTimerEvent = null; // legacy alias for older pause code paths
     this.roundDeliveryCount = 0;
     this.contractDeliveryCount = 0; // legacy alias for older code paths
-    this.recentFlowPlacements = new Map();
-    this.flowPlacementRewardWindow = 18000;
-    this.currentMomentum = 0;
-    this.flowStreak = 0;
-    this.bestFlowStreak = 0;
-    this.lastFlowDeliveryAt = 0;
-    this.lastFlowMilestone = 0;
     this.currentRoundBoard = null;
     this.roundBoardBlockers = [];
     this.roundBoardSpecialTiles = [];
@@ -163,7 +155,7 @@ export default class GameScene extends Phaser.Scene {
     this.actionHintAccent = null;
     this.actionHintTitle = null;
     this.actionHintBody = null;
-    this.lastQuotaHudScore = 0;
+    this.lastOrderHudCount = 0;
     this.firstDeliveryCelebrated = false;
     this.exactDemandExplained = false;
     this.operationDemandExplained = false;
@@ -270,16 +262,10 @@ export default class GameScene extends Phaser.Scene {
     this.currentRound = 1;
     this.roundScore = 0;
     this.roundSurvived = false;
-    this.roundRevenueTargetMet = false;
     this.roundInitialSourceResources = 0;
-    this.lastRoundPerformance = null;
+    this.lastRoundCompletedOrderCount = 0;
     this.emergencyRewiresRemaining = GAME_CONFIG.emergencyRewiresPerRound ?? 1;
     this.pendingDeliveryCompletionScore = 0;
-    this.currentMomentum = 0;
-    this.flowStreak = 0;
-    this.bestFlowStreak = 0;
-    this.lastFlowDeliveryAt = 0;
-    this.lastFlowMilestone = 0;
     this.scrap = 0;
     this.yellowScrapProgress = 0;
     this.money = GAME_CONFIG.startingMoney || 45;
@@ -333,11 +319,8 @@ export default class GameScene extends Phaser.Scene {
       this.refreshTutorialPanel();
       this.machineFactory.update();
       this.deliveryNodes.forEach((node) => node.update(time, delta));
-      this.cleanupRecentFlowPlacements();
       return;
     }
-
-    this.cleanupRecentFlowPlacements();
 
     // Update all game objects
     this.factoryGrid.update(time, delta); // Pass time, delta to Grid.update()
@@ -433,7 +416,7 @@ export default class GameScene extends Phaser.Scene {
     const statWidth = (contentWidth - statGap) / 2;
 
     this.createHudPanel(contentX, 12, contentWidth, 82, 0x101820, 0x263746);
-    this.scoreText = this.createStatChip(contentX, 22, statWidth, 'REVENUE', '$0', '#ffffff');
+    this.scoreText = this.createStatChip(contentX, 22, statWidth, 'SHIP VALUE', '$0', '#ffffff');
     this.scrapText = this.createStatChip(
       contentX + statWidth + statGap,
       22,
@@ -458,24 +441,12 @@ export default class GameScene extends Phaser.Scene {
       `$${this.money}`,
       '#88ffcc'
     );
-    this.flowText = this.add
-      .text(contentX + contentWidth / 2, 96, 'Flow 0/12  x1.00', {
-        fontFamily: 'Arial',
-        fontSize: 10,
-        color: '#95aab5',
-        align: 'center',
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0);
-    this.flowText.setDepth(3);
-    this.addToUI(this.flowText);
-
     this.createActionHintBar();
 
     this.createHudPanel(contentX, 112, contentWidth, 146, 0x12151d, 0x3f3a2b);
-    this.createSectionLabel(contentX + 10, 122, 'TARGET');
+    this.createSectionLabel(contentX + 10, 122, 'ORDERS');
     this.deliveryQuotaText = this.add
-      .text(contentX + 12, 142, '$0 / $0', {
+      .text(contentX + 12, 142, '0 / 0 COMPLETE', {
         fontFamily: 'Arial Black',
         fontSize: 17,
         color: '#ffe28a',
@@ -3373,13 +3344,13 @@ export default class GameScene extends Phaser.Scene {
   addScore(points, options = {}) {
     if (this.gameOver) return 0; // Don't add score if game is over
 
-    const countsForFlow = options.countsForFlow !== false;
+    const countsForRound = options.countsForRound !== false;
 
     const effectivePoints = Math.max(0, Math.floor(points || 0));
 
     this.score += effectivePoints;
     this.updateScoreText();
-    if (countsForFlow) {
+    if (countsForRound) {
       this.addRoundScore(effectivePoints);
     }
 
@@ -3399,115 +3370,6 @@ export default class GameScene extends Phaser.Scene {
     this.updateRoundUI();
 
     this.tryCompleteRound();
-  }
-
-  getFlowMultiplier() {
-    const config = GAME_CONFIG.flowConfig || {};
-    const cappedStreak = Math.min(
-      Math.max(0, Math.floor(this.flowStreak || 0)),
-      config.maxStreak || 12
-    );
-    const multiplier = 1 + cappedStreak * (config.multiplierPerStep || 0.035);
-    return Math.min(config.maxMultiplier || 1.35, multiplier);
-  }
-
-  applyFlowDeliveryBonus(points, options = {}) {
-    const config = GAME_CONFIG.flowConfig || {};
-    const now = this.time?.now || 0;
-    const windowMs = config.deliveryWindowMs || 5200;
-    const startingPoints = Math.max(0, Math.floor(points || 0));
-
-    this.flowStreak = now - (this.lastFlowDeliveryAt || 0) <= windowMs ? this.flowStreak + 1 : 1;
-    this.flowStreak = Math.min(this.flowStreak, config.maxStreak || 12);
-    this.bestFlowStreak = Math.max(this.bestFlowStreak || 0, this.flowStreak);
-    this.lastFlowDeliveryAt = now;
-    this.currentMomentum = Math.round(
-      Phaser.Math.Clamp((this.flowStreak / (config.maxStreak || 12)) * 100, 0, 100)
-    );
-
-    const multiplier = this.getFlowMultiplier();
-    const adjusted = Math.floor(startingPoints * multiplier);
-    const milestones = config.milestoneStreaks || [3, 6, 10];
-    const hitMilestone =
-      milestones.includes(this.flowStreak) && this.flowStreak !== this.lastFlowMilestone;
-    if (hitMilestone) {
-      this.lastFlowMilestone = this.flowStreak;
-      this.showFlowStreakFeedback(this.flowStreak, multiplier);
-    }
-    this.updateFlowHud();
-    if (options.withBreakdown) {
-      return {
-        points: adjusted,
-        multiplier,
-        streak: this.flowStreak,
-        maxStreak: config.maxStreak || 12,
-      };
-    }
-    return adjusted;
-  }
-
-  updateFlowHud() {
-    if (!this.flowText) return;
-
-    const config = GAME_CONFIG.flowConfig || {};
-    const maxStreak = config.maxStreak || 12;
-    const windowMs = config.deliveryWindowMs || 5200;
-    const now = this.time?.now || 0;
-    const elapsed = this.lastFlowDeliveryAt ? now - this.lastFlowDeliveryAt : Infinity;
-    const isLive = this.runState === 'ROUND_ACTIVE' && elapsed <= windowMs;
-    const streak = isLive ? Math.max(0, Math.floor(this.flowStreak || 0)) : 0;
-    const multiplier = Math.min(
-      config.maxMultiplier || 1.35,
-      1 + Math.min(streak, maxStreak) * (config.multiplierPerStep || 0.035)
-    );
-    const windowText =
-      streak > 0 ? `  ${Math.max(0, (windowMs - elapsed) / 1000).toFixed(1)}s` : '';
-    const timeText = this.runState === 'ROUND_ACTIVE' ? `  Time ${this.formatRoundTime()}` : '';
-    this.flowText.setText(
-      `Flow ${streak}/${maxStreak}  x${multiplier.toFixed(2)}${windowText}${timeText}`
-    );
-    this.flowText.setColor(
-      this.runState === 'ROUND_ACTIVE' && this.getRoundTimeRemainingSeconds() <= 10
-        ? '#ff8888'
-        : streak >= 10
-          ? '#ffd166'
-          : streak >= 6
-            ? '#88ffcc'
-            : '#88ccff'
-    );
-  }
-
-  showFlowStreakFeedback(streak, multiplier) {
-    const text = this.add
-      .text(
-        this.scale.width / 2 - this.rightPanelWidth / 2,
-        150,
-        `FLOW ${streak}\nx${multiplier.toFixed(2)}`,
-        {
-          fontFamily: 'Arial Black',
-          fontSize: 24,
-          color: streak >= 10 ? '#ffd166' : '#88ffcc',
-          align: 'center',
-          stroke: '#000000',
-          strokeThickness: 6,
-        }
-      )
-      .setOrigin(0.5)
-      .setScrollFactor(0);
-    text.setDepth(1000);
-    this.addToUI(text);
-    this.cameras.main.flash(90, 80, 220, 255, true);
-
-    this.tweens.add({
-      targets: text,
-      y: 112,
-      scaleX: 1.14,
-      scaleY: 1.14,
-      alpha: 0,
-      duration: 1050,
-      ease: 'Power2',
-      onComplete: () => text.destroy(),
-    });
   }
 
   areDeliveryNodesComplete() {
@@ -3539,7 +3401,7 @@ export default class GameScene extends Phaser.Scene {
     if (pendingScore <= 0) return 0;
 
     this.pendingDeliveryCompletionScore = 0;
-    return this.addScore(pendingScore, { countsForFlow: true });
+    return this.addScore(pendingScore, { countsForRound: true });
   }
 
   tryCompleteRound() {
@@ -3550,17 +3412,7 @@ export default class GameScene extends Phaser.Scene {
       this.awardPendingDeliveryCompletionScore();
     }
 
-    const completion = getRoundCompletionState({
-      primaryOrdersComplete,
-      revenue: this.roundScore,
-      target: this.roundQuota,
-    });
-    if (completion.revenueTargetMet && !this.roundRevenueTargetMet) {
-      this.roundRevenueTargetMet = true;
-      if (!completion.primaryOrdersComplete) {
-        this.showRoundSurvivedFeedback('Revenue target met — finish orders');
-      }
-    }
+    const completion = getRoundCompletionState({ primaryOrdersComplete });
 
     if (completion.cleared && !this.roundSurvived) {
       this.roundSurvived = true;
@@ -3809,10 +3661,10 @@ export default class GameScene extends Phaser.Scene {
     const failureKey = `${prefix}`.toLowerCase();
     const isTimeFailure = failureKey.includes('time');
     const isSupplyFailure = failureKey.includes('source') || failureKey.includes('supply');
-    let lesson = 'Build one scoring lane first, then add branches once it is paying.';
+    let lesson = 'Build one complete production lane first, then add branches once it is stable.';
 
     if (isTimeFailure) {
-      lesson = 'Start with the shortest route, then spend the bonus time on upgrades.';
+      lesson = 'Start with the shortest required route, then expand only after it runs.';
     } else if (topReason) {
       lesson = `Next run: check the delivery tag first. ${topReason}.`;
     } else if (isSupplyFailure) {
@@ -3826,9 +3678,7 @@ export default class GameScene extends Phaser.Scene {
         ? `${prefix}. ${completedOrders}/${primaryOrders.length} orders complete.${
             topReason ? ` Misses: ${topReason}.` : ''
           }`
-        : topReason
-          ? `${prefix}. ${quotaPercent}% of target. Misses: ${topReason}.`
-          : `${prefix}. ${quotaPercent}% of target. Needed $${missing} more revenue.`;
+        : `${prefix}. Required orders were complete.`;
 
     return {
       summary,
@@ -3853,10 +3703,13 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getDeliveryReward(basePoints, tier, itemData = null) {
-    const countsForFlow =
-      this.runState === 'ROUND_ACTIVE' &&
-      itemData?.countsForQuota !== false &&
-      itemData?.countsForFlow !== false;
+    const countsForRound =
+      itemData?.countsForRound !== false &&
+      deliveryCountsForRound({
+        phase: this.runState,
+        countsForQuota: itemData?.countsForQuota,
+        filledDelivery: itemData?.filledDelivery,
+      });
     let points = Math.floor(basePoints);
     const breakdownSteps = [];
     const applyMultiplier = (label, multiplier, detail = null) => {
@@ -3871,7 +3724,7 @@ export default class GameScene extends Phaser.Scene {
       });
     };
 
-    if (countsForFlow) {
+    if (countsForRound) {
       this.roundDeliveryCount = (this.roundDeliveryCount || 0) + 1;
       this.contractDeliveryCount = this.roundDeliveryCount;
 
@@ -3916,17 +3769,9 @@ export default class GameScene extends Phaser.Scene {
         applyMultiplier('5th delivery', 2);
       }
 
-      const flowReward = this.applyFlowDeliveryBonus(points, { withBreakdown: true });
-      points = flowReward.points;
-      breakdownSteps.push({
-        label: `Flow ${flowReward.streak}/${flowReward.maxStreak}`,
-        multiplier: flowReward.multiplier,
-        points,
-        detail: `${Math.round((GAME_CONFIG.flowConfig?.deliveryWindowMs || 5200) / 100) / 10}s`,
-      });
     }
 
-    if (countsForFlow) {
+    if (countsForRound) {
       this.recordDeliveryBreakdown({
         basePoints,
         tier,
@@ -3938,7 +3783,7 @@ export default class GameScene extends Phaser.Scene {
 
     return {
       points,
-      countsForFlow,
+      countsForRound,
       breakdownSteps,
     };
   }
@@ -4004,14 +3849,9 @@ export default class GameScene extends Phaser.Scene {
     this.roundScore = 0;
     this.roundQuota = this.getRoundQuota(round);
     this.roundSurvived = false;
-    this.roundRevenueTargetMet = false;
-    this.flowStreak = 0;
-    this.currentMomentum = 0;
-    this.lastFlowDeliveryAt = 0;
-    this.lastFlowMilestone = 0;
     this.contract = {
       number: round,
-      title: 'Revenue Quota',
+      title: 'Order Run',
       requiredTier: null,
       quantity: this.roundQuota,
       delivered: 0,
@@ -5422,28 +5262,8 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  trackPlacementForFlowReward(machine) {
-    if (!machine || !machine.uid || !this.recentFlowPlacements) return;
-
-    this.recentFlowPlacements.set(machine.uid, {
-      expiresAt: this.time.now + this.flowPlacementRewardWindow,
-      rewarded: false,
-      machineId: machine.id,
-    });
-  }
-
-  cleanupRecentFlowPlacements() {
-    if (!this.recentFlowPlacements || this.recentFlowPlacements.size === 0) return;
-    const now = this.time.now;
-    for (const [uid, info] of this.recentFlowPlacements.entries()) {
-      if (info.rewarded || info.expiresAt <= now) {
-        this.recentFlowPlacements.delete(uid);
-      }
-    }
-  }
-
-  recordDeliveryFlow(itemData, tier, reward) {
-    if (!itemData || !this.recentFlowPlacements || reward?.countsForFlow === false) return;
+  recordDelivery(itemData, tier, reward) {
+    if (!itemData || reward?.countsForRound === false) return;
 
     if (!this.firstDeliveryCelebrated) {
       this.firstDeliveryCelebrated = true;
@@ -5453,8 +5273,6 @@ export default class GameScene extends Phaser.Scene {
         this.destroyTutorialPanel();
       }
     }
-
-    this.cleanupRecentFlowPlacements();
   }
 
   showFirstDeliveryFeedback(tier, points) {
@@ -5777,9 +5595,6 @@ export default class GameScene extends Phaser.Scene {
       this.machines.push(machineObj);
       machineObj.placedAtTime = this.time?.now || 0;
       this.addToWorld(machineObj);
-      if (!isRepositionedMachine) {
-        this.trackPlacementForFlowReward(machineObj);
-      }
       this.showPlacementHint('Placed', '#88ffcc');
       this.refreshTutorialPanel();
 
@@ -5938,7 +5753,6 @@ export default class GameScene extends Phaser.Scene {
       machineObj.placementCost = 0;
       machineObj.logisticsPieceId = machineType.logisticsPieceCard?.id || machineType.pieceName;
       this.addToWorld(machineObj);
-      this.trackPlacementForFlowReward(machineObj);
       placedBelts.push(machineObj);
     }
 
@@ -6000,8 +5814,6 @@ export default class GameScene extends Phaser.Scene {
     machineObj.logisticsPieceId = machineType.logisticsPieceCard?.id || machineType.pieceName;
     machineObj.isLogisticsDraftPiece = true;
     this.addToWorld(machineObj);
-    this.trackPlacementForFlowReward(machineObj);
-
     if (placementCost > 0) {
       this.addMoney(-placementCost, machineType.pieceName || 'logistics piece');
     } else {
@@ -6894,69 +6706,6 @@ export default class GameScene extends Phaser.Scene {
     return cap > 0 ? Math.min(cap, bonus) : bonus;
   }
 
-  getFactoryFootprintCellCount() {
-    if (!Array.isArray(this.grid?.cells)) return 0;
-
-    let occupiedCells = 0;
-    for (const row of this.grid.cells) {
-      for (const cell of row || []) {
-        const machine = cell?.object || cell?.machine;
-        if (
-          cell?.type === 'machine' &&
-          machine &&
-          !machine.isFixedInfrastructure &&
-          !machine.isBoardLoaner
-        ) {
-          occupiedCells += 1;
-        }
-      }
-    }
-    return occupiedCells;
-  }
-
-  getRoundCompactnessBudget() {
-    const demandBudget = this.getQuotaDeliveryNodes().reduce((total, node) => {
-      const tier = Math.max(1, Math.floor(node?.condition?.tier || 1));
-      const count = Math.max(1, Math.floor(node?.condition?.requiredCount || 1));
-      return total + tier * 2 + count;
-    }, 8);
-    return Math.max(14, demandBudget);
-  }
-
-  getRoundPerformanceSnapshot() {
-    const inputs = {
-      remainingSupply: this.getRemainingSourceResources(),
-      initialSupply: this.roundInitialSourceResources,
-      footprintCells: this.getFactoryFootprintCellCount(),
-      compactnessBudget: this.getRoundCompactnessBudget(),
-      bestFlowStreak: this.bestFlowStreak,
-    };
-    return { ...evaluateRoundPerformance(inputs), inputs };
-  }
-
-  formatPerformanceMedal(medal = 'none') {
-    return medal === 'none' ? 'NONE' : medal.toUpperCase();
-  }
-
-  getRoundClearRankInfo() {
-    const performance =
-      this.runState === 'ROUND_CLEARED' && this.lastRoundPerformance
-        ? this.lastRoundPerformance
-        : this.getRoundPerformanceSnapshot();
-    const colors = {
-      S: '#ffd166',
-      A: '#88ffcc',
-      B: '#83f7ff',
-      C: '#b7cbd6',
-    };
-
-    return {
-      label: performance.rank,
-      color: colors[performance.rank] || '#b7cbd6',
-      performance,
-    };
-  }
-
   getDeliveryNodeCompletionBurstInfo(node) {
     if (node?.isShortcutNode) {
       return { label: 'OPEN', color: '#88ffcc', isRank: false };
@@ -6968,7 +6717,7 @@ export default class GameScene extends Phaser.Scene {
       deliveryNodes.every((delivery) => delivery === node || delivery.completed);
 
     if (completesMap) {
-      return { ...this.getRoundClearRankInfo(), isRank: true };
+      return { label: 'CLEAR', color: '#ffd166', isRank: false };
     }
 
     return { label: 'DONE', color: '#88ffcc', isRank: false };
@@ -7439,22 +7188,21 @@ export default class GameScene extends Phaser.Scene {
       );
     }
     this.machineFactory?.updatePanelSelectionHighlights?.();
-    this.updateFlowHud();
     const visibleNodes = activeNodes.slice(0, 3);
-    const cappedScore = Math.min(this.roundScore || 0, this.roundQuota || 0);
-    const quota = this.roundQuota || 0;
+    const totalOrders = this.getQuotaDeliveryNodes().length;
+    const completedOrders = Math.max(0, totalOrders - activeNodes.length);
     if (this.deliveryQuotaText) {
-      this.deliveryQuotaText.setText(`$${cappedScore} / $${quota}`);
+      this.deliveryQuotaText.setText(`${completedOrders} / ${totalOrders} COMPLETE`);
     }
     if (this.deliveryProgressFill && this.deliveryProgressTrack) {
-      const progress = quota > 0 ? Phaser.Math.Clamp(cappedScore / quota, 0, 1) : 0;
+      const progress = totalOrders > 0 ? Phaser.Math.Clamp(completedOrders / totalOrders, 0, 1) : 0;
       this.deliveryProgressFill.width = this.deliveryProgressTrack.width * progress;
       this.deliveryProgressFill.fillColor =
         progress >= 1 ? 0x88ffcc : progress >= 0.65 ? 0xffd166 : 0x88ccff;
-      if (cappedScore > (this.lastQuotaHudScore || 0)) {
+      if (completedOrders > (this.lastOrderHudCount || 0)) {
         this.pulseDeliveryProgress();
       }
-      this.lastQuotaHudScore = cappedScore;
+      this.lastOrderHudCount = completedOrders;
     }
     if (this.deliveryBoardText) {
       const phaseLabel =
@@ -7492,7 +7240,7 @@ export default class GameScene extends Phaser.Scene {
       } else {
         const payout = this.getRoundCashPayoutBreakdown();
         this.nextDemandText.setText(
-          `Cash: $${payout.quotaCash} target + $${payout.overDeliveryCash} over`
+          `Shipped $${payout.quotaRevenue + payout.overDeliveryRevenue} -> Cash +$${payout.quotaCash + payout.overDeliveryCash}`
         );
         this.nextDemandText.setColor('#88ffcc');
       }
@@ -7579,10 +7327,8 @@ export default class GameScene extends Phaser.Scene {
         ? `${this.formatRoundTime()} left`
         : `${remainingOrders} order${remainingOrders === 1 ? '' : 's'} left`;
       const body = this.roundSurvived
-        ? 'All orders complete. Finalizing the factory grade.'
-        : `${
-            this.roundRevenueTargetMet ? 'Revenue target met. ' : ''
-          }${pressure}, ${supply} supply, ${rewire} emergency rewire${rewire === 1 ? '' : 's'}.`;
+        ? 'All orders complete. Closing the production run.'
+        : `${pressure}, ${supply} supply, ${rewire} emergency rewire${rewire === 1 ? '' : 's'}.`;
       this.setActionHint('Round Live', body, this.roundSurvived ? 0x88ffcc : 0x88ccff);
       return;
     }
@@ -8082,7 +7828,7 @@ export default class GameScene extends Phaser.Scene {
     }
     this.roundClearing = false;
     this.roundExhaustionStartedAt = null;
-    this.lastQuotaHudScore = 0;
+    this.lastOrderHudCount = 0;
     this.pendingDeliveryCompletionScore = 0;
     this.lastRoundTimeBonus = 0;
     this.lastRoundSpeedScrap = 0;
@@ -8091,7 +7837,6 @@ export default class GameScene extends Phaser.Scene {
     this.lastRoundPaidBeltFreeBonus = 0;
     this.lastRoundReinvestmentCash = 0;
     this.lastDeliveryBreakdown = null;
-    this.roundRevenueTargetMet = false;
     this.roundInitialSourceResources = 0;
     this.emergencyRewiresRemaining = Math.max(
       0,
@@ -8284,7 +8029,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.roundClearing) return;
     this.roundClearing = true;
     this.lastRoundClearWasStretchComplete = this.areDeliveryNodesComplete();
-    this.lastRoundPerformance = this.getRoundPerformanceSnapshot();
+    this.lastRoundCompletedOrderCount = this.getQuotaDeliveryNodes().filter(
+      (node) => node?.completed
+    ).length;
     this.lastRoundTimeBonus = this.awardRoundTimeBonus();
     this.lastRoundSpeedScrap = this.getRoundSpeedScrap();
     this.setRoundPhase('ROUND_CLEARED');
@@ -8333,14 +8080,13 @@ export default class GameScene extends Phaser.Scene {
   }
 
   showRoundClearFeedback() {
-    const rank = this.getRoundClearRankInfo();
     const x = this.scale.width / 2 - this.rightPanelWidth / 2;
     const y = 118;
     const text = this.add
-      .text(x, y, rank.label, {
+      .text(x, y, 'ORDERS CLEAR', {
         fontFamily: 'Arial Black',
-        fontSize: 72,
-        color: rank.color,
+        fontSize: 48,
+        color: '#ffd166',
         align: 'center',
         stroke: '#000000',
         strokeThickness: 10,
@@ -8402,19 +8148,17 @@ export default class GameScene extends Phaser.Scene {
     const reinvestmentCash = Math.max(0, Math.floor(this.lastRoundReinvestmentCash || 0));
     const interestCash = Math.max(0, Math.floor(this.lastRoundInterest || 0));
     const conversionPercent = Math.round((payout.multiplier || 0) * 100);
-    const performance = this.lastRoundPerformance || this.getRoundPerformanceSnapshot();
-    const performanceDetail = [
-      `Material ${this.formatPerformanceMedal(performance.dimensions.material.medal)}`,
-      `Space ${this.formatPerformanceMedal(performance.dimensions.space.medal)}`,
-      `Flow ${this.formatPerformanceMedal(performance.dimensions.flow.medal)}`,
-    ].join(' • ');
     const rows = [
       {
-        label: 'Revenue shipped',
+        label: 'Orders fulfilled',
+        value: `${this.lastRoundCompletedOrderCount || 0}`,
+        detail: 'Every required dock completed',
+        color: '#88ffcc',
+      },
+      {
+        label: 'Value shipped',
         value: `$${shippedRevenue}`,
-        detail: `$${payout.quotaRevenue} target${
-          payout.overDeliveryRevenue > 0 ? ` + $${payout.overDeliveryRevenue} over` : ''
-        }`,
+        detail: 'Converted into budget for the next build',
         color: '#ffe28a',
       },
       {
@@ -8431,12 +8175,6 @@ export default class GameScene extends Phaser.Scene {
             ? `${paidBeltCount} paid conveyor belt${paidBeltCount === 1 ? '' : 's'}`
             : 'No paid conveyor belts',
         color: paidBeltSpend > 0 ? '#83f7ff' : '#b7cbd6',
-      },
-      {
-        label: 'Factory grade',
-        value: performance.rank,
-        detail: performanceDetail,
-        color: this.getRoundClearRankInfo().color,
       },
     ];
 
@@ -8514,7 +8252,7 @@ export default class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const subtitle = this.add
-      .text(panelX, top + 70, 'Orders clear the map. Revenue funds the shop.', {
+      .text(panelX, top + 70, 'Every order shipped. Production run complete.', {
         fontFamily: 'Arial',
         fontSize: 14,
         color: '#b7cbd6',
@@ -8611,7 +8349,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   showStretchJackpotBurst(x, y) {
-    const reelLabels = ['CASH', 'REVENUE', 'FLOW'];
+    const reelLabels = ['CASH', 'ORDERS', 'OUTPUT'];
     const reelContainer = this.add.container(x, y + 62).setScrollFactor(0);
     reelContainer.setDepth(1001);
 
@@ -8654,7 +8392,7 @@ export default class GameScene extends Phaser.Scene {
       onComplete: () => reelContainer.destroy(),
     });
 
-    const burstLabels = ['+$', '+REV', 'x2', 'WIN', '+FLOW', 'BONUS'];
+    const burstLabels = ['+$', '+OUT', 'x2', 'WIN', '+SHIP', 'BONUS'];
     for (let index = 0; index < 24; index++) {
       const angle = (Math.PI * 2 * index) / 24;
       const distance = 58 + (index % 5) * 18;
