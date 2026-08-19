@@ -7,7 +7,7 @@
     "start": "webpack serve --mode=development",
     "build": "webpack --mode=production",
     "test": "npm run test:rules",
-    "test:rules": "node --test tests/roundPerformance.test.mjs",
+    "test:rules": "node --test tests/*.test.mjs",
     "simulate:engagement": "node tools/engagement-simulator.js",
     "format": "prettier . --write",
     "format:check": "prettier . --check",

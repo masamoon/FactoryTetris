@@ -5,10 +5,6 @@ export function getRoundCompletionState({ primaryOrdersComplete }) {
   };
 }
 
-export function isTimedRound({ isElite = false, isBoss = false } = {}) {
-  return isElite === true || isBoss === true;
-}
-
 export function getFactoryEditPermissions({
   phase = 'BUILD_PHASE',
   isRelocation = false,

@@ -115,7 +115,7 @@ export default class SplitterMachine extends ConveyorMachine {
     ) {
       const itemData = itemToTransfer.itemData;
       if (targetEntity.canAcceptInput(itemData.type, itemData)) {
-        return targetEntity.acceptItem(itemData);
+        return targetEntity.acceptItem(itemData, this);
       }
     }
     return false;

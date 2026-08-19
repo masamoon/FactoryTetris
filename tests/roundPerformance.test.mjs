@@ -5,7 +5,6 @@ import {
   deliveryCountsForRound,
   getFactoryEditPermissions,
   getRoundCompletionState,
-  isTimedRound,
 } from '../src/rules/roundPerformance.mjs';
 
 test('unfinished orders never clear a round', () => {
@@ -30,12 +29,6 @@ test('finishing every primary order clears the round', () => {
       primaryOrdersComplete: true,
     }
   );
-});
-
-test('only Surge and Boss pacing variants are timed', () => {
-  assert.equal(isTimedRound({}), false);
-  assert.equal(isTimedRound({ isElite: true }), true);
-  assert.equal(isTimedRound({ isBoss: true }), true);
 });
 
 test('production locks construction but permits one picked-up relocation', () => {

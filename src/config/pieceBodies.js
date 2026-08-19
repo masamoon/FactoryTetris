@@ -1,3 +1,5 @@
+import { deriveShapeTopology } from '../rules/factorySystems.mjs';
+
 const DEFAULT_PROCESSING_BODY_ID = 'operator-block';
 
 const CARDINAL_DIRECTIONS = ['right', 'down', 'left', 'up'];
@@ -465,11 +467,17 @@ export function normalizeProcessingPieceBodyId(bodyId) {
 }
 
 export function getProcessingPieceBody(bodyId) {
-  return PROCESSING_PIECE_BODIES[normalizeProcessingPieceBodyId(bodyId)];
+  const body = PROCESSING_PIECE_BODIES[normalizeProcessingPieceBodyId(bodyId)];
+  const topology = deriveShapeTopology(body.shape, body.io?.right?.inputPos);
+  return {
+    ...body,
+    topology,
+    description: `${body.description}. ${topology.description}`,
+  };
 }
 
 export function getProcessingPieceBodies() {
-  return [...PROCESSING_PIECE_BODY_LIST];
+  return PROCESSING_PIECE_BODY_LIST.map((body) => getProcessingPieceBody(body.id));
 }
 
 export function getProcessingPieceBodyAliases() {
