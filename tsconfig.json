@@ -1,37 +1,17 @@
 {
-  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
-    /* Output & environment */
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM"],
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-
-    /* JS → TS migration */
-    "allowJs": true,
-    "checkJs": false,
-
-    /* Type safety (migration-friendly) */
     "strict": true,
-    "noImplicitAny": false,
-    "strictNullChecks": true,
-    "useUnknownInCatchVariables": true,
-
-    /* Interop */
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true,
-
-    /* Build strategy */
-    "noEmit": true,
-    "isolatedModules": true,
-
-    /* Performance & sanity */
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "incremental": true,
-    "tsBuildInfoFile": ".tsbuildinfo"
+    "sourceMap": true,
+    "outDir": "build",
+    "types": ["node"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "tools/**/*.ts", "playwright.config.ts"],
   "exclude": ["node_modules", "dist", "build"]
 }

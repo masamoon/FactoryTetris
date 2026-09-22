@@ -7,18 +7,14 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.js',
+    clean: true,
   },
   module: {
     rules: [
       {
-        test: /\.js$/,
+        test: /\.ts$/,
         exclude: /node_modules/,
-        use: {
-          loader: 'babel-loader',
-          options: {
-            presets: ['@babel/preset-env'],
-          },
-        },
+        use: { loader: 'ts-loader', options: { onlyCompileBundledFiles: true } },
       },
     ],
   },
@@ -28,7 +24,26 @@ module.exports = {
       filename: 'index.html',
     }),
     new CopyWebpackPlugin({
-      patterns: [{ from: 'src/assets', to: 'assets' }],
+      patterns: [
+        { from: 'src/ui/style.css', to: 'style.css' },
+        { from: 'src/asteroid/style.css', to: 'asteroid.css' },
+        {
+          from: 'node_modules/@fontsource-variable/dm-sans/files/dm-sans-latin-wght-normal.woff2',
+          to: 'fonts/dm-sans.woff2',
+        },
+        {
+          from: 'node_modules/@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2',
+          to: 'fonts/space-grotesk.woff2',
+        },
+        {
+          from: 'node_modules/@fontsource-variable/dm-sans/LICENSE',
+          to: 'fonts/dm-sans-LICENSE.txt',
+        },
+        {
+          from: 'node_modules/@fontsource-variable/space-grotesk/LICENSE',
+          to: 'fonts/space-grotesk-LICENSE.txt',
+        },
+      ],
     }),
   ],
   devServer: {
@@ -44,6 +59,6 @@ module.exports = {
     },
   },
   resolve: {
-    extensions: ['.js'],
+    extensions: ['.ts', '.js'],
   },
 };

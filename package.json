@@ -1,28 +1,32 @@
 {
   "name": "gridforge",
-  "version": "0.1.0",
-  "description": "A rogue-lite factory automation game with unique grid-based mechanics",
+  "version": "0.2.0",
+  "description": "A side-view asteroid mining and automation prototype.",
   "main": "src/index.ts",
   "scripts": {
     "start": "webpack serve --mode=development",
     "build": "webpack --mode=production",
-    "test": "npm run test:rules",
     "test:rules": "node --test tests/*.test.mjs",
-    "simulate:engagement": "node tools/engagement-simulator.js",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test": "tsx --test tests/simulation.test.ts tests/asteroid.test.ts",
+    "test:browser": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "replay": "tsx tools/replay.ts",
+    "replay:asteroid": "tsx tools/asteroid-replay.ts",
+    "lint": "eslint src tests tools playwright.config.ts webpack.config.js"
   },
   "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "phaser": "^3.60.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.22.5",
-    "@babel/preset-env": "^7.22.5",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.3",
     "@typescript-eslint/eslint-plugin": "^8.50.1",
     "@typescript-eslint/parser": "^8.50.1",
-    "babel-loader": "^9.1.2",
-    "canvas": "^3.1.0",
     "copy-webpack-plugin": "^11.0.0",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
@@ -32,6 +36,8 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "prettier": "^3.7.4",
+    "ts-loader": "^9.6.2",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.50.1",
     "webpack": "^5.88.2",
@@ -39,9 +45,12 @@
     "webpack-dev-server": "^4.15.1"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx,json,css,scss,md}": [
+    "*.{ts,js}": [
       "prettier --write",
       "eslint --fix"
+    ],
+    "*.{json,css,html,md}": [
+      "prettier --write"
     ]
   }
 }

@@ -1,0 +1,493 @@
+[
+  {
+    "screen": "opening-360",
+    "canvas": {
+      "x": 11,
+      "y": 172,
+      "width": 338,
+      "height": 303
+    }
+  },
+  {
+    "level": 1,
+    "idleSeconds": 2,
+    "tickBefore": 4,
+    "tickAfter": 4,
+    "canvas": {
+      "x": 18,
+      "y": 249.78125,
+      "width": 354,
+      "height": 377.703125
+    }
+  },
+  {
+    "level": 1,
+    "final": {
+      "version": 2,
+      "level": 0,
+      "mirrored": false,
+      "machines": [
+        {
+          "id": 1,
+          "kind": "punch",
+          "x": 0,
+          "y": 2,
+          "rotation": 0,
+          "inputs": [
+            [
+              "blank",
+              "blank"
+            ]
+          ],
+          "output": [],
+          "remaining": 1,
+          "processing": "punched",
+          "emitted": 3
+        }
+      ],
+      "sources": [
+        {
+          "id": -1,
+          "x": -1,
+          "y": 2,
+          "direction": 1,
+          "resource": "blank"
+        }
+      ],
+      "blockers": [],
+      "orders": [
+        {
+          "resource": "punched",
+          "quantity": 3,
+          "delivered": 3
+        }
+      ],
+      "actions": 3,
+      "tick": 8,
+      "status": "won",
+      "nextId": 2,
+      "spaceRecovered": 0,
+      "folds": 0
+    }
+  },
+  {
+    "level": 5,
+    "idleSeconds": 2,
+    "tickBefore": 4,
+    "tickAfter": 4,
+    "canvas": {
+      "x": 18,
+      "y": 249.78125,
+      "width": 354,
+      "height": 377.703125
+    }
+  },
+  {
+    "level": 5,
+    "final": {
+      "version": 2,
+      "level": 4,
+      "mirrored": false,
+      "machines": [
+        {
+          "id": 2,
+          "kind": "cutter",
+          "x": 5,
+          "y": 5,
+          "rotation": 2,
+          "inputs": [
+            [
+              "blank",
+              "blank"
+            ]
+          ],
+          "output": [
+            "clipped",
+            "clipped"
+          ],
+          "remaining": 0,
+          "processing": null,
+          "emitted": 4
+        },
+        {
+          "id": 3,
+          "kind": "module",
+          "x": 0,
+          "y": 1,
+          "rotation": 0,
+          "inputs": [],
+          "output": [],
+          "remaining": 0,
+          "processing": null,
+          "emitted": 0,
+          "folded": {
+            "machines": [
+              {
+                "id": 1,
+                "kind": "punch",
+                "x": 0,
+                "y": 1,
+                "rotation": 0,
+                "inputs": [
+                  [
+                    "blank",
+                    "blank"
+                  ]
+                ],
+                "output": [],
+                "remaining": 1,
+                "processing": "punched",
+                "emitted": 10
+              }
+            ],
+            "edges": [],
+            "inputs": [
+              {
+                "endpoint": {
+                  "id": 1,
+                  "port": 0
+                },
+                "resource": "any"
+              }
+            ],
+            "output": 1,
+            "resource": "any"
+          }
+        },
+        {
+          "id": 4,
+          "kind": "cutter",
+          "x": 1,
+          "y": 1,
+          "rotation": 0,
+          "inputs": [
+            [
+              "punched"
+            ]
+          ],
+          "output": [],
+          "remaining": 1,
+          "processing": "combined",
+          "emitted": 4
+        }
+      ],
+      "sources": [
+        {
+          "id": -1,
+          "x": -1,
+          "y": 1,
+          "direction": 1,
+          "resource": "blank"
+        },
+        {
+          "id": -2,
+          "x": 8,
+          "y": 6,
+          "direction": 3,
+          "resource": "blank"
+        }
+      ],
+      "blockers": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 1,
+          "y": 0
+        },
+        {
+          "x": 2,
+          "y": 0
+        },
+        {
+          "x": 3,
+          "y": 0
+        },
+        {
+          "x": 4,
+          "y": 0
+        },
+        {
+          "x": 5,
+          "y": 0
+        },
+        {
+          "x": 6,
+          "y": 0
+        },
+        {
+          "x": 7,
+          "y": 0
+        },
+        {
+          "x": 4,
+          "y": 1
+        },
+        {
+          "x": 4,
+          "y": 2
+        },
+        {
+          "x": 0,
+          "y": 4
+        },
+        {
+          "x": 2,
+          "y": 4
+        },
+        {
+          "x": 3,
+          "y": 4
+        },
+        {
+          "x": 4,
+          "y": 4
+        },
+        {
+          "x": 5,
+          "y": 4
+        },
+        {
+          "x": 7,
+          "y": 4
+        },
+        {
+          "x": 4,
+          "y": 5
+        },
+        {
+          "x": 4,
+          "y": 7
+        },
+        {
+          "x": 0,
+          "y": 8
+        },
+        {
+          "x": 1,
+          "y": 8
+        },
+        {
+          "x": 2,
+          "y": 8
+        },
+        {
+          "x": 3,
+          "y": 8
+        },
+        {
+          "x": 4,
+          "y": 8
+        },
+        {
+          "x": 5,
+          "y": 8
+        },
+        {
+          "x": 6,
+          "y": 8
+        },
+        {
+          "x": 7,
+          "y": 8
+        }
+      ],
+      "orders": [
+        {
+          "resource": "punched",
+          "quantity": 4,
+          "delivered": 4
+        },
+        {
+          "resource": "clipped",
+          "quantity": 4,
+          "delivered": 4
+        },
+        {
+          "resource": "combined",
+          "quantity": 4,
+          "delivered": 4
+        }
+      ],
+      "actions": 6,
+      "tick": 26,
+      "status": "won",
+      "nextId": 5,
+      "spaceRecovered": 3,
+      "folds": 1
+    }
+  },
+  {
+    "level": 10,
+    "idleSeconds": 2,
+    "tickBefore": 4,
+    "tickAfter": 4,
+    "canvas": {
+      "x": 18,
+      "y": 268.171875,
+      "width": 354,
+      "height": 377.703125
+    }
+  },
+  {
+    "level": 10,
+    "final": {
+      "version": 2,
+      "level": 9,
+      "mirrored": false,
+      "machines": [
+        {
+          "id": 4,
+          "kind": "module",
+          "x": 5,
+          "y": 6,
+          "rotation": 0,
+          "inputs": [],
+          "output": [],
+          "remaining": 0,
+          "processing": null,
+          "emitted": 0,
+          "folded": {
+            "machines": [
+              {
+                "id": 2,
+                "kind": "module",
+                "x": 0,
+                "y": 2,
+                "rotation": 0,
+                "inputs": [],
+                "output": [],
+                "remaining": 0,
+                "processing": null,
+                "emitted": 0,
+                "folded": {
+                  "machines": [
+                    {
+                      "id": 1,
+                      "kind": "punch",
+                      "x": 0,
+                      "y": 2,
+                      "rotation": 0,
+                      "inputs": [
+                        []
+                      ],
+                      "output": [
+                        "punched"
+                      ],
+                      "remaining": 0,
+                      "processing": null,
+                      "emitted": 11
+                    }
+                  ],
+                  "edges": [],
+                  "inputs": [
+                    {
+                      "endpoint": {
+                        "id": 1,
+                        "port": 0
+                      },
+                      "resource": "any"
+                    }
+                  ],
+                  "output": 1,
+                  "resource": "any"
+                }
+              },
+              {
+                "id": 3,
+                "kind": "cutter",
+                "x": 1,
+                "y": 2,
+                "rotation": 0,
+                "inputs": [
+                  [
+                    "punched",
+                    "punched"
+                  ]
+                ],
+                "output": [
+                  "combined",
+                  "combined"
+                ],
+                "remaining": 0,
+                "processing": null,
+                "emitted": 4
+              }
+            ],
+            "edges": [
+              {
+                "from": 1,
+                "to": {
+                  "id": 3,
+                  "port": 0
+                }
+              }
+            ],
+            "inputs": [
+              {
+                "endpoint": {
+                  "id": 1,
+                  "port": 0
+                },
+                "resource": "any"
+              }
+            ],
+            "output": 3,
+            "resource": "any"
+          }
+        },
+        {
+          "id": 5,
+          "kind": "cutter",
+          "x": 0,
+          "y": 2,
+          "rotation": 0,
+          "inputs": [
+            [
+              "blank",
+              "blank"
+            ]
+          ],
+          "output": [],
+          "remaining": 1,
+          "processing": "clipped",
+          "emitted": 3
+        }
+      ],
+      "sources": [
+        {
+          "id": -1,
+          "x": -1,
+          "y": 2,
+          "direction": 1,
+          "resource": "blank"
+        }
+      ],
+      "blockers": [],
+      "orders": [
+        {
+          "resource": "punched",
+          "quantity": 3,
+          "delivered": 3
+        },
+        {
+          "resource": "clipped",
+          "quantity": 3,
+          "delivered": 3
+        },
+        {
+          "resource": "combined",
+          "quantity": 4,
+          "delivered": 4
+        }
+      ],
+      "actions": 7,
+      "tick": 28,
+      "status": "won",
+      "nextId": 6,
+      "spaceRecovered": 7,
+      "folds": 2
+    }
+  }
+]
