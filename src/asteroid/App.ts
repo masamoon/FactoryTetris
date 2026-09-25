@@ -6,6 +6,7 @@ import {
   beltPathError,
   build,
   buildBeltPath,
+  cancelQueuedExtension,
   canMine,
   costLabel,
   dispatchCourier,
@@ -14,6 +15,7 @@ import {
   DOCK,
   extendDrill,
   FRESH_DRILL_SITE,
+  THIRD_DRILL_SITE,
   isDock,
   manualInputAmount,
   manualInputError,
@@ -21,6 +23,7 @@ import {
   NAMES,
   objective,
   placementError,
+  pocketRemaining,
   processorInput,
   reservedInput,
   removeBelt,
@@ -65,6 +68,7 @@ export class AsteroidApp {
   private modal = false;
   private saving = true;
   private saveTimer = 0;
+  private lastSavedTick = -1;
   private last = performance.now();
   private accumulator = 0;
   private message = '';
@@ -128,6 +132,19 @@ export class AsteroidApp {
       this.manual = null;
     };
     this.scene.onBeltDrag = (path, commit) => this.dragBelts(path, commit);
+    this.scene.onFeed = (p) => {
+      const machine = machineAt(this.session.state, p);
+      if (machine) this.dispatchToMachine(machine.id);
+    };
+    this.scene.onTransferDrop = (p) => {
+      const machine = machineAt(this.session.state, p);
+      if (machine && !manualInputError(this.session.state, machine))
+        this.dispatchToMachine(machine.id);
+      else {
+        this.notify('Drop on a processor that can accept a batch.');
+        this.render();
+      }
+    };
     this.bind('a-left', () => this.scene.panBy(-4));
     this.bind('a-right', () => this.scene.panBy(4));
     this.bind('a-home', () => this.scene.focus());
@@ -225,10 +242,12 @@ export class AsteroidApp {
   private frame(now: number) {
     const delta = Math.min(250, now - this.last);
     this.last = now;
+    let advanced = false;
     if (this.running()) {
       this.accumulator += delta;
       while (this.accumulator >= STEP_MS) {
         const events = advance(this.session.state, this.manual);
+        advanced = true;
         this.scene.emit(events);
         if (events.some((e) => e.type === 'mine')) this.audio.play('work');
         if (events.some((e) => e.type === 'ship') && this.session.state.tick % 9 === 0)
@@ -236,11 +255,14 @@ export class AsteroidApp {
         this.accumulator -= STEP_MS;
       }
     } else this.accumulator = 0;
-    if (now - this.saveTimer > 1000) {
+    if (now - this.saveTimer > 1000 && this.session.state.tick !== this.lastSavedTick) {
       this.saveTimer = now;
       this.save();
     }
-    this.render();
+    if (this.message && now >= this.messageUntil) {
+      this.message = '';
+      this.render();
+    } else if (advanced) this.render();
     requestAnimationFrame((time) => this.frame(time));
   }
   private notify(message: string) {
@@ -365,17 +387,25 @@ export class AsteroidApp {
       return;
     }
     this.audio.play('place');
-    this.notify('Extension kit launched. The tender will install it automatically.');
+    this.notify(
+      drill.extension?.queued
+        ? 'Extension reserved. The tender leaves after the pocket and return loads clear.'
+        : 'Extension kit launched. The tender will install it automatically.'
+    );
     this.save();
     this.render();
   }
   private previewFreshDrill() {
+    const site =
+      this.session.state.machines.filter((m) => m.kind === 'drill').length === 1
+        ? FRESH_DRILL_SITE
+        : THIRD_DRILL_SITE;
     this.mode = 'drill';
-    this.preview = { ...FRESH_DRILL_SITE };
+    this.preview = { ...site };
     this.selected = null;
     this.manual = null;
     this.scene.cancelPointer();
-    this.scene.focus(FRESH_DRILL_SITE.x, FRESH_DRILL_SITE.y);
+    this.scene.focus(site.x, site.y);
     this.render();
   }
   private dispatchToMachine(id: number) {
@@ -415,8 +445,8 @@ export class AsteroidApp {
   }
   private save() {
     try {
-      trimHistory(this.session);
-      localStorage.setItem(SAVE_KEY, JSON.stringify(this.session));
+      localStorage.setItem(SAVE_KEY, trimHistory(this.session));
+      this.lastSavedTick = this.session.state.tick;
       this.saving = true;
     } catch {
       this.saving = false;
@@ -459,10 +489,11 @@ export class AsteroidApp {
       transferTargets: SceneModel['transferTargets'] = [];
     const dragPlacements = this.beltDrag ? beltPlacements(this.beltDrag, this.direction) : [],
       dragError = dragPlacements.length ? beltPathError(s, dragPlacements) : null;
-    if (this.mode === 'transfer') {
+    if (this.mode === 'transfer' || this.mode === 'mine')
       transferTargets = s.machines
         .filter((m) => processorInput(m) && !manualInputError(s, m))
         .map((m) => ({ x: m.x, y: m.y }));
+    if (this.mode === 'transfer') {
       const targetText = transferTargets.length
         ? 'Tap a glowing processor. Its required cargo will leave collection now and arrive after the flight.'
         : 'No processor can accept available collection stock right now.';
@@ -475,6 +506,8 @@ export class AsteroidApp {
       context = `<div class="a-preview ${dragError ? 'invalid' : ''}"><div><strong>${dragError ? escape(dragError) : `${dragPlacements.length} conveyor${dragPlacements.length === 1 ? '' : 's'} · Free`}</strong><small>${dragError ? 'Release to cancel this invalid route.' : 'Release to install as one undoable route. Drag order sets cargo direction.'}</small></div></div>`;
     } else if (this.preview && this.mode !== 'mine') {
       const existing = machineAt(s, this.preview);
+      const surveyedPocket =
+        this.mode === 'drill' ? s.pockets[`${this.preview.x + 8},${this.preview.y}`] || 0 : 0;
       const error =
         this.mode === 'erase'
           ? !existing || existing.kind !== 'belt'
@@ -485,13 +518,18 @@ export class AsteroidApp {
           : placementError(s, this.mode, this.preview);
       if (this.mode !== 'erase')
         preview = { ...this.preview, kind: this.mode, direction: this.direction, valid: !error };
-      context = `<div class="a-preview ${error ? 'invalid' : ''}"><div><strong>${error ? escape(error) : this.mode === 'erase' ? 'Remove empty conveyor' : `${NAMES[this.mode]} · ${costLabel(this.mode, s)}`}</strong><small>${this.mode === 'drill' ? 'Mines right · returns ore to its left output · 8-square reach' : this.mode === 'belt' ? 'Arrow sets cargo direction. Conveyors turn automatically at the next belt.' : this.mode === 'erase' ? 'Cargo is never discarded.' : 'Input on the RIGHT · output on the LEFT'}</small></div><div class="a-preview-actions">${this.mode === 'belt' ? '<button id="a-rotate" aria-label="Rotate conveyor">↻ Rotate</button>' : ''}<button id="a-confirm" class="a-primary" ${error ? 'disabled' : ''}>${this.mode === 'erase' ? 'Remove' : 'Build'}</button><button id="a-cancel" aria-label="Cancel preview">✕</button></div></div>`;
+      context = `<div class="a-preview ${error ? 'invalid' : ''}"><div><strong>${error ? escape(error) : this.mode === 'erase' ? 'Remove empty conveyor' : `${NAMES[this.mode]} · ${costLabel(this.mode, s)}`}</strong><small>${this.mode === 'drill' ? `Mines right · 8-square reach · ${surveyedPocket ? `${surveyedPocket} ore deep pocket at end` : 'no surveyed deep pocket'}` : this.mode === 'belt' ? 'Arrow sets cargo direction. Conveyors turn automatically at the next belt.' : this.mode === 'erase' ? 'Cargo is never discarded.' : 'Input on the RIGHT · output on the LEFT'}</small></div><div class="a-preview-actions">${this.mode === 'belt' ? '<button id="a-rotate" aria-label="Rotate conveyor">↻ Rotate</button>' : ''}<button id="a-confirm" class="a-primary" ${error ? 'disabled' : ''}>${this.mode === 'erase' ? 'Remove' : 'Build'}</button><button id="a-cancel" aria-label="Cancel preview">✕</button></div></div>`;
     } else if (this.selected && machineAt(s, this.selected)) {
       const m = machineAt(s, this.selected)!;
       if (m.kind === 'drill') {
         const extensionError = drillExtensionError(s, m),
-          freshError = placementError(s, 'drill', FRESH_DRILL_SITE);
-        context = `<div class="a-inspect"><div><strong>${NAMES[m.kind]}</strong><p>${status(s, m)}</p><small>Output ${m.output.length}/8 · made ${m.made} · ${m.loads.reduce((n, l) => n + l.amount, 0)} ore returning</small><small class="a-choice-reason"><b>Extend 8 · 1 part:</b> ${escape(extensionError || 'reuse this route; longer ore return')}<br><b>New rich-face drill · ${costLabel('drill', s)}:</b> ${escape(freshError || 'shorter return; requires a new output route')}</small></div><div class="a-inspect-actions"><button id="a-extend-drill" class="a-primary" ${extensionError ? 'disabled' : ''}>Extend 8 · 1 part</button><button id="a-new-drill" ${freshError ? 'disabled' : ''}>New drill · ${costLabel('drill', s)}</button><button id="a-view-head">View head</button><button id="a-view-base">View base</button><button id="a-close-inspect" aria-label="Close inspection">✕</button></div></div>`;
+          site =
+            s.machines.filter((n) => n.kind === 'drill').length === 1
+              ? FRESH_DRILL_SITE
+              : THIRD_DRILL_SITE,
+          freshError = placementError(s, 'drill', site),
+          pocket = pocketRemaining(s, m);
+        context = `<div class="a-inspect"><div><strong>${NAMES[m.kind]}</strong><p>${status(s, m)}</p><small>Deep pocket ${pocket} ore · output ${m.output.length}/8 · made ${m.made} · ${m.loads.reduce((n, l) => n + l.amount, 0)} returning</small><small class="a-choice-reason"><b>Extend 8 · 1 part:</b> ${escape(extensionError || 'reserve the next corridor; tender waits for pocket and loads to clear')}<br><b>New drill · ${costLabel('drill', s)}:</b> ${escape(freshError || 'requires a separate output route')}</small></div><div class="a-inspect-actions"><button id="a-extend-drill" class="a-primary" ${extensionError ? 'disabled' : ''}>Extend 8 · 1 part</button>${m.extension?.queued ? '<button id="a-cancel-extension">Cancel queued kit · refund part</button>' : ''}<button id="a-new-drill" ${freshError ? 'disabled' : ''}>New drill · ${costLabel('drill', s)}</button><button id="a-view-head">View head</button><button id="a-view-base">View base</button><button id="a-close-inspect" aria-label="Close inspection">✕</button></div></div>`;
       } else {
         const inputError = manualInputError(s, m),
           resource = processorInput(m)!,
@@ -540,6 +578,15 @@ export class AsteroidApp {
         this.render();
       });
       this.bind('a-extend-drill', () => this.extendSelectedDrill());
+      this.bind('a-cancel-extension', () => {
+        if (!this.selected) return;
+        const drill = machineAt(this.session.state, this.selected);
+        if (!drill) return;
+        const error = cancelQueuedExtension(this.session, drill.id);
+        this.notify(error || 'Queued kit cancelled. One part returned to collection.');
+        this.save();
+        this.render();
+      });
       this.bind('a-new-drill', () => this.previewFreshDrill());
       this.bind('a-dispatch-machine', () => this.dispatchToSelectedMachine());
       this.bind('a-view-head', () => {
@@ -607,7 +654,7 @@ export class AsteroidApp {
   }
   private help() {
     this.showModal(
-      `<span class="a-kicker">FIELD MANUAL / 01</span><h2 id="a-dialog-title">From a handful of ore<br>to a working outpost.</h2><ol><li><b>Excavate.</b> Hold exposed blocks. Plain rock yields 2 ore; gold veins yield 4. Drag to pan.</li><li><b>Automate.</b> Spend 6 ore on a drill in clear space. It excavates up to 8 squares right and returns ore to its left output.</li><li><b>Connect.</b> Drag from an output toward its destination to install a free conveyor route. Tap for precise one-cell placement. The camera arrows pan while drawing.</li><li><b>Process.</b> Feed machines from the right. Smelter: 2 ore → 1 plate. Assembler: 2 plates → 1 part. Tap COLLECTION, then a glowing processor, to send one emergency batch by service drone.</li><li><b>Expand.</b> Inspect a finished drill. Spend 1 part to send a timed eight-cell extension kit, or spend 1 part + 2 ore on the exposed rich-face drill and connect its separate output.</li></ol><p>The drone and factory share the live clock: real cargo leaves storage at launch and enters the reserved machine slots only on arrival. Building pauses production. Resume after laying belts. Only empty belts can be replaced or removed. Drill rails reserve their full corridor, including a committed extension.</p><p><b>Undo build</b> keeps up to 40 recent edits within this device’s save budget. It rewinds the whole outpost, including ore mined, courier deliveries and production earned since that build. Saves stay on this device; there is no offline production.</p><label class="a-check"><input type="checkbox" id="a-motion" ${this.reduced ? 'checked' : ''}> Reduced motion</label><a href="?mode=tiles">Open the earlier tile workshop</a>`
+      `<span class="a-kicker">FIELD MANUAL / 01</span><h2 id="a-dialog-title">From a handful of ore<br>to a working outpost.</h2><ol><li><b>Excavate.</b> Hold exposed blocks. Plain rock yields 2 ore and breaks in 1.2 seconds; gold veins yield 4. Drag elsewhere to pan.</li><li><b>Automate.</b> Spend 6 ore on a drill in clear space. It clears eight real squares to the right, then taps a visible finite deep pocket where one exists. Ore returns along its rail to the left output.</li><li><b>Connect.</b> Drag from an output toward its destination to install a free conveyor route. Tap for precise one-cell placement. The camera arrows pan while drawing.</li><li><b>Process.</b> Feed machines from the right. Smelter: 2 ore → 1 plate. Assembler: 2 plates → 1 part. For one real manual batch, drag from COLLECTION to a processor or tap its world FEED action. Tap the processor to inspect it.</li><li><b>Expand.</b> The second drill costs 2 ore; the third costs 8 ore. Each needs its own output route. Once a shaft clears, spend 1 part to queue an eight-cell extension on that base. Cancel a queued kit for a full refund, or wait for its old pocket and loads to clear before the tender moves.</li></ol><p>The drone and factory share the live clock: real cargo leaves storage at launch and enters the reserved machine slots only on arrival. Building pauses production. Resume after laying belts. Only empty belts can be replaced or removed. Drill rails reserve their full corridor, including a queued extension. Deep pockets are fixed deposits with visible remaining ore; building a drill never refills them.</p><p><b>Undo build</b> keeps up to 40 recent edits within this device’s save budget. It rewinds the whole outpost, including ore mined, courier deliveries and production earned since that build. Saves stay on this device; there is no offline production.</p><label class="a-check"><input type="checkbox" id="a-motion" ${this.reduced ? 'checked' : ''}> Reduced motion</label><a href="?mode=tiles">Open the earlier tile workshop</a>`
     );
     document.getElementById('a-motion')!.addEventListener('change', (e) => {
       this.reduced = (e.target as HTMLInputElement).checked;

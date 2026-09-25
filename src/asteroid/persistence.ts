@@ -5,6 +5,7 @@ import {
   idleCourier,
   MAX_DRILLS,
   MAX_EXTENSIONS,
+  POCKET_RESERVES,
   WORLD_W,
   WORLD_H,
   trimHistory,
@@ -19,8 +20,9 @@ const integer = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n)
 function validState(value: unknown): value is State {
   if (!value || typeof value !== 'object') return false;
   const s = value as State;
+  const version = (s as { version: unknown }).version;
   if (
-    s.version !== 1 ||
+    (version !== 1 && version !== 2) ||
     !integer(s.tick) ||
     !integer(s.mined) ||
     !integer(s.handMined) ||
@@ -47,6 +49,20 @@ function validState(value: unknown): value is State {
           integer(t.work) &&
           t.work < (t.kind === 'ore' ? 24 : 18))
     )
+  )
+    return false;
+  const pockets = (s as State & { pockets?: Record<string, number> }).pockets;
+  if (
+    (version === 2 && pockets === undefined) ||
+    (pockets !== undefined &&
+      (!pockets ||
+        typeof pockets !== 'object' ||
+        Array.isArray(pockets) ||
+        Object.keys(pockets).length !== Object.keys(POCKET_RESERVES).length ||
+        !Object.entries(POCKET_RESERVES).every(
+          ([key, initial]) =>
+            integer(pockets[key]) && pockets[key] <= initial && pockets[key] % 4 === 0
+        )))
   )
     return false;
   if (!Array.isArray(s.machines) || s.machines.length > WORLD_W * WORLD_H) return false;
@@ -126,7 +142,6 @@ function validState(value: unknown): value is State {
         const e = m.extension;
         if (
           extensions ||
-          m.loads.length ||
           m.head !== m.end + 1 ||
           !integer(e.targetEnd) ||
           e.targetEnd !== m.end + 8 ||
@@ -136,6 +151,12 @@ function validState(value: unknown): value is State {
           !integer(e.remaining) ||
           e.remaining < 1 ||
           e.remaining > e.duration
+        )
+          return false;
+        if (
+          (e.queued !== undefined && typeof e.queued !== 'boolean') ||
+          (e.queued && e.remaining !== e.duration) ||
+          (!e.queued && (m.loads.length || (pockets && pockets[`${m.end},${m.y}`] > 0)))
         )
           return false;
         let rock = false;
@@ -264,8 +285,18 @@ export function parseSave(raw: string | null): Session | null {
       data.history.length < 2000 &&
       data.history.every(validState)
     ) {
-      for (const state of [data.state, ...data.history])
+      for (const state of [data.state, ...data.history]) {
         if (!(state as State & { courier?: Courier }).courier) state.courier = idleCourier();
+        if (!(state as State & { pockets?: State['pockets'] }).pockets) {
+          state.pockets = { ...POCKET_RESERVES };
+          for (const drill of state.machines.filter((m) => m.kind === 'drill'))
+            if ((drill.extensions || 0) > 0 || (drill.extension && !drill.extension.queued)) {
+              const key = `${drill.x + 8},${drill.y}`;
+              if (key in state.pockets) state.pockets[key] = 0;
+            }
+        }
+        state.version = 2;
+      }
       trimHistory(data);
       return data;
     }

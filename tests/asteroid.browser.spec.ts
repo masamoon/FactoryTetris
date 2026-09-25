@@ -85,7 +85,11 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
   for (const y of [5, 6, 7]) await holdRock(page, 8, y);
   expect((await state(page)).stock.ore).toBe(6);
   for (let x = 2; x <= 6; x++) await place(page, 'belt', x, 6);
-  await place(page, 'drill', 7, 6);
+  await page.locator('#a-tool-drill').click();
+  await cell(page, 7, 6);
+  await expect(page.locator('#a-context')).toContainText('96 ore deep pocket at end');
+  await page.screenshot({ path: 'test-results/asteroid-pocket-preview.png' });
+  await page.locator('#a-confirm').click();
   await cell(page, 7, 6);
   await expect(page.locator('#a-extend-drill')).toBeDisabled();
   await expect(page.locator('#a-new-drill')).toBeDisabled();
@@ -125,7 +129,7 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
   await expect(page.locator('#a-extend-drill')).toBeEnabled();
   await expect(page.locator('#a-new-drill')).toBeEnabled();
   await expect(page.locator('#a-context')).toContainText('Extend 8 · 1 part');
-  await expect(page.locator('#a-context')).toContainText('New rich-face drill · 2 ore · 1 part');
+  await expect(page.locator('#a-context')).toContainText('New drill · 2 ore');
   await page.screenshot({ path: 'test-results/asteroid-expansion-choice.png' });
   await page.locator('#a-view-head').click();
   const headPosition = await position(page, 15, 6);
@@ -139,24 +143,41 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
   expect(basePosition.x).toBeLessThan(canvasBounds!.x + canvasBounds!.width);
   await page.locator('#a-new-drill').click();
   await expect(page.locator('#a-confirm')).toBeEnabled();
-  await expect(page.locator('#a-context')).toContainText('Shaft drill · 2 ore · 1 part');
+  await expect(page.locator('#a-context')).toContainText('Shaft drill · 2 ore');
   await page.screenshot({ path: 'test-results/asteroid-fresh-drill-preview.png' });
   await page.locator('#a-tool-mine').click();
+  await page.locator('#a-pause').click();
   await cell(page, 7, 6);
+  const partsBeforeKit = (await state(page)).stock.part;
   await page.locator('#a-extend-drill').click();
-  expect((await state(page)).stock.part).toBe(0);
-  expect((await state(page)).machines.find((m) => m.kind === 'drill')!.extension).toBeTruthy();
-  await page.screenshot({ path: 'test-results/asteroid-extension-tender.png' });
-  await expect
-    .poll(async () => (await state(page)).machines.find((m) => m.kind === 'drill')!.extensions, {
-      timeout: 6000,
-    })
-    .toBe(1);
-  await expect
-    .poll(async () => (await state(page)).terrain[6 * 36 + 16], { timeout: 6000 })
-    .toBeNull();
-  await expect(page.locator('#a-objective-title')).toHaveText('Your outpost is expanding');
+  expect((await state(page)).stock.part).toBe(partsBeforeKit - 1);
+  expect((await state(page)).machines.find((m) => m.kind === 'drill')!.extension?.queued).toBe(
+    true
+  );
+  await page.screenshot({ path: 'test-results/asteroid-extension-queued.png' });
+  await page.locator('#a-cancel-extension').click();
+  expect((await state(page)).stock.part).toBe(partsBeforeKit);
+  expect((await state(page)).machines.find((m) => m.kind === 'drill')!.extension).toBeUndefined();
+  await page.locator('#a-extend-drill').click();
+  const accelerated = structuredClone(await state(page));
+  let safety = 3000;
+  while (
+    (!accelerated.machines.find((m) => m.kind === 'drill')!.extensions ||
+      accelerated.terrain[6 * 36 + 16]) &&
+    safety--
+  )
+    advance(accelerated);
+  expect(safety).toBeGreaterThan(0);
+  await page.evaluate((next) => {
+    const app = (window as unknown as { asteroid: Hook & { render(): void; save(): void } })
+      .asteroid;
+    app.session.state = next;
+    app.render();
+    app.save();
+  }, accelerated);
   await page.screenshot({ path: 'test-results/asteroid-extension-working.png' });
+  await page.locator('#a-pause').click();
+  await expect(page.locator('#a-objective-title')).toHaveText('Your outpost is expanding');
   await page.locator('#a-pause').click();
   const before = await state(page);
   await expect
@@ -198,6 +219,7 @@ test('asteroid planning freezes time, invalid placement is atomic, undo and inpu
   await expect
     .poll(async () => (await state(page)).terrain[6 * 36 + 8]?.work || 0)
     .toBeGreaterThan(0);
+  await page.screenshot({ path: 'test-results/asteroid-hold-progress.png' });
   await page.locator('canvas').dispatchEvent('pointercancel');
   const cancelled = (await state(page)).terrain[6 * 36 + 8]?.work;
   await page.waitForTimeout(350);
@@ -217,6 +239,47 @@ for (const viewport of [
   { width: 360, height: 640 },
   { width: 390, height: 844 },
 ]) {
+  test(`one-gesture world feeding and inspection at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await setup(page);
+    await page.evaluate(() => {
+      (window as unknown as { asteroid: Hook }).asteroid.session.state.stock.ore = 14;
+    });
+    await place(page, 'smelter', 7, 6);
+    const dock = await position(page, 1, 6),
+      machine = await position(page, 7, 6),
+      client = await page.context().newCDPSession(page);
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ ...dock, id: 1 }],
+    });
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ ...machine, id: 1 }],
+    });
+    await page.screenshot({ path: `test-results/asteroid-dock-drag-${viewport.width}.png` });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    expect((await state(page)).courier.cargo).toEqual(['ore', 'ore']);
+    expect((await state(page)).stock.ore).toBe(4);
+    await expect.poll(async () => (await state(page)).courier.phase).toBe('idle');
+    await cell(page, 7, 6);
+    await expect(page.locator('#a-dispatch-machine')).toBeVisible();
+    await page.locator('#a-close-inspect').click();
+    const feed = await page.evaluate(() => {
+      const scene = (window as unknown as { asteroid: Hook & { scene: { cell: number } } }).asteroid
+        .scene;
+      const p = scene.screen({ x: 7, y: 6 });
+      return { x: p.x, y: p.y - Math.max(26, scene.cell * 0.95) };
+    });
+    const canvas = (await page.locator('canvas').boundingBox())!;
+    await page.touchscreen.tap(canvas.x + feed.x, canvas.y + feed.y);
+    expect((await state(page)).courier.cargo).toEqual(['ore', 'ore']);
+    expect((await state(page)).stock.ore).toBe(2);
+    await page.screenshot({ path: `test-results/asteroid-world-feed-${viewport.width}.png` });
+  });
+
   test(`service drone makes repeatable manual deliveries at ${viewport.width}x${viewport.height}`, async ({
     page,
   }) => {

@@ -5,9 +5,16 @@ export const MAX_UNDO = 40;
 export const SAVE_BUDGET = 2_000_000;
 export const DOCK = { x: 1, y: 6 };
 export const FRESH_DRILL_SITE = { x: 8, y: 5 };
+export const THIRD_DRILL_SITE = { x: 8, y: 7 };
 export const DRILL_EXTENSION_COST: Partial<Record<Resource, number>> = { part: 1 };
-export const MAX_DRILLS = 2;
+export const MAX_DRILLS = 3;
 export const MAX_EXTENSIONS = 1;
+export const POCKET_RESERVES: Record<string, number> = {
+  '15,6': 96,
+  '16,5': 48,
+  '16,7': 120,
+  '23,6': 72,
+};
 export type Resource = 'ore' | 'plate' | 'part';
 export type Tool = 'drill' | 'belt' | 'smelter' | 'assembler';
 export type Direction = 0 | 1 | 2 | 3;
@@ -29,6 +36,7 @@ export interface DrillExtension {
   targetEnd: number;
   remaining: number;
   duration: number;
+  queued?: boolean;
 }
 export interface Courier {
   phase: 'idle' | 'outbound' | 'returning';
@@ -54,9 +62,10 @@ export interface Machine extends Point {
   extension?: DrillExtension;
 }
 export interface State {
-  version: 1;
+  version: 2;
   tick: number;
   terrain: (Tile | null)[];
+  pockets: Record<string, number>;
   machines: Machine[];
   stock: Record<Resource, number>;
   delivered: Record<Resource, number>;
@@ -71,7 +80,16 @@ export interface Session {
   history: State[];
 }
 export interface Event {
-  type: 'mine' | 'flow' | 'ship' | 'work' | 'build' | 'extend' | 'courier-load' | 'courier-deliver';
+  type:
+    | 'mine'
+    | 'extract'
+    | 'flow'
+    | 'ship'
+    | 'work'
+    | 'build'
+    | 'extend'
+    | 'courier-load'
+    | 'courier-deliver';
   from: Point;
   to?: Point;
   resource?: Resource;
@@ -92,7 +110,8 @@ export const COST: Record<Tool, Partial<Record<Resource, number>>> = {
   smelter: { ore: 8 },
   assembler: { plate: 6 },
 };
-export const NEXT_DRILL_COST: Partial<Record<Resource, number>> = { ore: 2, part: 1 };
+export const NEXT_DRILL_COST: Partial<Record<Resource, number>> = { ore: 2 };
+export const THIRD_DRILL_COST: Partial<Record<Resource, number>> = { ore: 8 };
 export const NAMES: Record<Tool, string> = {
   drill: 'Shaft drill',
   belt: 'Conveyor',
@@ -120,7 +139,7 @@ export const tileAt = (s: State, p: Point) => (inside(p) ? s.terrain[p.y * WORLD
 export const machineAt = (s: State, p: Point) => s.machines.find((m) => m.x === p.x && m.y === p.y);
 export const isDock = (p: Point) => p.x === DOCK.x && p.y === DOCK.y;
 export const tileYield = (tile: Tile) => (tile.kind === 'ore' ? 4 : 2);
-export const hardness = (tile: Tile) => (tile.kind === 'ore' ? 24 : 18);
+export const hardness = (tile: Tile) => (tile.kind === 'ore' ? 24 : 12);
 export function createState(): State {
   const terrain: (Tile | null)[] = [];
   for (let y = 0; y < WORLD_H; y++)
@@ -134,9 +153,10 @@ export function createState(): State {
       terrain.push(solid ? { kind: rich ? 'ore' : 'rock', work: 0 } : null);
     }
   return {
-    version: 1,
+    version: 2,
     tick: 0,
     terrain,
+    pockets: { ...POCKET_RESERVES },
     machines: [],
     stock: { ore: 0, plate: 0, part: 0 },
     delivered: { ore: 0, plate: 0, part: 0 },
@@ -148,6 +168,9 @@ export function createState(): State {
   };
 }
 export const drillRailEnd = (m: Machine) => m.extension?.targetEnd ?? m.end;
+export const pocketKey = (p: Point) => `${p.x},${p.y}`;
+export const pocketRemaining = (s: State, m: Machine) =>
+  s.pockets[pocketKey({ x: m.end, y: m.y })] || 0;
 export function railOwner(s: State, p: Point) {
   return s.machines.find(
     (m) => m.kind === 'drill' && p.y === m.y && p.x > m.x && p.x <= drillRailEnd(m)
@@ -207,9 +230,9 @@ export function tapMine(s: State, p: Point, events: Event[]): string | null {
   return null;
 }
 export function costFor(s: State, tool: Tool) {
-  return tool === 'drill' && s.machines.some((m) => m.kind === 'drill')
-    ? NEXT_DRILL_COST
-    : COST[tool];
+  if (tool !== 'drill') return COST[tool];
+  const drills = s.machines.filter((m) => m.kind === 'drill').length;
+  return drills === 0 ? COST.drill : drills === 1 ? NEXT_DRILL_COST : THIRD_DRILL_COST;
 }
 export function costLabel(tool: Tool, s?: State) {
   return (
@@ -230,7 +253,7 @@ export function placementError(s: State, kind: Tool, p: Point): string | null {
       : 'A machine already occupies this square.';
   if (!accessible(s).has(p.y * WORLD_W + p.x)) return 'Open a route to this space first.';
   if (kind === 'drill' && s.machines.filter((m) => m.kind === 'drill').length >= MAX_DRILLS)
-    return 'This prototype supports two drill bases.';
+    return 'This sector supports three drill bases.';
   const cost = costFor(s, kind);
   for (const r of ['ore', 'plate', 'part'] as Resource[])
     if (s.stock[r] < (cost[r] || 0)) return `Need ${costLabel(kind, s)} in collection storage.`;
@@ -250,8 +273,12 @@ export function placementError(s: State, kind: Tool, p: Point): string | null {
 }
 export function trimHistory(session: Session) {
   session.history = session.history.slice(-MAX_UNDO);
-  while (session.history.length && JSON.stringify(session).length > SAVE_BUDGET)
+  let serialized = JSON.stringify(session);
+  while (session.history.length && serialized.length > SAVE_BUDGET) {
     session.history.shift();
+    serialized = JSON.stringify(session);
+  }
+  return serialized;
 }
 function checkpoint(session: Session) {
   session.history.push(clone(session.state));
@@ -333,7 +360,7 @@ export function buildBeltPath(session: Session, placements: BeltPlacement[]): st
 }
 export function drillExtensionError(s: State, drill: Machine): string | null {
   if (drill.kind !== 'drill') return 'Choose a shaft drill.';
-  if (drill.extension) return 'An extension kit is already travelling to this head.';
+  if (drill.extension) return 'An extension kit is already committed to this head.';
   if (
     s.machines.some(
       (m) => m.kind === 'drill' && ((m.extensions || 0) > 0 || m.extension !== undefined)
@@ -341,7 +368,6 @@ export function drillExtensionError(s: State, drill: Machine): string | null {
   )
     return 'This prototype supports one shaft extension.';
   if (drill.head <= drill.end) return 'Finish this shaft before extending it.';
-  if (drill.loads.length) return 'Wait for the last ore to return before launching the tender.';
   const targetEnd = drill.end + 8;
   if (targetEnd >= WORLD_W)
     return 'A full eight-cell extension does not fit before the sector edge.';
@@ -369,7 +395,15 @@ export function extendDrill(session: Session, id: number): string | null {
     targetEnd: drill.end + 8,
     remaining: duration,
     duration,
+    queued: pocketRemaining(session.state, drill) > 0 || drill.loads.length > 0,
   };
+  return null;
+}
+export function cancelQueuedExtension(session: Session, id: number): string | null {
+  const drill = session.state.machines.find((m) => m.id === id);
+  if (!drill?.extension?.queued) return 'Only a queued extension can be cancelled.';
+  delete drill.extension;
+  session.state.stock.part += DRILL_EXTENSION_COST.part || 0;
   return null;
 }
 export function removeBelt(session: Session, p: Point): string | null {
@@ -530,7 +564,7 @@ export function advance(s: State, manual: Point | null = null): Event[] {
       const arrived = m.loads.filter((load) => load.remaining <= 0);
       m.loads = m.loads.filter((load) => load.remaining > 0);
       for (const load of arrived) for (let i = 0; i < load.amount; i++) m.output.push('ore');
-      if (m.extension) {
+      if (m.extension && !m.extension.queued) {
         m.extension.remaining--;
         if (m.extension.remaining <= 0) {
           const oldEnd = m.end;
@@ -542,7 +576,27 @@ export function advance(s: State, manual: Point | null = null): Event[] {
         }
         continue;
       }
-      if (m.head > m.end) continue;
+      if (m.head > m.end) {
+        const remaining = pocketRemaining(s, m);
+        if (remaining > 0) {
+          if (m.output.length + m.loads.reduce((n, l) => n + l.amount, 0) + 4 <= 8) {
+            m.progress++;
+            if (m.progress >= 30) {
+              const face = { x: m.end, y: m.y },
+                duration = Math.max(1, Math.ceil((m.end - m.x) * 2.5));
+              s.pockets[pocketKey(face)] -= 4;
+              m.loads.push({ amount: 4, from: m.end, remaining: duration, duration });
+              m.made += 4;
+              m.progress = 0;
+              events.push({ type: 'extract', from: face, resource: 'ore', amount: 4 });
+            }
+          }
+        } else {
+          m.progress = 0;
+          if (m.extension?.queued && !m.loads.length) m.extension.queued = false;
+        }
+        continue;
+      }
       const p = { x: m.head, y: m.y },
         tile = tileAt(s, p);
       if (!tile) {
@@ -582,14 +636,25 @@ export function advance(s: State, manual: Point | null = null): Event[] {
 }
 export function status(s: State, m: Machine): string {
   if (m.kind === 'drill') {
+    const pocket = pocketRemaining(s, m);
+    if (m.extension?.queued)
+      return pocket
+        ? m.output.length + m.loads.reduce((n, l) => n + l.amount, 0) + 4 > 8
+          ? `Extension queued · pocket ${pocket} ore · output backed up`
+          : `Extension queued · pocket ${pocket} ore remaining`
+        : 'Extension queued · returning the last ore';
     if (m.extension)
       return `Tender travelling · ${Math.floor((1 - m.extension.remaining / m.extension.duration) * 100)}%`;
+    if (m.head > m.end && pocket)
+      return m.output.length + m.loads.reduce((n, l) => n + l.amount, 0) + 4 > 8
+        ? `Deep pocket ${pocket} ore · output backed up`
+        : `Deep pocket extracting · ${pocket} ore left`;
     if (m.head > m.end)
       return m.loads.length
         ? 'Returning the last ore'
         : (m.extensions || 0) > 0
-          ? 'Extended shaft complete · open another face'
-          : 'Shaft complete · extend or open a richer face';
+          ? 'Deep pocket empty · open another face'
+          : 'Deep pocket empty · extend or build another drill';
     const tile = tileAt(s, { x: m.head, y: m.y });
     if (
       m.output.length + m.loads.reduce((n, l) => n + l.amount, 0) + (tile ? tileYield(tile) : 0) >
@@ -630,29 +695,31 @@ export function objective(s: State): { title: string; detail: string; step: numb
     };
   if (!s.delivered.plate)
     return {
-      title: 'Make something useful',
-      detail: 'Spend 8 ore on a smelter. Feed ore from its right; send plates left to collection.',
+      title: 'Grow or refine',
+      detail:
+        'Ore can fund a second drill now. Spend 8 ore on a smelter when ready to make plates.',
       step: 3,
     };
   if (!s.delivered.part)
     return {
       title: 'Build with your own production',
-      detail: 'Collect 6 plates to build an assembler. Two plates become one machine part.',
+      detail: 'Collect 6 plates for an assembler. Two plates become one part for shaft extension.',
       step: 4,
     };
   const drills = s.machines.filter((m) => m.kind === 'drill'),
-    expanded = drills.length > 1 || drills.some((m) => (m.extensions || 0) > 0 || m.extension);
+    expanded =
+      drills.length >= MAX_DRILLS || drills.some((m) => (m.extensions || 0) > 0 || m.extension);
   if (!expanded)
     return {
       title: 'Choose your expansion',
       detail:
-        'Inspect the finished drill: spend 1 part to extend its route, or 1 part + 2 ore on a faster rich-face drill.',
+        'Route another ore-funded drill, or commit 1 part to extend a cleared shaft after its pocket drains.',
       step: 5,
     };
   return {
     title: 'Your outpost is expanding',
     detail:
-      'Watch the new route work, then compare its delivery and space cost with the alternative.',
+      'Watch each finite pocket and its output. Improve the route or processing before the next face runs dry.',
     step: 6,
   };
 }

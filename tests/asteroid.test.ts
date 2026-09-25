@@ -5,6 +5,7 @@ import {
   beltPathError,
   build,
   buildBeltPath,
+  cancelQueuedExtension,
   canMine,
   clone,
   createState,
@@ -13,6 +14,9 @@ import {
   dispatchCourier,
   extendDrill,
   FRESH_DRILL_SITE,
+  POCKET_RESERVES,
+  pocketRemaining,
+  THIRD_DRILL_SITE,
   machineAt,
   placementError,
   removeBelt,
@@ -27,7 +31,11 @@ import {
 } from '../src/asteroid/simulation';
 import { beltPlacements, extendBeltPath } from '../src/asteroid/beltPath';
 import { parseSave } from '../src/asteroid/persistence';
-import { asteroidExpansionReplay, asteroidReplay } from '../tools/asteroid-replay';
+import {
+  asteroidEarlyDrillReplay,
+  asteroidExpansionReplay,
+  asteroidReplay,
+} from '../tools/asteroid-replay';
 
 const step = (s: State, ticks: number) => {
   for (let i = 0; i < ticks; i++) advance(s);
@@ -58,7 +66,7 @@ function inventoryWeight(s: State) {
 test('manual mining removes exposed finite terrain and cannot reach a buried block', () => {
   const s = createState();
   assert.equal(canMine(s, { x: 12, y: 6 }), 'Dig from an exposed face. This block is buried.');
-  for (let i = 0; i < 17; i++) advance(s, { x: 8, y: 6 });
+  for (let i = 0; i < 11; i++) advance(s, { x: 8, y: 6 });
   assert.ok(tileAt(s, { x: 8, y: 6 }));
   advance(s, { x: 8, y: 6 });
   assert.equal(tileAt(s, { x: 8, y: 6 }), null);
@@ -326,7 +334,11 @@ test('complete real trajectory yields plates and parts without injected stock', 
     (n, t, i) => n + (t && !session.state.terrain[i] ? (t.kind === 'ore' ? 4 : 2) : 0),
     0
   );
-  assert.equal(inventoryWeight(session.state) + 6 + 8 + 6 * 2, extracted);
+  const deepOre = Object.keys(POCKET_RESERVES).reduce(
+    (n, key) => n + POCKET_RESERVES[key] - session.state.pockets[key],
+    0
+  );
+  assert.equal(inventoryWeight(session.state) + 6 + 8 + 6 * 2, extracted + deepOre);
 });
 test('both reviewed expansion branches execute through the real reducer and remain saveable', () => {
   const extended = asteroidExpansionReplay('extend'),
@@ -337,12 +349,20 @@ test('both reviewed expansion branches execute through the real reducer and rema
   assert.deepEqual(parseSave(JSON.stringify(extended.session)), extended.session);
   assert.deepEqual(parseSave(JSON.stringify(fresh.session)), fresh.session);
 });
-test('first part creates an equal-net extension versus rich-face drill fork', () => {
+test('early ore-funded drill ships a real load through its own route', () => {
+  const result = asteroidEarlyDrillReplay();
+  assert.equal(result.secondBuiltTick, 81);
+  assert.equal(result.secondShipmentTick, 138);
+  assert.equal(result.session.state.stock.part, 0);
+  assert.equal(result.session.state.machines.filter((m) => m.kind === 'drill').length, 2);
+  assert.deepEqual(parseSave(JSON.stringify(result.session)), result.session);
+});
+test('ore-funded second drill and queued extension preserve the pocket and paid corridor', () => {
   const { session: opening } = asteroidReplay(),
     first = opening.state.machines.find((m) => m.kind === 'drill')!;
   while (first.head <= first.end || first.loads.length) advance(opening.state);
   assert.deepEqual(opening.state.stock, { ore: 2, plate: 0, part: 1 });
-  assert.deepEqual(costFor(opening.state, 'drill'), { ore: 2, part: 1 });
+  assert.deepEqual(costFor(opening.state, 'drill'), { ore: 2 });
 
   const extension = clone(opening),
     extendedDrill = extension.state.machines.find((m) => m.kind === 'drill')!,
@@ -351,12 +371,17 @@ test('first part creates an equal-net extension versus rich-face drill fork', ()
   assert.equal(extendDrill(extension, extendedDrill.id), null);
   assert.deepEqual(extension.state.stock, { ore: 2, plate: 0, part: 0 });
   assert.equal(extendedDrill.end, oldEnd);
+  assert.equal(extendedDrill.extension?.queued, true);
   assert.equal(railOwner(extension.state, { x: oldEnd + 8, y: extendedDrill.y }), extendedDrill);
   assert.deepEqual(parseSave(JSON.stringify(extension)), extension);
+  const originalPocket = pocketRemaining(extension.state, extendedDrill);
   step(extension.state, extendedDrill.extension!.duration);
-  assert.equal(extendedDrill.end, oldEnd + 8);
-  assert.equal(extendedDrill.extensions, 1);
-  assert.equal(extendedDrill.extension, undefined);
+  assert.equal(extendedDrill.end, oldEnd);
+  assert.ok(pocketRemaining(extension.state, extendedDrill) <= originalPocket);
+  let safety = 3000;
+  while (!extendedDrill.extensions && safety--) advance(extension.state);
+  assert.ok(extendedDrill.extensions);
+  assert.equal(pocketRemaining(extension.state, extendedDrill), 72);
   const extensionStartStock = extension.state.stock.ore;
   while (tileAt(extension.state, { x: oldEnd + 1, y: extendedDrill.y })) advance(extension.state);
   assert.equal(extendedDrill.loads[0].duration, Math.ceil((oldEnd + 1 - extendedDrill.x) * 2.5));
@@ -365,8 +390,9 @@ test('first part creates an equal-net extension versus rich-face drill fork', ()
 
   const fresh = clone(opening);
   assert.equal(build(fresh, 'drill', FRESH_DRILL_SITE), null);
-  assert.deepEqual(fresh.state.stock, { ore: 0, plate: 0, part: 0 });
+  assert.deepEqual(fresh.state.stock, { ore: 0, plate: 0, part: 1 });
   assert.equal(fresh.state.machines.filter((m) => m.kind === 'drill').length, 2);
+  assert.deepEqual(costFor(fresh.state, 'drill'), { ore: 8 });
   const richFace = fresh.state.machines.find(
     (m) => m.kind === 'drill' && m.x === FRESH_DRILL_SITE.x && m.y === FRESH_DRILL_SITE.y
   )!;
@@ -383,7 +409,8 @@ test('extension validation is atomic and undo restores its consumed part and lat
   while (drill.head <= drill.end || drill.loads.length) advance(session.state);
   const before = clone(session);
   assert.equal(extendDrill(session, drill.id), null);
-  step(session.state, drill.extension!.duration + 35);
+  let safety = 3000;
+  while (!drill.extensions && safety--) advance(session.state);
   assert.ok(drill.extensions);
   assert.ok(undo(session));
   assert.deepEqual(session.state, before.state);
@@ -398,6 +425,68 @@ test('extension validation is atomic and undo restores its consumed part and lat
   );
   assert.ok(extendDrill(before, drill.id));
   assert.deepEqual(before, empty);
+});
+test('queued kit cancellation refunds once, releases the corridor and survives save and undo', () => {
+  const { session } = asteroidReplay(),
+    drill = session.state.machines.find((m) => m.kind === 'drill')!;
+  while (drill.head <= drill.end) advance(session.state);
+  const before = clone(session);
+  assert.equal(extendDrill(session, drill.id), null);
+  assert.equal(drill.extension?.queued, true);
+  const reserved = { x: drill.end + 1, y: drill.y };
+  assert.equal(railOwner(session.state, reserved), drill);
+  assert.equal(cancelQueuedExtension(session, drill.id), null);
+  assert.equal(drill.extension, undefined);
+  assert.equal(railOwner(session.state, reserved), undefined);
+  assert.equal(session.state.stock.part, before.state.stock.part);
+  assert.ok(cancelQueuedExtension(session, drill.id));
+  assert.deepEqual(parseSave(JSON.stringify(session)), session);
+  assert.equal(build(session, 'belt', { x: 2, y: 5 }), null);
+  assert.ok(undo(session));
+  assert.equal(session.state.machines.find((m) => m.id === drill.id)!.extension, undefined);
+  assert.equal(session.state.stock.part, before.state.stock.part);
+  assert.ok(undo(session));
+  assert.deepEqual(session.state, before.state);
+});
+test('undoing a later build can restore a queued kit without duplicating its refund', () => {
+  const { session } = asteroidReplay(),
+    drill = session.state.machines.find((m) => m.kind === 'drill')!;
+  while (drill.head <= drill.end) advance(session.state);
+  const originalParts = session.state.stock.part;
+  assert.equal(extendDrill(session, drill.id), null);
+  assert.equal(build(session, 'belt', { x: 2, y: 5 }), null);
+  assert.ok(undo(session));
+  const restored = session.state.machines.find((m) => m.id === drill.id)!;
+  assert.equal(restored.extension?.queued, true);
+  assert.equal(session.state.stock.part, originalParts - 1);
+  assert.equal(cancelQueuedExtension(session, drill.id), null);
+  assert.equal(session.state.stock.part, originalParts);
+  assert.equal(railOwner(session.state, { x: drill.end + 1, y: drill.y }), undefined);
+  assert.deepEqual(parseSave(JSON.stringify(session)), session);
+});
+test('third ore-funded base is reachable and pocket reserves are saved independently of drills', () => {
+  const { session } = asteroidReplay();
+  assert.equal(build(session, 'belt', { x: 1, y: 5 }, 2), null);
+  for (let x = 2; x <= 7; x++) assert.equal(build(session, 'belt', { x, y: 5 }), null);
+  assert.equal(build(session, 'drill', FRESH_DRILL_SITE), null);
+  let safety = 1000;
+  while (session.state.stock.ore < 8 && safety--) advance(session.state);
+  assert.ok(safety > 0);
+  assert.equal(build(session, 'belt', { x: 1, y: 7 }, 0), null);
+  for (let x = 2; x <= 7; x++) assert.equal(build(session, 'belt', { x, y: 7 }), null);
+  assert.equal(build(session, 'drill', THIRD_DRILL_SITE), null);
+  assert.equal(session.state.machines.filter((m) => m.kind === 'drill').length, 3);
+  assert.ok(build(session, 'drill', { x: 8, y: 4 }));
+  const third = session.state.machines.find(
+    (m) => m.kind === 'drill' && m.y === THIRD_DRILL_SITE.y
+  )!;
+  const reserve = session.state.pockets['16,7'];
+  safety = 1500;
+  while (session.state.pockets['16,7'] === reserve && safety--) advance(session.state);
+  assert.ok(safety > 0);
+  assert.equal(third.head, third.end + 1);
+  assert.equal(session.state.pockets['16,7'], reserve - 4);
+  assert.deepEqual(parseSave(JSON.stringify(session)), session);
 });
 test('empty-belt edits and invalid purchases are atomic; undo rewinds subsequent production', () => {
   const session = starter();
@@ -440,13 +529,34 @@ test('save validation preserves courier travel and migrates older asteroid saves
   const corrupt = clone(session);
   corrupt.state.courier.duration++;
   assert.equal(parseSave(JSON.stringify(corrupt)), null);
+  const forgedPocket = clone(session);
+  forgedPocket.state.pockets['15,6'] = 100;
+  assert.equal(parseSave(JSON.stringify(forgedPocket)), null);
+  const missingPocket = clone(session) as unknown as {
+    state: Omit<State, 'pockets'> & { pockets?: State['pockets'] };
+    history: State[];
+  };
+  delete missingPocket.state.pockets;
+  assert.equal(parseSave(JSON.stringify(missingPocket)), null);
 
-  type LegacyState = Omit<State, 'courier'> & { courier?: State['courier'] };
+  type LegacyState = Omit<State, 'version' | 'courier' | 'pockets'> & {
+    version: 1;
+    courier?: State['courier'];
+    pockets?: State['pockets'];
+  };
   const legacy = clone(session) as unknown as { state: LegacyState; history: LegacyState[] };
+  legacy.state.version = 1;
   delete legacy.state.courier;
-  for (const state of legacy.history) delete state.courier;
+  delete legacy.state.pockets;
+  for (const state of legacy.history) {
+    state.version = 1;
+    delete state.courier;
+    delete state.pockets;
+  }
   const migrated = parseSave(JSON.stringify(legacy));
   assert.equal(migrated?.state.courier.phase, 'idle');
+  assert.equal(migrated?.state.version, 2);
+  assert.deepEqual(migrated?.state.pockets, POCKET_RESERVES);
   assert.ok(migrated?.history.every((state) => state.courier.phase === 'idle'));
 });
 

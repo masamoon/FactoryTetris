@@ -97,8 +97,40 @@ export function asteroidExpansionReplay(choice: ExpansionChoice) {
   }
   return { session, actions, choice };
 }
+export function asteroidEarlyDrillReplay() {
+  const session: Session = { state: createState(), history: [] };
+  for (const y of [5, 6, 7])
+    while (tileAt(session.state, { x: 8, y })) advance(session.state, { x: 8, y });
+  for (let x = 2; x <= 6; x++) {
+    const error = build(session, 'belt', { x, y: 6 });
+    if (error) throw new Error(error);
+  }
+  const firstError = build(session, 'drill', { x: 7, y: 6 });
+  if (firstError) throw new Error(firstError);
+  while (session.state.stock.ore < 2) advance(session.state);
+  const secondBuiltTick = session.state.tick;
+  const secondError = build(session, 'drill', FRESH_DRILL_SITE);
+  if (secondError) throw new Error(secondError);
+  const route = [
+    { x: 1, y: 5, direction: 2 as Direction },
+    ...Array.from({ length: 6 }, (_, i) => ({ x: i + 2, y: 5, direction: 3 as Direction })),
+  ];
+  for (const { x, y, direction } of route) {
+    const error = build(session, 'belt', { x, y }, direction);
+    if (error) throw new Error(error);
+  }
+  let secondShipmentTick = 0;
+  for (let i = 0; i < 500 && !secondShipmentTick; i++) {
+    const events = advance(session.state);
+    if (events.some((e) => e.type === 'ship' && e.from.x === 1 && e.from.y === 5))
+      secondShipmentTick = session.state.tick;
+  }
+  if (!secondShipmentTick) throw new Error('The second drill did not ship ore');
+  return { session, secondBuiltTick, secondShipmentTick };
+}
 if (process.argv[1]?.endsWith('asteroid-replay.ts')) {
   const opening = asteroidReplay(),
+    early = asteroidEarlyDrillReplay(),
     branches = (['extend', 'fresh-drill'] as ExpansionChoice[]).map((choice) => {
       const result = asteroidExpansionReplay(choice);
       return {
@@ -122,6 +154,11 @@ if (process.argv[1]?.endsWith('asteroid-replay.ts')) {
         mined: opening.session.state.mined,
         actions: opening.actions,
         expansionBranches: branches,
+        earlyDrill: {
+          builtTick: early.secondBuiltTick,
+          firstShipmentTick: early.secondShipmentTick,
+          drills: early.session.state.machines.filter((m) => m.kind === 'drill').length,
+        },
       },
       null,
       2
