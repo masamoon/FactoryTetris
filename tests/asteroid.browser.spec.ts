@@ -81,11 +81,17 @@ async function expectFullBleed(page: Page, viewport: { width: number; height: nu
   expect(canvas.width).toBe(viewport.width);
   expect(canvas.height).toBe(viewport.height);
 }
+/** The world area between the HUD and the dock (bottom dock, or a side dock in landscape). */
 async function visibleBand(page: Page) {
-  return page.evaluate(() => ({
-    top: document.getElementById('a-hud')!.getBoundingClientRect().bottom,
-    bottom: document.getElementById('a-dock')!.getBoundingClientRect().top,
-  }));
+  return page.evaluate(() => {
+    const dock = document.getElementById('a-dock')!.getBoundingClientRect(),
+      side = dock.width < innerWidth * 0.6;
+    return {
+      top: document.getElementById('a-hud')!.getBoundingClientRect().bottom,
+      bottom: side ? innerHeight : dock.top,
+      right: side ? dock.left : innerWidth,
+    };
+  });
 }
 
 for (const viewport of [
@@ -93,6 +99,7 @@ for (const viewport of [
   { width: 390, height: 844 },
   { width: 1280, height: 900 },
   { width: 844, height: 390 },
+  { width: 640, height: 360 },
 ]) {
   test(`asteroid layout ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -129,6 +136,8 @@ for (const viewport of [
       target = await position(page, 3, 6);
     expect(target.y).toBeGreaterThan(band.top);
     expect(target.y).toBeLessThan(band.bottom);
+    expect(target.x).toBeLessThan(band.right);
+    await expect(page.locator('#a-frozen')).toBeVisible();
     await page.screenshot({ path: `test-results/asteroid-layout-${viewport.width}.png` });
     expect(errors).toEqual([]);
   });
@@ -293,7 +302,7 @@ test('asteroid planning freezes time, invalid placement is atomic, undo and inpu
   await setup(page);
   await holdRock(page, 8, 6);
   await tool(page, 'drill');
-  await expect(page.locator('#a-context')).toContainText('time stopped');
+  await expect(page.locator('#a-frozen')).toHaveText('⏸ Time stopped');
   const before = await state(page);
   await cell(page, 7, 6);
   await expect(page.locator('#a-confirm')).toBeDisabled();
@@ -533,22 +542,22 @@ test('belt drag backtracks, cancels safely and the camera pans by keys at 360px'
   expect((await state(page)).machines.map((m) => m.x)).toEqual([6, 5, 4]);
 });
 
-test('invalid belt drag across the dock is atomic and touch tap keeps precise placement', async ({
+test('invalid belt drag into rock is atomic and touch tap keeps precise placement', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
   await seedOre(page, 2);
   await tool(page, 'belt');
-  const start = await position(page, 3, 6),
-    dock = await position(page, 1, 6);
+  const start = await position(page, 6, 6),
+    rock = await position(page, 9, 6);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
-  await page.mouse.move(dock.x, dock.y);
-  await expect(page.locator('#a-context')).toContainText('collection dock');
+  await page.mouse.move(rock.x, rock.y);
+  await expect(page.locator('#a-context')).toContainText('Excavate this block');
   await page.mouse.up();
   expect((await state(page)).machines).toEqual([]);
-  await expect(page.locator('#a-toast')).toContainText('collection dock');
+  await expect(page.locator('#a-toast')).toContainText('Excavate this block');
   await expect(page.locator('#a-tool-belt')).toHaveAttribute('aria-pressed', 'true');
 
   // Tap to preview, then tap the same ghost again to build it.
@@ -681,4 +690,80 @@ test('asteroid unavailable storage still permits mining and displays save status
   await page.locator('#a-close-modal').click();
   await holdRock(page, 8, 6);
   expect((await state(page)).stock.ore).toBe(2);
+});
+
+test('dragging a route onto collection ends it there, even after resting at the edge', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await setup(page);
+  await seedOre(page, 2);
+  await tool(page, 'belt');
+  const start = await position(page, 6, 6),
+    dock = await position(page, 1, 6);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(dock.x, dock.y, { steps: 6 });
+  await expect(page.locator('#a-context')).toContainText('5 conveyors · free');
+  // Resting near the left edge must not drag the camera and route past collection.
+  await page.waitForTimeout(600);
+  await expect(page.locator('#a-context')).toContainText('5 conveyors · free');
+  await page.mouse.up();
+  expect((await state(page)).machines.map((m) => [m.x, m.y, m.direction])).toEqual([
+    [6, 6, 3],
+    [5, 6, 3],
+    [4, 6, 3],
+    [3, 6, 3],
+    [2, 6, 3],
+  ]);
+});
+
+test('a long still press on a preview never builds it', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await seedOre(page, 12);
+  await tool(page, 'smelter');
+  await cell(page, 5, 6);
+  await expect(page.locator('#a-confirm')).toBeEnabled();
+  const p = await position(page, 5, 6);
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.mouse.down();
+  await page.waitForTimeout(250);
+  await page.mouse.move(p.x - 120, p.y, { steps: 6 });
+  await page.mouse.up();
+  expect((await state(page)).machines).toEqual([]);
+  expect((await state(page)).stock.ore).toBe(12);
+});
+
+test('live inspector keeps its buttons while the factory runs', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await load(page, asteroidReplay().session.state);
+  await cell(page, 7, 6);
+  const button = await page.locator('#a-new-drill').elementHandle();
+  const tick = (await state(page)).tick;
+  await expect.poll(async () => (await state(page)).tick).toBeGreaterThan(tick + 15);
+  expect(await button!.evaluate((e) => e.isConnected)).toBe(true);
+  // A deliberate 150 ms press lands on the same element and opens the new-drill preview.
+  const box = (await page.locator('#a-new-drill').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await expect(page.locator('#a-confirm')).toBeVisible();
+});
+
+test('tapping collection with nothing to feed explains instead of trapping the player', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await setup(page);
+  await seedOre(page, 2);
+  await cell(page, 1, 6);
+  await expect(page.locator('#a-toast')).toContainText('Build a smelter');
+  await expect(page.locator('#a-tools')).toBeVisible();
+  await expect(page.locator('#a-cancel-transfer')).toHaveCount(0);
 });

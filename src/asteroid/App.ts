@@ -67,13 +67,45 @@ const ICON: Record<Tool, string> = {
     '<svg viewBox="0 0 26 24" aria-hidden="true"><rect x="4" y="3" width="18" height="18" rx="3" fill="#9f8ccb"/><rect x="7" y="6" width="12" height="11" rx="2" fill="#203242"/><rect x="9.5" y="8" width="7" height="7" rx="1.5" fill="#cbadff"/><circle cx="13" cy="11.5" r="1.4" fill="#211e39"/></svg>',
 };
 // The tool the current objective asks for; its button glows once it is affordable.
-const SUGGESTED: (Tool | null)[] = ['drill', 'drill', 'belt', 'smelter', 'assembler', null, null];
+const SUGGESTED: (Tool | null)[] = ['drill', 'drill', 'belt', null, 'assembler', null, null];
 const escape = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const mineral = (r: Resource) => `<i class="a-mineral ${r}"></i>`;
 const plural = (r: Resource, n: number) => (r === 'plate' && n !== 1 ? 'plates' : r);
 const drillSite = (s: State) =>
   s.machines.filter((m) => m.kind === 'drill').length === 1 ? FRESH_DRILL_SITE : THIRD_DRILL_SITE;
+
+/** Minimal DOM morph: keep elements whose tag matches and update text and attributes. */
+function patchNode(to: Node, from: Node) {
+  if (to.nodeType !== from.nodeType || to.nodeName !== from.nodeName) {
+    to.parentNode!.replaceChild(from.cloneNode(true), to);
+    return;
+  }
+  if (to.nodeType !== Node.ELEMENT_NODE) {
+    if (to.textContent !== from.textContent) to.textContent = from.textContent;
+    return;
+  }
+  const a = to as Element,
+    b = from as Element;
+  for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name);
+  for (const { name, value } of [...b.attributes])
+    if (a.getAttribute(name) !== value) a.setAttribute(name, value);
+  patchList(a, b);
+}
+function patchList(to: Element, from: Element) {
+  const next = [...from.childNodes];
+  next.forEach((child, i) => {
+    const current = to.childNodes[i];
+    if (current) patchNode(current, child);
+    else to.appendChild(child.cloneNode(true));
+  });
+  while (to.childNodes.length > next.length) to.removeChild(to.lastChild!);
+}
+function patchChildren(target: Element, html: string) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  patchList(target, template.content as unknown as Element);
+}
 
 export class AsteroidApp {
   session: Session = freshSession();
@@ -98,6 +130,7 @@ export class AsteroidApp {
   private goalOpenUntil = 0;
   private shown: Record<Resource, number> = { ore: 0, plate: 0, part: 0 };
   private hintKey = '';
+  private reveal: Point | null = null;
   private hints: Point[] = [];
   private muted = true;
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -128,6 +161,7 @@ export class AsteroidApp {
         <div class="a-hud-row">
           <div class="a-stocks">${(['ore', 'plate', 'part'] as Resource[]).map((r) => `<div class="a-stock" id="a-stock-${r}">${mineral(r)}<strong id="a-${r}">0</strong><span class="a-sr">${r === 'ore' ? 'ore' : r + 's'}</span></div>`).join('')}</div>
           <button id="a-resume" class="a-pill" hidden>▶ Resume</button>
+          <span id="a-frozen" class="a-frozen" hidden>⏸ Time stopped</span>
           <button id="a-menu" class="a-round" aria-label="Menu"><span></span><span></span><span></span></button>
         </div>
         <button id="a-goal" class="a-goal" aria-expanded="false"><span id="a-step" class="a-step">1</span><span class="a-goal-text"><b id="a-objective-title"></b><small id="a-objective-detail"></small></span></button>
@@ -191,6 +225,10 @@ export class AsteroidApp {
       this.render();
     });
     this.bind('a-undo', () => this.undo());
+    document.getElementById('a-context')!.addEventListener('click', (e) => {
+      const id = (e.target as Element).closest('button')?.id;
+      if (id) this.contextAction(id);
+    });
     for (const k of TOOLS) this.bind(`a-tool-${k}`, () => this.selectTool(k));
     document.addEventListener('pointerdown', () => this.audio.unlock(), { passive: true });
     document.addEventListener('visibilitychange', () => {
@@ -248,13 +286,23 @@ export class AsteroidApp {
   }
   private updateInsets() {
     const hud = document.getElementById('a-hud')!.getBoundingClientRect(),
-      dock = document.getElementById('a-dock')!.getBoundingClientRect(),
+      dockEl = document.getElementById('a-dock')!,
+      dock = dockEl.getBoundingClientRect(),
       canvas = document.getElementById('a-canvas')!.getBoundingClientRect(),
-      bottom = Math.max(0, canvas.bottom - dock.top);
-    (document.getElementById('app') as HTMLElement).style.setProperty('--dock-h', `${bottom}px`);
-    this.scene.setInsets(Math.max(0, hud.bottom - canvas.top), bottom);
-    const focus = this.selected || this.preview;
-    if (focus) this.scene.ensureVisible(focus);
+      side = getComputedStyle(dockEl).getPropertyValue('--side').trim() === '1',
+      // Before the tools appear, reserve their row so the first ore does not reframe the world.
+      reserve = document.getElementById('a-tools')!.hidden && !this.contextHTML ? 84 : 0,
+      bottom = side ? 0 : Math.max(reserve, canvas.bottom - dock.top),
+      right = side ? Math.max(0, canvas.right - dock.left) : 0,
+      app = document.getElementById('app') as HTMLElement;
+    app.style.setProperty('--dock-h', `${side ? 0 : Math.max(0, canvas.bottom - dock.top)}px`);
+    app.style.setProperty('--dock-w', `${right}px`);
+    this.scene.setInsets(Math.max(0, hud.bottom - canvas.top), bottom, right);
+    // Only a new selection or preview may move the camera; panel resizes never snap it back.
+    if (this.reveal) {
+      this.scene.ensureVisible(this.reveal);
+      this.reveal = null;
+    }
     this.scene.onCamera();
   }
   private frame(now: number) {
@@ -303,13 +351,11 @@ export class AsteroidApp {
     this.message = '';
     // Tapping the active tool again returns to live mining, like the Done button.
     this.mode = leaving ? 'mine' : tool;
-    if (leaving) this.paused = false;
     this.render();
   }
   private exitPlanning() {
     this.resetTransient();
     this.mode = 'mine';
-    this.paused = false;
     this.render();
   }
   private togglePause() {
@@ -358,6 +404,16 @@ export class AsteroidApp {
               ? 'The service drone is making a delivery.'
               : 'The service drone is returning to collection.'
           );
+        } else if (
+          !this.session.state.machines.some(
+            (m) => processorInput(m) && !manualInputError(this.session.state, m)
+          )
+        ) {
+          this.notify(
+            this.session.state.machines.some((m) => processorInput(m))
+              ? 'No processor can take a batch from collection right now.'
+              : 'Collection stores ore. Build a smelter to feed it by drone.'
+          );
         } else {
           this.mode = 'transfer';
           this.manual = null;
@@ -370,8 +426,8 @@ export class AsteroidApp {
       if (machine) {
         this.selected = p;
         this.manual = null;
+        this.reveal = p;
         this.render();
-        this.scene.ensureVisible(p);
         return;
       }
       if (this.paused) {
@@ -390,8 +446,8 @@ export class AsteroidApp {
       return;
     } else {
       this.preview = p;
+      this.reveal = p;
       this.render();
-      this.scene.ensureVisible(p);
       return;
     }
     this.render();
@@ -412,14 +468,14 @@ export class AsteroidApp {
     this.message = '';
     this.save();
     // Single conveyors stay in planning for precise runs; machines go straight back to live.
-    if (tool !== 'belt') {
-      this.mode = 'mine';
-      this.paused = false;
-    }
+    if (tool !== 'belt') this.mode = 'mine';
     this.render();
   }
   private dragBelts(path: Point[] | null, commit: boolean) {
     if (this.modal || this.mode !== 'belt') return;
+    // Collection ends a route: dragging onto it builds up to the adjacent square, pointing in.
+    const dock = path ? path.findIndex((p) => isDock(p)) : -1;
+    if (path && dock > 0) path = path.slice(0, dock + 1);
     if (!path) {
       if (this.beltDrag) {
         this.beltDrag = null;
@@ -433,7 +489,7 @@ export class AsteroidApp {
       this.render();
       return;
     }
-    const placements = beltPlacements(path, this.direction),
+    const placements = this.routePlacements(path),
       changed = placements.filter((p) => !machineAt(this.session.state, p)),
       error = buildBeltPath(this.session, placements);
     this.beltDrag = null;
@@ -443,11 +499,15 @@ export class AsteroidApp {
       this.audio.play('place');
       this.scene.emit(changed.map((from) => ({ type: 'build' as const, from })));
       this.save();
-      // A drawn route is usually complete: resume the clock so cargo moves immediately.
+      // A drawn route is usually complete: leave planning so cargo moves immediately.
       this.mode = 'mine';
-      this.paused = false;
     }
     this.render();
+  }
+  /** Belts for a dragged path; a trailing collection cell only orients the last belt. */
+  private routePlacements(path: Point[]) {
+    const placements = beltPlacements(path, this.direction);
+    return path.length > 1 && isDock(path[path.length - 1]) ? placements.slice(0, -1) : placements;
   }
   private selectedMachine() {
     return this.selected ? machineAt(this.session.state, this.selected) : undefined;
@@ -626,9 +686,15 @@ export class AsteroidApp {
     }
     goalEl.classList.toggle('open', this.goalOpen());
     goalEl.setAttribute('aria-expanded', String(this.goalOpen()));
-    const resume = document.getElementById('a-resume')!;
-    if (resume.hidden === (this.paused && !this.planning()))
-      resume.hidden = !(this.paused && !this.planning());
+    // Whenever the clock is stopped the HUD says so: a Resume pill for an explicit pause,
+    // otherwise a badge while planning. The scene also dims the world.
+    const resume = document.getElementById('a-resume')!,
+      frozen = document.getElementById('a-frozen')!,
+      showResume = this.paused && !this.planning(),
+      showFrozen = this.planning() && !this.modal;
+    if (resume.hidden === showResume) resume.hidden = !showResume;
+    if (frozen.hidden === showFrozen) frozen.hidden = !showFrozen;
+    document.body.classList.toggle('a-reduced', this.reduced);
     // Tools stay hidden until the first block breaks, so the opening frame is only the world.
     const tools = document.getElementById('a-tools')!,
       toolsVisible =
@@ -661,7 +727,7 @@ export class AsteroidApp {
       preview: SceneModel['preview'] = null,
       beltPreview: SceneModel['beltPreview'] = [],
       transferTargets: SceneModel['transferTargets'] = [];
-    const dragPlacements = this.beltDrag ? beltPlacements(this.beltDrag, this.direction) : [],
+    const dragPlacements = this.beltDrag ? this.routePlacements(this.beltDrag) : [],
       dragError = dragPlacements.length ? beltPathError(s, dragPlacements) : null;
     if (this.mode === 'transfer' || this.mode === 'mine')
       transferTargets = s.machines
@@ -688,7 +754,7 @@ export class AsteroidApp {
           : tool === 'belt'
             ? 'Tap again to build · arrow sets direction'
             : 'Input right · output left · tap again to build';
-      context = `<div class="a-bar ${error ? 'invalid' : ''}"><span class="a-bar-icon">${ICON[tool]}</span><p><b>${error ? escape(error) : `${NAMES[tool]} · ${costLabel(tool, s)}`}</b><small>${escape(detail)}</small></p>${tool === 'belt' ? `<button id="a-rotate" class="a-square" aria-label="Rotate conveyor">${['↑', '→', '↓', '←'][this.direction]}</button>` : ''}<button id="a-cancel" class="a-square" aria-label="Cancel preview">✕</button><button id="a-confirm" class="a-primary" ${error ? 'disabled' : ''}>Build</button></div>`;
+      context = `<div class="a-bar ${error ? 'invalid' : ''}"><span class="a-bar-icon">${ICON[tool]}</span><p><b>${error ? escape(error) : `${NAMES[tool]} · ${costLabel(tool, s)}`}</b><small>${escape(detail)}</small></p>${tool === 'belt' ? `<button id="a-rotate" class="a-rotate" aria-label="Rotate conveyor, now ${['up', 'right', 'down', 'left'][this.direction]}">↻<small>${['↑', '→', '↓', '←'][this.direction]}</small></button>` : ''}<button id="a-cancel" class="a-square" aria-label="Cancel preview">✕</button><button id="a-confirm" class="a-primary" ${error ? 'disabled' : ''}>Build</button></div>`;
     } else if (selected) {
       context = this.inspectorHTML(s, selected);
     } else if (this.planning()) {
@@ -705,54 +771,14 @@ export class AsteroidApp {
               : this.affordable(tool, s)
                 ? 'Tap a conveyor or clear square. Feeds from the right.'
                 : `Need ${costLabel(tool, s)} in collection.`;
-      context = `<div class="a-bar a-planning"><span class="a-bar-icon">${ICON[tool]}</span><p><b>${NAMES[tool]} <span class="a-paused">⏸ time stopped</span></b><small>${escape(hint)}</small></p>${tool === 'belt' ? `<button id="a-rotate" class="a-square" aria-label="Rotate conveyor">${['↑', '→', '↓', '←'][this.direction]}</button>` : ''}<button id="a-done" class="a-primary">Done</button></div>`;
+      context = `<div class="a-bar a-planning"><span class="a-bar-icon">${ICON[tool]}</span><p><b>${NAMES[tool]}</b><small>${escape(hint)}</small></p>${tool === 'belt' ? `<button id="a-rotate" class="a-rotate" aria-label="Rotate conveyor, now ${['up', 'right', 'down', 'left'][this.direction]}">↻<small>${['↑', '→', '↓', '←'][this.direction]}</small></button>` : ''}<button id="a-done" class="a-primary">Done</button></div>`;
     }
-    const el = document.getElementById('a-context')!;
     if (this.contextHTML !== context) {
       this.contextHTML = context;
-      el.innerHTML = context;
-      this.bind('a-confirm', () => this.confirm());
-      this.bind('a-cancel', () => {
-        this.preview = null;
-        this.render();
-      });
-      this.bind('a-done', () => this.exitPlanning());
-      this.bind('a-cancel-transfer', () => {
-        this.mode = 'mine';
-        this.render();
-      });
-      this.bind('a-rotate', () => {
-        this.direction = ((this.direction + 1) % 4) as Direction;
-        this.render();
-      });
-      this.bind('a-close-inspect', () => {
-        this.selected = null;
-        this.render();
-      });
-      this.bind('a-extend-drill', () => this.extendSelectedDrill());
-      this.bind('a-cancel-extension', () => {
-        const drill = this.selectedMachine();
-        if (!drill) return;
-        const error = cancelQueuedExtension(this.session, drill.id);
-        this.notify(error || 'Queued kit cancelled. One part returned.');
-        this.save();
-        this.render();
-      });
-      this.bind('a-new-drill', () => this.previewFreshDrill());
-      this.bind('a-dispatch-machine', () => {
-        const machine = this.selectedMachine();
-        if (machine) this.dispatchToMachine(machine.id);
-      });
-      this.bind('a-rotate-belt', () => this.rotateSelectedBelt());
-      this.bind('a-remove-belt', () => this.removeSelectedBelt());
-      this.bind('a-view-head', () => {
-        const drill = this.selectedMachine();
-        if (drill)
-          this.scene.focus(
-            drill.extension?.targetEnd ?? Math.min(drill.head, drillRailEnd(drill)),
-            drill.y
-          );
-      });
+      // Patch in place: a live inspector updates many times a second, and replacing its
+      // buttons between pointerdown and pointerup would silently drop taps.
+      patchChildren(document.getElementById('a-context')!, context);
+      if (this.reveal) this.updateInsets();
     }
     this.scene.setModel({
       state: s,
@@ -765,6 +791,38 @@ export class AsteroidApp {
       transferTargets,
       siteHints: this.siteHints(s),
     });
+  }
+  private contextAction(id: string) {
+    const machine = this.selectedMachine();
+    if (id === 'a-confirm') this.confirm();
+    else if (id === 'a-cancel') {
+      this.preview = null;
+      this.render();
+    } else if (id === 'a-done') this.exitPlanning();
+    else if (id === 'a-cancel-transfer') {
+      this.mode = 'mine';
+      this.render();
+    } else if (id === 'a-rotate') {
+      this.direction = ((this.direction + 1) % 4) as Direction;
+      this.render();
+    } else if (id === 'a-close-inspect') {
+      this.selected = null;
+      this.render();
+    } else if (id === 'a-extend-drill') this.extendSelectedDrill();
+    else if (id === 'a-cancel-extension' && machine) {
+      const error = cancelQueuedExtension(this.session, machine.id);
+      this.notify(error || 'Queued kit cancelled. One part returned.');
+      this.save();
+      this.render();
+    } else if (id === 'a-new-drill') this.previewFreshDrill();
+    else if (id === 'a-dispatch-machine' && machine) this.dispatchToMachine(machine.id);
+    else if (id === 'a-rotate-belt') this.rotateSelectedBelt();
+    else if (id === 'a-remove-belt') this.removeSelectedBelt();
+    else if (id === 'a-view-head' && machine)
+      this.scene.focus(
+        machine.extension?.targetEnd ?? Math.min(machine.head, drillRailEnd(machine)),
+        machine.y
+      );
   }
   private inspectorHTML(s: State, m: NonNullable<ReturnType<AsteroidApp['selectedMachine']>>) {
     const header = (extra = '') =>

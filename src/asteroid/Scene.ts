@@ -56,6 +56,8 @@ export class AsteroidScene extends Phaser.Scene {
   private explored = false;
   private insetTop = 0;
   private insetBottom = 0;
+  private insetRight = 0;
+  private edgeSince = 0;
   private baseCell = 36;
   private zoom = 1;
   private pointers = new Map<number, { x: number; y: number }>();
@@ -163,10 +165,14 @@ export class AsteroidScene extends Phaser.Scene {
         this.onBeltDrag(path, true);
         return;
       }
+      // A press on rock in mining mode is a quick tap-mine only; anything longer was a hold.
+      // Elsewhere a still press under half a second is a tap. Long still presses do nothing,
+      // so resting a finger can never confirm a build.
+      const held = this.down ? this.time.now - this.down.time : 0;
       if (
         this.down &&
         !this.down.moved &&
-        (this.time.now - this.down.time < 180 || this.model?.mode === 'belt' || this.down.dockDrag)
+        (this.down.dockDrag || (this.down.mineable ? held < 180 : held < 500))
       )
         this.onTap(this.down.cell);
       else if (this.down?.moved) this.onPan();
@@ -262,7 +268,7 @@ export class AsteroidScene extends Phaser.Scene {
   }
   zoomBy(factor: number) {
     this.explored = true;
-    this.zoomAt(this.scale.width / 2, this.bandCenter(), this.cell * factor);
+    this.zoomAt(this.bandRight() / 2, this.bandCenter(), this.cell * factor);
   }
   private cameraChanged() {
     this.drawDirty = true;
@@ -271,29 +277,47 @@ export class AsteroidScene extends Phaser.Scene {
   private bandCenter() {
     return (this.insetTop + this.scale.height - this.insetBottom) / 2;
   }
+  private bandRight() {
+    return this.scale.width - this.insetRight;
+  }
   private layout() {
     const w = this.scale.width,
       h = this.scale.height;
     const focal = this.laidOut
-      ? { x: (w / 2 + this.pan) / this.cell, y: (this.bandCenter() + this.panY) / this.cell }
+      ? {
+          x: (this.bandRight() / 2 + this.pan) / this.cell,
+          y: (this.bandCenter() + this.panY) / this.cell,
+        }
       : null;
     // Fit roughly ten columns across a portrait phone: collection, a drill and its first face
     // share one frame. Short landscape screens fit the busy middle rows instead.
-    this.baseCell = Phaser.Math.Clamp(Math.min(w / 10, (h - this.insetTop - 96) / 9), 22, 64);
+    // A side dock (landscape) leaves the full height; a bottom dock reserves its tool row.
+    const reserved = this.insetRight ? 12 : 96;
+    this.baseCell = Phaser.Math.Clamp(
+      Math.min((w - this.insetRight) / 10, (h - this.insetTop - reserved) / 9),
+      22,
+      64
+    );
     this.cell = this.clampCell(this.baseCell * this.zoom);
     this.laidOut = true;
     if (focal && this.explored) {
-      this.pan = this.clampPan(focal.x * this.cell - w / 2);
+      this.pan = this.clampPan(focal.x * this.cell - this.bandRight() / 2);
       this.panY = this.clampPanY(focal.y * this.cell - this.bandCenter());
       this.cameraChanged();
     } else this.reframe();
   }
   /** Reserve screen space under the DOM HUD and dock; the world stays visible between them. */
-  setInsets(top: number, bottom: number) {
-    if (Math.abs(top - this.insetTop) < 1 && Math.abs(bottom - this.insetBottom) < 1) return;
-    const first = !this.insetsKnown;
+  setInsets(top: number, bottom: number, right = 0) {
+    if (
+      Math.abs(top - this.insetTop) < 1 &&
+      Math.abs(bottom - this.insetBottom) < 1 &&
+      Math.abs(right - this.insetRight) < 1
+    )
+      return;
+    const first = !this.insetsKnown || Math.abs(right - this.insetRight) >= 1;
     this.insetTop = top;
     this.insetBottom = bottom;
+    this.insetRight = right;
     this.insetsKnown = true;
     if (!this.laidOut) return;
     // Only the first measurement reframes; later panel changes never jolt the camera or
@@ -313,7 +337,7 @@ export class AsteroidScene extends Phaser.Scene {
   }
   private clampPan(value: number) {
     const lo = -this.cell * 0.4,
-      hi = WORLD_W * this.cell - this.scale.width + this.cell * 0.4;
+      hi = WORLD_W * this.cell - this.bandRight() + this.cell * 0.4;
     return hi < lo ? (lo + hi) / 2 : Phaser.Math.Clamp(value, lo, hi);
   }
   panBy(cells: number, rows = 0) {
@@ -329,7 +353,7 @@ export class AsteroidScene extends Phaser.Scene {
     this.frameCell(x, y);
   }
   private frameCell(x: number, y: number) {
-    this.pan = this.clampPan((x + 0.5) * this.cell - this.scale.width / 2);
+    this.pan = this.clampPan((x + 0.5) * this.cell - this.bandRight() / 2);
     this.panY = this.clampPanY((y + 0.5) * this.cell - this.bandCenter());
     this.cameraChanged();
   }
@@ -355,7 +379,7 @@ export class AsteroidScene extends Phaser.Scene {
     return (
       Math.abs(this.zoom - 1) < 0.15 &&
       d.x > 0 &&
-      d.x < this.scale.width &&
+      d.x < this.bandRight() &&
       d.y > this.insetTop &&
       d.y < this.scale.height - this.insetBottom
     );
@@ -368,7 +392,7 @@ export class AsteroidScene extends Phaser.Scene {
     let dx = 0,
       dy = 0;
     if (at.x < margin) dx = at.x - margin;
-    else if (at.x > this.scale.width - margin) dx = at.x - this.scale.width + margin;
+    else if (at.x > this.bandRight() - margin) dx = at.x - this.bandRight() + margin;
     if (at.y < this.insetTop + margin) dy = at.y - this.insetTop - margin;
     else if (at.y > this.scale.height - this.insetBottom - margin)
       dy = at.y - this.scale.height + this.insetBottom + margin;
@@ -465,20 +489,14 @@ export class AsteroidScene extends Phaser.Scene {
   }
   update() {
     if (!this.art || !this.model) return;
+    // Holding exposed rock mines it; a resting finger anywhere else stays free to pan.
     if (
       this.down &&
       !this.down.moved &&
-      !this.down.dockDrag &&
-      !this.down.feedAction &&
+      this.down.mineable &&
       this.time.now - this.down.time >= 180
-    ) {
-      if (this.model.mode === 'mine' && tileAt(this.model.state, this.down.cell))
-        this.onHold(this.down.cell);
-      else if (this.model.mode !== 'belt') {
-        this.onTap(this.down.cell);
-        this.down = null;
-      }
-    }
+    )
+      this.onHold(this.down.cell);
     this.edgeScroll();
     if (this.time.now - this.lastDraw < 32) return;
     if (!this.drawDirty && (this.model.paused || this.model.reduced) && !this.effects.length)
@@ -489,17 +507,38 @@ export class AsteroidScene extends Phaser.Scene {
   }
   /** While drawing a route near a screen edge, glide the camera so long routes need no buttons. */
   private edgeScroll() {
-    if (!this.down?.moved || !this.beltPath || !this.last) return;
+    if (!this.down?.moved || !this.beltPath || !this.last) {
+      this.edgeSince = 0;
+      return;
+    }
     const edge = 40,
       step = (this.cell * 7 * Math.min(50, this.game.loop.delta)) / 1000,
       { x, y } = this.last;
     let dx = 0,
       dy = 0;
-    if (x < edge) dx = -step;
-    else if (x > this.scale.width - edge) dx = step;
-    if (y < this.insetTop + edge) dy = -step;
-    else if (y > this.scale.height - this.insetBottom - edge) dy = step;
-    if (!dx && !dy) return;
+    // Only scroll toward world that is actually hidden (more than half a cell past the edge).
+    const c = this.cell,
+      hidden = c * 0.5,
+      h = this.scale.height,
+      tall = WORLD_H * c > h - this.insetTop - this.insetBottom;
+    if (x < edge && this.pan > hidden) dx = -step;
+    else if (x > this.bandRight() - edge && WORLD_W * c - this.pan - this.bandRight() > hidden)
+      dx = step;
+    if (tall && y < this.insetTop + edge && this.panY + this.insetTop > hidden) dy = -step;
+    else if (
+      tall &&
+      y > h - this.insetBottom - edge &&
+      WORLD_H * c - this.panY - (h - this.insetBottom) > hidden
+    )
+      dy = step;
+    // Scroll only after the finger dwells at an edge, so a route that merely ends near one
+    // (collection sits at the left edge) is never dragged along by the camera.
+    if (!dx && !dy) {
+      this.edgeSince = 0;
+      return;
+    }
+    if (!this.edgeSince) this.edgeSince = this.time.now;
+    if (this.time.now - this.edgeSince < 350) return;
     const pan = this.clampPan(this.pan + dx),
       panY = this.clampPanY(this.panY + dy);
     if (pan === this.pan && panY === this.panY) return;
@@ -721,6 +760,11 @@ export class AsteroidScene extends Phaser.Scene {
         }
       }
     for (const m of s.machines) this.drawMachine(g, m, t);
+    if (model.paused) {
+      // Time is stopped: dim the world so a frozen frame never reads as a stalled factory.
+      g.fillStyle(0x050b14, 0.3);
+      g.fillRect(0, 0, this.scale.width, this.scale.height);
+    }
     if (model.mode === 'transfer' || this.down?.dockDrag) {
       for (const target of model.transferTargets) {
         const p = this.screen(target),
@@ -811,10 +855,10 @@ export class AsteroidScene extends Phaser.Scene {
             // Delivered cargo pops above collection so a silent viewer sees stock arrive.
             const rise = Math.min(1, age / 900);
             this.text(
-              b.x,
-              b.y - c * (0.7 + rise * 0.9),
+              b.x + c * 0.62,
+              b.y - c * (0.45 + rise * 0.9),
               '+1',
-              13,
+              16,
               { ore: '#f3cf92', plate: '#a4eadc', part: '#dcc8ff' }[event.resource!],
               0.5,
               1 - rise
