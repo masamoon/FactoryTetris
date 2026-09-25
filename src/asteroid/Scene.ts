@@ -8,6 +8,7 @@ import {
   hardness,
   pocketRemaining,
   tileYield,
+  accessible as openSpace,
   type State,
   type Point,
   type Tool,
@@ -28,6 +29,8 @@ export interface SceneModel {
   beltPreview: (Point & { direction: Direction; valid: boolean })[];
   selected: Point | null;
   transferTargets: Point[];
+  /** Valid sites for the selected build tool, shown as a planning overlay. */
+  siteHints: Point[];
 }
 const palette = { ore: 0xeac481, plate: 0x82dccc, part: 0xcbadff };
 export class AsteroidScene extends Phaser.Scene {
@@ -37,6 +40,8 @@ export class AsteroidScene extends Phaser.Scene {
   onBeltDrag: (path: Point[] | null, commit: boolean) => void = () => {};
   onFeed: (p: Point) => void = () => {};
   onTransferDrop: (p: Point) => void = () => {};
+  /** Called after any camera pan or zoom so DOM controls can react. */
+  onCamera: () => void = () => {};
   model: SceneModel | null = null;
   private art!: Phaser.GameObjects.Graphics;
   private labels: Phaser.GameObjects.Text[] = [];
@@ -46,8 +51,17 @@ export class AsteroidScene extends Phaser.Scene {
   private effects: { event: Event; born: number }[] = [];
   private pan = 0;
   private panY = 0;
-  private layoutHeight = 0;
+  private laidOut = false;
+  private insetsKnown = false;
   private explored = false;
+  private insetTop = 0;
+  private insetBottom = 0;
+  private baseCell = 36;
+  private zoom = 1;
+  private pointers = new Map<number, { x: number; y: number }>();
+  private ignored = new Set<number>();
+  private pinch: { dist: number; cell: number; wx: number; wy: number } | null = null;
+  private last: { x: number; y: number } | null = null;
   private down: {
     x: number;
     y: number;
@@ -62,19 +76,21 @@ export class AsteroidScene extends Phaser.Scene {
   } | null = null;
   private activePointer: number | null = null;
   private beltPath: Point[] | null = null;
-  cell = 38;
-  top = 30;
+  cell = 36;
   constructor() {
     super('Asteroid');
   }
   create() {
     this.art = this.add.graphics();
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.activePointer !== null) {
-        if (this.model?.mode === 'belt') this.cancelPointer();
+      this.pointers.set(p.id, { x: p.x, y: p.y });
+      if (this.activePointer !== null || this.pinch) {
+        // A second finger always becomes camera pinch/pan; the first gesture is abandoned.
+        if (this.pointers.size === 2) this.startPinch();
         return;
       }
       this.activePointer = p.id;
+      this.last = { x: p.x, y: p.y };
       const cell = this.point(p.x, p.y);
       const feedAction = this.model?.mode === 'mine' ? this.feedActionAt(p.x, p.y) : null;
       this.down = {
@@ -93,7 +109,13 @@ export class AsteroidScene extends Phaser.Scene {
       this.drawDirty = true;
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (this.pointers.has(p.id)) this.pointers.set(p.id, { x: p.x, y: p.y });
+      if (this.pinch) {
+        this.movePinch();
+        return;
+      }
       if (!this.down || p.id !== this.activePointer) return;
+      this.last = { x: p.x, y: p.y };
       if (Math.abs(p.x - this.down.x) + Math.abs(p.y - this.down.y) > 9) {
         this.down.moved = true;
         this.explored = true;
@@ -106,11 +128,21 @@ export class AsteroidScene extends Phaser.Scene {
         } else {
           this.pan = this.clampPan(this.down.pan - (p.x - this.down.x));
           this.panY = this.clampPanY(this.down.panY - (p.y - this.down.y));
-          this.drawDirty = true;
+          this.cameraChanged();
         }
       }
     });
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+      this.pointers.delete(p.id);
+      if (this.pinch) {
+        // Remaining fingers stay inert until lifted, so a pinch never ends in a tap or mine.
+        this.pinch = null;
+        for (const id of this.pointers.keys()) this.ignored.add(id);
+        this.activePointer = null;
+        this.down = null;
+        return;
+      }
+      if (this.ignored.delete(p.id)) return;
       if (p.id !== this.activePointer) return;
       if (this.down?.feedAction) {
         if (!this.down.moved) this.onFeed(this.down.feedAction);
@@ -140,8 +172,25 @@ export class AsteroidScene extends Phaser.Scene {
       else if (this.down?.moved) this.onPan();
       this.cancelPointer();
     });
-    this.input.on('pointerupoutside', () => this.cancelPointer());
-    this.game.canvas.addEventListener('pointercancel', () => this.cancelPointer());
+    this.input.on(
+      'wheel',
+      (p: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) => {
+        this.explored = true;
+        this.zoomAt(p.x, p.y, this.cell * (dy < 0 ? 1.12 : 1 / 1.12));
+      }
+    );
+    this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => {
+      this.pointers.delete(p.id);
+      this.ignored.delete(p.id);
+      this.pinch = null;
+      this.cancelPointer();
+    });
+    this.game.canvas.addEventListener('pointercancel', () => {
+      this.pointers.clear();
+      this.ignored.clear();
+      this.pinch = null;
+      this.cancelPointer();
+    });
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.scale.on('resize', () => this.layout());
     this.layout();
@@ -165,57 +214,179 @@ export class AsteroidScene extends Phaser.Scene {
       const at = this.feedActionCenter(target);
       const dx = Math.abs(x - at.x),
         dy = Math.abs(y - at.y);
-      if (dx <= 22 && dy <= 22 && dx + dy < best) {
+      if (dx <= 26 && dy <= 22 && dx + dy < best) {
         closest = target;
         best = dx + dy;
       }
     }
     return closest;
   }
-  private layout() {
-    const center =
-      this.layoutHeight && this.explored
-        ? (this.panY + this.layoutHeight / 2 - this.top) / this.cell
-        : 6.5;
-    this.cell = Math.max(26, Math.min(48, (this.scale.height - 48) / WORLD_H));
-    this.top = Math.max(18, (this.scale.height - WORLD_H * this.cell) / 2);
-    this.pan = this.clampPan(this.pan);
-    this.panY = this.clampPanY(this.top + center * this.cell - this.scale.height / 2);
-    this.layoutHeight = this.scale.height;
-    this.drawDirty = true;
+  private startPinch() {
+    const [a, b] = [...this.pointers.values()];
+    this.cancelPointer();
+    this.explored = true;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    this.pinch = {
+      dist: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)),
+      cell: this.cell,
+      wx: (mid.x + this.pan) / this.cell,
+      wy: (mid.y + this.panY) / this.cell,
+    };
   }
-  private clampPanY(value: number) {
+  private movePinch() {
+    const [a, b] = [...this.pointers.values()];
+    if (!a || !b || !this.pinch) return;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      dist = Math.max(20, Math.hypot(a.x - b.x, a.y - b.y));
+    this.cell = this.clampCell((this.pinch.cell * dist) / this.pinch.dist);
+    this.zoom = this.cell / this.baseCell;
+    this.pan = this.clampPan(this.pinch.wx * this.cell - mid.x);
+    this.panY = this.clampPanY(this.pinch.wy * this.cell - mid.y);
+    this.cameraChanged();
+  }
+  private clampCell(value: number) {
     return Phaser.Math.Clamp(
       value,
-      0,
-      Math.max(0, WORLD_H * this.cell + this.top * 2 - this.scale.height)
+      Math.max(18, this.baseCell * 0.6),
+      Math.min(112, this.baseCell * 2.4)
     );
   }
+  zoomAt(x: number, y: number, next: number) {
+    const wx = (x + this.pan) / this.cell,
+      wy = (y + this.panY) / this.cell;
+    this.cell = this.clampCell(next);
+    this.zoom = this.cell / this.baseCell;
+    this.pan = this.clampPan(wx * this.cell - x);
+    this.panY = this.clampPanY(wy * this.cell - y);
+    this.cameraChanged();
+  }
+  zoomBy(factor: number) {
+    this.explored = true;
+    this.zoomAt(this.scale.width / 2, this.bandCenter(), this.cell * factor);
+  }
+  private cameraChanged() {
+    this.drawDirty = true;
+    this.onCamera();
+  }
+  private bandCenter() {
+    return (this.insetTop + this.scale.height - this.insetBottom) / 2;
+  }
+  private layout() {
+    const w = this.scale.width,
+      h = this.scale.height;
+    const focal = this.laidOut
+      ? { x: (w / 2 + this.pan) / this.cell, y: (this.bandCenter() + this.panY) / this.cell }
+      : null;
+    // Fit roughly ten columns across a portrait phone: collection, a drill and its first face
+    // share one frame. Short landscape screens fit the busy middle rows instead.
+    this.baseCell = Phaser.Math.Clamp(Math.min(w / 10, (h - this.insetTop - 96) / 9), 22, 64);
+    this.cell = this.clampCell(this.baseCell * this.zoom);
+    this.laidOut = true;
+    if (focal && this.explored) {
+      this.pan = this.clampPan(focal.x * this.cell - w / 2);
+      this.panY = this.clampPanY(focal.y * this.cell - this.bandCenter());
+      this.cameraChanged();
+    } else this.reframe();
+  }
+  /** Reserve screen space under the DOM HUD and dock; the world stays visible between them. */
+  setInsets(top: number, bottom: number) {
+    if (Math.abs(top - this.insetTop) < 1 && Math.abs(bottom - this.insetBottom) < 1) return;
+    const first = !this.insetsKnown;
+    this.insetTop = top;
+    this.insetBottom = bottom;
+    this.insetsKnown = true;
+    if (!this.laidOut) return;
+    // Only the first measurement reframes; later panel changes never jolt the camera or
+    // cancel a held gesture. The world just stays clear of the new panel edges.
+    if (first) this.layout();
+    else {
+      this.pan = this.clampPan(this.pan);
+      this.panY = this.clampPanY(this.panY);
+      this.cameraChanged();
+    }
+  }
+  private clampPanY(value: number) {
+    const lo = -this.insetTop - this.cell * 0.2,
+      hi = WORLD_H * this.cell + this.cell * 0.2 + this.insetBottom - this.scale.height;
+    // A world shorter than the band may rest anywhere inside it.
+    return hi < lo ? Phaser.Math.Clamp(value, hi, lo) : Phaser.Math.Clamp(value, lo, hi);
+  }
   private clampPan(value: number) {
-    return Phaser.Math.Clamp(value, 0, Math.max(0, WORLD_W * this.cell - this.scale.width + 22));
+    const lo = -this.cell * 0.4,
+      hi = WORLD_W * this.cell - this.scale.width + this.cell * 0.4;
+    return hi < lo ? (lo + hi) / 2 : Phaser.Math.Clamp(value, lo, hi);
   }
-  panBy(cells: number) {
+  panBy(cells: number, rows = 0) {
+    this.explored = true;
     this.pan = this.clampPan(this.pan + cells * this.cell);
-    this.drawDirty = true;
+    this.panY = this.clampPanY(this.panY + rows * this.cell);
     this.cancelPointer();
+    this.cameraChanged();
   }
-  focus(x = 3, y = 6) {
-    this.explored = false;
-    this.pan = this.clampPan(x * this.cell - this.scale.width * 0.4);
-    this.panY = this.clampPanY(this.top + (y + 0.5) * this.cell - this.scale.height / 2);
-    this.drawDirty = true;
+  /** Centre a world cell in the visible band between the HUD and dock. */
+  focus(x = 5, y = 6) {
     this.cancelPointer();
+    this.frameCell(x, y);
+  }
+  private frameCell(x: number, y: number) {
+    this.pan = this.clampPan((x + 0.5) * this.cell - this.scale.width / 2);
+    this.panY = this.clampPanY((y + 0.5) * this.cell - this.bandCenter());
+    this.cameraChanged();
+  }
+  /** Default framing: collection, the starter row and the first rock face at base zoom. */
+  home() {
+    this.cancelPointer();
+    this.reframe();
+  }
+  private reframe() {
+    this.explored = false;
+    this.zoom = 1;
+    this.cell = this.clampCell(this.baseCell);
+    // Centre the whole asteroid height when it fits, otherwise the factory row.
+    this.frameCell(
+      5,
+      WORLD_H * this.cell <= this.scale.height - this.insetTop - this.insetBottom ? 5.5 : 6
+    );
+  }
+  /** True when collection is in view at roughly the default zoom. */
+  atHome() {
+    if (!this.laidOut) return true;
+    const d = this.screen(DOCK);
+    return (
+      Math.abs(this.zoom - 1) < 0.15 &&
+      d.x > 0 &&
+      d.x < this.scale.width &&
+      d.y > this.insetTop &&
+      d.y < this.scale.height - this.insetBottom
+    );
+  }
+  /** Pan the smallest distance that keeps a cell clear of the HUD and dock. */
+  ensureVisible(p: Point) {
+    if (!this.laidOut) return;
+    const at = this.screen(p),
+      margin = this.cell * 0.7;
+    let dx = 0,
+      dy = 0;
+    if (at.x < margin) dx = at.x - margin;
+    else if (at.x > this.scale.width - margin) dx = at.x - this.scale.width + margin;
+    if (at.y < this.insetTop + margin) dy = at.y - this.insetTop - margin;
+    else if (at.y > this.scale.height - this.insetBottom - margin)
+      dy = at.y - this.scale.height + this.insetBottom + margin;
+    if (!dx && !dy) return;
+    this.pan = this.clampPan(this.pan + dx);
+    this.panY = this.clampPanY(this.panY + dy);
+    this.cameraChanged();
   }
   point(x: number, y: number): Point {
     return {
       x: Math.floor((x + this.pan) / this.cell),
-      y: Math.floor((y + this.panY - this.top) / this.cell),
+      y: Math.floor((y + this.panY) / this.cell),
     };
   }
   screen(p: Point) {
     return {
       x: (p.x + 0.5) * this.cell - this.pan,
-      y: this.top + (p.y + 0.5) * this.cell - this.panY,
+      y: (p.y + 0.5) * this.cell - this.panY,
     };
   }
   setModel(model: SceneModel) {
@@ -226,7 +397,15 @@ export class AsteroidScene extends Phaser.Scene {
     for (const event of events) this.effects.push({ event, born: this.time.now });
     if (events.length) this.drawDirty = true;
   }
-  private text(x: number, y: number, text: string, size = 11, color = '#94a6b5', origin = 0.5) {
+  private text(
+    x: number,
+    y: number,
+    text: string,
+    size = 11,
+    color = '#94a6b5',
+    origin = 0.5,
+    alpha = 1
+  ) {
     const index = this.labelsUsed++;
     let label = this.labels[index];
     if (!label) {
@@ -238,7 +417,7 @@ export class AsteroidScene extends Phaser.Scene {
       });
       this.labels.push(label);
     }
-    label.setPosition(x, y).setOrigin(origin, 0.5).setVisible(true);
+    label.setPosition(x, y).setOrigin(origin, 0.5).setAlpha(alpha).setVisible(true);
     if (label.text !== text) label.setText(text);
     if (label.style.fontSize !== size + 'px') label.setFontSize(size);
     if (label.style.color !== color) label.setColor(color);
@@ -300,12 +479,35 @@ export class AsteroidScene extends Phaser.Scene {
         this.down = null;
       }
     }
+    this.edgeScroll();
     if (this.time.now - this.lastDraw < 32) return;
     if (!this.drawDirty && (this.model.paused || this.model.reduced) && !this.effects.length)
       return;
     this.lastDraw = this.time.now;
     this.drawDirty = false;
     this.draw();
+  }
+  /** While drawing a route near a screen edge, glide the camera so long routes need no buttons. */
+  private edgeScroll() {
+    if (!this.down?.moved || !this.beltPath || !this.last) return;
+    const edge = 40,
+      step = (this.cell * 7 * Math.min(50, this.game.loop.delta)) / 1000,
+      { x, y } = this.last;
+    let dx = 0,
+      dy = 0;
+    if (x < edge) dx = -step;
+    else if (x > this.scale.width - edge) dx = step;
+    if (y < this.insetTop + edge) dy = -step;
+    else if (y > this.scale.height - this.insetBottom - edge) dy = step;
+    if (!dx && !dy) return;
+    const pan = this.clampPan(this.pan + dx),
+      panY = this.clampPanY(this.panY + dy);
+    if (pan === this.pan && panY === this.panY) return;
+    this.pan = pan;
+    this.panY = panY;
+    this.beltPath = extendBeltPath(this.beltPath, this.point(x, y));
+    this.onBeltDrag(this.beltPath, false);
+    this.cameraChanged();
   }
   private draw() {
     const model = this.model!,
@@ -325,12 +527,15 @@ export class AsteroidScene extends Phaser.Scene {
       g.fillStyle(i % 8 ? 0x658197 : 0xcce3e2, i % 8 ? 0.35 : 0.6);
       g.fillCircle(x, y, i % 8 ? 0.8 : 1.4);
     }
-    const planetX = this.scale.width * 0.77 - this.pan * 0.08;
+    const planetX = this.scale.width * 0.77 - this.pan * 0.08,
+      planetY = this.insetTop + 40 - this.panY * 0.08;
     g.fillStyle(0x122738, 0.65);
-    g.fillCircle(planetX, this.top + 24, 53);
+    g.fillCircle(planetX, planetY, 53);
     g.fillStyle(0x080f1b);
-    g.fillCircle(planetX - 16, this.top + 11, 49);
-    const startX = Math.max(0, Math.floor(this.pan / c) - 1),
+    g.fillCircle(planetX - 16, planetY - 13, 49);
+    const planning = model.mode !== 'mine' && model.mode !== 'transfer',
+      accessible = planning ? openSpace(s) : new Set<number>(),
+      startX = Math.max(0, Math.floor(this.pan / c) - 1),
       endX = Math.min(WORLD_W, Math.ceil((this.pan + this.scale.width) / c) + 1);
     for (let y = 0; y < WORLD_H; y++)
       for (let x = startX; x < endX; x++) {
@@ -370,6 +575,10 @@ export class AsteroidScene extends Phaser.Scene {
             );
           }
         } else {
+          if (planning && accessible.has(y * WORLD_W + x)) {
+            g.lineStyle(1, 0x5f8fa0, 0.28);
+            g.strokeRect(p.x - c / 2 + 0.5, p.y - c / 2 + 0.5, c - 1, c - 1);
+          }
           const artificial = x < 8 && y >= 3 && y <= 9;
           if (artificial) {
             g.fillStyle(0x102333, 0.72);
@@ -395,7 +604,7 @@ export class AsteroidScene extends Phaser.Scene {
       g.lineStyle(2, 0xf6d292, 0.9);
       g.strokeCircle(p.x, p.y, c * 0.34);
       this.item(g, 'ore', p.x, p.y, c * 0.12);
-      this.text(p.x, p.y - c * 0.62, `${remaining} DEEP`, 8, '#ffe0a5');
+      this.text(p.x, p.y - c * 0.62, `${remaining} DEEP`, 10, '#ffe0a5');
     }
     if (this.down && !this.down.moved && this.down.mineable && model.mode === 'mine') {
       const tile = tileAt(s, this.down.cell);
@@ -431,13 +640,13 @@ export class AsteroidScene extends Phaser.Scene {
     g.fillStyle(0x0a202a);
     g.fillRect(dock.x - c * 0.3, dock.y - c * 0.2, c * 0.6, c * 0.4);
     this.arrow(g, dock.x, dock.y, 2, c * 0.15, 0x82dccc);
-    this.text(dock.x, dock.y + c * 0.7, 'COLLECTION', 9, '#8ddbc9');
+    this.text(dock.x, dock.y + c * 0.7, 'COLLECTION', 10, '#8ddbc9');
     if (!s.machines.length) {
       const face = this.screen({ x: 8, y: 6 });
       if (tileAt(s, { x: 8, y: 6 })) {
         g.lineStyle(2, 0xf6c574, model.reduced ? 0.8 : 0.6 + Math.sin(t / 300) * 0.3);
         g.strokeRoundedRect(face.x - c * 0.45, face.y - c * 0.45, c * 0.9, c * 0.9, 4);
-        this.text(face.x - c * 0.1, face.y - c * 0.7, 'HOLD TO MINE', 10, '#f4d6a1');
+        this.text(face.x - c * 0.1, face.y - c * 0.72, 'HOLD TO MINE', 12, '#f4d6a1');
       }
     }
     for (const m of s.machines)
@@ -478,7 +687,7 @@ export class AsteroidScene extends Phaser.Scene {
             x: m.x + ((load.from - m.x) * load.remaining) / load.duration,
             y: m.y,
           });
-          this.item(g, 'ore', p.x, p.y - c * 0.02, c * 0.13);
+          this.item(g, 'ore', p.x, p.y - c * 0.02, c * 0.16);
         }
         const pocket = pocketRemaining(s, m);
         if (pocket) {
@@ -486,7 +695,7 @@ export class AsteroidScene extends Phaser.Scene {
           g.lineStyle(2, 0xeac481, 0.85);
           g.strokeCircle(face.x, face.y, c * 0.35);
           this.item(g, 'ore', face.x, face.y, c * 0.16);
-          this.text(base.x, base.y + c * 0.72, `${pocket} ORE`, 9, '#f0ca8a');
+          this.text(base.x, base.y + c * 0.72, `${pocket} ORE`, 10, '#f0ca8a');
           if (m.head > m.end) this.text(face.x, face.y - c * 0.64, `${pocket}`, 10, '#f0ca8a');
         }
         if (m.extension) {
@@ -528,13 +737,23 @@ export class AsteroidScene extends Phaser.Scene {
         if (at.x < 22 || at.x > this.scale.width - 22 || at.y < 22 || at.y > this.scale.height - 22)
           continue;
         g.fillStyle(0x163c41, 0.96);
-        g.fillRoundedRect(at.x - 22, at.y - 14, 44, 28, 8);
+        g.fillRoundedRect(at.x - 25, at.y - 15, 50, 30, 9);
         g.lineStyle(2, 0x82dccc);
-        g.strokeRoundedRect(at.x - 22, at.y - 14, 44, 28, 8);
-        this.text(at.x, at.y, 'FEED', 9, '#baf4dc');
+        g.strokeRoundedRect(at.x - 25, at.y - 15, 50, 30, 9);
+        this.text(at.x, at.y, 'FEED', 11, '#baf4dc');
       }
     }
     this.drawCourier(g, t);
+    if (!model.preview && !model.beltPreview.length)
+      for (const hint of model.siteHints) {
+        const p = this.screen(hint),
+          pulse = model.reduced ? 0.75 : 0.5 + Math.sin(t / 260) * 0.3;
+        g.fillStyle(0x89e3c3, 0.1);
+        g.fillRoundedRect(p.x - c * 0.42, p.y - c * 0.42, c * 0.84, c * 0.84, 5);
+        g.lineStyle(2, 0x89e3c3, pulse);
+        g.strokeRoundedRect(p.x - c * 0.42, p.y - c * 0.42, c * 0.84, c * 0.84, 5);
+        this.arrow(g, p.x + c * 0.08, p.y, 1, c * 0.12, 0x89e3c3);
+      }
     if (model.preview) {
       const v = model.preview,
         p = this.screen(v),
@@ -570,11 +789,13 @@ export class AsteroidScene extends Phaser.Scene {
       const duration =
         e.event.type === 'mine' || e.event.type === 'extract'
           ? 750
-          : e.event.type === 'extend'
-            ? 700
-            : e.event.type.startsWith('courier-')
-              ? 520
-              : 300;
+          : e.event.type === 'ship'
+            ? 900
+            : e.event.type === 'extend'
+              ? 700
+              : e.event.type.startsWith('courier-')
+                ? 520
+                : 300;
       return this.time.now - e.born < duration;
     });
     if (!model.reduced)
@@ -584,7 +805,21 @@ export class AsteroidScene extends Phaser.Scene {
           b = this.screen(event.to || event.from);
         if (event.type === 'flow' || event.type === 'ship') {
           const f = Math.min(1, age / 280);
-          this.item(g, event.resource!, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, c * 0.14);
+          if (f < 1)
+            this.item(g, event.resource!, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, c * 0.16);
+          if (event.type === 'ship') {
+            // Delivered cargo pops above collection so a silent viewer sees stock arrive.
+            const rise = Math.min(1, age / 900);
+            this.text(
+              b.x,
+              b.y - c * (0.7 + rise * 0.9),
+              '+1',
+              13,
+              { ore: '#f3cf92', plate: '#a4eadc', part: '#dcc8ff' }[event.resource!],
+              0.5,
+              1 - rise
+            );
+          }
         } else if (event.type === 'courier-load' || event.type === 'courier-deliver') {
           const f = Math.min(1, age / 480),
             amount = event.amount || 1;
@@ -629,18 +864,6 @@ export class AsteroidScene extends Phaser.Scene {
             );
         }
       }
-    this.text(
-      14,
-      13,
-      `${Math.floor(this.pan / c)
-        .toString()
-        .padStart(2, '0')} / SECTOR 07`,
-      10,
-      '#6c859a',
-      0
-    );
-    if (model.paused) this.text(this.scale.width - 12, 13, 'PLANNING · PAUSED', 10, '#f2ca89', 1);
-    else this.text(this.scale.width - 12, 13, 'LIVE', 10, '#82dccc', 1);
     for (let i = this.labelsUsed; i < this.labels.length; i++) this.labels[i].setVisible(false);
   }
   private courierPoint() {
@@ -791,9 +1014,9 @@ export class AsteroidScene extends Phaser.Scene {
       this.item(
         g,
         m.output[i],
-        p.x + (i - 1.5) * c * 0.16,
+        p.x + (i - 1.5) * c * 0.2,
         p.y + (m.kind === 'belt' ? 0 : c * 0.4),
-        c * 0.08
+        c * (m.kind === 'belt' ? 0.11 : 0.09)
       );
   }
 }
