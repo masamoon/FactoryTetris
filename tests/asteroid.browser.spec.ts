@@ -1,8 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { advance, type State, type Point, type Session } from '../src/asteroid/simulation';
+import { asteroidReplay } from '../tools/asteroid-replay';
 
 test.use({ hasTouch: true });
-type Hook = { session: Session; scene: { screen(p: Point): Point } };
+type Hook = {
+  session: Session;
+  scene: { screen(p: Point): Point; cell: number };
+  render(): void;
+  save(): void;
+};
 const state = (page: Page): Promise<State> =>
   page.evaluate(() => (window as unknown as { asteroid: Hook }).asteroid.session.state);
 async function setup(page: Page) {
@@ -13,6 +19,22 @@ async function setup(page: Page) {
   await page.waitForFunction(
     () => !!(window as unknown as { asteroid: Hook }).asteroid?.scene.screen({ x: 0, y: 0 })
   );
+}
+/** Replace or adjust the live state through the test hook, then redraw. */
+async function load(page: Page, next: State) {
+  await page.evaluate((s) => {
+    const app = (window as unknown as { asteroid: Hook }).asteroid;
+    app.session.state = s;
+    app.render();
+    app.save();
+  }, next);
+}
+async function seedOre(page: Page, ore: number) {
+  await page.evaluate((n) => {
+    const app = (window as unknown as { asteroid: Hook }).asteroid;
+    app.session.state.stock.ore = n;
+    app.render();
+  }, ore);
 }
 async function position(page: Page, x: number, y: number) {
   const at = await page.evaluate(
@@ -35,12 +57,37 @@ async function holdRock(page: Page, x: number, y: number) {
     .toBeNull();
   await page.mouse.up();
 }
-async function place(page: Page, tool: string, x: number, y: number) {
-  await page.locator(`#a-tool-${tool}`).click();
+async function tool(page: Page, name: string) {
+  const button = page.locator(`#a-tool-${name}`);
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+}
+async function place(page: Page, name: string, x: number, y: number) {
+  await tool(page, name);
   await cell(page, x, y);
   await expect(page.locator('#a-confirm')).toBeEnabled();
   await page.locator('#a-confirm').click();
 }
+async function pause(page: Page) {
+  await page.locator('#a-menu').click();
+  await page.locator('#a-pause').click();
+  await expect(page.locator('#a-resume')).toBeVisible();
+}
+/** The world must stay a full-screen canvas; overlays may never shrink or blank it. */
+async function expectFullBleed(page: Page, viewport: { width: number; height: number }) {
+  const canvas = (await page.locator('canvas').boundingBox())!;
+  expect(canvas.x).toBe(0);
+  expect(canvas.y).toBe(0);
+  expect(canvas.width).toBe(viewport.width);
+  expect(canvas.height).toBe(viewport.height);
+}
+async function visibleBand(page: Page) {
+  return page.evaluate(() => ({
+    top: document.getElementById('a-hud')!.getBoundingClientRect().bottom,
+    bottom: document.getElementById('a-dock')!.getBoundingClientRect().top,
+  }));
+}
+
 for (const viewport of [
   { width: 360, height: 640 },
   { width: 390, height: 844 },
@@ -52,14 +99,20 @@ for (const viewport of [
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await setup(page);
-    await page.locator('#a-tool-belt').click();
+    await expectFullBleed(page, viewport);
+    // The opening frame is the world, the goal and the ore count: no build buttons yet.
+    await expect(page.locator('#a-tools')).toBeHidden();
+    await page.screenshot({ path: `test-results/asteroid-opening-${viewport.width}.png` });
+    await seedOre(page, 2);
+    await expect(page.locator('#a-tools')).toBeVisible();
+    await tool(page, 'belt');
     await cell(page, 3, 6);
     await expect(page.locator('#a-confirm')).toBeEnabled();
     const sizes = await page.evaluate(() => ({
       width: document.documentElement.scrollWidth,
       height: document.documentElement.scrollHeight,
-      boxes: [...document.querySelectorAll('canvas,.a-tools button,#a-confirm,#a-pause')].map((e) =>
-        e.getBoundingClientRect().toJSON()
+      boxes: [...document.querySelectorAll('.a-tools button,#a-confirm,#a-cancel,#a-menu')].map(
+        (e) => e.getBoundingClientRect().toJSON()
       ),
     }));
     expect(sizes.width).toBeLessThanOrEqual(viewport.width);
@@ -69,27 +122,67 @@ for (const viewport of [
       expect(b.top).toBeGreaterThanOrEqual(0);
       expect(b.right).toBeLessThanOrEqual(viewport.width);
       expect(b.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(b.height).toBeGreaterThanOrEqual(40);
     }
+    // The previewed cell stays between the HUD and the dock.
+    const band = await visibleBand(page),
+      target = await position(page, 3, 6);
+    expect(target.y).toBeGreaterThan(band.top);
+    expect(target.y).toBeLessThan(band.bottom);
     await page.screenshot({ path: `test-results/asteroid-layout-${viewport.width}.png` });
     expect(errors).toEqual([]);
   });
 }
+
+for (const viewport of [
+  { width: 360, height: 640 },
+  { width: 390, height: 844 },
+]) {
+  test(`drill inspector keeps the factory visible at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await setup(page);
+    await load(page, asteroidReplay().session.state);
+    await cell(page, 7, 6);
+    await expect(page.locator('#a-extend-drill')).toBeVisible();
+    await expectFullBleed(page, viewport);
+    const band = await visibleBand(page);
+    for (const x of [1, 3, 7]) {
+      const p = await position(page, x, 6);
+      expect(p.x).toBeGreaterThan(0);
+      expect(p.x).toBeLessThan(viewport.width);
+      expect(p.y).toBeGreaterThan(band.top);
+      expect(p.y).toBeLessThan(band.bottom);
+    }
+    for (const b of await page
+      .locator('#a-context button')
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON()))) {
+      expect(b.height).toBeGreaterThanOrEqual(36);
+      expect(b.right).toBeLessThanOrEqual(viewport.width);
+    }
+    await page.screenshot({ path: `test-results/asteroid-inspector-${viewport.width}.png` });
+  });
+}
+
 test('asteroid real UI mining → drilling → plates → parts, exact save continuation', async ({
   page,
 }) => {
-  test.setTimeout(120000);
+  test.setTimeout(180000);
   await page.setViewportSize({ width: 390, height: 844 });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await setup(page);
   for (const y of [5, 6, 7]) await holdRock(page, 8, y);
   expect((await state(page)).stock.ore).toBe(6);
+  await expect(page.locator('#a-tool-drill')).toHaveClass(/suggest/);
   for (let x = 2; x <= 6; x++) await place(page, 'belt', x, 6);
-  await page.locator('#a-tool-drill').click();
+  await tool(page, 'drill');
   await cell(page, 7, 6);
   await expect(page.locator('#a-context')).toContainText('96 ore deep pocket at end');
   await page.screenshot({ path: 'test-results/asteroid-pocket-preview.png' });
   await page.locator('#a-confirm').click();
+  await expect(page.locator('#a-tool-drill')).toHaveAttribute('aria-pressed', 'false');
   await cell(page, 7, 6);
   await expect(page.locator('#a-extend-drill')).toBeDisabled();
   await expect(page.locator('#a-new-drill')).toBeDisabled();
@@ -128,25 +221,28 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
   await cell(page, 7, 6);
   await expect(page.locator('#a-extend-drill')).toBeEnabled();
   await expect(page.locator('#a-new-drill')).toBeEnabled();
-  await expect(page.locator('#a-context')).toContainText('Extend 8 · 1 part');
-  await expect(page.locator('#a-context')).toContainText('New drill · 2 ore');
+  await expect(page.locator('#a-extend-drill')).toContainText('Extend 8');
+  await expect(page.locator('#a-new-drill')).toContainText('2');
   await page.screenshot({ path: 'test-results/asteroid-expansion-choice.png' });
   await page.locator('#a-view-head').click();
   const headPosition = await position(page, 15, 6);
-  const canvasBounds = await page.locator('canvas').boundingBox();
-  expect(canvasBounds).not.toBeNull();
-  expect(headPosition.x).toBeGreaterThan(canvasBounds!.x);
-  expect(headPosition.x).toBeLessThan(canvasBounds!.x + canvasBounds!.width);
-  await page.locator('#a-view-base').click();
+  const canvasBounds = (await page.locator('canvas').boundingBox())!;
+  expect(headPosition.x).toBeGreaterThan(canvasBounds.x);
+  expect(headPosition.x).toBeLessThan(canvasBounds.x + canvasBounds.width);
+  // Collection is now off-screen, so the recentre control appears and restores it.
+  await expect(page.locator('#a-home')).toBeVisible();
+  await page.locator('#a-home').click();
+  await expect(page.locator('#a-home')).toBeHidden();
   const basePosition = await position(page, 7, 6);
-  expect(basePosition.x).toBeGreaterThan(canvasBounds!.x);
-  expect(basePosition.x).toBeLessThan(canvasBounds!.x + canvasBounds!.width);
+  expect(basePosition.x).toBeGreaterThan(canvasBounds.x);
+  expect(basePosition.x).toBeLessThan(canvasBounds.x + canvasBounds.width);
   await page.locator('#a-new-drill').click();
   await expect(page.locator('#a-confirm')).toBeEnabled();
   await expect(page.locator('#a-context')).toContainText('Shaft drill · 2 ore');
   await page.screenshot({ path: 'test-results/asteroid-fresh-drill-preview.png' });
-  await page.locator('#a-tool-mine').click();
-  await page.locator('#a-pause').click();
+  await page.locator('#a-cancel').click();
+  await page.locator('#a-done').click();
+  await pause(page);
   await cell(page, 7, 6);
   const partsBeforeKit = (await state(page)).stock.part;
   await page.locator('#a-extend-drill').click();
@@ -168,17 +264,11 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
   )
     advance(accelerated);
   expect(safety).toBeGreaterThan(0);
-  await page.evaluate((next) => {
-    const app = (window as unknown as { asteroid: Hook & { render(): void; save(): void } })
-      .asteroid;
-    app.session.state = next;
-    app.render();
-    app.save();
-  }, accelerated);
+  await load(page, accelerated);
   await page.screenshot({ path: 'test-results/asteroid-extension-working.png' });
-  await page.locator('#a-pause').click();
+  await page.locator('#a-resume').click();
   await expect(page.locator('#a-objective-title')).toHaveText('Your outpost is expanding');
-  await page.locator('#a-pause').click();
+  await pause(page);
   const before = await state(page);
   await expect
     .poll(async () =>
@@ -186,8 +276,8 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
     )
     .toEqual(before);
   await page.reload();
-  await expect(page.locator('#a-pause')).toBeVisible();
-  await page.locator('#a-pause').click();
+  await expect(page.locator('#a-menu')).toBeVisible();
+  await page.locator('#a-menu').click();
   const resumed = await state(page);
   expect(resumed.tick - before.tick).toBeLessThan(25);
   const expected = structuredClone(before);
@@ -195,12 +285,15 @@ test('asteroid real UI mining → drilling → plates → parts, exact save cont
   expect(resumed).toEqual(expected);
   expect(errors).toEqual([]);
 });
+
 test('asteroid planning freezes time, invalid placement is atomic, undo and input cancellation', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  await page.locator('#a-tool-drill').click();
+  await holdRock(page, 8, 6);
+  await tool(page, 'drill');
+  await expect(page.locator('#a-context')).toContainText('time stopped');
   const before = await state(page);
   await cell(page, 7, 6);
   await expect(page.locator('#a-confirm')).toBeDisabled();
@@ -212,26 +305,29 @@ test('asteroid planning freezes time, invalid placement is atomic, undo and inpu
   expect((await state(page)).machines).toHaveLength(1);
   await page.locator('#a-undo').click();
   expect(await state(page)).toEqual(before);
-  await page.locator('#a-pause').click();
-  const p = await position(page, 8, 6);
+  await expect(page.locator('#a-undo')).toBeDisabled();
+  await page.locator('#a-done').click();
+  const p = await position(page, 8, 5);
   await page.mouse.move(p.x, p.y);
   await page.mouse.down();
   await expect
-    .poll(async () => (await state(page)).terrain[6 * 36 + 8]?.work || 0)
+    .poll(async () => (await state(page)).terrain[5 * 36 + 8]?.work || 0)
     .toBeGreaterThan(0);
   await page.screenshot({ path: 'test-results/asteroid-hold-progress.png' });
   await page.locator('canvas').dispatchEvent('pointercancel');
-  const cancelled = (await state(page)).terrain[6 * 36 + 8]?.work;
+  const cancelled = (await state(page)).terrain[5 * 36 + 8]?.work;
   await page.waitForTimeout(350);
-  expect((await state(page)).terrain[6 * 36 + 8]?.work).toBe(cancelled);
+  expect((await state(page)).terrain[5 * 36 + 8]?.work).toBe(cancelled);
   await page.mouse.up();
   await page.mouse.move(p.x, p.y);
   await page.mouse.down();
   await page.mouse.move(p.x - 100, p.y, { steps: 5 });
   await page.mouse.up();
-  expect((await state(page)).terrain[6 * 36 + 8]?.work).toBe(cancelled);
+  expect((await state(page)).terrain[5 * 36 + 8]?.work).toBe(cancelled);
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#a-home')).toBeVisible();
   await page.locator('#a-home').click();
-  const reset = await position(page, 8, 6);
+  const reset = await position(page, 8, 5);
   expect(reset.x).toBeCloseTo(p.x, 0);
 });
 
@@ -244,9 +340,7 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await setup(page);
-    await page.evaluate(() => {
-      (window as unknown as { asteroid: Hook }).asteroid.session.state.stock.ore = 14;
-    });
+    await seedOre(page, 14);
     await place(page, 'smelter', 7, 6);
     const dock = await position(page, 1, 6),
       machine = await position(page, 7, 6),
@@ -268,8 +362,7 @@ for (const viewport of [
     await expect(page.locator('#a-dispatch-machine')).toBeVisible();
     await page.locator('#a-close-inspect').click();
     const feed = await page.evaluate(() => {
-      const scene = (window as unknown as { asteroid: Hook & { scene: { cell: number } } }).asteroid
-        .scene;
+      const scene = (window as unknown as { asteroid: Hook }).asteroid.scene;
       const p = scene.screen({ x: 7, y: 6 });
       return { x: p.x, y: p.y - Math.max(26, scene.cell * 0.95) };
     });
@@ -285,9 +378,7 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await setup(page);
-    await page.evaluate(() => {
-      (window as unknown as { asteroid: Hook }).asteroid.session.state.stock.ore = 12;
-    });
+    await seedOre(page, 12);
     await place(page, 'smelter', 7, 6);
     await page.evaluate(() => {
       const smelter = (
@@ -297,7 +388,7 @@ for (const viewport of [
     });
 
     await cell(page, 1, 6);
-    await expect(page.locator('#a-context')).toContainText('MANUAL DELIVERY');
+    await expect(page.locator('#a-context')).toContainText('Manual delivery');
     await expect(page.locator('#a-context')).toContainText('Tap a glowing processor');
     await page.screenshot({ path: `test-results/asteroid-drone-target-${viewport.width}.png` });
     await cell(page, 7, 6);
@@ -316,11 +407,11 @@ for (const viewport of [
 
     await cell(page, 7, 6);
     await expect(page.locator('#a-dispatch-machine')).toBeEnabled();
-    await expect(page.locator('#a-context')).toContainText('connect the right input to automate');
+    await expect(page.locator('#a-context')).toContainText('Belts into the right side automate');
     await expect(page.locator('#a-dispatch-machine')).toHaveText('Send 2 ore');
     const before = await page.locator('#a-dispatch-machine').boundingBox();
     expect(before).not.toBeNull();
-    expect(before!.height).toBeGreaterThanOrEqual(40);
+    expect(before!.height).toBeGreaterThanOrEqual(44);
     expect(before!.x).toBeGreaterThanOrEqual(0);
     expect(before!.x + before!.width).toBeLessThanOrEqual(viewport.width);
     await page.locator('#a-dispatch-machine').click();
@@ -332,7 +423,7 @@ for (const viewport of [
         async () => (await state(page)).machines.find((m) => m.kind === 'smelter')!.input.length
       )
       .toBe(4);
-    await page.locator('#a-pause').click();
+    await pause(page);
     await cell(page, 7, 6);
     await expect(page.locator('#a-dispatch-machine')).toBeDisabled();
     await expect(page.locator('#a-context')).toContainText('Input buffer is full');
@@ -343,6 +434,7 @@ for (const viewport of [
     }));
     expect(fullLayout.scrollY).toBe(0);
     expect(fullLayout.scrollHeight).toBeLessThanOrEqual(fullLayout.innerHeight);
+    await expectFullBleed(page, viewport);
     await page.waitForTimeout(150);
     await page.screenshot({
       path: `test-results/asteroid-drone-delivered-${viewport.width}.png`,
@@ -354,21 +446,23 @@ for (const viewport of [
       )
       .toEqual(loaded);
 
+    await page.locator('#a-close-inspect').click();
     await page.locator('#a-undo').click();
     const restored = await state(page);
     expect(restored.stock.ore).toBe(12);
     expect(restored.machines).toEqual([]);
-    await expect(page.locator('#a-undo')).toHaveText('Undo build');
+    await expect(page.locator('#a-undo')).toBeDisabled();
   });
 }
 
-test('belt drag previews and installs a fast skipped route as one undoable build', async ({
+test('belt drag previews and installs a route as one undoable build, then resumes time', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  await page.locator('#a-tool-belt').click();
-  await expect(page.locator('#a-context')).toContainText('Drag from output toward destination');
+  await seedOre(page, 2);
+  await tool(page, 'belt');
+  await expect(page.locator('#a-context')).toContainText('Drag from an output to its destination');
   const start = await position(page, 6, 6),
     end = await position(page, 2, 6);
   const client = await page.context().newCDPSession(page);
@@ -380,8 +474,8 @@ test('belt drag previews and installs a fast skipped route as one undoable build
     type: 'touchMove',
     touchPoints: [{ x: end.x, y: end.y, id: 1 }],
   });
-  await expect(page.locator('#a-context')).toContainText('5 conveyors · Free');
-  await expect(page.locator('#a-context')).toContainText('Release to install');
+  await expect(page.locator('#a-context')).toContainText('5 conveyors · free');
+  await expect(page.locator('#a-context')).toContainText('Release to build');
   await page.screenshot({ path: 'test-results/asteroid-belt-drag-preview.png' });
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   const built = await page.evaluate(() => {
@@ -396,31 +490,37 @@ test('belt drag previews and installs a fast skipped route as one undoable build
     [2, 6, 3],
   ]);
   expect(built.history).toBe(1);
+  // A completed drag returns to live play so cargo moves immediately.
+  await expect(page.locator('#a-tool-belt')).toHaveAttribute('aria-pressed', 'false');
+  const tick = (await state(page)).tick;
+  await expect.poll(async () => (await state(page)).tick).toBeGreaterThan(tick);
   await page.screenshot({ path: 'test-results/asteroid-belt-drag-built.png' });
   await page.locator('#a-undo').click();
   expect((await state(page)).machines).toEqual([]);
 });
 
-test('belt drag backtracks, cancels safely and leaves camera buttons usable at 360px', async ({
+test('belt drag backtracks, cancels safely and the camera pans by keys at 360px', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await setup(page);
-  await page.locator('#a-tool-belt').click();
+  await seedOre(page, 2);
+  await tool(page, 'belt');
   const beforePan = await position(page, 6, 6);
-  await page.locator('#a-right').click();
+  await page.keyboard.press('ArrowRight');
   const afterPan = await position(page, 6, 6);
   expect(afterPan.x).toBeLessThan(beforePan.x);
-  await page.locator('#a-home').click();
+  await page.keyboard.press('h');
 
   const start = await position(page, 6, 6),
     far = await position(page, 2, 6),
     back = await position(page, 4, 6);
+  expect(start.x).toBeCloseTo(beforePan.x, 0);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(far.x, far.y);
   await page.mouse.move(back.x, back.y);
-  await expect(page.locator('#a-context')).toContainText('3 conveyors · Free');
+  await expect(page.locator('#a-context')).toContainText('3 conveyors · free');
   await page.locator('canvas').dispatchEvent('pointercancel');
   await page.mouse.up();
   expect((await state(page)).machines).toEqual([]);
@@ -438,7 +538,8 @@ test('invalid belt drag across the dock is atomic and touch tap keeps precise pl
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await setup(page);
-  await page.locator('#a-tool-belt').click();
+  await seedOre(page, 2);
+  await tool(page, 'belt');
   const start = await position(page, 3, 6),
     dock = await position(page, 1, 6);
   await page.mouse.move(start.x, start.y);
@@ -447,28 +548,91 @@ test('invalid belt drag across the dock is atomic and touch tap keeps precise pl
   await expect(page.locator('#a-context')).toContainText('collection dock');
   await page.mouse.up();
   expect((await state(page)).machines).toEqual([]);
-  await expect(page.locator('#a-context')).toContainText('collection dock');
+  await expect(page.locator('#a-toast')).toContainText('collection dock');
+  await expect(page.locator('#a-tool-belt')).toHaveAttribute('aria-pressed', 'true');
 
+  // Tap to preview, then tap the same ghost again to build it.
   await cell(page, 3, 6);
   await expect(page.locator('#a-confirm')).toBeEnabled();
-  await page.locator('#a-confirm').click();
+  await cell(page, 3, 6);
   expect((await state(page)).machines.map((m) => [m.x, m.y])).toEqual([[3, 6]]);
 });
 
-test('asteroid vertical drag exposes bottom terrain; Dock resets both camera axes', async ({
+test('tapping a conveyor offers rotate and remove without a separate tool', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await setup(page);
+  await seedOre(page, 2);
+  await place(page, 'belt', 4, 6);
+  await page.locator('#a-done').click();
+  await cell(page, 4, 6);
+  await expect(page.locator('#a-rotate-belt')).toBeEnabled();
+  await page.locator('#a-rotate-belt').click();
+  expect((await state(page)).machines.map((m) => [m.x, m.y, m.direction])).toEqual([[4, 6, 0]]);
+  await page.screenshot({ path: 'test-results/asteroid-belt-inspector.png' });
+  await page.locator('#a-remove-belt').click();
+  expect((await state(page)).machines).toEqual([]);
+  await expect(page.locator('#a-tools')).toBeVisible();
+});
+
+test('two-finger pinch zooms and pans without mining or building', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await setup(page);
+  await seedOre(page, 2);
+  await tool(page, 'belt');
+  const cellSize = () =>
+    page.evaluate(() => (window as unknown as { asteroid: Hook }).asteroid.scene.cell);
+  const before = await cellSize(),
+    a = await position(page, 4, 6),
+    b = await position(page, 6, 6),
+    client = await page.context().newCDPSession(page);
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: a.x, y: a.y, id: 1 }],
+  });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: a.x, y: a.y, id: 1 },
+      { x: b.x, y: b.y, id: 2 },
+    ],
+  });
+  for (let i = 1; i <= 5; i++)
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [
+        { x: a.x - i * 12, y: a.y, id: 1 },
+        { x: b.x + i * 12, y: b.y, id: 2 },
+      ],
+    });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [{ x: a.x - 60, y: a.y, id: 1 }],
+  });
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  expect(await cellSize()).toBeGreaterThan(before * 1.3);
+  expect((await state(page)).machines).toEqual([]);
+  expect((await state(page)).mined).toBe(0);
+  await expect(page.locator('#a-home')).toBeVisible();
+  await page.screenshot({ path: 'test-results/asteroid-pinch-zoom.png' });
+  await page.locator('#a-home').click();
+  expect(await cellSize()).toBeCloseTo(before, 1);
+});
+
+test('asteroid vertical drag explores terrain; recentre resets both camera axes', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await setup(page);
   const original = await position(page, 8, 6);
   const b = (await page.locator('canvas').boundingBox())!;
-  await page.mouse.move(b.x + b.width - 20, b.y + b.height - 20);
+  await page.mouse.move(b.x + b.width - 20, b.y + b.height - 150);
   await page.mouse.down();
-  await page.mouse.move(b.x + b.width - 20, b.y + 50, { steps: 8 });
+  await page.mouse.move(b.x + b.width - 260, b.y + 60, { steps: 8 });
   await page.mouse.up();
   const bottom = await position(page, 8, 11);
   expect(bottom.y).toBeLessThan(b.y + b.height);
   expect((await state(page)).mined).toBe(0);
+  await expect(page.locator('#a-home')).toBeVisible();
   await page.locator('#a-home').click();
   const restored = await position(page, 8, 6);
   expect(restored.x).toBeCloseTo(original.x, 0);
@@ -488,11 +652,11 @@ test('asteroid pause and resume discard a still-held mining gesture', async ({ p
     .poll(async () => (await state(page)).terrain[6 * 36 + 8]?.work || 0)
     .toBeGreaterThan(0);
   // Mouse activation simulates a second independent pointer while the touch stays held.
-  await page.locator('#a-pause').click();
+  await pause(page);
   const paused = await state(page);
   await page.waitForTimeout(300);
   expect(await state(page)).toEqual(paused);
-  await page.locator('#a-pause').click();
+  await page.locator('#a-resume').click();
   await page.waitForTimeout(350);
   expect((await state(page)).terrain).toEqual(paused.terrain);
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
@@ -511,7 +675,10 @@ test('asteroid unavailable storage still permits mining and displays save status
     };
   });
   await setup(page);
+  await expect(page.locator('#a-toast')).toContainText('Saving is unavailable');
+  await page.locator('#a-menu').click();
   await expect(page.locator('#a-save')).toHaveText('Save unavailable');
+  await page.locator('#a-close-modal').click();
   await holdRock(page, 8, 6);
   expect((await state(page)).stock.ore).toBe(2);
 });
