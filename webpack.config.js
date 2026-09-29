@@ -27,6 +27,20 @@ module.exports = {
       patterns: [
         { from: 'src/ui/style.css', to: 'style.css' },
         { from: 'src/asteroid/style.css', to: 'asteroid.css' },
+        { from: 'src/rockhopper/style.css', to: 'rockhopper.css' },
+        {
+          from: 'node_modules/@fontsource/lilita-one/files/lilita-one-latin-400-normal.woff2',
+          to: 'fonts/lilita-one.woff2',
+        },
+        {
+          from: 'node_modules/@fontsource-variable/fredoka/files/fredoka-latin-wght-normal.woff2',
+          to: 'fonts/fredoka.woff2',
+        },
+        { from: 'node_modules/@fontsource/lilita-one/LICENSE', to: 'fonts/lilita-one-LICENSE.txt' },
+        {
+          from: 'node_modules/@fontsource-variable/fredoka/LICENSE',
+          to: 'fonts/fredoka-LICENSE.txt',
+        },
         {
           from: 'node_modules/@fontsource-variable/dm-sans/files/dm-sans-latin-wght-normal.woff2',
           to: 'fonts/dm-sans.woff2',

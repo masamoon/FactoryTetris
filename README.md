@@ -1,25 +1,31 @@
-# Gridforge — Asteroid Works
+# Rockhopper
 
-A playable side-view asteroid factory experiment. Hold exposed rock to mine your first ore, build a shaft drill, and route its output through conveyors, smelters and assemblers. The drill excavates finite terrain and brings ore back along its shaft; material actually travels through the factory. The first machine part creates a bounded expansion choice: send a visible eight-cell extension to the fixed drill head, or build a nearer second drill and its route.
+You are Hop, a tiny mining robot at a space station. You start by lasering asteroids by hand, then build machines that mine them for you. It is an automation game crossed with an incremental game, built for portrait touch screens.
+
+- **Hold a rock** to laser it. Chunks burst out and stream home, and each chunk becomes credits when it lands.
+- **Drag a drill** from the tray onto an asteroid. It snaps to a rim socket and bites inward on its own. A belt links it to a hub dock, and you can watch every chunk ride in.
+- **Rocks run out.** Below 20 % they crumble, and a new rock is towed into the same slot. Your drills stay put and carry on.
+- **Docks are scarce.** A **smelter** merges up to three belts into one dock and turns each chunk into a bar worth three times as much. To re-route a belt, drag from a machine to a dock or a smelter.
+- **Tap a locked slot's price** to unlock it. Higher tiers are bigger, richer rocks: copper, ice, gold, then crystal.
+- **Tap a machine** to open its Upgrade, Move and Sell bubble. Sell only fires after a hold.
+- **Tap the hub** to upgrade the Laser, Docks and Tractor (respawn speed).
+
+On screen there is one counter, one two-item tray and a menu. Everything else lives in the world.
 
 ```bash
 npm install
 npm start                 # http://localhost:8084
 npm run typecheck
-npm test
-npm run replay:asteroid    # earned mining-to-parts trajectory plus both expansion branches
-npm run replay            # earlier tile workshop solutions
-npm run test:browser       # Chromium touch/UI/resume/layout tests for both modes
+npm test                  # simulation tests (all modes)
+npm run bot:rockhopper    # greedy scripted pacing bot (upper bound, not a playtest)
+npm run clip:rockhopper   # real-time 10 s capture from a fresh save (needs npm start)
+npm run test:browser      # Playwright touch/UI tests (set CHROMIUM_PATH to reuse a local Chromium)
 npm run lint
 npm run build             # dist/
 ```
 
-Node.js 22. Install the browser once with `npx playwright install chromium`.
+Node.js 22. `?fresh` ignores the save and `?seed=N` picks the asteroid seed.
 
-Hold a rock block to excavate it. The world fills the screen; a stock pill, the current goal and a menu float at the top, and one dock at the bottom shows build tools and whatever you are doing now. Drag to look around, pinch (or scroll) to zoom, and use two fingers to pan while drawing; a recentre button appears when collection is out of view. Pick a tool, tap a glowing site to preview, then tap it again or press **Build**. Planning stops time and says so; **Done**, tapping the active tool again, or finishing a drawn conveyor route resumes it. Conveyors are free and can turn; tap one to rotate or remove it. Processors take input from the right and output to the left. Tap a processor's **FEED** bubble, or drag from COLLECTION to it, to send one emergency batch with the flying service drone. A completed drill shows exact extension and new-drill costs, disabled reasons and a **View head** control. Pause, help, sound, reduced motion and restart live in the menu.
+The visual identity (palette, type, cast and a 20-second storyboard) lives on the Claude Design canvas **Rockhopper — Visual Identity**. The design, its adversarial reviews and the evidence are in [docs/ROCKHOPPER_DESIGN.md](docs/ROCKHOPPER_DESIGN.md) and [docs/reviews/2026-09-29-rockhopper-redo-adversary.md](docs/reviews/2026-09-29-rockhopper-redo-adversary.md).
 
-**Undo** (the curved arrow at the left of the tools) restores the whole outpost before the last edit, including later courier deliveries, production and mining. Manual delivery does not consume undo slots. The game retains up to 40 recent edits within a 2 MB save budget. Saves are local, with no offline production. The service drone is a remote logistics tool, not a walking character.
-
-The earlier ten-level tile workshop remains available at [/?mode=tiles](http://localhost:8084/?mode=tiles), with a separate save.
-
-See [prototype scope and validation](docs/ASTEROID_PROTOTYPE.md), [architecture](docs/ARCHITECTURE.md), [design direction](docs/ASTEROID_AUTOMATION_DIRECTION.md), [base implementation review](docs/reviews/2026-09-20-implementation-review.md), and [drill-extension implementation review](docs/reviews/2026-09-20-drill-extension-implementation-review.md). This is an experiment in visible excavation and material flow, not a validated long-term incremental economy.
+Older prototypes are still playable, each with its own save: [Asteroid Works](http://localhost:8084/?mode=works) at `?mode=works` and the [tile workshop](http://localhost:8084/?mode=tiles) at `?mode=tiles`.

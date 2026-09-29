@@ -2,7 +2,9 @@
 
 ## Project
 
-Gridforge defaults to Asteroid Works: a portrait-first, side-view mining/factory prototype. Players excavate finite blocks, automate sectional shaft drills, and route ore through conveyors, smelters and assemblers. Fixed geological pockets keep routed drills productive after each eight-cell shaft clears, with visible finite reserves. A second drill costs two ore and a third costs eight ore; neither requires parts. One earned part can queue a fixed-base eight-cell extension, which waits for the current pocket and returning loads to clear before a visible tender installs it. It uses remote tap/hold input, not character locomotion. The earlier ten-level 8 × 9 tile workshop remains at `?mode=tiles`, with independent saves. The old FactoryTetris round/shop/trait runtime has been removed.
+Rockhopper is the default runtime (redone on 2026-09-29 after the user found Asteroid Works "terrible to play"). It is a top-down, portrait asteroid-mining game that crosses automation with incremental play. Hop, a tiny robot, lasers rocks by hand (press/hold/drag). Drills snap to rim sockets on fixed asteroid slots and mine inward with no reach cap. Straight belts carry every chunk to a limited set of hub docks (3 to start, 9 max). Smelters merge up to 3 (4 at level 3) belts into one dock and pay ×3 per bar. Rocks crumble below 20 % and are towed back in after a delay. Locked slots in four tiers climb upward and are unlocked in-world with two taps. The HUD is a counter, a two-item tray and a menu; everything else is in-world bubbles. The design and its reviews are in `docs/ROCKHOPPER_DESIGN.md`. The visual identity lives on the Claude Design canvas "Rockhopper — Visual Identity": ink outlines, candy ores on deep violet space, Lilita One numbers and Fredoka words.
+
+The earlier prototypes remain playable with independent saves: the side-view Asteroid Works at `?mode=works` and the ten-level tile workshop at `?mode=tiles`.
 
 ## Short-form product constraint
 
@@ -18,52 +20,39 @@ A truthful-clip PASS authorizes the communication hypothesis only. It does not p
 
 ## Commands
 
-- `npm start` — Webpack dev server at http://localhost:8084
+- `npm start` — Webpack dev server at http://localhost:8084 (`?fresh` ignores the save, `?seed=N`)
 - `npm run build` — production static site in `dist/`
 - `npm run typecheck` — TypeScript validation
-- `npm test` — deterministic simulation and persistence tests
-- `npm run replay:asteroid` — real manual-mining-to-machine-parts trajectory
-- `npm run replay` — real winning replays for all ten levels and alternative strategies
-- `npm run test:browser` — Playwright UI, touch, responsive, and save/resume tests
+- `npm test` — deterministic simulation and persistence tests for all three modes
+- `npm run bot:rockhopper` — greedy scripted pacing bot (an upper bound on pace, not a playtest)
+- `npm run clip:rockhopper` — real-time 10 s capture from a fresh save with scripted touch input (needs `npm start`)
+- `npm run replay:asteroid` / `npm run replay` — witnesses for the older prototypes
+- `npm run test:browser` — Playwright UI, touch, responsive and save/resume tests (`CHROMIUM_PATH` reuses a local Chromium)
 - `npm run lint` — ESLint
 - `npm run format` — Prettier
 
-Node.js 22. For browser tests, install Chromium with `npx playwright install chromium`.
+Node.js 22.
 
 ## Architecture
 
-Default asteroid prototype:
+Rockhopper (`src/rockhopper/`):
 
-- `src/asteroid/simulation.ts`: finite terrain, exposed-face mining, fixed ticks, construction, material transport, full-state undo.
-- `src/asteroid/persistence.ts`: separate save namespace and semantic validation.
-- `src/asteroid/Scene.ts`: Phaser artwork, camera and pointer mapping; no production logic.
-- `src/asteroid/App.ts` and `style.css`: responsive DOM controls, fixed-step controller, local saves and preview/inspection.
-- `tools/asteroid-replay.ts`: honest full-chain simulation witness.
+- `config.ts`: every tuning number (ores, slots, prices, rates, geometry).
+- `sim.ts`: the pure, deterministic 30 Hz simulation: seeded rock generation, laser/drill mining, belts, smelters, flights, crumble and tow, auto-link/splice and commands. It emits events for presentation only.
+- `save.ts`: the `rockhopper.save.v1` namespace and settings, with validation. Saves include belts, buffers, flights, crumbles and cell work.
+- `render.ts` and `sprites.ts`: Canvas 2D camera, cached rock bitmaps, vector sprites from the identity canvas, particles and pops. Nothing here changes game state.
+- `App.ts`, `audio.ts` and `style.css`: the gesture map, in-world bubbles, tray, menu, fixed-step loop, autosave and the `window.__rockhopper` test hook.
+- `tools/rockhopper-bot.ts` and `tools/rockhopper-clip.ts`: the pacing witness and the clip witness.
 
-Earlier tile workshop:
-
-- `src/game/types.ts`: serializable run state, commands, machines, ports, and events.
-- `src/game/content.ts`: tile transformations, footprints, sources, ten levels, rotation, and initial state.
-- `src/game/simulation.ts`: pure command reducer and previews; deterministic tick runner; folding graph invariants.
-- `src/game/persistence.ts`: versioned save validation and settings migration.
-- `src/view/BoardScene.ts`: disposable Phaser board drawing, pointer mapping, and effects.
-- `src/view/audio.ts`: gesture-unlocked synthesized sound.
-- `src/ui/App.ts`: DOM UI/controller, transient placement state, menus, saves, and input actions.
-- `src/ui/style.css` and `icons.ts`: responsive theme and scalable icons. Fonts are copied from Fontsource packages during build.
+Older prototypes: `src/asteroid/` (Asteroid Works), and `src/game/`, `src/view/` and `src/ui/` (tile workshop). See `docs/ARCHITECTURE.md` for those.
 
 ## Invariants
 
-The simulation owns production, never the renderer. Asteroid production uses 100 ms ticks and pauses during planning, dialogs, explicit pause and document hiding. No offline catch-up. Excavation removes real terrain; rail payload reserves drill buffer capacity; external cargo moves at most one cell per transfer phase. Never invent production for animation. Manual input is capped to one mining work per tick. Rails reserve their full corridor. Construction and empty-belt removal snapshot the complete state; keep up to 40 undo snapshots within a 2 MB JSON budget. Undo rewinds subsequent production and terrain as well as the edit. Preserve both save namespaces.
+Rockhopper: the simulation owns production and credits, never the renderer. Credits change only when a chunk or bar actually arrives, or through purchases and sales. Every particle, "+N" pop and counter tick maps to a real event, and pops aggregate real arrivals only. Cells are finite: never created or refilled. A rock is replaced only after it is fully spent, with the slot's seeded ore signature; richness depends on the tier, never on the respawn count. Manual mining is at most one cell of work per tick, from a laser capped at six levels. Belts reserve spacing and back up; a full drill buffer stops the drill. Smelter intake is round-robin. Each machine has exactly one output, and unlinked machines retry when a target frees up (smelters first). Time runs only while the page is visible and the menu is closed. There is no offline catch-up and no undo; selling refunds 50 %. Keep `rockhopper.save.v1` loadable, or migrate it.
 
-A drill extension is atomic: it is offered after the current eight-cell shaft clears, consumes one real part, reserves the next complete corridor, and queues while its fixed deep pocket or returning loads remain. Before tender launch, cancellation returns that part and releases the future corridor. The timed visible tender installs only after the old pocket and loads clear. One global extension and three drill bases are the current experiment caps. Do not allow loads to cross the tender during installation. Longer return distance, output capacity, finite pocket reserves and backpressure remain real. Fixed pockets are seeded in world state, persist independently of machines and cannot be created or refilled by construction.
+Older prototypes keep their own invariants: see `docs/ASTEROID_PROTOTYPE.md` and `docs/DESIGN_AND_VALIDATION.md`. Preserve all three save namespaces.
 
-Tile workshop only: paid actions advance four ticks; thinking, selecting tools, folding, and previewing do not advance time. Undo restores one complete committed state, including manifests and production.
-
-Folded modules retain their primitive graph and all buffers/work. Flatten them into the SAME tick phases and stable ID order as unfolded machines; never approximate their recipe or run them as separate sub-simulations. Preserve throughput, latency, material costs, and backpressure.
-
-Keep canonical simulation coordinates for mirrored scenarios; reflect presentation and input together. Every scenario needs a real winning replay. Test browser screenshots as well as DOM assertions when changing rendering or layout.
-
-See `docs/ASTEROID_PROTOTYPE.md`, `docs/ARCHITECTURE.md` and `docs/DESIGN_AND_VALIDATION.md`. Do not report automated wins as proof of engagement or a measured human session duration.
+Test browser screenshots as well as DOM assertions when changing rendering or layout. Do not report bot runs or scripted captures as proof of engagement or of a human session's length.
 
 ## Gameplay decision review
 
