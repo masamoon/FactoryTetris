@@ -4,6 +4,10 @@ import {
   BAR_MULTIPLIER,
   DRILL_BUFFER,
   DRILL_MAX_LEVEL,
+  BELT_SPACING,
+  beltSpeed,
+  BELT_DASH,
+  stackSize,
   ORES,
   SLOTS,
   TICK_HZ,
@@ -23,6 +27,7 @@ import {
   replay,
   type CommandName,
   type LoggedCommand,
+  type BeltItem,
   priceOf,
   route,
   run,
@@ -244,6 +249,110 @@ test('belts keep up with upgraded drills (upgrades are never dead purchases)', (
   const low = rate(1).work,
     high = rate(DRILL_MAX_LEVEL).work;
   assert.ok(high > low * 4, `max level ${high.toFixed(1)} work/s vs ${low.toFixed(1)}`);
+});
+
+test('fast machines ship bigger bundles on belts slow enough to read', () => {
+  // In a 25 fps phone video a bundle moves well under half its spacing per frame, and the
+  // belt's dash pattern moves under a third of its period, so neither strobes or runs backwards.
+  const perFrame = beltSpeed(DRILL_MAX_LEVEL) / 25;
+  assert.ok(perFrame <= 0.42 * BELT_SPACING, `${perFrame.toFixed(1)} u per frame`);
+  assert.ok(perFrame <= (BELT_DASH[0] + BELT_DASH[1]) / 3, 'dash would alias');
+  const meanBundle = (level: number) => {
+    const s = freshState(1);
+    s.credits = 1e9;
+    buildDrill(s, 0, 0);
+    const d = drills(s)[0];
+    while (d.level < level) upgrade(s, d.id);
+    run(s, 15);
+    let n = 0,
+      chunks = 0;
+    const seen = new Set<BeltItem>();
+    for (let i = 0; i < 2 * TICK_HZ; i++) {
+      step(s);
+      s.events.length = 0;
+      for (const it of d.out!.items)
+        if (!seen.has(it)) {
+          seen.add(it);
+          n++;
+          chunks += it.ores.length;
+        }
+    }
+    return chunks / n;
+  };
+  const low = meanBundle(4),
+    high = meanBundle(DRILL_MAX_LEVEL);
+  assert.ok(high > low + 0.8, `bundles ${low.toFixed(2)} at level 4 vs ${high.toFixed(2)} at max`);
+  assert.ok(high <= stackSize(DRILL_MAX_LEVEL));
+});
+
+test('corrupt bundles are rejected instead of crashing', () => {
+  const s = freshState(1);
+  s.credits = 100;
+  buildDrill(s, 0, 0);
+  run(s, 4 * TICK_HZ);
+  const raw = JSON.parse(serialize(s)) as { machines: { out: { items: { ores: unknown[] }[] } }[] };
+  raw.machines[0].out.items[0].ores = [];
+  assert.equal(deserialize(JSON.stringify(raw)), null);
+  raw.machines[0].out.items[0].ores = [9];
+  assert.equal(deserialize(JSON.stringify(raw)), null);
+});
+
+test('every smelter level is a real speed-up', () => {
+  const rate = (level: number) => {
+    const s = freshState(1);
+    s.credits = 1e9;
+    buildSmelter(s, { x: 110, y: -110 });
+    const sm = smelters(s)[0];
+    while (sm.level < level) upgrade(s, sm.id);
+    sm.out = null; // measure the furnace alone: keep it fed, empty its output
+    let bars = 0;
+    for (let i = 0; i < 3 * TICK_HZ; i++) {
+      while (sm.queue.length < 4) sm.queue.push(1);
+      step(s);
+      bars += sm.ready.length;
+      sm.ready.length = 0;
+      s.events.length = 0;
+    }
+    return bars / 3;
+  };
+  let prev = 0;
+  for (let level = 1; level <= 8; level++) {
+    const r = rate(level);
+    assert.ok(
+      r > prev * 1.2,
+      `smelter level ${level}: ${r.toFixed(1)} bars/s after ${prev.toFixed(1)}`
+    );
+    prev = r;
+  }
+});
+
+test('saves from before stacked belts still load', () => {
+  const s = freshState(1);
+  s.credits = 1000;
+  buildDrill(s, 0, 0);
+  buildSmelter(s, { x: 110, y: -110 });
+  route(s, drills(s)[0].id, { kind: 'smelter', id: smelters(s)[0].id });
+  run(s, 8 * TICK_HZ);
+  const old = JSON.parse(serialize(s)) as {
+    machines: {
+      kind: string;
+      ready?: unknown;
+      out?: { items: { ore?: number; ores?: number[] }[] };
+    }[];
+  };
+  for (const m of old.machines) {
+    if (m.kind === 'smelter') m.ready = null;
+    for (const it of m.out?.items ?? []) {
+      it.ore = it.ores![0];
+      delete it.ores;
+    }
+  }
+  const loaded = deserialize(JSON.stringify(old))!;
+  assert.ok(loaded, 'old save loads');
+  assert.deepEqual(smelters(loaded)[0].ready, []);
+  for (const m of loaded.machines)
+    for (const it of m.out?.items ?? []) assert.equal(it.ores.length, 1);
+  run(loaded, 5 * TICK_HZ);
 });
 
 test('the laser is never saved, so a reload cannot keep it firing', () => {

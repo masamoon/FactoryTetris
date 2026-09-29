@@ -72,11 +72,20 @@ export const DOCKS_MAX = 9;
 
 export const BELT_SPEED = 95; // units per second at level 1
 /**
- * A belt runs as fast as the machine feeding it, so upgrades never outrun their belt:
- * each level multiplies speed by the same factor as the machine's output rate.
+ * Belts never move faster than this: 4.5 u a tick, about 5.4 u a frame in a 25 fps video, well
+ * under half the 13 u bundle spacing, so every bundle can be followed by eye.
  */
-export const beltSpeed = (kind: 'drill' | 'smelter', level: number) =>
-  BELT_SPEED * Math.pow(kind === 'drill' ? 1.45 : 1.4, level - 1);
+export const BELT_SPEED_MAX = 135;
+/** Belt dash pattern (units): the period stays well above per-frame travel at 25 fps. */
+export const BELT_DASH: [number, number] = [4, 14];
+/**
+ * Upgrades raise belt capacity in two readable ways: a little more speed (capped), and bigger
+ * stacks per bundle. Together they always exceed the feeding machine's output rate.
+ */
+export const beltSpeed = (level: number) =>
+  Math.min(BELT_SPEED_MAX, BELT_SPEED * Math.pow(1.25, level - 1));
+/** Chunks (or bars) per bundle on a belt fed by a machine of this level: 1, 1, 2, 2, 3, 3, 4, 4. */
+export const stackSize = (level: number) => 1 + Math.floor((level - 1) / 2);
 export const BELT_SPACING = 13;
 export const DRILL_BUFFER = 4;
 export const SMELTER_QUEUE = 4;

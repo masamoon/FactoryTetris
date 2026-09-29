@@ -108,7 +108,13 @@ The design passed review and is implemented in `src/rockhopper/`. A post-impleme
 | T3 slots    | 160k / 360k                    |
 | T4 slot     | 1.8M                           |
 
-- **Belt speed follows the feeding machine's level.** Drills run at 95 × 1.45^(L−1) u/s and smelters at 95 × 1.4^(L−1) u/s, so an upgrade is never capped by its own belt. Drills top out at level 7 and smelters at level 8.
+- **Stacked belts (readable at any level).** Belts move at 95 × 1.25^(L−1) u/s, capped at 135 u/s. That is about 5.4 u per frame in a 25 fps video, well under the 13 u bundle spacing. Upgraded machines instead ship **bundles** of up to 1 + ⌊(L−1)/2⌋ chunks or bars (1, 1, 2, 2, 3, 3, 4, 4), drawn as a small tumbling pile or an ingot stack.
+  - Whatever is waiting at a loading slot leaves together.
+  - Docks deliver a whole bundle at once.
+  - Smelters peel one chunk per tick off the front bundle, round-robin across belts.
+  - Capacity always exceeds the feeding machine's output, so an upgrade is never capped by its own belt.
+- **No rounding.** Drills and smelters carry leftover work and time across ticks, so no level is rounded down to one break or one bar per tick. Drills top out at level 7 and smelters at level 8.
+- **Old saves.** Saves from before bundles load: single items become one-chunk bundles.
 - **Smelter splice.** A new smelter placed when every dock is taken takes over the nearest direct drill line's dock. That drill then feeds the smelter.
 - **Docks.** All 9 docks sit on the hub's upper arc, facing the field.
 

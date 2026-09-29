@@ -92,6 +92,56 @@ Flags that do not block:
 
   Whether they read clearly is a playtest question.
 
+## Belt readability at high speed (round 6)
+
+The user asked for belts that stay readable at high speed. With speed scaling by level, a level-7 belt moved about 890 u/s, roughly 30 u per tick against 13 u spacing, so chunks strobed.
+
+**Proposal B1, stacked belts:**
+
+- belt speed capped at 200 u/s;
+- upgraded machines ship bundles of up to 4 chunks.
+
+**First verdict: REVISE.**
+
+- 200 u/s is still about half the spacing per frame at 25 fps, and the dash would appear to run backwards.
+- Drills were limited to one break per tick, so bundles never grew below level 7.
+- Smelter levels 7 and 8 both ran at 2 ticks per bar.
+- Bundle contents were not validated on load.
+
+**Revisions:**
+
+- The speed cap is 135 u/s, and the dash period is 18 u.
+- Leftover work and time carry across ticks for drills and smelters.
+- The tests now check:
+  - per-frame travel;
+  - the dash;
+  - mean bundle size growing with level;
+  - every smelter level being a real speed-up;
+  - corrupt bundles being rejected.
+- Saves validate ores.
+- The pacing bot was rerun.
+- A 25 fps capture of a factory with every drill at level 7 and every smelter at level 8 was reviewed.
+
+**Re-verdict: PASS** for belt speed, bundles, the smelter output buffer and save migration.
+
+Measured mean bundle size, averaged over three seeds:
+
+| Level | Mean bundle size |
+| ----- | ---------------- |
+| L3    | 1.00             |
+| L4    | about 1.08       |
+| L5    | about 1.4        |
+| L6    | about 1.95       |
+| L7    | about 2.75       |
+
+At every level, throughput was about 100 % of the drill's nominal rate and no ticks had a full buffer.
+
+Accepted risks:
+
+- **Pure rock at L7 runs at 93 % of belt capacity.** Any later change to drill rate, the belt cap or spacing must re-check this.
+- **Clutter near the hub.** The late-game area around the hub is dense from routing, not from bundles.
+- **Motion not yet watched.** A person still needs to watch [the 25 fps max-level capture](evidence/rockhopper-belts-max-level-25fps.webm) in motion before claiming late-game clip readability. Its still is [here](evidence/rockhopper-belts-max-level.png); it is a prepared save with every machine at max level.
+
 ## Open questions (need people, not bots)
 
 - Is holding the laser late in the game a chore? It adds about 14–23 % to income at 20 minutes.

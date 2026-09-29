@@ -1,6 +1,7 @@
 import {
   BELT_SPACING,
   beltSpeed,
+  BELT_DASH,
   CELL,
   DT,
   HUB_RADIUS,
@@ -91,6 +92,44 @@ interface Pop {
   best: number;
 }
 
+/** Offsets for 1–4 chunks travelling as one bundle. */
+const CHUNK_PILE: [number, number][][] = [
+  [[0, 0]],
+  [
+    [-2.8, 0],
+    [2.8, 0],
+  ],
+  [
+    [-2.8, 1.8],
+    [2.8, 1.8],
+    [0, -3],
+  ],
+  [
+    [-2.8, -2.8],
+    [2.8, -2.8],
+    [-2.8, 2.8],
+    [2.8, 2.8],
+  ],
+];
+/** Offsets (belt-aligned) for 1–4 bars in one bundle: stacked across the belt. */
+const BAR_PILE: [number, number][][] = [
+  [[0, 0]],
+  [
+    [0, -2.6],
+    [0, 2.6],
+  ],
+  [
+    [0, -4.6],
+    [0, 0],
+    [0, 4.6],
+  ],
+  [
+    [-2.4, -4.6],
+    [2.4, -1.6],
+    [-2.4, 1.6],
+    [2.4, 4.6],
+  ],
+];
 /** A pop collects arrivals for this long at the hub, then floats away. */
 const POP_HOLD = 0.45;
 const WORLD = { minX: -360, maxX: 360, minY: -1160, maxY: 140 };
@@ -758,7 +797,7 @@ export class Renderer {
       const len = Math.hypot(dx, dy) || 1;
       const front = m.out.items[0];
       const jammed = !!front && m.out.to.kind === 'smelter' && front.pos >= m.out.length - 0.5;
-      const speed = beltSpeed(m.kind, m.level);
+      const speed = beltSpeed(m.level);
       // A fresh or re-routed belt flashes so automatic rewiring (auto-link, splice) is visible.
       const flash = Math.max(0, 1 - (this.time - (this.routedAt.get(m.id) ?? -10)) / 0.8);
       c.lineCap = 'round';
@@ -779,7 +818,7 @@ export class Renderer {
         c.globalAlpha = 1;
       }
       c.save();
-      c.setLineDash([3, 9]);
+      c.setLineDash(BELT_DASH);
       c.lineDashOffset = jammed ? 0 : -this.time * speed;
       c.strokeStyle = jammed ? CORAL : MINT;
       c.globalAlpha = jammed ? 0.6 : 0.9;
@@ -795,19 +834,33 @@ export class Renderer {
         const f = pos / m.out.length;
         c.save();
         c.translate(e.a.x + ux * len * f, e.a.y + uy * len * f);
+        const n = it.ores.length;
         if (it.bar) {
+          // Bars stack into a small ingot pile across the belt.
           c.rotate(Math.atan2(uy, ux));
-          // Cheap glow (no shadowBlur): a soft halo in the ore colour.
           c.globalAlpha = 0.35;
-          c.fillStyle = ORES[it.ore].color;
+          c.fillStyle = ORES[it.ores[0]].color;
           c.beginPath();
-          c.arc(0, 0, 8.5, 0, Math.PI * 2);
+          c.arc(0, 0, 8.5 + n * 1.5, 0, Math.PI * 2);
           c.fill();
           c.globalAlpha = 1;
-          drawChunk(c, it.ore, 4.2, true);
+          for (let k = 0; k < n; k++) {
+            const [ox, oy] = BAR_PILE[n - 1][k];
+            c.save();
+            c.translate(ox, oy);
+            drawChunk(c, it.ores[k], n > 1 ? 3.5 : 4.2, true);
+            c.restore();
+          }
         } else {
+          // Chunks travel as a tumbling cluster; a bigger cluster is a bigger delivery.
           c.rotate((it.pos * 0.05) % 6.28);
-          drawChunk(c, it.ore, 3.8);
+          for (let k = 0; k < n; k++) {
+            const [ox, oy] = CHUNK_PILE[n - 1][k];
+            c.save();
+            c.translate(ox, oy);
+            drawChunk(c, it.ores[k], n > 1 ? 3.3 : 3.8);
+            c.restore();
+          }
         }
         c.restore();
       }
