@@ -12,7 +12,7 @@ type Hook = {
 const state = (page: Page): Promise<State> =>
   page.evaluate(() => (window as unknown as { asteroid: Hook }).asteroid.session.state);
 async function setup(page: Page) {
-  await page.goto('/?test');
+  await page.goto('/?mode=works&test');
   await expect(page.locator('canvas')).toBeVisible();
   await expect(page.locator('#a-objective-title')).toBeVisible();
   await expect(page.locator('webpack-dev-server-client-overlay')).toHaveCount(0);

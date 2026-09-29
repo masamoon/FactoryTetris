@@ -1,7 +1,7 @@
 {
   "name": "gridforge",
   "version": "0.2.0",
-  "description": "A side-view asteroid mining and automation prototype.",
+  "description": "Rockhopper: laser asteroids by hand, then automate them with drills, belts and smelters.",
   "main": "src/index.ts",
   "scripts": {
     "start": "webpack serve --mode=development",
@@ -10,16 +10,20 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "prepare": "husky",
-    "test": "tsx --test tests/simulation.test.ts tests/asteroid.test.ts",
+    "test": "tsx --test tests/simulation.test.ts tests/asteroid.test.ts tests/rockhopper.test.ts",
     "test:browser": "playwright test",
     "typecheck": "tsc --noEmit",
     "replay": "tsx tools/replay.ts",
     "replay:asteroid": "tsx tools/asteroid-replay.ts",
+    "bot:rockhopper": "tsx tools/rockhopper-bot.ts",
+    "clip:rockhopper": "tsx tools/rockhopper-clip.ts",
     "lint": "eslint src tests tools playwright.config.ts webpack.config.js"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/fredoka": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
+    "@fontsource/lilita-one": "^5.3.0",
     "phaser": "^3.60.0"
   },
   "devDependencies": {
