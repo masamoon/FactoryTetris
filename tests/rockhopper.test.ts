@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   BAR_MULTIPLIER,
   DRILL_BUFFER,
+  DRILL_MAX_LEVEL,
   ORES,
   SLOTS,
   TICK_HZ,
@@ -17,6 +18,11 @@ import {
   freshState,
   generateRock,
   inTransitValue,
+  upgrade,
+  applyCommand,
+  replay,
+  type CommandName,
+  type LoggedCommand,
   priceOf,
   route,
   run,
@@ -196,6 +202,7 @@ test('save round-trip mid-flight continues identically', () => {
   buildDrill(a, 0, 1);
   setLaser(a, 0, center(a));
   run(a, 7 * TICK_HZ + 5);
+  clearLaser(a); // the finger lifts before the app is closed
   a.events.length = 0;
   const b = deserialize(serialize(a))!;
   assert.ok(b);
@@ -206,6 +213,65 @@ test('save round-trip mid-flight continues identically', () => {
   assert.equal(serialize(a), serialize(b));
   assert.equal(deserialize('{"version":2}'), null);
   assert.equal(deserialize('not json'), null);
+});
+
+test('belts keep up with upgraded drills (upgrades are never dead purchases)', () => {
+  // Work delivered per second (sum of hardness) removes most ore-mix noise. A short window on
+  // the fine-grained T1 rock keeps even a max-level drill from running out mid-measurement.
+  const rate = (level: number) => {
+    const s = freshState(1);
+    s.credits = 1e9;
+    buildDrill(s, 0, 0);
+    const d = drills(s)[0];
+    while (d.level < level) upgrade(s, d.id);
+    run(s, 10);
+    s.events.length = 0;
+    let work = 0,
+      full = 0;
+    const ticks = Math.round(1.5 * TICK_HZ);
+    for (let i = 0; i < ticks; i++) {
+      step(s);
+      for (const e of s.events) if (e.type === 'break') work += ORES[e.ore].hardness;
+      s.events.length = 0;
+      if (d.buffer.length >= DRILL_BUFFER) full++;
+    }
+    return { work: work / 1.5, full: full / ticks };
+  };
+  for (let level = 1; level <= DRILL_MAX_LEVEL; level++) {
+    const r = rate(level);
+    assert.ok(r.full < 0.15, `level ${level} backed up ${Math.round(r.full * 100)}% of ticks`);
+  }
+  const low = rate(1).work,
+    high = rate(DRILL_MAX_LEVEL).work;
+  assert.ok(high > low * 4, `max level ${high.toFixed(1)} work/s vs ${low.toFixed(1)}`);
+});
+
+test('the laser is never saved, so a reload cannot keep it firing', () => {
+  const s = freshState(1);
+  setLaser(s, 0, center(s));
+  run(s, 10);
+  const loaded = deserialize(serialize(s))!;
+  assert.equal(loaded.laser, null);
+  const broken = loaded.stats.laserBroken;
+  run(loaded, 60 * TICK_HZ);
+  assert.equal(loaded.stats.laserBroken, broken);
+});
+
+test('a command log replays to the identical state (clip witness)', () => {
+  const log: LoggedCommand[] = [];
+  const s = freshState(4);
+  const cmd = (name: CommandName, ...args: unknown[]) => {
+    log.push([s.tick, name, JSON.parse(JSON.stringify(args)) as unknown[]]);
+    applyCommand(s, name, args);
+  };
+  cmd('setLaser', 0, center(s));
+  run(s, 6 * TICK_HZ);
+  cmd('clearLaser');
+  cmd('buildDrill', 0, 0);
+  run(s, 10 * TICK_HZ);
+  s.events.length = 0;
+  const again = replay(4, log, s.tick);
+  assert.equal(serialize(again), serialize(s));
 });
 
 test('selling refunds half and relinks waiting machines', () => {
@@ -234,7 +300,7 @@ test('hub upgrades: docks relink, laser is capped at six levels', () => {
 
 test('credits only come from delivered chunks', () => {
   const s = freshState(2);
-  s.credits = 200;
+  s.credits = 1000;
   buildDrill(s, 0, 0);
   buildSmelter(s, { x: 110, y: -110 });
   route(s, drills(s)[0].id, { kind: 'smelter', id: smelters(s)[0].id });
@@ -257,10 +323,13 @@ test('credits only come from delivered chunks', () => {
 });
 
 test('pacing bot (scripted upper bound) hits the provisional beats', () => {
-  const { beats } = runBot({ minutes: 12, laser: true, seed: 1 });
+  const { beats } = runBot({ minutes: 13, laser: true, seed: 1 });
   const at = (l: string) => beats.find((b) => b.label === l)?.seconds ?? Infinity;
-  assert.ok(at('drill #1') <= 6, `first drill ${at('drill #1')}`);
-  assert.ok(at('smelter #1') >= 20 && at('smelter #1') <= 120, `first smelter ${at('smelter #1')}`);
-  assert.ok(at('T1 fully unlocked') >= 90 && at('T1 fully unlocked') <= 7 * 60);
-  assert.ok(at('T2 reached') <= 12 * 60, `T2 ${at('T2 reached')}`);
+  // The design's own targets (docs/ROCKHOPPER_DESIGN.md), not bounds widened to fit the bot.
+  assert.ok(at('drill #1') >= 3 && at('drill #1') <= 6, `first drill ${at('drill #1')}`);
+  assert.ok(at('smelter #1') >= 60 && at('smelter #1') <= 120, `first smelter ${at('smelter #1')}`);
+  const t1 = at('T1 fully unlocked');
+  assert.ok(t1 >= 4 * 60 && t1 <= 7 * 60, `T1 ${t1}`);
+  const t2 = at('T2 reached');
+  assert.ok(t2 >= 8 * 60 && t2 <= 12 * 60, `T2 ${t2}`);
 });

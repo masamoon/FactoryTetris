@@ -88,3 +88,65 @@ Segment B's exact timing is to be re-derived from the bot witness after implemen
 | Docks become the constraint             | around the 4th machine       |
 | T1 fully unlocked                       | 4–7 min                      |
 | T2 reached                              | ~8–12 min                    |
+
+## As implemented (2026-09-29)
+
+The design passed review and is implemented in `src/rockhopper/`. A post-implementation adversarial review then ran on the working build. Where the implementation departs from the text above, this section wins.
+
+### Tuning
+
+- **Hardness.** Hardness is halved for common ores (see the ore table), so hand mining breaks about 4 rock cells/s.
+- **Prices.**
+
+| Item        | Price                          |
+| ----------- | ------------------------------ |
+| First drill | 14, then ×1.55 per drill owned |
+| Smelter     | 320 × 2^n                      |
+| Dock        | 300 × 2.6^k                    |
+| T1 slots    | 0 / 400 / 2000                 |
+| T2 slots    | 18k / 40k                      |
+| T3 slots    | 160k / 360k                    |
+| T4 slot     | 1.8M                           |
+
+- **Belt speed follows the feeding machine's level.** Drills run at 95 × 1.45^(L−1) u/s and smelters at 95 × 1.4^(L−1) u/s, so an upgrade is never capped by its own belt. Drills top out at level 7 and smelters at level 8.
+- **Smelter splice.** A new smelter placed when every dock is taken takes over the nearest direct drill line's dock. That drill then feeds the smelter.
+- **Docks.** All 9 docks sit on the hub's upper arc, facing the field.
+
+### Presentation
+
+- **Pops.** Deliveries collect into one "+N" above the dock arc for 0.45 s, then float away.
+- **Belt flash.** Belts flash when automatically re-routed, so auto-links and splices are visible.
+- **Camera framing.** The camera frames the hub and the unlocked slots, with a zoom floor of 0.55 even after pinching. Locked slots are not framed. Their price tags clamp to the screen edge, stay tappable, and anchor the unlock bubble.
+- **Tray.** The tray is hidden until the player has credits. The smelter button appears after three drills, after the first smelter, or when a machine is unlinked.
+- **Tutorial hands.** A "HOLD" hand shows until the first breaks, then a drag-a-drill hand shows until the first drill.
+- **Levels.** Drill levels show only in the tap bubble.
+- **Laser safety.** The laser is never saved. Hiding the page or losing focus ends every gesture.
+
+### Witnesses
+
+`tools/rockhopper-clip.ts` records segment A in capture mode (`?clip`). It sends real touch events, draws a dot under each real touch, and hides the tutorial hands. Every player command goes through `COMMANDS` in `sim.ts` and is logged with its tick. The tool replays the log headlessly and requires a byte-identical state.
+
+Latest run ([log](reviews/evidence/rockhopper-clip-segment-a.log.txt), [video](reviews/evidence/rockhopper-clip-segment-a.webm), [commands](reviews/evidence/rockhopper-clip-segment-a.commands.json)):
+
+| Wall    | Sim     | Event                                |
+| ------- | ------- | ------------------------------------ |
+| 0.09 s  | 0.10 s  | touch down on the rock               |
+| 4.38 s  | 4.37 s  | lifted with 15 credits               |
+| 5.83 s  | 5.83 s  | drill dropped                        |
+| 10.74 s | 10.73 s | hands off with 19 credits and rising |
+
+Witness replay of 87 commands: identical. Stills: [4 s](reviews/evidence/rockhopper-clip-04s.png), [7 s](reviews/evidence/rockhopper-clip-07s.png), [10 s](reviews/evidence/rockhopper-clip-10s.png). Segment B still needs its developed-save capture. The bot-produced stills are labelled developed: [12 min](reviews/evidence/rockhopper-developed-12min.png) and [30 min](reviews/evidence/rockhopper-developed-30min.png).
+
+### Pacing
+
+These are scripted greedy-bot numbers, an upper bound and not human evidence (`npm run bot:rockhopper`).
+
+| Beat              | Time  |
+| ----------------- | ----- |
+| First drill       | 0:03  |
+| First smelter     | 1:24  |
+| T1 fully unlocked | 4:39  |
+| T2                | 11:13 |
+| T3                | 25:08 |
+
+Income rises steadily through about 30 minutes. Purchases thin out after about 45 minutes, and the bot does not reach T4 within 70 minutes. The late game (T4, and anything after it such as prestige) is still open.

@@ -2,7 +2,7 @@ import {
   arrivalSeconds,
   BAR_MULTIPLIER,
   BELT_SPACING,
-  BELT_SPEED,
+  beltSpeed,
   CELL,
   CRUMBLE_AT,
   CRUMBLE_SECONDS,
@@ -825,10 +825,10 @@ function loadBelts(s: State) {
 }
 
 function moveBelts(s: State) {
-  const step = BELT_SPEED * DT;
   for (const m of s.machines) {
     const b = m.out;
     if (!b) continue;
+    const step = beltSpeed(m.kind, m.level) * DT;
     let max = b.length;
     for (const it of b.items) {
       it.pos = Math.min(it.pos + step, max);
@@ -933,4 +933,47 @@ export function inTransitValue(s: State): number {
     }
   }
   return v;
+}
+
+// ---------------------------------------------------------------- command log
+
+/** Every player command by a stable name, so inputs can be recorded and replayed as a witness. */
+export const COMMANDS = {
+  setLaser,
+  clearLaser,
+  buildDrill,
+  buildSmelter,
+  route,
+  upgrade,
+  sell,
+  moveDrill,
+  moveSmelter,
+  unlock,
+  upgradeHub,
+} as const;
+
+export type CommandName = keyof typeof COMMANDS;
+/** [tick at which it was applied (before the next step), name, arguments]. */
+export type LoggedCommand = [number, CommandName, unknown[]];
+
+export function applyCommand(s: State, name: CommandName, args: unknown[]): unknown {
+  return (COMMANDS[name] as (s: State, ...a: unknown[]) => unknown)(s, ...args);
+}
+
+/** Re-run a command log from a fresh seed up to `untilTick`. */
+export function replay(seed: number, log: LoggedCommand[], untilTick: number): State {
+  const s = freshState(seed);
+  for (const [tick, name, args] of log) {
+    while (s.tick < tick) {
+      step(s);
+      s.events.length = 0;
+    }
+    applyCommand(s, name, args);
+    s.events.length = 0;
+  }
+  while (s.tick < untilTick) {
+    step(s);
+    s.events.length = 0;
+  }
+  return s;
 }

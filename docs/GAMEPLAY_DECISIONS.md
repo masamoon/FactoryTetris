@@ -2,6 +2,18 @@
 
 User requirement: every brainstormed gameplay decision receives independent adversarial agent review before adoption. Unresolved REVISE/REJECT verdicts block adoption. A scoped PASS is not approval beyond that scope. See AGENTS.md.
 
+## 2026-09-29 — Rockhopper redo (current default)
+
+The user asked for a complete redo because Asteroid Works felt terrible to play. The new game: a tiny robot lasers asteroids by hand, then automates them with drills, belts and smelters. It is automation crossed with incremental play, touch-first with a minimal HUD, and readable in a 20-second clip. Three design rounds of independent adversarial review ended in **PASS for R1–R13** (see [the design](ROCKHOPPER_DESIGN.md)). A post-implementation review returned **REVISE** on:
+
+- belt throughput versus upgrades;
+- pop legibility;
+- off-screen unlock bubbles;
+- the pacing plateau;
+- the clip witness.
+
+It also found a bug: the laser was saved and kept mining after a reload with no finger down. All of these were fixed. See [the review record](reviews/2026-09-29-rockhopper-redo-adversary.md). These are scoped passes for the prototype, not evidence of fun or balance. Asteroid Works remains at `?mode=works`.
+
 ## 2026-09-22 — visible manual-delivery drone
 
 The player-facing proxy is a compact flying service drone, not a ground robot or player-piloted spaceship. It preserves the remote tap/hold input model while giving manual stockpile recovery a visible collection → cargo → destination sequence. Tap COLLECTION, then a highlighted compatible processor; the inspector offers the same action as an accessibility route.

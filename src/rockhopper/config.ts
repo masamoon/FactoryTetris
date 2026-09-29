@@ -44,13 +44,13 @@ export interface SlotDef {
 
 export const SLOTS: readonly SlotDef[] = [
   { tier: 1, x: 0, y: -230, r: 6, signature: COPPER, price: 0, sockets: 3 },
-  { tier: 1, x: -170, y: -230, r: 6, signature: COPPER, price: 150, sockets: 3 },
-  { tier: 1, x: 170, y: -230, r: 6, signature: ICE, price: 700, sockets: 3 },
-  { tier: 2, x: -150, y: -460, r: 8, signature: ICE, price: 6000, sockets: 4 },
-  { tier: 2, x: 150, y: -460, r: 8, signature: GOLD, price: 15000, sockets: 4 },
-  { tier: 3, x: -170, y: -720, r: 10, signature: GOLD, price: 70000, sockets: 5 },
-  { tier: 3, x: 170, y: -720, r: 10, signature: CRYSTAL, price: 180000, sockets: 5 },
-  { tier: 4, x: 0, y: -990, r: 11, signature: CRYSTAL, price: 1500000, sockets: 6 },
+  { tier: 1, x: -170, y: -230, r: 6, signature: COPPER, price: 400, sockets: 3 },
+  { tier: 1, x: 170, y: -230, r: 6, signature: ICE, price: 2000, sockets: 3 },
+  { tier: 2, x: -150, y: -460, r: 8, signature: ICE, price: 18000, sockets: 4 },
+  { tier: 2, x: 150, y: -460, r: 8, signature: GOLD, price: 40000, sockets: 4 },
+  { tier: 3, x: -170, y: -720, r: 10, signature: GOLD, price: 160000, sockets: 5 },
+  { tier: 3, x: 170, y: -720, r: 10, signature: CRYSTAL, price: 360000, sockets: 5 },
+  { tier: 4, x: 0, y: -990, r: 11, signature: CRYSTAL, price: 1800000, sockets: 6 },
 ];
 
 /** Share of cells that are ore (not rock) and which ores a tier can contain. */
@@ -70,7 +70,13 @@ export const DOCK_ANGLES = [-90, -113, -67, -136, -44, -159, -21, -180, 0];
 export const DOCKS_START = 3;
 export const DOCKS_MAX = 9;
 
-export const BELT_SPEED = 95; // units per second
+export const BELT_SPEED = 95; // units per second at level 1
+/**
+ * A belt runs as fast as the machine feeding it, so upgrades never outrun their belt:
+ * each level multiplies speed by the same factor as the machine's output rate.
+ */
+export const beltSpeed = (kind: 'drill' | 'smelter', level: number) =>
+  BELT_SPEED * Math.pow(kind === 'drill' ? 1.45 : 1.4, level - 1);
 export const BELT_SPACING = 13;
 export const DRILL_BUFFER = 4;
 export const SMELTER_QUEUE = 4;
@@ -81,7 +87,7 @@ export const DRILL_RADIUS = 16;
 export const LASER_POWER = [2, 3.5, 5.5, 8, 11, 15];
 export const LASER_COST = [30, 160, 800, 3500, 15000];
 export const drillRate = (level: number) => 2 * Math.pow(1.45, level - 1);
-export const DRILL_MAX_LEVEL = 10;
+export const DRILL_MAX_LEVEL = 7;
 export const drillUpgradeCost = (level: number) => Math.round(24 * Math.pow(2.1, level - 1));
 export const smelterTime = (level: number) => 0.5 / Math.pow(1.4, level - 1);
 export const SMELTER_MAX_LEVEL = 8;
@@ -89,7 +95,7 @@ export const smelterUpgradeCost = (level: number) => Math.round(90 * Math.pow(2.
 export const smelterInputs = (level: number) => (level >= 3 ? 4 : 3);
 
 export const drillPrice = (owned: number) => Math.round(14 * Math.pow(1.55, owned));
-export const smelterPrice = (owned: number) => Math.round(120 * Math.pow(2, owned));
+export const smelterPrice = (owned: number) => Math.round(320 * Math.pow(2, owned));
 export const dockCost = (docks: number) => Math.round(300 * Math.pow(2.6, docks - DOCKS_START));
 export const TRACTOR_MAX = 5;
 export const tractorCost = (level: number) => Math.round(150 * Math.pow(3, level));
