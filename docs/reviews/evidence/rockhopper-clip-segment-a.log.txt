@@ -1,6 +1,6 @@
-0.01s wall  tick 21 (0.00s sim)  credits 0  machines 0  start (fresh save)
-0.09s wall  tick 24 (0.10s sim)  credits 0  machines 0  touch down on the rock
-4.38s wall  tick 152 (4.37s sim)  credits 15  machines 0  lifted after hand mining
-5.83s wall  tick 196 (5.83s sim)  credits 2  machines 1  drill dropped
-10.74s wall  tick 343 (10.73s sim)  credits 19  machines 1  hands off
-witness replay of 87 commands to tick 346: IDENTICAL
+0.02s wall  tick 22 (0.00s sim)  credits 0  machines 0  start (fresh save)
+0.14s wall  tick 25 (0.10s sim)  credits 0  machines 0  touch down on the rock
+4.54s wall  tick 157 (4.50s sim)  credits 16  machines 0  lifted after hand mining
+6.18s wall  tick 207 (6.17s sim)  credits 3  machines 1  drill dropped
+11.09s wall  tick 354 (11.07s sim)  credits 20  machines 1  hands off
+witness replay of 77 commands to tick 358: IDENTICAL

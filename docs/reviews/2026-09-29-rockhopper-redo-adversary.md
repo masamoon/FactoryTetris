@@ -71,7 +71,26 @@ Bugs fixed from the same review:
 - **The 300 ms tap limit** is enforced.
 - **Vibration** waits for user activation.
 
-Re-review of the fixes: see the next section.
+## Re-review of the fixes (round 5)
+
+All five REVISE items now pass:
+
+- **D1 — PASS.** Belts keep up at every level, and pacing meets the design's targets.
+- **D4 — PASS.** Pops are readable. They still overlap the hub-side smelters, which is left as a playtest note.
+- **D5 — PASS.**
+- **D8 — PASS.** Income rises from 14 to about 1,470 credits/s over 40 minutes. The flat stretches are short: about 2 minutes and about 4 minutes before T3.
+- **Clip A — PASS.** The capture uses real touch input, draws visible touch dots, hides the tutorial hands, and sim time tracks wall time within 0.01 s. The replay witness is identical.
+
+At the reviewer's request, the clip tool now also saves stills with a finger down (`rockhopper-clip-02s-holding.png` and `rockhopper-clip-05s-dragging.png`).
+
+Flags that do not block:
+
+- **Fast belts may strobe.** High-level belts move about 30 units per tick, which could blur the developed-factory footage. Check this before capturing segment B.
+- **Marks in the 30-minute still.** The dashed teal lines off the left edge and the large green arc are intended:
+  - the lines are the tractor beams of a rock being towed in;
+  - the arc is a slot's respawn progress ring.
+
+  Whether they read clearly is a playtest question.
 
 ## Open questions (need people, not bots)
 

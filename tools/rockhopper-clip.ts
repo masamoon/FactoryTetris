@@ -104,7 +104,10 @@ async function main() {
   const a = { x: rock.x + 18, y: rock.y + 34 };
   await touch(cdp, 'touchStart', a.x, a.y);
   await note('touch down on the rock');
-  await glide(cdp, a, { x: rock.x - 20, y: rock.y + 10 }, 4200);
+  const sweepTo = { x: rock.x - 20, y: rock.y + 10 };
+  await glide(cdp, a, { x: (a.x + sweepTo.x) / 2, y: (a.y + sweepTo.y) / 2 }, 2000);
+  await page.screenshot({ path: path.join(out, 'rockhopper-clip-02s-holding.png') });
+  await glide(cdp, { x: (a.x + sweepTo.x) / 2, y: (a.y + sweepTo.y) / 2 }, sweepTo, 2000);
   await touch(cdp, 'touchEnd', 0, 0);
   await note('lifted after hand mining');
   await page.screenshot({ path: path.join(out, 'rockhopper-clip-04s.png') });
@@ -115,7 +118,10 @@ async function main() {
   const from = { x: btn.x + btn.width / 2, y: btn.y + btn.height / 2 };
   await touch(cdp, 'touchStart', from.x, from.y);
   await wait(120);
-  await glide(cdp, from, { x: sock.x, y: sock.y + 30 }, 850);
+  const mid = { x: (from.x + sock.x) / 2, y: (from.y + sock.y + 30) / 2 };
+  await glide(cdp, from, mid, 425);
+  await page.screenshot({ path: path.join(out, 'rockhopper-clip-05s-dragging.png') });
+  await glide(cdp, mid, { x: sock.x, y: sock.y + 30 }, 425);
   await wait(150);
   await touch(cdp, 'touchEnd', 0, 0);
   await note('drill dropped');
