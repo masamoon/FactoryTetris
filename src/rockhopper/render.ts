@@ -1,6 +1,7 @@
 import {
   BELT_SPACING,
-  BELT_SPEED,
+  beltSpeed,
+  BELT_DASH,
   CELL,
   DT,
   HUB_RADIUS,
@@ -91,6 +92,46 @@ interface Pop {
   best: number;
 }
 
+/** Offsets for 1–4 chunks travelling as one bundle. */
+const CHUNK_PILE: [number, number][][] = [
+  [[0, 0]],
+  [
+    [-2.8, 0],
+    [2.8, 0],
+  ],
+  [
+    [-2.8, 1.8],
+    [2.8, 1.8],
+    [0, -3],
+  ],
+  [
+    [-2.8, -2.8],
+    [2.8, -2.8],
+    [-2.8, 2.8],
+    [2.8, 2.8],
+  ],
+];
+/** Offsets (belt-aligned) for 1–4 bars in one bundle: stacked across the belt. */
+const BAR_PILE: [number, number][][] = [
+  [[0, 0]],
+  [
+    [0, -2.6],
+    [0, 2.6],
+  ],
+  [
+    [0, -4.6],
+    [0, 0],
+    [0, 4.6],
+  ],
+  [
+    [-2.4, -4.6],
+    [2.4, -1.6],
+    [-2.4, 1.6],
+    [2.4, 4.6],
+  ],
+];
+/** A pop collects arrivals for this long at the hub, then floats away. */
+const POP_HOLD = 0.45;
 const WORLD = { minX: -360, maxX: 360, minY: -1160, maxY: 140 };
 const DRILL_W = 30;
 const SMELTER_W = 50;
@@ -117,6 +158,7 @@ export class Renderer {
   private previewCache = new Map<string, Rock>();
   private smeltGlow = new Map<number, number>();
   private placedAt = new Map<number, number>();
+  private routedAt = new Map<number, number>();
   hop = { x: 60, y: -40, tilt: 0 };
   /** Screen rectangles of the locked-slot price tags drawn this frame (tappable). */
   tags: { slot: number; x: number; y: number; w: number; h: number }[] = [];
@@ -200,7 +242,7 @@ export class Renderer {
       if (reveal) cy = (minY + maxY) / 2;
     }
     if (!reveal) {
-      z = Math.max(0.42, Math.min(2.4, z * this.userZoom));
+      z = Math.max(0.55, Math.min(2.4, z * this.userZoom));
       cx += this.pan.x;
       cy += this.pan.y;
     }
@@ -249,7 +291,7 @@ export class Renderer {
         this.hubBounce = Math.min(1, this.hubBounce + (e.bar ? 0.35 : 0.18));
         // One pop stream above the hub: arrivals within a short window add up.
         const color = e.bar ? YELLOW : e.ore === 1 ? CREAM : ORES[e.ore].color;
-        const live = this.pops.find((p) => p.age < 0.3);
+        const live = this.pops.find((p) => p.age < POP_HOLD);
         if (live) {
           live.value += e.value;
           live.bump = 1;
@@ -258,11 +300,10 @@ export class Renderer {
             live.color = color;
           }
         } else {
-          const side = this.pops.length % 2 ? 1 : -1;
           this.pops.push({
             key: 'hub',
-            x: side * 18,
-            y: -HUB_RADIUS - 6,
+            x: 0,
+            y: -HUB_RADIUS - 24,
             value: e.value,
             color,
             age: 0,
@@ -335,6 +376,8 @@ export class Renderer {
             rot: 0,
           });
         }
+      } else if (e.type === 'route') {
+        this.routedAt.set(e.id, this.time);
       } else if (e.type === 'build' || e.type === 'upgrade') {
         this.placedAt.set(e.id, this.time);
         const m = byId(s, e.id);
@@ -754,6 +797,9 @@ export class Renderer {
       const len = Math.hypot(dx, dy) || 1;
       const front = m.out.items[0];
       const jammed = !!front && m.out.to.kind === 'smelter' && front.pos >= m.out.length - 0.5;
+      const speed = beltSpeed(m.level);
+      // A fresh or re-routed belt flashes so automatic rewiring (auto-link, splice) is visible.
+      const flash = Math.max(0, 1 - (this.time - (this.routedAt.get(m.id) ?? -10)) / 0.8);
       c.lineCap = 'round';
       c.strokeStyle = INK;
       c.lineWidth = 10;
@@ -764,9 +810,16 @@ export class Renderer {
       c.strokeStyle = o.reroute?.id === m.id ? '#4A3C9A' : DEEP;
       c.lineWidth = 6;
       c.stroke();
+      if (flash > 0) {
+        c.strokeStyle = CREAM;
+        c.globalAlpha = flash;
+        c.lineWidth = 7;
+        c.stroke();
+        c.globalAlpha = 1;
+      }
       c.save();
-      c.setLineDash([3, 9]);
-      c.lineDashOffset = jammed ? 0 : -this.time * BELT_SPEED;
+      c.setLineDash(BELT_DASH);
+      c.lineDashOffset = jammed ? 0 : -this.time * speed;
       c.strokeStyle = jammed ? CORAL : MINT;
       c.globalAlpha = jammed ? 0.6 : 0.9;
       c.lineWidth = 2.6;
@@ -776,24 +829,38 @@ export class Renderer {
         uy = dy / len;
       let max = m.out.length;
       for (const it of m.out.items) {
-        const pos = Math.min(it.pos + BELT_SPEED * DT * alpha, max);
+        const pos = Math.min(it.pos + speed * DT * alpha, max);
         max = pos - BELT_SPACING;
         const f = pos / m.out.length;
         c.save();
         c.translate(e.a.x + ux * len * f, e.a.y + uy * len * f);
+        const n = it.ores.length;
         if (it.bar) {
+          // Bars stack into a small ingot pile across the belt.
           c.rotate(Math.atan2(uy, ux));
-          // Cheap glow (no shadowBlur): a soft halo in the ore colour.
           c.globalAlpha = 0.35;
-          c.fillStyle = ORES[it.ore].color;
+          c.fillStyle = ORES[it.ores[0]].color;
           c.beginPath();
-          c.arc(0, 0, 8.5, 0, Math.PI * 2);
+          c.arc(0, 0, 8.5 + n * 1.5, 0, Math.PI * 2);
           c.fill();
           c.globalAlpha = 1;
-          drawChunk(c, it.ore, 4.2, true);
+          for (let k = 0; k < n; k++) {
+            const [ox, oy] = BAR_PILE[n - 1][k];
+            c.save();
+            c.translate(ox, oy);
+            drawChunk(c, it.ores[k], n > 1 ? 3.5 : 4.2, true);
+            c.restore();
+          }
         } else {
+          // Chunks travel as a tumbling cluster; a bigger cluster is a bigger delivery.
           c.rotate((it.pos * 0.05) % 6.28);
-          drawChunk(c, it.ore, 3.8);
+          for (let k = 0; k < n; k++) {
+            const [ox, oy] = CHUNK_PILE[n - 1][k];
+            c.save();
+            c.translate(ox, oy);
+            drawChunk(c, it.ores[k], n > 1 ? 3.3 : 3.8);
+            c.restore();
+          }
         }
         c.restore();
       }
@@ -1189,12 +1256,14 @@ export class Renderer {
     for (const p of this.pops) {
       p.age += dt;
       p.bump *= Math.exp(-dt * 10);
-      if (p.age > 1) continue;
+      if (p.age > POP_HOLD + 0.55) continue;
       keep.push(p);
       const sp = this.toScreen({ x: p.x, y: p.y });
       const size = Math.min(40, 18 + Math.log10(p.value + 1) * 9) * (1 + p.bump * 0.25);
-      const y = sp.y - 10 - p.age * 70;
-      c.globalAlpha = p.age > 0.6 ? 1 - (p.age - 0.6) / 0.3 : 1;
+      // The collecting pop sits still above the dock arc; released ones jump up and fade.
+      const free = Math.max(0, p.age - POP_HOLD);
+      const y = sp.y - 14 - (free > 0 ? 34 + free * 120 : 0);
+      c.globalAlpha = free > 0 ? Math.max(0, 1 - free / 0.55) : 1;
       c.font = `${Math.round(size)}px "Lilita One", sans-serif`;
       c.textAlign = 'center';
       c.textBaseline = 'alphabetic';
@@ -1208,7 +1277,7 @@ export class Renderer {
       c.fillText(text, sp.x, y);
     }
     c.globalAlpha = 1;
-    this.pops = keep.slice(-6);
+    this.pops = keep.slice(-3);
   }
 
   private drawHints(c: Ctx, s: State, o: Overlay) {

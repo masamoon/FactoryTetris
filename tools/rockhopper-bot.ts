@@ -117,7 +117,8 @@ function act(s: State, mark: (l: string) => void) {
     });
   }
   const unlinked = s.machines.filter((m) => !m.out).length;
-  if (unlinked > 0 || (sms.length === 0 && ds.length >= 3)) {
+  const backedUp = sms.filter((sm) => sm.queue.length >= 4).length;
+  if (unlinked > 0 || backedUp > 0 || (sms.length === 0 && ds.length >= 3)) {
     const spot = smelterSpot(s);
     const cost = priceOf(s, 'smelter');
     if (spot)
@@ -129,7 +130,7 @@ function act(s: State, mark: (l: string) => void) {
       });
   }
   const dc = hubCost(s, 'docks');
-  if (dc !== null && unlinked > 0)
+  if (dc !== null && (unlinked > 0 || backedUp > 0))
     options.push({ cost: dc, score: 2.5 / dc, label: 'dock', run: () => upgradeHub(s, 'docks') });
   for (let i = 0; i < SLOTS.length; i++) {
     const c = unlockCost(s, i);
@@ -170,6 +171,15 @@ function act(s: State, mark: (l: string) => void) {
     if (pick.label === 'drill') mark(`drill #${n('drill')}`);
     else if (pick.label === 'smelter') mark(`smelter #${n('smelter')}`);
     else mark(pick.label);
+    // Relieve backed-up smelters: move one of their drills to any free dock.
+    for (let i = 0; i < s.docks; i++) {
+      const used = s.machines.some((m) => m.out?.to.kind === 'dock' && m.out.to.index === i);
+      if (used) continue;
+      const jammed = smelters(s).find((sm) => sm.queue.length >= 4);
+      const d =
+        jammed && drills(s).find((x) => x.out?.to.kind === 'smelter' && x.out.to.id === jammed.id);
+      if (d) route(s, d.id, { kind: 'dock', index: i });
+    }
     // Route direct-to-dock drills into smelters with spare inputs, freeing docks.
     for (const sm of smelters(s)) {
       for (const d of drills(s)) {

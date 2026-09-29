@@ -401,6 +401,23 @@ button:focus-visible {
   pointer-events: none;
 }
 
+/* Capture mode (?clip): real touch points. */
+.rh-touch {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 244, 224, 0.35);
+  border: 3px solid var(--cream);
+  box-shadow:
+    0 0 0 3px var(--ink),
+    inset 0 0 0 2px var(--ink);
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* ---------------------------------------------------------------- menu */
 
 .rh-menu {

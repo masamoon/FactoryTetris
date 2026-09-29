@@ -1,4 +1,4 @@
-import { SLOTS } from './config';
+import { DRILL_MAX_LEVEL, type Ore, SLOTS, SMELTER_MAX_LEVEL } from './config';
 import { freshState, type Rock, type State } from './sim';
 
 export const SAVE_KEY = 'rockhopper.save.v1';
@@ -23,12 +23,16 @@ export function serialize(s: State): string {
         } satisfies SavedRock)
       : null,
   }));
-  return JSON.stringify({ ...s, slots, events: undefined });
+  // The laser follows a live finger; it is never saved, so a reload cannot keep it firing.
+  return JSON.stringify({ ...s, slots, laser: null, events: undefined });
 }
 
 function isNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
+
+const isOre = (v: unknown): v is Ore =>
+  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 
 /** Parse a save; any structural problem returns null so the caller can start fresh. */
 export function deserialize(text: string): State | null {
@@ -74,10 +78,36 @@ export function deserialize(text: string): State | null {
       events: [],
     };
     if (!state.slots[0].unlocked) return null;
+    state.laser = null;
     const ids = new Set<number>();
     for (const m of state.machines) {
       if (!isNum(m.id) || ids.has(m.id) || (m.kind !== 'drill' && m.kind !== 'smelter'))
         return null;
+      if (!isNum(m.level) || m.level < 1) return null;
+      if (m.kind === 'drill') {
+        const def = SLOTS[m.slot];
+        if (!def || !Number.isInteger(m.socket) || m.socket < 0 || m.socket >= def.sockets)
+          return null;
+        if (!Array.isArray(m.buffer) || !m.buffer.every(isOre)) return null;
+        m.level = Math.min(m.level, DRILL_MAX_LEVEL);
+      } else {
+        if (!isNum(m.x) || !isNum(m.y) || !Array.isArray(m.queue)) return null;
+        m.level = Math.min(m.level, SMELTER_MAX_LEVEL);
+        // v1 saves before stacked belts held one finished bar or null.
+        const ready = m.ready as unknown;
+        m.ready = Array.isArray(ready) ? (ready as Ore[]) : isNum(ready) ? [ready as Ore] : [];
+        if (!m.ready.every(isOre) || !m.queue.every(isOre)) return null;
+      }
+      for (const it of m.out?.items ?? []) {
+        const old = it as unknown as { ore?: Ore; ores?: Ore[] };
+        if (!Array.isArray(old.ores)) {
+          if (!isNum(old.ore)) return null;
+          it.ores = [old.ore];
+          delete old.ore;
+        }
+        if (!it.ores.length || it.ores.length > 4 || !it.ores.every(isOre) || !isNum(it.pos))
+          return null;
+      }
       ids.add(m.id);
     }
     return state;

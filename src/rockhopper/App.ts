@@ -1,36 +1,28 @@
 import { CELL, DT, HUB_RADIUS, LASER_POWER, ORES, SLOTS, TRACTOR_MAX, DOCKS_MAX } from './config';
 import { Renderer, formatNumber, type Overlay } from './render';
 import {
-  buildDrill,
-  buildSmelter,
   byId,
   canTarget,
-  clearLaser,
   dockPos,
   drills,
   freshState,
   hubCost,
   machinePos,
-  moveDrill,
-  moveSmelter,
   nearestSocket,
   priceOf,
-  route,
-  sell,
   sellValue,
-  setLaser,
   slotVisible,
   smelters,
   smelterSpotOk,
   socketAngle,
   socketPos,
   step,
-  unlock,
   unlockCost,
-  upgrade,
   upgradeCost,
-  upgradeHub,
   type HubUpgrade,
+  applyCommand,
+  type CommandName,
+  type LoggedCommand,
   type Point,
   type State,
   type Target,
@@ -122,6 +114,8 @@ export class RockhopperApp {
     this.settings = loadSettings();
     this.sfx.muted = this.settings.muted;
     this.overlay.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Capture mode (disclosed in clips): shows real touch points, hides the tutorial hands.
+    this.clipMode = params.has('clip');
     const seed = Number(params.get('seed') ?? 1) || 1;
     let loaded: State | null = null;
     if (!params.has('fresh')) {
@@ -173,14 +167,20 @@ export class RockhopperApp {
     this.renderer = new Renderer(this.canvas);
 
     this.bindInput();
+    if (this.clipMode) this.showTouches();
     this.resize();
     addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.save();
+      if (document.hidden) {
+        this.endGesture();
+        this.save();
+      }
       this.last = performance.now();
       this.acc = 0;
     });
     addEventListener('pagehide', () => this.save());
+    // A lost pointerup (app switch, notification) must never leave the laser firing.
+    addEventListener('blur', () => this.endGesture());
     (window as unknown as { __rockhopper: unknown }).__rockhopper = this;
     void document.fonts?.load('20px "Lilita One"').catch(() => {});
     requestAnimationFrame((t) => this.frame(t));
@@ -238,6 +238,7 @@ export class RockhopperApp {
         /* ignore */
       }
       this.state = freshState(this.state.seed);
+      this.commandLog.length = 0;
       this.shown = 0;
       this.renderer.resetView();
       this.closeBubble();
@@ -306,9 +307,9 @@ export class RockhopperApp {
     const w = this.root.clientWidth || innerWidth,
       h = this.root.clientHeight || innerHeight;
     this.renderer.resize(w, h, devicePixelRatio || 1);
-    const trayRect = this.tray.getBoundingClientRect();
     this.insetTop = 84;
-    this.insetBottom = Math.max(110, h - trayRect.top + 8);
+    // offsetTop ignores the tray's slide-in transform.
+    this.insetBottom = Math.max(110, h - this.tray.offsetTop + 8);
     this.renderer.insetTop = this.insetTop;
     this.renderer.insetBottom = this.insetBottom;
   }
@@ -460,7 +461,7 @@ export class RockhopperApp {
     if (hit.kind === 'rock') {
       this.closeBubble();
       this.gesture = { type: 'mine', slot: hit.slot };
-      setLaser(this.state, hit.slot, w);
+      this.cmd('setLaser', hit.slot, w);
       this.overlay.finger = w;
     } else if (hit.kind === 'machine') {
       this.gesture = {
@@ -497,7 +498,7 @@ export class RockhopperApp {
       // Sweeping onto another rock moves the laser with the finger.
       const over = this.hit(w);
       if (over.kind === 'rock') g.slot = over.slot;
-      setLaser(this.state, g.slot, w);
+      this.cmd('setLaser', g.slot, w);
       this.overlay.finger = w;
     } else if (g.type === 'machine') {
       if (!g.dragging && Math.hypot(p.x - g.x0, p.y - g.y0) > 10) {
@@ -528,17 +529,17 @@ export class RockhopperApp {
       return;
     }
     if (g.type === 'mine') {
-      clearLaser(this.state);
+      this.cmd('clearLaser');
       this.overlay.finger = null;
     } else if (g.type === 'machine') {
       if (g.dragging) {
         const target = this.snapTarget(g.id, p);
         if (target) {
-          if (route(this.state, g.id, target) !== true) this.sfx.deny();
+          if (this.cmd('route', g.id, target) !== true) this.sfx.deny();
         }
         this.overlay.reroute = null;
-      } else this.openBubble({ kind: 'machine', id: g.id });
-    } else if (g.type === 'tap' && !g.panning) {
+      } else if (performance.now() - g.t0 < 300) this.openBubble({ kind: 'machine', id: g.id });
+    } else if (g.type === 'tap' && !g.panning && performance.now() - g.t0 < 300) {
       if (g.hit.kind === 'hub') this.openBubble({ kind: 'hub' });
       else if (g.hit.kind === 'locked') this.openBubble({ kind: 'locked', slot: g.hit.slot });
       else this.closeBubble();
@@ -557,7 +558,7 @@ export class RockhopperApp {
   }
 
   private endGesture(g: Gesture = this.gesture) {
-    if (g.type === 'mine') clearLaser(this.state);
+    if (g.type === 'mine') this.cmd('clearLaser');
     if (g.type === 'tray') this.overlay.placing = null;
     this.overlay.finger = null;
     this.overlay.reroute = null;
@@ -626,11 +627,11 @@ export class RockhopperApp {
     let r: true | string = 'blocked';
     if (moving !== undefined) {
       if (kind === 'drill' && spot.sock)
-        r = moveDrill(this.state, moving, spot.sock.slot, spot.sock.socket);
-      else if (kind === 'smelter' && spot.at.ok) r = moveSmelter(this.state, moving, spot.at);
+        r = this.cmd('moveDrill', moving, spot.sock.slot, spot.sock.socket);
+      else if (kind === 'smelter' && spot.at.ok) r = this.cmd('moveSmelter', moving, spot.at);
     } else if (kind === 'drill' && spot.sock)
-      r = buildDrill(this.state, spot.sock.slot, spot.sock.socket);
-    else if (kind === 'smelter' && spot.at.ok) r = buildSmelter(this.state, spot.at);
+      r = this.cmd('buildDrill', spot.sock.slot, spot.sock.socket);
+    else if (kind === 'smelter' && spot.at.ok) r = this.cmd('buildSmelter', spot.at);
     if (r !== true) {
       this.sfx.deny();
       if (r === 'credits') this.flashCounter();
@@ -698,7 +699,7 @@ export class RockhopperApp {
         this.bubbleRefresh = () =>
           up.classList.toggle('rh-poor', c === null || this.state.credits < c);
         this.repeatButton(up, () => {
-          const r = upgrade(this.state, m.id);
+          const r = this.cmd('upgrade', m.id);
           if (r !== true) {
             if (r === 'credits') this.flashCounter();
             return false;
@@ -719,7 +720,7 @@ export class RockhopperApp {
         sellB.setAttribute('aria-label', `Hold to sell for ${sellValue(m)}`);
         sellB.title = `Hold to sell (+${formatNumber(sellValue(m))})`;
         this.holdButton(sellB, 600, () => {
-          sell(this.state, m.id);
+          this.cmd('sell', m.id);
           this.closeBubble();
           this.save();
         });
@@ -744,7 +745,7 @@ export class RockhopperApp {
           btn.dataset.cost = String(c ?? Infinity);
           btn.setAttribute('aria-label', c === null ? `${name} maxed` : `Upgrade ${name} for ${c}`);
           this.repeatButton(btn, () => {
-            const r = upgradeHub(this.state, what);
+            const r = this.cmd('upgradeHub', what);
             if (r === 'credits') this.flashCounter();
             return r === true;
           });
@@ -776,7 +777,7 @@ export class RockhopperApp {
         );
         this.bubbleRefresh = () => btn.classList.toggle('rh-poor', this.state.credits < c);
         btn.addEventListener('click', () => {
-          const r = unlock(this.state, b.slot);
+          const r = this.cmd('unlock', b.slot);
           if (r === true) {
             this.closeBubble();
             this.save();
@@ -800,13 +801,19 @@ export class RockhopperApp {
   private positionBubble() {
     const a = this.bubbleAnchor();
     if (!a || this.bubbleEl.hidden) return;
-    const p = this.renderer.toScreen(a);
+    let p = this.renderer.toScreen(a);
+    const b = this.bubble;
+    if (b?.kind === 'locked') {
+      // Locked slots may be off-frame: anchor to the price tag actually drawn on screen.
+      const tag = this.renderer.tags.find((t) => t.slot === b.slot);
+      if (tag) p = { x: tag.x + tag.w / 2, y: tag.y + 6 };
+    }
     const w = this.bubbleEl.offsetWidth,
       h = this.bubbleEl.offsetHeight;
     const x = Math.max(8, Math.min(this.renderer.w - w - 8, p.x - w / 2));
     let y = p.y - h - 30;
-    if (y < this.insetTop) y = p.y + 40;
-    y = Math.min(y, this.renderer.h - this.insetBottom - h);
+    if (y < this.insetTop) y = p.y + 44;
+    y = Math.max(this.insetTop, Math.min(y, this.renderer.h - this.insetBottom - h));
     this.bubbleEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
   }
 
@@ -885,11 +892,24 @@ export class RockhopperApp {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  /** Every command applied this session, for the replay witness (see tools/rockhopper-clip.ts). */
+  readonly commandLog: LoggedCommand[] = [];
+
+  private cmd(name: CommandName, ...args: unknown[]): true | string {
+    if (this.commandLog.length < 200000) this.commandLog.push([this.state.tick, name, args]);
+    return (applyCommand(this.state, name, args) ?? true) as true | string;
+  }
+
+  private clipMode = false;
   private lastBuzz = 0;
 
   /** Light haptics on Android-class devices for the big beats only. */
   private haptics(events: State['events']) {
     if (!('vibrate' in navigator) || this.settings.muted) return;
+    // Browsers refuse vibration before the first user gesture.
+    const activation = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } })
+      .userActivation;
+    if (activation && !activation.hasBeenActive) return;
     const now = performance.now();
     if (now - this.lastBuzz < 90) return;
     const big = events.find(
@@ -958,5 +978,31 @@ export class RockhopperApp {
       !this.overlay.finger &&
       !this.overlay.placing &&
       showTray;
+    if (this.clipMode) this.overlay.hintHold = this.overlay.hintDrag = false;
+  }
+
+  /** Draw a dot under every real pointer, so captured clips show what the player did. */
+  private showTouches() {
+    const dots = new Map<number, HTMLElement>();
+    const at = (e: PointerEvent) => {
+      let dot = dots.get(e.pointerId);
+      if (!dot) {
+        dot = el('div', 'rh-touch');
+        this.root.append(dot);
+        dots.set(e.pointerId, dot);
+      }
+      const r = this.root.getBoundingClientRect();
+      dot.style.transform = `translate(${e.clientX - r.left}px, ${e.clientY - r.top}px)`;
+    };
+    const up = (e: PointerEvent) => {
+      dots.get(e.pointerId)?.remove();
+      dots.delete(e.pointerId);
+    };
+    this.root.addEventListener('pointerdown', at, { capture: true });
+    this.root.addEventListener('pointermove', (e) => dots.has(e.pointerId) && at(e), {
+      capture: true,
+    });
+    this.root.addEventListener('pointerup', up, { capture: true });
+    this.root.addEventListener('pointercancel', up, { capture: true });
   }
 }

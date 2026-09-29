@@ -2,7 +2,7 @@ import {
   arrivalSeconds,
   BAR_MULTIPLIER,
   BELT_SPACING,
-  BELT_SPEED,
+  beltSpeed,
   CELL,
   CRUMBLE_AT,
   CRUMBLE_SECONDS,
@@ -35,6 +35,7 @@ import {
   smelterPrice,
   smelterTime,
   smelterUpgradeCost,
+  stackSize,
   SOCKET_GAP,
   TICK_HZ,
   TIER_ORE,
@@ -73,9 +74,10 @@ export interface Slot {
 
 export type Target = { kind: 'dock'; index: number } | { kind: 'smelter'; id: number };
 
+/** One bundle on a belt: 1–4 real chunks (or bars) travelling together. */
 export interface BeltItem {
   pos: number;
-  ore: Ore;
+  ores: Ore[];
   bar: boolean;
 }
 
@@ -109,7 +111,8 @@ export interface Smelter extends MachineBase {
   queue: Ore[];
   rr: number;
   job: { ore: Ore; left: number } | null;
-  ready: Ore | null;
+  /** Finished bars waiting for the output belt (up to one bundle). */
+  ready: Ore[];
 }
 
 export type Machine = Drill | Smelter;
@@ -557,7 +560,7 @@ export function buildSmelter(s: State, p: Point): Result {
     queue: [],
     rr: 0,
     job: null,
-    ready: null,
+    ready: [],
   };
   s.machines.push(m);
   if (!autoLink(s, m)) splice(s, m);
@@ -627,12 +630,13 @@ export function sell(s: State, id: number): Result {
   const m = byId(s, id);
   if (!m) return 'missing';
   const p = machinePos(m);
+  const onBelt = (b: Belt | null) => (b?.items ?? []).reduce((n, it) => n + it.ores.length, 0);
   let lost =
-    (m.out?.items.length ?? 0) +
-    (m.kind === 'drill' ? m.buffer.length : m.queue.length + (m.job ? 1 : 0) + (m.ready ? 1 : 0));
+    onBelt(m.out) +
+    (m.kind === 'drill' ? m.buffer.length : m.queue.length + (m.job ? 1 : 0) + m.ready.length);
   if (m.kind === 'smelter') {
     for (const input of smelterInputsOf(s, m.id)) {
-      lost += input.out!.items.length;
+      lost += onBelt(input.out);
       input.out = null;
     }
   }
@@ -798,13 +802,21 @@ function drillsTick(s: State) {
       d.cell = -1;
       continue;
     }
-    if (d.cell < 0 || !rock.cells[d.cell])
-      d.cell = nearestCell(d.slot, rock, socketPos(d.slot, d.socket));
-    if (d.cell < 0) continue;
-    rock.work[d.cell] += drillRate(d.level) * DT;
-    if (rock.work[d.cell] >= ORES[rock.cells[d.cell] as Ore].hardness - 1e-9) {
-      d.buffer.push(breakCell(s, d.slot, d.cell, 'drill'));
-      d.cell = -1;
+    // Work left over after a break carries into the next cell, so fast drills are not
+    // rounded down to one cell per tick.
+    let budget = drillRate(d.level) * DT;
+    while (budget > 1e-9 && d.buffer.length < DRILL_BUFFER && !slot.crumble) {
+      if (d.cell < 0 || !rock.cells[d.cell])
+        d.cell = nearestCell(d.slot, rock, socketPos(d.slot, d.socket));
+      if (d.cell < 0) break;
+      const need = ORES[rock.cells[d.cell] as Ore].hardness - rock.work[d.cell];
+      const use = Math.min(budget, need);
+      rock.work[d.cell] += use;
+      budget -= use;
+      if (use >= need - 1e-9) {
+        d.buffer.push(breakCell(s, d.slot, d.cell, 'drill'));
+        d.cell = -1;
+      }
     }
   }
 }
@@ -815,20 +827,20 @@ function loadBelts(s: State) {
     if (!b) continue;
     const last = b.items[b.items.length - 1];
     if (last && last.pos < BELT_SPACING) continue;
+    // Whatever is waiting leaves together, up to one bundle.
+    const k = stackSize(m.level);
     if (m.kind === 'drill' && m.buffer.length)
-      b.items.push({ pos: 0, ore: m.buffer.shift()!, bar: false });
-    else if (m.kind === 'smelter' && m.ready) {
-      b.items.push({ pos: 0, ore: m.ready, bar: true });
-      m.ready = null;
-    }
+      b.items.push({ pos: 0, ores: m.buffer.splice(0, k), bar: false });
+    else if (m.kind === 'smelter' && m.ready.length)
+      b.items.push({ pos: 0, ores: m.ready.splice(0, k), bar: true });
   }
 }
 
 function moveBelts(s: State) {
-  const step = BELT_SPEED * DT;
   for (const m of s.machines) {
     const b = m.out;
     if (!b) continue;
+    const step = beltSpeed(m.level) * DT;
     let max = b.length;
     for (const it of b.items) {
       it.pos = Math.min(it.pos + step, max);
@@ -837,19 +849,21 @@ function moveBelts(s: State) {
     const front = b.items[0];
     if (front && b.to.kind === 'dock' && front.pos >= b.length - 1e-6) {
       b.items.shift();
-      const value = ORES[front.ore].value * (front.bar ? BAR_MULTIPLIER : 1);
-      earn(s, value);
-      s.stats.delivered++;
       const p = dockPos(b.to.index);
-      s.events.push({
-        type: 'deliver',
-        x: p.x,
-        y: p.y,
-        value,
-        ore: front.ore,
-        bar: front.bar,
-        dock: b.to.index,
-      });
+      for (const ore of front.ores) {
+        const value = ORES[ore].value * (front.bar ? BAR_MULTIPLIER : 1);
+        earn(s, value);
+        s.stats.delivered++;
+        s.events.push({
+          type: 'deliver',
+          x: p.x,
+          y: p.y,
+          value,
+          ore,
+          bar: front.bar,
+          dock: b.to.index,
+        });
+      }
     }
   }
 }
@@ -863,19 +877,26 @@ function smeltersTick(s: State) {
         const b = inputs[idx].out!;
         const front = b.items[0];
         if (front && front.pos >= b.length - 1e-6) {
-          b.items.shift();
-          sm.queue.push(front.ore);
+          // Peel one chunk per tick off the front bundle.
+          sm.queue.push(front.ores.shift()!);
+          if (!front.ores.length) b.items.shift();
           sm.rr = (idx + 1) % inputs.length;
           break;
         }
       }
     }
-    if (!sm.job && !sm.ready && sm.queue.length)
-      sm.job = { ore: sm.queue.shift()!, left: smelterTime(sm.level) };
-    if (sm.job) {
-      sm.job.left -= DT;
+    // Leftover time carries into the next bar, so fast smelters are not rounded to 2 ticks a bar.
+    let budget = DT;
+    while (budget > 1e-9) {
+      if (!sm.job) {
+        if (sm.ready.length >= stackSize(sm.level) || !sm.queue.length) break;
+        sm.job = { ore: sm.queue.shift()!, left: smelterTime(sm.level) };
+      }
+      const use = Math.min(budget, sm.job.left);
+      sm.job.left -= use;
+      budget -= use;
       if (sm.job.left <= 1e-9) {
-        sm.ready = sm.job.ore;
+        sm.ready.push(sm.job.ore);
         s.stats.bars++;
         s.events.push({ type: 'smelt', id: sm.id, ore: sm.job.ore });
         sm.job = null;
@@ -924,13 +945,57 @@ export function run(s: State, ticks: number) {
 export function inTransitValue(s: State): number {
   let v = s.flights.reduce((a, f) => a + f.value, 0);
   for (const m of s.machines) {
-    for (const it of m.out?.items ?? []) v += ORES[it.ore].value * (it.bar ? BAR_MULTIPLIER : 1);
+    for (const it of m.out?.items ?? [])
+      for (const ore of it.ores) v += ORES[ore].value * (it.bar ? BAR_MULTIPLIER : 1);
     if (m.kind === 'drill') v += m.buffer.reduce((a, o) => a + ORES[o].value, 0);
     else {
       v += m.queue.reduce((a, o) => a + ORES[o].value, 0) * BAR_MULTIPLIER;
       if (m.job) v += ORES[m.job.ore].value * BAR_MULTIPLIER;
-      if (m.ready) v += ORES[m.ready].value * BAR_MULTIPLIER;
+      for (const ore of m.ready) v += ORES[ore].value * BAR_MULTIPLIER;
     }
   }
   return v;
+}
+
+// ---------------------------------------------------------------- command log
+
+/** Every player command by a stable name, so inputs can be recorded and replayed as a witness. */
+export const COMMANDS = {
+  setLaser,
+  clearLaser,
+  buildDrill,
+  buildSmelter,
+  route,
+  upgrade,
+  sell,
+  moveDrill,
+  moveSmelter,
+  unlock,
+  upgradeHub,
+} as const;
+
+export type CommandName = keyof typeof COMMANDS;
+/** [tick at which it was applied (before the next step), name, arguments]. */
+export type LoggedCommand = [number, CommandName, unknown[]];
+
+export function applyCommand(s: State, name: CommandName, args: unknown[]): unknown {
+  return (COMMANDS[name] as (s: State, ...a: unknown[]) => unknown)(s, ...args);
+}
+
+/** Re-run a command log from a fresh seed up to `untilTick`. */
+export function replay(seed: number, log: LoggedCommand[], untilTick: number): State {
+  const s = freshState(seed);
+  for (const [tick, name, args] of log) {
+    while (s.tick < tick) {
+      step(s);
+      s.events.length = 0;
+    }
+    applyCommand(s, name, args);
+    s.events.length = 0;
+  }
+  while (s.tick < untilTick) {
+    step(s);
+    s.events.length = 0;
+  }
+  return s;
 }

@@ -1,18 +1,62 @@
 /**
  * Records segment A of the Rockhopper clip: real time, fresh save, scripted touch input.
- * Requires the dev server (npm start). Writes a webm plus stills to docs/reviews/evidence/.
+ * Requires the dev server (npm start). Writes a webm, stills, a command log and a log of
+ * ticks to the output directory, then replays the command log headlessly and checks that it
+ * reproduces the captured state exactly (the uncut witness).
  *
  *   npx tsx tools/rockhopper-clip.ts [outDir]
  *
- * Disclosure: inputs are scripted (faster and more precise than a new player). Nothing is cut
- * or sped up; the simulation runs at its normal 30 Hz.
+ * Disclosure: inputs are scripted (faster and more precise than a new player) and sent as real
+ * touch events. The page runs in capture mode (?clip), which draws a dot under each real touch
+ * and hides the tutorial hands. Nothing is cut or sped up; the simulation runs at 30 Hz.
  */
-import { chromium } from '@playwright/test';
-import { mkdirSync, renameSync } from 'node:fs';
+import { chromium, type CDPSession, type Page } from '@playwright/test';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { TICK_HZ } from '../src/rockhopper/config';
+import { replay, type LoggedCommand } from '../src/rockhopper/sim';
+import { serialize } from '../src/rockhopper/save';
+import type { State } from '../src/rockhopper/sim';
 
 const out = process.argv[2] ?? 'docs/reviews/evidence';
-const url = process.env.ROCKHOPPER_URL ?? 'http://localhost:8084/?fresh';
+const url = process.env.ROCKHOPPER_URL ?? 'http://localhost:8084/?fresh&clip&seed=1';
+
+type Hook = {
+  state: State;
+  commandLog: LoggedCommand[];
+  renderer: { toScreen(p: { x: number; y: number }): { x: number; y: number } };
+};
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function touch(
+  cdp: CDPSession,
+  type: 'touchStart' | 'touchMove' | 'touchEnd',
+  x: number,
+  y: number
+) {
+  await cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1, id: 1 }],
+  });
+}
+
+/** Move a held touch from a to b over `ms` of wall time (dispatch latency is absorbed). */
+async function glide(
+  cdp: CDPSession,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  ms: number
+) {
+  const start = Date.now();
+  for (;;) {
+    const t = Math.min(1, (Date.now() - start) / ms);
+    const e = t * t * (3 - 2 * t);
+    await touch(cdp, 'touchMove', a.x + (b.x - a.x) * e, a.y + (b.y - a.y) * e);
+    if (t >= 1) return;
+    await wait(8);
+  }
+}
 
 async function main() {
   mkdirSync(out, { recursive: true });
@@ -21,71 +65,96 @@ async function main() {
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2,
     hasTouch: true,
+    isMobile: true,
     recordVideo: { dir: out, size: { width: 390, height: 844 } },
   });
-  const page = await context.newPage();
+  const page: Page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
   await page.goto(url);
   await page.waitForFunction(
     () => !!(window as unknown as { __rockhopper?: unknown }).__rockhopper
   );
-  await page.waitForTimeout(600);
-  const t0 = Date.now();
-  const log: string[] = [];
-  const note = async (what: string) => {
-    const s = await page.evaluate(() => {
-      const a = (
-        window as unknown as {
-          __rockhopper: { state: { tick: number; credits: number; machines: unknown[] } };
-        }
-      ).__rockhopper;
+  await wait(600);
+  const hook = () =>
+    page.evaluate(() => {
+      const a = (window as unknown as { __rockhopper: Hook }).__rockhopper;
       return { tick: a.state.tick, credits: a.state.credits, machines: a.state.machines.length };
     });
-    log.push(
-      `${((Date.now() - t0) / 1000).toFixed(1)}s  tick ${s.tick}  credits ${s.credits}  machines ${s.machines}  ${what}`
-    );
-  };
   const screen = (x: number, y: number) =>
     page.evaluate(
       ([x, y]) =>
-        (
-          window as unknown as {
-            __rockhopper: {
-              renderer: { toScreen(p: { x: number; y: number }): { x: number; y: number } };
-            };
-          }
-        ).__rockhopper.renderer.toScreen({ x, y }),
+        (window as unknown as { __rockhopper: Hook }).__rockhopper.renderer.toScreen({ x, y }),
       [x, y]
     );
+  const t0 = Date.now();
+  const tick0 = (await hook()).tick;
+  const log: string[] = [];
+  const note = async (what: string) => {
+    const s = await hook();
+    const wall = (Date.now() - t0) / 1000;
+    const sim = (s.tick - tick0) / TICK_HZ;
+    log.push(
+      `${wall.toFixed(2)}s wall  tick ${s.tick} (${sim.toFixed(2)}s sim)  credits ${s.credits}  machines ${s.machines}  ${what}`
+    );
+  };
   await note('start (fresh save)');
-  // 0–5 s: hold the rock and sweep slowly.
+
+  // 0–5 s: hold the rock and sweep slowly across it.
   const rock = await screen(0, -230);
-  await page.mouse.move(rock.x + 18, rock.y + 34);
-  await page.mouse.down();
-  for (let i = 0; i < 40; i++) {
-    await page.mouse.move(rock.x + 18 - i * 0.9, rock.y + 34 - i * 0.6);
-    await page.waitForTimeout(100);
-  }
-  await page.mouse.up();
-  await note('released after hand mining');
+  const a = { x: rock.x + 18, y: rock.y + 34 };
+  await touch(cdp, 'touchStart', a.x, a.y);
+  await note('touch down on the rock');
+  const sweepTo = { x: rock.x - 20, y: rock.y + 10 };
+  await glide(cdp, a, { x: (a.x + sweepTo.x) / 2, y: (a.y + sweepTo.y) / 2 }, 2000);
+  await page.screenshot({ path: path.join(out, 'rockhopper-clip-02s-holding.png') });
+  await glide(cdp, { x: (a.x + sweepTo.x) / 2, y: (a.y + sweepTo.y) / 2 }, sweepTo, 2000);
+  await touch(cdp, 'touchEnd', 0, 0);
+  await note('lifted after hand mining');
   await page.screenshot({ path: path.join(out, 'rockhopper-clip-04s.png') });
-  // 5–10 s: drag the drill from the tray onto the rock.
+
+  // 5–10 s: drag the drill from the tray onto the rock, slowly enough to follow.
   const btn = (await page.locator('.rh-tool[data-kind=drill]').boundingBox())!;
   const sock = await screen(0, -230 + 78);
-  await page.mouse.move(btn.x + btn.width / 2, btn.y + btn.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(sock.x, sock.y + 30, { steps: 14 });
-  await page.mouse.up();
+  const from = { x: btn.x + btn.width / 2, y: btn.y + btn.height / 2 };
+  await touch(cdp, 'touchStart', from.x, from.y);
+  await wait(120);
+  const mid = { x: (from.x + sock.x) / 2, y: (from.y + sock.y + 30) / 2 };
+  await glide(cdp, from, mid, 425);
+  await page.screenshot({ path: path.join(out, 'rockhopper-clip-05s-dragging.png') });
+  await glide(cdp, mid, { x: sock.x, y: sock.y + 30 }, 425);
+  await wait(150);
+  await touch(cdp, 'touchEnd', 0, 0);
   await note('drill dropped');
-  await page.waitForTimeout(1500);
+  await wait(1500);
   await page.screenshot({ path: path.join(out, 'rockhopper-clip-07s.png') });
-  await page.waitForTimeout(3500);
+  await wait(3300);
   await note('hands off');
   await page.screenshot({ path: path.join(out, 'rockhopper-clip-10s.png') });
+
+  // Witness: capture the command log and state atomically, then replay it headlessly.
+  const final = await page.evaluate(() => {
+    const a = (window as unknown as { __rockhopper: Hook }).__rockhopper;
+    return { state: JSON.parse(JSON.stringify(a.state)) as State, log: a.commandLog };
+  });
   const video = page.video();
   await context.close();
   await browser.close();
   if (video) renameSync(await video.path(), path.join(out, 'rockhopper-clip-segment-a.webm'));
+  final.state.events = [];
+  const again = replay(final.state.seed, final.log, final.state.tick);
+  const same = serialize(again) === serialize(final.state);
+  const wall = (Date.now() - t0) / 1000;
+  log.push(
+    `witness replay of ${final.log.length} commands to tick ${final.state.tick}: ${same ? 'IDENTICAL' : 'DIFFERENT'}`
+  );
+  writeFileSync(
+    path.join(out, 'rockhopper-clip-segment-a.commands.json'),
+    JSON.stringify(final.log)
+  );
+  writeFileSync(path.join(out, 'rockhopper-clip-segment-a.log.txt'), log.join('\n') + '\n');
   console.log(log.join('\n'));
+  console.log(`(wall clock including teardown ${wall.toFixed(1)} s)`);
+  if (!same) process.exitCode = 1;
 }
 
 void main();
