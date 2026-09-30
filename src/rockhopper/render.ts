@@ -71,7 +71,13 @@ export interface Overlay {
       | null;
     moving?: number;
   } | null;
-  reroute: { id: number; at: Point; target: Target | null } | null;
+  reroute: {
+    id: number;
+    at: Point;
+    target: Target | null;
+    /** The target under the finger refuses the link, and why (drawn as a label over it). */
+    refused?: (Point & { why: string }) | null;
+  } | null;
   selected: number | 'hub' | null;
   /** Screen point of the drill tray button (for the drag hint). */
   trayDrill: Point | null;
@@ -1014,7 +1020,10 @@ export class Renderer {
     const drawn: Point[] = [];
     for (const { p } of hot) {
       const q = this.toScreen({ x: p.x, y: p.y - 17 });
-      if (drawn.some((d) => Math.hypot(d.x - q.x, d.y - q.y) < size + 2)) continue;
+      // Two chip widths apart, so a knot shows a few separate chips rather than a tiled column.
+      if (drawn.some((d) => Math.hypot(d.x - q.x, d.y - q.y) < size * 2)) continue;
+      // Never over the teaching label under the counter.
+      if (o.hintCross && q.y < 190) continue;
       drawn.push(q);
       c.save();
       c.translate(q.x, q.y);
@@ -1471,6 +1480,35 @@ export class Renderer {
     c.restore();
   }
 
+  private rimCache = { key: '', rooms: new Map<number, boolean[]>() };
+
+  /**
+   * Which of `n` arcs of a rock's rim have room for a drill, cached until a machine, link or the
+   * switch changes: with lanes, each check walks every belt, so per-frame checks cost a phone
+   * frames while a drill is dragged.
+   */
+  private rimRoom(s: State, slot: number, n: number, moving?: number): boolean[] {
+    const key =
+      `${moving}:${s.crossings}:${s.docks}:` +
+      s.machines
+        .map((m) => {
+          const at = m.kind === 'drill' ? `${m.slot},${m.angle}` : `${m.x},${m.y}`;
+          const to = m.out ? JSON.stringify(m.out.to) : '-';
+          return `${m.id}@${at}>${to}`;
+        })
+        .join(';') +
+      `:${s.slots.map((x) => (x.unlocked ? 1 : 0)).join('')}`;
+    if (key !== this.rimCache.key) this.rimCache = { key, rooms: new Map() };
+    let room = this.rimCache.rooms.get(slot);
+    if (!room) {
+      room = [];
+      for (let k = 0; k < n; k++)
+        room.push(!drillSpotWhy(s, slot, (k / n) * 2 * Math.PI + Math.PI / n, moving));
+      this.rimCache.rooms.set(slot, room);
+    }
+    return room;
+  }
+
   private drawOverlay(c: Ctx, s: State, o: Overlay) {
     const z = this.cam.z;
     if (o.placing) {
@@ -1485,10 +1523,11 @@ export class Renderer {
           c.lineDashOffset = -this.time * 12;
           // Only the arcs with room glow: a crowded stretch of rim goes dark.
           const n = 120;
+          const room = this.rimRoom(s, i, n, o.placing!.moving);
           c.beginPath();
           for (let k = 0; k < n; k++) {
             const a0 = (k / n) * 2 * Math.PI;
-            if (drillSpotWhy(s, i, a0 + Math.PI / n, o.placing!.moving)) continue;
+            if (!room[k]) continue;
             c.moveTo(def.x + Math.cos(a0) * rimRadius(i), def.y + Math.sin(a0) * rimRadius(i));
             c.arc(def.x, def.y, rimRadius(i), a0, a0 + (2 * Math.PI) / n);
           }
@@ -1545,6 +1584,8 @@ export class Renderer {
         c.lineTo(b.x, b.y);
         c.stroke();
         c.restore();
+        const r = o.reroute.refused;
+        if (r) this.refusals.push({ x: r.x, y: r.y + (36 * Math.max(1, z)) / z, why: r.why });
       }
     }
   }

@@ -1,6 +1,6 @@
 # Rockhopper: belt crossings (proposal, 2026-09-30)
 
-Status: **revision 4, pending round-4 check of the round-3 conditions** (the user chose the full AGENTS.md process for this feature). It is prototyped on this branch behind a switch, so the reviewers' evidence could be measured; it is not adopted until it passes. Rounds 1–3 are recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
+Status: **revision 5, built behind a switch for the user's playtest** (round 4 passed every rule; revision 5 fixes the clip and the play-through findings) (the user chose the full AGENTS.md process for this feature). It is prototyped on this branch behind a switch, so the reviewers' evidence could be measured; it is not adopted until it passes. Rounds 1–4 are recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
 
 ## Why
 
@@ -16,6 +16,17 @@ What the build does today (observed in code):
 Evidence of current layouts (greedy bot, seeds 1–3, measured with a scratch probe; a bot is tidier than a person because it keeps the old socket spots and nearest docks): 0 true crossings at 6 min, 1 at 12 min, 2–3 at 20 min, among 8/15/21 belts. The [developed 12-minute still](reviews/evidence/rockhopper-logistics-developed-12min.png) shows the visual mess is mostly belts converging and overlapping near the hub and passing under smelters, more than clean X crossings.
 
 **Decision already made with the user:** no hand-drawn belts (rejected in `ROCKHOPPER_LOGISTICS.md`: fiddly on a phone). The layer has to come from making the existing free rearranging matter.
+
+## Revision 5 (after round-4 review and the play-through check)
+
+Round 4 passed C1–C3 and C5–C8, passed C4 on a condition (chips tiled edge to edge at the hub) and sent the clip back as minor: the save was legal, but B1 and B2 didn't describe it. A scripted play-through at 390 px (Playwright, headless, not a phone) found silent refusals and a costly preview. Revision 5:
+
+- **Clip, rewritten around the save.** See [Clip scenario (revision 5)](#clip-scenario-revision-5). Logged by `tools/rockhopper-crossings-save.ts` ([log](reviews/evidence/rockhopper-crossings-clip-save.log.txt)): as saved, 11 plates and **195/s with crossings on vs 271/s off**; after three legal re-routes, **2 plates and 264/s**.
+- **C4.** Chips keep two chip widths apart, so a knot shows a few separate chips, and never draw over the teaching label. The ring the hint points to stays on the same plate while it stays hot.
+- **Refusals say why.** Dragging a link over a target whose belt would run under a machine now shows "belt blocked" over it (it used to silently not snap, and release did nothing) and denies on release ([screenshot](reviews/evidence/rockhopper-crossings-reroute-refused.png)). A splice that lanes refuse says "belt blocked" instead of "no room here" or the untrue "already smelted".
+- **Moves stay on the rock under the finger.** `nearestRim` only looks at the nearest rim; a refused spot shows its reason instead of the ghost jumping to a neighbouring rock (which would mine different ore) ([screenshot](reviews/evidence/rockhopper-crossings-move-refused.png)).
+- **Placement preview cost.** The rim glow's room checks are cached until a machine, link, dock count or the switch changes; the reviewer measured about 10 ms per frame at 25 machines while dragging a drill, before the cache.
+- **Recorded, not changed.** Moving a smelter in a developed factory is refused at most open spots (63 % "belt blocked" in the prepared save), so re-routing and drill moves are the main untangling tools. The stress tool's still-bundle check is a backstop behind the 4 s wait check (it caught nothing extra when the round-2 lock was put back), and it doesn't check that a dock is actually refusing.
 
 ## Revision 4 (after round-3 review)
 
@@ -78,7 +89,15 @@ Round 1 sent C1–C5, C7 and the clip back (C6 passed on condition of a screensh
 - **Tests** (`tests/rockhopper-crossings.test.ts`): half each at three angles; no loss at 3/s and none when switched off; widening doubles chunks; a trickle crossing a saturated stream still gets through at its rate, with no bundle waiting 20 ticks; 12 scrambled random factories (at least 3 plates each) run 120 s with no bundle waiting 4 s and deliveries flowing; shared-machine inputs never cross; lane refusals ("on a belt", "belt blocked") and the switch; save round-trip mid-wait, the old-save notice and the switch.
 - **Screenshots at 390 px** (superseded by revision 4's, taken from a save a player could build; these came from a bot save with its docks reversed): [hint](reviews/evidence/rockhopper-crossings-tangled-hint.png), [bubble](reviews/evidence/rockhopper-crossings-bubble.png), [old-save notice](reviews/evidence/rockhopper-crossings-notice.png).
 
-## Clip scenario (revision 2)
+## Clip scenario (revision 5)
+
+- **A, 0–10 s** (fresh save, real time): unchanged. A fresh factory has no crossings, since auto-link avoids them.
+- **B, 10–30 s** (disclosed cut to a **prepared developed save**, [the one `tools/rockhopper-crossings-save.ts` builds](reviews/evidence/rockhopper-crossings-prepared-save.json): a bot factory at 12 minutes with its dock links shuffled, every link still buildable; the headless log is the uncut record):
+  - **B1.** Six belts knot above the hub: 11 plates, most showing ⇄, bundles queued at their edges, and the hint "Crossed belts take turns (ringed)". Income is 195/s where the same layout earns 271/s with crossings off.
+  - **B2.** The player re-routes three links: drill 10 onto smelter 13 (a temporary junction), smelter 9 onto the dock drill 10 freed, then drill 10 onto dock 4. Each is a drag the game accepts. The knot drops to 2 plates and income settles at 264/s. All docks are in use, so the temporary junction is how a player frees one.
+  - **B3.** The next decision: widen a trunk now that it runs clean, or chase the last 2 plates.
+
+## Clip scenario (revision 2, superseded)
 
 - **A, 0–10 s** (fresh save, real time): unchanged. A fresh factory has no crossings, since auto-link avoids them.
 - **B, 10–30 s** (disclosed cut to a **prepared developed save**: from revision 4, the one `tools/rockhopper-crossings-save.ts` builds, a bot factory whose dock links are shuffled with every link still buildable; the headless witness is the uncut record):
@@ -114,5 +133,5 @@ Round 1 sent C1–C5, C7 and the clip back (C6 passed on condition of a screensh
 
 ## Open
 
-- The human playtest at 390 px: are plates and ⇄ read as the cause of a slowdown (including at the hub, where one chip speaks for a knot), does untangling feel like skill or a one-time sort (the bot's own layout sits within 3 % of the tidy one; the gap shows only against careless play), and does "belt blocked" frustrate placement (it refuses about 37 % of machine-to-machine link targets)?
+- The human playtest at 390 px: are plates and ⇄ read as the cause of a slowdown (including at the hub, where one chip speaks for a knot), does untangling feel like skill or a one-time sort (the bot's own layout sits within 3 % of the tidy one; the gap shows only against careless play), and does "belt blocked" frustrate placement (it refuses about 37 % of machine-to-machine link targets, and most smelter moves in a developed factory)? Frame rate on a real phone while dragging a drill in a developed save.
 - Whether clear lanes (C8) make some slots hard to link as factories grow (measure how often the bot hits "belt blocked").

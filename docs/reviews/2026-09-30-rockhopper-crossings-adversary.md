@@ -75,3 +75,23 @@ The reviewer reproduced the tests and the witness, then wrote its own generator 
 Conditions: lane-check spliced belts, with a test; build B1's save as a legal shuffle and label it prepared; draw the ⇄ chips above pops, with a hub screenshot; add a still-bundle check to the stress tool; fix the C1 wording; record that the switch lets links under machines survive. Open for the playtest: skill or one-time sort (the bot's own layout sits within 3 % of tidy), whether refusing about 37 % of link targets frustrates, whether ⇄ reads at the hub.
 
 Resolution (revision 4): see the design doc.
+
+## Round 4: revision 4, plus a play-through check
+
+The reviewer re-ran the tests, reproduced the prepared save, probed splices (400 random factories, half with grandfathered links; 669 splices up to 42 u off the belt: 0 new belts under a machine, 106 with the check removed), put the round-2 lock back to test the stress tool's new check, and played the build with Playwright at 390 px (headless, not a phone).
+
+| #    | Verdict            | Main finding                                                                                                                                                                                               |
+| ---- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1   | PASS               | Wording now correct.                                                                                                                                                                                       |
+| C2   | PASS               | The still-bundle check flags the reinstated lock (9 of 11 runs the wait check flags); the plate-gap allowance hides nothing. It is a backstop, not a new detector.                                         |
+| C3   | PASS               | No regressions.                                                                                                                                                                                            |
+| C4   | PASS (conditional) | Chips are above pops but tile edge to edge at the hub (4–8 in a column), and one drew over the teaching label.                                                                                             |
+| C5   | PASS               | No regressions.                                                                                                                                                                                            |
+| C6   | PASS               | The notice clears after 8 s; the switch survives reload.                                                                                                                                                   |
+| C7   | PASS               | No regressions.                                                                                                                                                                                            |
+| C8   | PASS               | Splices lane-checked. The UI's splice refusal said "no room here" or "already smelted", never "belt blocked".                                                                                              |
+| Clip | REVISE (minor)     | The save is legal, but it holds a hub knot, not B1's trunk X; B2's drill move doesn't help in it (best: 1 plate less, ±2 %). Three re-routes through a temporary junction do: +41 % in the reviewer's run. |
+
+Play-through findings: re-routing onto a lane-blocked target was silent (no snap, nothing on release); a Move could jump the drill to a neighbouring rock instead of saying "belt blocked"; smelter moves are refused at 63 % of open spots in a developed factory; misleading splice refusal text; the rim glow cost about 10 ms per frame at 25 machines while dragging a drill; the hint's ring could hop between plates. No save/load or switch bugs, no console errors.
+
+Resolution (revision 5): see the design doc.

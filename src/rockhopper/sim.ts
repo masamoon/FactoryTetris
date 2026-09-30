@@ -826,36 +826,32 @@ export interface RimSpot {
  * rock; the game only finds the footing. With no legal spot near, it names the nearest refusal.
  */
 export function nearestRim(s: State, p: Point, maxDist: number, except?: number): RimSpot | null {
-  let best: RimSpot | null = null,
-    bestD = Infinity,
-    refused: RimSpot | null = null,
-    refusedD = maxDist;
+  // Only the rock whose rim is nearest the finger: a refused spot names its reason rather than
+  // jumping the ghost to a neighbouring rock (which would mine different ore).
+  let slot = -1,
+    off = maxDist;
   SLOTS.forEach((def, i) => {
     if (!s.slots[i].unlocked) return;
-    const R = rimRadius(i);
-    const off = Math.abs(Math.hypot(p.x - def.x, p.y - def.y) - R);
-    if (off > maxDist) return;
-    const a0 = normAngle(Math.atan2(p.y - def.y, p.x - def.x));
-    const step = 2 / R;
-    const reach = DRILL_SPACING / R;
-    for (let d = 0; d <= reach; d += step) {
-      for (const dir of d ? [1, -1] : [1]) {
-        const a = normAngle(a0 + dir * d);
-        const q = rimPos(i, a);
-        const dist = Math.hypot(q.x - p.x, q.y - p.y);
-        if (dist >= bestD) continue;
-        const why = drillSpotWhy(s, i, a, except);
-        if (!why) {
-          bestD = dist;
-          best = { slot: i, angle: a, why };
-        } else if (d === 0 && off < refusedD) {
-          refusedD = off;
-          refused = { slot: i, angle: a, why };
-        }
-      }
-    }
+    const d = Math.abs(Math.hypot(p.x - def.x, p.y - def.y) - rimRadius(i));
+    if (d <= off) [slot, off] = [i, d];
   });
-  return best ?? refused;
+  if (slot < 0) return null;
+  const def = SLOTS[slot];
+  const R = rimRadius(slot);
+  const a0 = normAngle(Math.atan2(p.y - def.y, p.x - def.x));
+  const step = 2 / R;
+  const reach = DRILL_SPACING / R;
+  let refused: RimSpot | null = null;
+  for (let d = 0; d <= reach; d += step) {
+    for (const dir of d ? [1, -1] : [1]) {
+      const a = normAngle(a0 + dir * d);
+      const why = drillSpotWhy(s, slot, a, except);
+      // Sliding outward, the first legal spot is the nearest one.
+      if (!why) return { slot, angle: a, why };
+      if (d === 0) refused = { slot, angle: a, why };
+    }
+  }
+  return refused;
 }
 
 export function smelterSpotOk(
@@ -936,7 +932,7 @@ export function canSplice(
 }
 
 /** Would either belt a splice at `p` leaves (owner → smelter, smelter → old target) pass under a machine? */
-function spliceLanesBlocked(s: State, owner: Machine, sm: Smelter | null, p: Point) {
+export function spliceLanesBlocked(s: State, owner: Machine, sm: Smelter | null, p: Point) {
   const old = owner.out!.to;
   const q = targetPos(s, old);
   if (!q) return false;

@@ -6,15 +6,20 @@
  *   npx tsx tools/rockhopper-crossings-save.ts [outFile] [oldOutFile]
  *
  * `oldOutFile` is the same save with the crossings field dropped, as a save from before crossings.
+ * It then logs clip B2 on that save: income as saved (crossings on and off), then after the
+ * three re-routes that untangle the hub knot through a temporary junction.
  */
 import { writeFileSync } from 'node:fs';
 import { runBot } from './rockhopper-bot';
+import { TICK_HZ } from '../src/rockhopper/config';
 import {
   canTarget,
   crossingsOf,
   dockPos,
   machinePos,
   relayout,
+  route,
+  run,
   type State,
 } from '../src/rockhopper/sim';
 import { deserialize, serialize } from '../src/rockhopper/save';
@@ -68,4 +73,29 @@ if (process.argv[3]) {
 }
 console.log(
   `bot seed 1 at 12 min; ${ok} of ${tried} shuffles buildable under C8; shuffle ${bestSeed}: ${bestPlates} plates, every link passes canTarget -> ${out}`
+);
+
+/** Credits per second over 120 s, after 15 s to settle. */
+function income(s0: State, on = true) {
+  const s = clone(s0);
+  s.crossings = on;
+  run(s, 15 * TICK_HZ);
+  const e0 = s.earned;
+  run(s, 120 * TICK_HZ);
+  return (s.earned - e0) / 120;
+}
+const on = income(best),
+  off = income(best, false);
+console.log(`B1 as saved: ${bestPlates} plates, ${on.toFixed(0)}/s on vs ${off.toFixed(0)}/s off`);
+// B2: drill 10 hands its dock to smelter 9 by joining smelter 13 for a moment, then takes dock 4.
+const b2 = clone(best);
+const steps: [number, Parameters<typeof route>[2]][] = [
+  [10, { kind: 'smelter', id: 13 }],
+  [9, { kind: 'dock', index: 5 }],
+  [10, { kind: 'dock', index: 4 }],
+];
+const done = steps.map(([id, t]) => route(b2, id, t));
+console.log(
+  `B2 re-routes ${done.every((x) => x === true) ? 'all legal' : `refused: ${done.join(',')}`}: ` +
+    `${crossingsOf(b2).plates.length} plates, ${income(b2).toFixed(0)}/s on`
 );
