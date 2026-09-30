@@ -116,3 +116,77 @@ Round 2 passed L5, L6 and P1, and accepted a PASS scoped to an experiment once t
 - **Hand-drawn polyline belts** are rejected: fiddly on a phone, and straight links already read well.
 - **Charging per unit of belt length** is rejected: it makes experimenting costly (see L6).
 - **Ore-specific recipes and alloys** are deferred: too much at once.
+
+## As implemented (PR #14, fixed in PR #15)
+
+Where this section and the revisions above disagree, this section wins.
+
+### Numbers
+
+| Quantity                  | Value                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Belt capacity             | 7.5 / 15 / 22.5 / 30 chunks/s by tier (not 8.5/17/25/34). A belt loads at most every 4 ticks, whatever its length. |
+| Level-1 smelter           | 0.23 s per bar, taking in about 8.7 chunks/s                                                                       |
+| Max-level drill (T1 rock) | about 29 chunks/s, which fits a tier-4 belt                                                                        |
+| Widen price               | 90 × 1.7^(tier steps bought and owned)                                                                             |
+| Smelter price             | 520 × 2^n                                                                                                          |
+| T1 slot prices            | 0 / 700 / 3000                                                                                                     |
+| T2 slot prices            | 15k / 40k                                                                                                          |
+
+### Layout and placement
+
+- **Slot heights:** T1 −270, T2 −490, T3 −750, T4 −1010. The tiers moved up to leave a yard for smelters between the T1 rocks and the hub.
+- **Smelter clearances:**
+  - rock radius + smelter radius + 2 u;
+  - every socket, free or not, reserved for a drill;
+  - hub: dock radius + smelter radius + 6 u;
+  - a splice must leave a feed belt of at least 17 u.
+- **Snapping:**
+  - Within max(8 u, 12 px/zoom) of a belt, the ghost snaps to it and slides up to one smelter width to a legal spot.
+  - A belt that can't take a smelter refuses the drop with a reason, shown above the ghost.
+
+### Bottleneck signals
+
+| Signal                       | Meaning and rule                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| "full" (pile-of-chunks chip) | Sampled at each load chance (bundle full, items still waiting), smoothed with hysteresis. Never blamed on a belt held downstream. |
+| "‖" (blocked)                | A smelter refused intake because its queue was full.                                                                              |
+| Frozen dashes                | The front has waited about 0.4 s.                                                                                                 |
+| Drill piles                  | Show for 0.6 s after a stall.                                                                                                     |
+
+### Pacing (greedy bot; an upper bound, not human evidence; seeds 1–3)
+
+| Beat              | Time        |
+| ----------------- | ----------- |
+| First smelter     | 1:35–1:37   |
+| First drill chain | about 2:41  |
+| T1 fully unlocked | 6:49–6:51   |
+| T2                | 11:30–11:39 |
+
+The bot builds 6–10 raw drill chains by 13–20 minutes, and 6–7 smelters and 7 docks by 20 minutes.
+
+### Segment B witness
+
+[`rockhopper-clip-segment-b-witness.log.txt`](reviews/evidence/rockhopper-clip-segment-b-witness.log.txt), from `npx tsx tools/rockhopper-clip-b.ts`:
+
+- **B1** runs at 7.3 chunks/s on a 7.5 cap. Only the junction shows "full".
+- **B2** widening lifts it to 12–14 chunks/s before the T2 rock crumbles, which is logged as depletion.
+- **B3** splicing a smelter gives ×2.8 credits/s with half as many items.
+
+The live capture of segment B is still to do. Stills (developed saves from the bot, labelled):
+
+- [developed at 12 min](reviews/evidence/rockhopper-logistics-developed-12min.png)
+- [hologram](reviews/evidence/rockhopper-logistics-placing-12min.png)
+- [landed](reviews/evidence/rockhopper-logistics-landed-12min.png)
+- [bubble](reviews/evidence/rockhopper-logistics-bubble-12min.png)
+- [first splice](reviews/evidence/rockhopper-logistics-first-splice-hologram.png)
+
+### Undoing the experiment
+
+The pre-logistics save is never written. `?restore=pre-logistics` re-migrates it, once. Rolling the build back finds it untouched.
+
+### Open
+
+- The human playtest at 390 px (the user).
+- Free drill placement (requested by the user after the merge; not designed yet).
+- The geometry-has-no-cost critique from round 4.

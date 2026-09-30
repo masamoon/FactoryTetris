@@ -7,7 +7,7 @@ import {
   SMELTER_MAX_LEVEL,
   SMELTER_QUEUE,
 } from './config';
-import { freshState, type Rock, type State } from './sim';
+import { freshState, relayout, smelterSpotOk, type Rock, type State } from './sim';
 
 /**
  * The logistics experiment saves under its own key and never writes or deletes the v1 key, so
@@ -117,8 +117,11 @@ export function deserialize(text: string): State | null {
       m.tier = Math.min(Math.round(m.tier), BELT_TIER_MAX);
       m.tierBought = isNum(m.tierBought) ? Math.max(0, Math.min(m.tierBought, m.tier - 1)) : 0;
       m.rr = isNum(m.rr) ? Math.max(0, Math.floor(m.rr)) : 0;
-      m.fullT = isNum(m.fullT) ? m.fullT : 0;
+      m.fullT = isNum(m.fullT) ? Math.max(0, Math.min(1, m.fullT)) : 0;
       m.full = !!m.full;
+      m.cd = isNum(m.cd) ? Math.max(0, Math.floor(m.cd)) : 0;
+      m.wait = isNum(m.wait) ? Math.max(0, Math.floor(m.wait)) : 0;
+      m.heldAgo = isNum(m.heldAgo) ? Math.max(0, Math.floor(m.heldAgo)) : 30;
       if (m.kind === 'drill') {
         const def = SLOTS[m.slot];
         if (!def || !Number.isInteger(m.socket) || m.socket < 0 || m.socket >= def.sockets)
@@ -148,7 +151,7 @@ export function deserialize(text: string): State | null {
         if (m.job && (!isOre(m.job.ore) || !isNum(m.job.left))) return null;
         if (m.job) m.job.pair = !!m.job.pair;
         m.idle = isNum(m.idle) ? m.idle : 0;
-        m.jamT = isNum(m.jamT) ? m.jamT : 0;
+        m.jamT = isNum(m.jamT) ? Math.max(0, Math.min(1, m.jamT)) : 0;
         m.jam = !!m.jam;
       }
       for (const it of m.out?.items ?? []) {
@@ -180,10 +183,36 @@ export function deserialize(text: string): State | null {
       }
       ids.add(m.id);
     }
+    if (legacy) {
+      // The logistics build moved the tiers up: a smelter from an old save may now sit inside
+      // a rock or on a socket. Move it to the nearest legal spot, then fit every belt again.
+      for (const m of state.machines) {
+        if (m.kind !== 'smelter' || smelterSpotOk(state, m, m.id)) continue;
+        const spot = nearestLegal(state, m.x, m.y, m.id);
+        if (spot) {
+          m.x = spot.x;
+          m.y = spot.y;
+        }
+      }
+      relayout(state);
+    }
     return state;
   } catch {
     return null;
   }
+}
+
+/** The legal smelter spot nearest to (x, y), on rings of growing radius. */
+function nearestLegal(s: State, x: number, y: number, except: number) {
+  for (let r = 6; r <= 400; r += 6) {
+    const n = Math.max(8, Math.round((2 * Math.PI * r) / 6));
+    for (let k = 0; k < n; k++) {
+      const a = (2 * Math.PI * k) / n;
+      const p = { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r };
+      if (smelterSpotOk(s, p, except)) return p;
+    }
+  }
+  return null;
 }
 
 export interface Settings {

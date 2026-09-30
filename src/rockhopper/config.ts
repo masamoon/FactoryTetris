@@ -48,8 +48,8 @@ export interface SlotDef {
 export const SLOTS: readonly SlotDef[] = [
   { tier: 1, x: 0, y: -270, r: 6, signature: COPPER, price: 0, sockets: 3 },
   { tier: 1, x: -170, y: -270, r: 6, signature: COPPER, price: 700, sockets: 3 },
-  { tier: 1, x: 170, y: -270, r: 6, signature: ICE, price: 3600, sockets: 3 },
-  { tier: 2, x: -150, y: -490, r: 8, signature: ICE, price: 18000, sockets: 4 },
+  { tier: 1, x: 170, y: -270, r: 6, signature: ICE, price: 3000, sockets: 3 },
+  { tier: 2, x: -150, y: -490, r: 8, signature: ICE, price: 15000, sockets: 4 },
   { tier: 2, x: 150, y: -490, r: 8, signature: GOLD, price: 40000, sockets: 4 },
   { tier: 3, x: -170, y: -750, r: 10, signature: GOLD, price: 160000, sockets: 5 },
   { tier: 3, x: 170, y: -750, r: 10, signature: CRYSTAL, price: 360000, sockets: 5 },

@@ -179,10 +179,13 @@ function act(s: State, mark: (l: string) => void) {
       run: () => buildSmelter(s, spliceSpot(s, line)!, line.id),
     });
   }
+  // Widen only a belt that stays saturated (a drill briefly outrunning its belt in soft rock
+  // doesn't count), scaled by how much is waiting behind it.
   for (const m of saturated) {
     const c = widenPrice(s, m);
-    if (c !== null)
-      options.push({ cost: c, score: 2.2 / c, label: 'widen', run: () => widen(s, m.id) });
+    if (c === null || m.fullT < 0.85) continue;
+    const behind = 1 + inputsOf(s, m.id).length;
+    options.push({ cost: c, score: (0.9 * behind) / c, label: 'widen', run: () => widen(s, m.id) });
   }
   const dc = hubCost(s, 'docks');
   const docksFull = s.machines.filter((m) => m.out?.to.kind === 'dock').length >= s.docks;

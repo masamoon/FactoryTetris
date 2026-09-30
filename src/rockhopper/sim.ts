@@ -117,9 +117,15 @@ interface MachineBase {
   tierBought: number;
   /** Zipper pointer: the next source to load from (own stock first, then inputs by id). */
   rr: number;
-  /** Seconds of sustained "can't load fast enough" (0–1.5) and its hysteresis flag. */
+  /** Smoothed share of load chances that left items waiting with the bundle full, and its flag. */
   fullT: number;
   full: boolean;
+  /** Ticks until the belt may load again: capacity never depends on the belt's length. */
+  cd: number;
+  /** Consecutive ticks the belt's front has waited at a downstream machine. */
+  wait: number;
+  /** Ticks since the belt's front last waited at a downstream machine (capped). */
+  heldAgo: number;
 }
 
 export interface Drill extends MachineBase {
@@ -141,7 +147,7 @@ export interface Smelter extends MachineBase {
   ready: Bar[];
   /** Ticks since the last intake: a lone chunk left without a pair is smelted alone. */
   idle: number;
-  /** Seconds of sustained "inputs waiting because the queue is full" and its flag. */
+  /** Smoothed share of ticks an input was refused because the queue was full, and its flag. */
   jamT: number;
   jam: boolean;
 }
@@ -523,13 +529,19 @@ function relinkAll(s: State) {
 }
 
 /** Recompute belt lengths after a change; items keep their relative place. */
-function relayout(s: State) {
+export function relayout(s: State) {
   for (const m of s.machines) {
     if (!m.out) continue;
     const next = beltLength(s, m);
     if (Math.abs(next - m.out.length) < 1e-6) continue;
     const k = next / m.out.length;
-    for (const it of m.out.items) it.pos = Math.min(next, it.pos * k);
+    // Items keep their order and relative place, clamped onto the belt (never behind its start).
+    // A shortened belt may bunch them up; they spread out again as the front moves.
+    let max = next;
+    for (const it of m.out.items) {
+      it.pos = Math.max(0, Math.min(max, it.pos * k));
+      max = it.pos;
+    }
     m.out.length = next;
   }
 }
@@ -588,6 +600,11 @@ export function smelterSpotOk(s: State, p: Point, except?: number): boolean {
     const d = SLOTS[i];
     if (!slotVisible(s, i)) continue;
     if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + SMELTER_RADIUS + 2) return false;
+    // Every socket is reserved for a drill, built or not, so a drill never lands in a smelter.
+    for (let k = 0; k < d.sockets; k++) {
+      const q = socketPos(i, k);
+      if (Math.hypot(p.x - q.x, p.y - q.y) < SMELTER_RADIUS + DRILL_RADIUS * 0.7) return false;
+    }
   }
   for (const m of s.machines) {
     if (m.id === except) continue;
@@ -600,17 +617,29 @@ export function smelterSpotOk(s: State, p: Point, except?: number): boolean {
 
 /** The simulation's own splice check: generous, since the UI snaps within screen tolerances. */
 export const SPLICE_REACH = 40;
+/** Shortest belt a splice may leave between the owner and the smelter. */
+export const MIN_FEED = BELT_SPACING + 4;
 
 /**
  * Can smelter `sm` (or a new one, `null`) be put into `owner`'s belt near `p`? The owner must be
  * a drill (a smelter never feeds a smelter), its target must accept a smelter, and no loop.
  */
-export function canSplice(s: State, owner: Machine | undefined, sm: Smelter | null, p: Point) {
+export function canSplice(
+  s: State,
+  owner: Machine | undefined,
+  sm: Smelter | null,
+  p: Point,
+  anywhere = false
+) {
   if (!owner?.out || owner.kind !== 'drill') return false;
   const old = owner.out.to;
   if (old.kind === 'smelter') return false;
   const b = beltDistance(s, owner, p);
   if (!b || b.d > SPLICE_REACH) return false;
+  // The owner's shortened belt must still hold a bundle and its spacing.
+  const e = beltEnds(s, owner)!;
+  const feed = Math.hypot(p.x - e.a.x, p.y - e.a.y) - SMELTER_RADIUS * 0.8;
+  if (!anywhere && feed < MIN_FEED) return false;
   if (sm) {
     if (sm.out || owner.id === sm.id) return false;
     if (inputsOf(s, sm.id).length >= inputCap(sm)) return false;
@@ -625,7 +654,16 @@ function pay(s: State, cost: number): boolean {
   return true;
 }
 
-const base = () => ({ tier: 1, tierBought: 0, rr: 0, fullT: 0, full: false });
+const base = () => ({
+  tier: 1,
+  tierBought: 0,
+  rr: 0,
+  fullT: 0,
+  full: false,
+  cd: 0,
+  wait: 0,
+  heldAgo: HELD_WINDOW,
+});
 
 export function buildDrill(s: State, slot: number, socket: number): Result {
   if (!s.slots[slot]?.unlocked) return 'locked';
@@ -979,10 +1017,17 @@ function takeFront(b: Belt): Ore {
  * bundle holds the belt's tier. A smelter loads its finished and passing bars. A bundle never
  * mixes values.
  */
+/** Ticks between loads: a bundle every full spacing of travel (7.5 bundles a second). */
+const LOAD_TICKS = Math.ceil(BELT_SPACING / (BELT_SPEED * DT));
+
 function loadBelts(s: State) {
   for (const m of s.machines) {
     const b = m.out;
     if (!b) continue;
+    if (m.cd > 0) {
+      m.cd--;
+      continue;
+    }
     const last = b.items[b.items.length - 1];
     if (last && last.pos < BELT_SPACING) continue;
     const ores: Ore[] = [];
@@ -1018,8 +1063,33 @@ function loadBelts(s: State) {
         if (!took) break;
       }
     }
-    if (ores.length) b.items.push({ pos: 0, ores, mult });
+    if (ores.length) {
+      b.items.push({ pos: 0, ores, mult });
+      m.cd = LOAD_TICKS - 1;
+    }
+    // Saturation sample at each load chance: the bundle left full and items still wait.
+    const left =
+      m.kind === 'smelter'
+        ? m.ready.length > 0
+        : m.buffer.length > 0 || inputsOf(s, m.id).some((x) => waiting(x.out));
+    // A belt whose front keeps waiting at a downstream machine is limited further down.
+    const held = m.heldAgo < HELD_WINDOW;
+    sample(m, ores.length >= m.tier && left && !held, FULL_LOAD_ALPHA);
   }
+}
+
+/** Smoothing per load chance (about half a second) and per tick for jams. */
+const FULL_LOAD_ALPHA = 0.2;
+const JAM_TICK_ALPHA = DT / 0.6;
+
+/** Exponential smoothing with hysteresis: on above 0.5, off below 0.2. */
+function smooth(t: number, flag: boolean, on: boolean, alpha: number): [number, boolean] {
+  const next = t + ((on ? 1 : 0) - t) * alpha;
+  return [next, next >= 0.5 ? true : next <= 0.2 ? false : flag];
+}
+
+function sample(m: Machine, on: boolean, alpha: number) {
+  [m.fullT, m.full] = smooth(m.fullT, m.full, on, alpha);
 }
 
 function moveBelts(s: State) {
@@ -1029,7 +1099,8 @@ function moveBelts(s: State) {
     if (!b) continue;
     let max = b.length;
     for (const it of b.items) {
-      it.pos = Math.min(it.pos + step, max);
+      // Never backwards: bunched items (after a splice or move) wait until there is room.
+      it.pos = Math.max(it.pos, Math.min(it.pos + step, max));
       max = it.pos - BELT_SPACING;
     }
     const front = b.items[0];
@@ -1065,6 +1136,7 @@ function smeltersTick(s: State) {
     const n = inputs.length;
     let took = true;
     let any = false;
+    let refused = false;
     while (took && n) {
       took = false;
       for (let k = 0; k < n; k++) {
@@ -1073,11 +1145,17 @@ function smeltersTick(s: State) {
         const f = waiting(belt);
         if (!f) continue;
         if (f.mult > 1) {
-          if (sm.ready.length >= SMELTER_READY) continue;
+          if (sm.ready.length >= SMELTER_READY) {
+            refused = true;
+            continue;
+          }
           const mult = f.mult;
           sm.ready.push({ ore: takeFront(belt), mult });
         } else {
-          if (sm.queue.length >= SMELTER_QUEUE) continue;
+          if (sm.queue.length >= SMELTER_QUEUE) {
+            refused = true;
+            continue;
+          }
           sm.queue.push(takeFront(belt));
         }
         sm.rr = (idx + 1) % n;
@@ -1087,6 +1165,8 @@ function smeltersTick(s: State) {
     }
     if (any) sm.idle = 0;
     else sm.idle++;
+    // Blocked: the smelter itself is the limit (its output isn't backed up, its queue is full).
+    [sm.jamT, sm.jam] = smooth(sm.jamT, sm.jam, refused && !sm.full, JAM_TICK_ALPHA);
     // Leftover time carries into the next bar, so fast smelters are not rounded to a bar a tick.
     let budget = DT;
     while (budget > 1e-9) {
@@ -1118,33 +1198,25 @@ function smeltersTick(s: State) {
   }
 }
 
-/** Sustained pressure with about a second of hysteresis each way, so chips never flicker. */
-function pressure(t: number, flag: boolean, on: boolean): [number, boolean] {
-  const next = Math.max(0, Math.min(1.5, t + (on ? DT : -DT)));
-  return [next, next >= 1 ? true : next <= 0 ? false : flag];
-}
-
 /**
- * Saturated ("full"): a machine's belt is flowing at capacity and still can't take everything
- * that reaches it (its drill had to stop, or its input belts wait). A belt that is itself
- * stopped at a downstream machine is not "full": the limit is further down the line.
- * Blocked ("jam"): items wait at a smelter because its queue is full.
+ * How long each belt's front has waited at a downstream machine. A machine whose belt is held
+ * up downstream is not itself "full": the limit is further down the line, so it decays.
  */
 function pressureTick(s: State) {
   for (const m of s.machines) {
-    const inputs = inputsOf(s, m.id);
-    const inWait = inputs.some((x) => waiting(x.out));
-    const downstream = !!m.out && m.out.to.kind !== 'dock' && !!waiting(m.out);
-    if (m.kind === 'drill') {
-      const on = !!m.out && !downstream && (!!m.stalled || inWait);
-      [m.fullT, m.full] = pressure(m.fullT, m.full, on);
-    } else {
-      const on = !!m.out && !downstream && m.ready.length >= SMELTER_READY;
-      [m.fullT, m.full] = pressure(m.fullT, m.full, on);
-      [m.jamT, m.jam] = pressure(m.jamT, m.jam, inWait && !m.full);
-    }
+    const held = !!m.out && m.out.to.kind !== 'dock' && !!waiting(m.out);
+    m.wait = held ? m.wait + 1 : 0;
+    // Waiting out one load cycle at the next machine is normal; longer means held downstream.
+    m.heldAgo = m.wait > LOAD_TICKS + 1 ? 0 : Math.min(HELD_WINDOW, m.heldAgo + 1);
+    if (m.heldAgo < HELD_WINDOW && !held) continue;
+    if (m.wait >= DOWNSTREAM_TICKS) sample(m, false, JAM_TICK_ALPHA);
   }
 }
+
+/** A front that waits this long (about 0.4 s) is held up downstream, not just between loads. */
+export const DOWNSTREAM_TICKS = 12;
+/** A belt whose front waited at a machine within this many ticks (1 s) is held downstream. */
+const HELD_WINDOW = TICK_HZ;
 
 function flightsTick(s: State) {
   if (!s.flights.length) return;

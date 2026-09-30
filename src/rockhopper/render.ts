@@ -30,6 +30,7 @@ import {
   type Target,
   unlockCost,
   canTarget,
+  DOWNSTREAM_TICKS,
   inputCap,
   inputsOf,
 } from './sim';
@@ -547,7 +548,8 @@ export class Renderer {
     for (const r of this.refusals) {
       const p = this.toScreen(r);
       const text = r.why === 'crossing' ? 'crossing – pick one' : r.why;
-      label(c, text, p.x, p.y + 44, 15);
+      // Above the ghost: the finger is below it and would hide the reason.
+      label(c, text, p.x, p.y - 36 * Math.max(1, this.cam.z) - 26, 15);
     }
     this.refusals = [];
     this.drawHints(c, s, o);
@@ -852,9 +854,9 @@ export class Renderer {
       const front = m.out.items[0];
       const toMachine = m.out.to.kind !== 'dock';
       // A belt whose front waits at a machine that won't take it yet is stopped: its dashes freeze.
-      const stopped = !!front && toMachine && front.pos >= m.out.length - 0.5;
+      const stopped = toMachine && m.wait >= DOWNSTREAM_TICKS;
       const target = toMachine ? byId(s, (m.out.to as { id: number }).id) : undefined;
-      const blocked = stopped && target?.kind === 'smelter' && target.jam;
+      const blocked = !!front && stopped && target?.kind === 'smelter' && target.jam;
       // A fresh or re-routed belt flashes so automatic rewiring (auto-link, splice) is visible.
       const flash = Math.max(0, 1 - (this.time - (this.routedAt.get(m.id) ?? -10)) / 0.8);
       const wide = 2 * (m.tier - 1);
@@ -1182,10 +1184,12 @@ export class Renderer {
         // Input capacity pips.
         const used = inputsOf(s, m.id).length,
           cap = inputCap(m);
-        for (let k = 0; k < cap; k++) {
-          c.fillStyle = k < used ? MINT : 'rgba(255,244,224,0.35)';
+        // Inputs kept from an older save beyond today's cap show as coral pips.
+        const pips = Math.max(used, cap);
+        for (let k = 0; k < pips; k++) {
+          c.fillStyle = k >= cap ? CORAL : k < used ? MINT : 'rgba(255,244,224,0.35)';
           c.beginPath();
-          c.arc(-((cap - 1) * 4) + k * 8, SMELTER_W / 2 + 5, 2.4, 0, Math.PI * 2);
+          c.arc(-((pips - 1) * 4) + k * 8, SMELTER_W / 2 + 5, 2.4, 0, Math.PI * 2);
           c.fill();
         }
         this.statusLight(c, -SMELTER_W * 0.34, -SMELTER_W * 0.3, smelterStatus(m));

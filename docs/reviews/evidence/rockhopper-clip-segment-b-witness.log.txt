@@ -9,6 +9,6 @@ B2 +5 s: 12.0 chunks/s, 35 credits/s from the belt; cells 44
 B2 +6 s: 14.0 chunks/s, 37 credits/s from the belt; cells 34  (CRUMBLE: depletion; crumble arrivals excluded)
 B3 staged: slot 1 drills #4 <- #5, line to dock 1
 B3 before: 6.0 chunks/s, 11.3 credits/s
-B3 splice at -146,-168: true
-B3 after: 3.0 bars/s, 34.0 credits/s (x3.00); smelter jam=false
+B3 splice at -137,-160: true
+B3 after: 2.7 bars/s, 32.0 credits/s (x2.82); smelter jam=false
 slot 1 cells remaining 0 of -

@@ -3,6 +3,7 @@ import {
   beltCapacity,
   CELL,
   DT,
+  SMELTER_RADIUS,
   HUB_RADIUS,
   LASER_POWER,
   ORES,
@@ -21,6 +22,7 @@ import {
   dockPos,
   drills,
   inputsOf,
+  inputCap,
   freshState,
   hubCost,
   machinePos,
@@ -81,6 +83,16 @@ type Gesture =
   | { type: 'none' };
 
 const pt = (p: Point) => ({ x: p.x, y: p.y });
+const feedsId = (m: Machine, id: number) =>
+  !!m.out && m.out.to.kind !== 'dock' && m.out.to.id === id;
+
+/** Why a smelter can't go into this belt, in a few words for the drop label. */
+function spliceRefusal(s: State, owner: Machine, mover: Machine | null): string {
+  if (mover?.out) return 'already linked';
+  if (owner.kind === 'smelter' || owner.out?.to.kind === 'smelter') return 'already smelted';
+  if (mover && inputsOf(s, mover.id).length >= inputCap(mover)) return 'inputs full';
+  return 'no room here';
+}
 const splice = (p: object) => ('splice' in p ? (p.splice as number) : null);
 
 type Bubble = { kind: 'machine'; id: number } | { kind: 'hub' } | { kind: 'locked'; slot: number };
@@ -122,6 +134,8 @@ export class RockhopperApp {
   };
   /** Tutorial state for the logistics hands (splice, join, recovery). */
   private taught = { splice: false, join: false };
+  /** Seconds the splice hand has been shown; it gives up after a while. */
+  private spliceHintShown = 0;
   private armed: { kind: 'drill' | 'smelter'; moving?: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private gesture: Gesture = { type: 'none' };
@@ -147,7 +161,13 @@ export class RockhopperApp {
     if (!params.has('fresh')) {
       try {
         // Undo the logistics experiment's save: the untouched v1 save is migrated again.
-        if (params.get('restore') === 'pre-logistics') localStorage.removeItem(SAVE_KEY);
+        if (params.get('restore') === 'pre-logistics') {
+          localStorage.removeItem(SAVE_KEY);
+          // Once only: a refresh must not throw away the progress made since.
+          params.delete('restore');
+          const q = params.toString();
+          history.replaceState(null, '', `${location.pathname}${q ? `?${q}` : ''}${location.hash}`);
+        }
         const text = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(LEGACY_SAVE_KEY);
         if (text) loaded = deserialize(text);
       } catch {
@@ -418,7 +438,10 @@ export class RockhopperApp {
           this.armed = null;
           this.closeBubble();
         }
-        if (g.dragging) this.preview(kind, p, undefined);
+        if (g.dragging) {
+          this.preview(kind, p, undefined);
+          if (kind === 'smelter') this.taught.splice = true;
+        }
       });
       const finish = (e: PointerEvent, cancel: boolean) => {
         const g = this.gesture;
@@ -648,48 +671,47 @@ export class RockhopperApp {
     // Dropped on a belt, a smelter goes into that line: the crosshair snaps onto the belt when
     // within 12 px. A second belt right at the snap point (a crossing) refuses the drop.
     const sm = moving === undefined ? null : byId(this.state, moving);
-    const canSpliceHere = !sm || (sm.kind === 'smelter' && !sm.out);
-    const near = canSpliceHere
-      ? beltsNear(this.state, w, Math.max(8, 12 / z)).filter((b) => b.id !== moving)
-      : [];
-    const hit = near.find((b) => {
-      const owner = byId(this.state, b.id);
-      return canSplice(this.state, owner, sm?.kind === 'smelter' ? sm : null, b.q);
-    });
-    if (hit) {
-      // Slide along that belt to the nearest spot with room and no crossing, so the player
-      // picks the line and the game finds the footing.
+    const mover = sm?.kind === 'smelter' ? sm : null;
+    const near = beltsNear(this.state, w, Math.max(8, 12 / z)).filter(
+      (b) =>
+        b.id !== moving &&
+        !(mover && this.state.machines.some((x) => x.id === b.id && feedsId(x, mover.id)))
+    );
+    // Slide along the belt under the crosshair (at most a smelter's width) to the nearest spot
+    // with room, a long enough feed and no crossing: the player picks the line, the game finds
+    // the footing. A smelter never lands on a belt it isn't part of: that drop is refused.
+    const reach = SMELTER_RADIUS * 2;
+    let why = '';
+    for (const hit of near) {
       const owner = byId(this.state, hit.id)!;
+      if (!canSplice(this.state, owner, mover, hit.q, true)) {
+        why ||= spliceRefusal(this.state, owner, mover);
+        continue;
+      }
       const e = beltEndsOf(this.state, owner)!;
       const len = Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) || 1;
-      const clear = (q: Point) =>
-        !beltsNear(this.state, q, Math.max(3, 4 / z)).some(
-          (b) => b.id !== hit.id && b.id !== moving
-        );
-      let crossingOnly = false;
-      for (let d = 0; d <= len; d += 2) {
+      for (let d = 0; d <= reach; d += 2) {
         for (const dir of d ? [1, -1] : [1]) {
           const t = hit.t + (dir * d) / len;
           if (t < 0 || t > 1) continue;
           const q = { x: e.a.x + (e.b.x - e.a.x) * t, y: e.a.y + (e.b.y - e.a.y) * t };
-          if (!smelterSpotOk(this.state, q, moving)) continue;
-          if (!clear(q)) {
-            crossingOnly = true;
+          if (!smelterSpotOk(this.state, q, moving) || !canSplice(this.state, owner, mover, q)) {
+            why ||= 'no room here';
+            continue;
+          }
+          const crossing = beltsNear(this.state, q, Math.max(3, 4 / z)).some(
+            (b) => b.id !== hit.id && b.id !== moving
+          );
+          if (crossing) {
+            why = 'crossing';
             continue;
           }
           return { at: { ...q, ok: true, splice: hit.id }, sock: null };
         }
       }
-      return {
-        at: {
-          ...hit.q,
-          ok: false,
-          splice: hit.id,
-          why: crossingOnly ? 'crossing' : 'no room on this line',
-        },
-        sock: null,
-      };
     }
+    if (near.length)
+      return { at: { ...near[0].q, ok: false, splice: near[0].id, why }, sock: null };
     return { at: { ...w, ok: smelterSpotOk(this.state, w, moving) }, sock: null };
   }
 
@@ -1108,7 +1130,7 @@ export class RockhopperApp {
       !this.overlay.finger &&
       !this.overlay.placing &&
       showTray;
-    this.logisticsHints(showSmelter);
+    this.logisticsHints(showSmelter, dt);
     if (this.clipMode) {
       this.overlay.hintHold = this.overlay.hintDrag = false;
       this.overlay.hintJoin = this.overlay.hintSplice = null;
@@ -1120,10 +1142,11 @@ export class RockhopperApp {
    * unlinked drill, dragged onto a neighbouring drill or smelter. Recovery: a standalone smelter
    * with nothing feeding it, with a drill dragged onto it.
    */
-  private logisticsHints(showSmelter: boolean) {
+  private logisticsHints(showSmelter: boolean, dt: number) {
     const s = this.state;
     const o = this.overlay;
-    const busy = !!o.finger || !!o.placing || !!o.reroute || this.gesture.type !== 'none';
+    const busy =
+      !!o.finger || !!o.placing || !!o.reroute || !!this.bubble || this.gesture.type !== 'none';
     o.hintSplice = null;
     o.hintJoin = null;
     if (busy) return;
@@ -1134,12 +1157,14 @@ export class RockhopperApp {
     const cr = this.canvas.getBoundingClientRect();
     if (
       !this.taught.splice &&
+      this.spliceHintShown < 25 &&
       showSmelter &&
       s.credits >= priceOf(s, 'smelter') &&
       smelterBtn.width > 0
     ) {
       const line = drills(s).find((d) => d.out?.to.kind === 'dock');
       const e = line && beltEndsOf(s, line);
+      if (e) this.spliceHintShown += dt;
       if (e)
         o.hintSplice = {
           from: {
