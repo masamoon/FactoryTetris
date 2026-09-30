@@ -69,7 +69,7 @@ export class Sfx {
         this.tone('arrive', 220, { type: 'sine', gain: 0.05, dur: 0.25, slide: 1.8, gap: 0.2 });
       else if (e.type === 'smelt')
         this.tone('smelt', 660, { type: 'sine', gain: 0.02, dur: 0.06, slide: 1.1, gap: 0.1 });
-      else if (e.type === 'build') {
+      else if (e.type === 'build' || e.type === 'move') {
         this.tone('build', 180, { type: 'square', gain: 0.05, dur: 0.12, slide: 0.5, gap: 0 });
         this.tone('build2', 360, { type: 'triangle', gain: 0.04, dur: 0.1, slide: 1.5, gap: 0 });
       } else if (e.type === 'upgrade' || e.type === 'hub')

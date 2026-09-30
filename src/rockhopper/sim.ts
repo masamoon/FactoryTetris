@@ -148,6 +148,7 @@ export type SimEvent =
   | { type: 'crumble'; slot: number }
   | { type: 'arrive'; slot: number }
   | { type: 'build'; id: number }
+  | { type: 'move'; id: number }
   | { type: 'sell'; id: number; x: number; y: number; lost: number }
   | { type: 'upgrade'; id: number }
   | { type: 'hub'; what: HubUpgrade }
@@ -657,6 +658,7 @@ export function moveDrill(s: State, id: number, slot: number, socket: number): R
   m.socket = socket;
   m.cell = -1;
   relayout(s);
+  s.events.push({ type: 'move', id });
   return true;
 }
 
@@ -667,6 +669,7 @@ export function moveSmelter(s: State, id: number, p: Point): Result {
   m.x = p.x;
   m.y = p.y;
   relayout(s);
+  s.events.push({ type: 'move', id });
   return true;
 }
 

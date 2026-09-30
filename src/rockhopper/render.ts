@@ -21,6 +21,7 @@ import {
   type Point,
   type Rock,
   type SimEvent,
+  type Smelter,
   slotVisible,
   socketAngle,
   socketPos,
@@ -137,6 +138,17 @@ const DRILL_W = 30;
 const SMELTER_W = 50;
 const HUB_W = 100;
 const HOP_W = 38;
+/** Landing: fall time, squash time (seconds) and drop height (world units). */
+const LAND_DROP = 0.22;
+const LAND_SQUASH = 0.18;
+const LAND_HEIGHT = 26;
+const PAD_RIM = '#8C82C4';
+
+function smelterStatus(m: Smelter): 'work' | 'blocked' | 'idle' {
+  if (m.job) return 'work';
+  if (m.ready.length && m.out) return 'blocked';
+  return m.queue.length ? 'work' : 'idle';
+}
 
 export class Renderer {
   readonly ctx: Ctx;
@@ -158,6 +170,10 @@ export class Renderer {
   private previewCache = new Map<string, Rock>();
   private smeltGlow = new Map<number, number>();
   private placedAt = new Map<number, number>();
+  /** Build or move time per machine: drives the landing drop, squash and dust. */
+  private landedAt = new Map<number, number>();
+  /** Dust bursts waiting for their machine to touch down. */
+  private dust: { id: number; at: number }[] = [];
   private routedAt = new Map<number, number>();
   hop = { x: 60, y: -40, tilt: 0 };
   /** Screen rectangles of the locked-slot price tags drawn this frame (tappable). */
@@ -266,7 +282,10 @@ export class Renderer {
 
   // ------------------------------------------------------------ events
 
+  private reducedMotionLast = false;
+
   consume(s: State, events: SimEvent[], reducedMotion: boolean) {
+    this.reducedMotionLast = reducedMotion;
     for (const e of events) {
       if (e.type === 'break') {
         const n = e.by === 'crumble' ? 3 : e.by === 'laser' ? 8 : 5;
@@ -378,7 +397,10 @@ export class Renderer {
         }
       } else if (e.type === 'route') {
         this.routedAt.set(e.id, this.time);
-      } else if (e.type === 'build' || e.type === 'upgrade') {
+      } else if (e.type === 'build' || e.type === 'move') {
+        this.landedAt.set(e.id, this.time);
+        this.dust.push({ id: e.id, at: this.time + LAND_DROP });
+      } else if (e.type === 'upgrade') {
         this.placedAt.set(e.id, this.time);
         const m = byId(s, e.id);
         if (m) {
@@ -464,6 +486,12 @@ export class Renderer {
     this.shake *= Math.exp(-dt * 9);
     this.hubBounce *= Math.exp(-dt * 7);
     for (const [id, v] of this.smeltGlow) this.smeltGlow.set(id, v * Math.exp(-dt * 2.5));
+    this.dust = this.dust.filter((d) => {
+      if (this.time < d.at) return true;
+      const m = byId(s, d.id);
+      if (m) this.touchdown(machinePos(m), m.kind === 'smelter' ? SMELTER_W * 0.6 : 18);
+      return false;
+    });
 
     const c = this.ctx;
     const d = this.dpr;
@@ -904,12 +932,116 @@ export class Renderer {
     c.restore();
   }
 
+  /**
+   * Landing: the machine drops from above its footprint (its shadow grows under it), squashes
+   * on impact and throws dust. Returns the lift in world units and the squash scale.
+   */
+  private landing(id: number): { lift: number; sx: number; sy: number; shadow: number } {
+    const age = this.time - (this.landedAt.get(id) ?? -10);
+    if (age >= LAND_DROP + LAND_SQUASH) return { lift: 0, sx: 1, sy: 1, shadow: 1 };
+    if (age < LAND_DROP) {
+      const u = age / LAND_DROP;
+      return { lift: LAND_HEIGHT * (1 - u * u), sx: 1, sy: 1, shadow: 0.55 + 0.45 * u * u };
+    }
+    const v = Math.sin(((age - LAND_DROP) / LAND_SQUASH) * Math.PI);
+    return { lift: 0, sx: 1 + 0.16 * v, sy: 1 - 0.18 * v, shadow: 1 };
+  }
+
+  private touchdown(p: Point, r: number) {
+    if (!this.reducedMotionLast) this.shake = Math.max(this.shake, 2.5);
+    this.particles.push({
+      x: p.x,
+      y: p.y,
+      vx: 0,
+      vy: 0,
+      life: 0,
+      max: 0.4,
+      size: r * 1.5,
+      color: CREAM,
+      spin: 0,
+      rot: 0,
+      ring: true,
+    });
+    for (let i = 0; i < 12; i++) {
+      const a = (Math.PI * 2 * i) / 12 + Math.random() * 0.3;
+      this.particles.push({
+        x: p.x + Math.cos(a) * r * 0.8,
+        y: p.y + Math.sin(a) * r * 0.6,
+        vx: Math.cos(a) * 55,
+        vy: Math.sin(a) * 40,
+        life: 0,
+        max: 0.45,
+        size: 3.2,
+        color: LILAC,
+        spin: 3,
+        rot: a,
+      });
+    }
+  }
+
+  /** The bolted landing pad every smelter stands on; drawn above belts so they pass under. */
+  private drawPad(c: Ctx, r: number, shadow: number) {
+    c.save();
+    c.fillStyle = 'rgba(10,6,28,0.45)';
+    c.beginPath();
+    c.ellipse(0, r * 0.28, r * 1.02 * shadow, r * 0.78 * shadow, 0, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = Math.PI / 8 + (Math.PI / 4) * k;
+      if (k) c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      else c.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    c.closePath();
+    c.fillStyle = INK;
+    c.fill();
+    c.lineWidth = 2;
+    c.strokeStyle = PAD_RIM;
+    c.stroke();
+    c.fillStyle = PAD_RIM;
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 4 + (Math.PI / 2) * k;
+      c.beginPath();
+      c.arc(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78, 1.7, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.restore();
+  }
+
+  /** Smelter status: a light with a shape, so it reads without colour. */
+  private statusLight(c: Ctx, x: number, y: number, state: 'work' | 'blocked' | 'idle') {
+    c.save();
+    c.translate(x, y);
+    c.fillStyle = INK;
+    c.beginPath();
+    c.arc(0, 0, 5.2, 0, Math.PI * 2);
+    c.fill();
+    if (state === 'work') {
+      c.fillStyle = YELLOW;
+      c.beginPath();
+      c.arc(0, 0, 3.4 + 0.5 * Math.sin(this.time * 10), 0, Math.PI * 2);
+      c.fill();
+    } else if (state === 'blocked') {
+      c.fillStyle = CORAL;
+      c.fillRect(-2.8, -2.8, 2, 5.6);
+      c.fillRect(0.8, -2.8, 2, 5.6);
+    } else {
+      c.strokeStyle = MUTED;
+      c.lineWidth = 1.4;
+      c.beginPath();
+      c.arc(0, 0, 2.8, 0, Math.PI * 2);
+      c.stroke();
+    }
+    c.restore();
+  }
+
   private drawMachines(c: Ctx, s: State, o: Overlay) {
     const zp = this.cam.z * this.dpr;
     for (const m of s.machines) {
       const p = machinePos(m);
       const age = this.time - (this.placedAt.get(m.id) ?? -10);
       const pop = age < 0.35 ? 1 + Math.sin((age / 0.35) * Math.PI) * 0.25 : 1;
+      const land = this.landing(m.id);
       c.save();
       c.translate(p.x, p.y);
       if (m.kind === 'drill') {
@@ -917,11 +1049,20 @@ export class Renderer {
         if (working)
           c.translate(Math.sin(this.time * 70 + m.id) * 0.5, Math.cos(this.time * 55 + m.id) * 0.5);
         c.rotate(socketAngle(m.slot, m.socket) + Math.PI / 2);
-        c.scale(pop, pop);
+        if (land.lift > 0) {
+          c.fillStyle = 'rgba(10,6,28,0.4)';
+          c.beginPath();
+          c.ellipse(0, 0, 13 * land.shadow, 10 * land.shadow, 0, 0, Math.PI * 2);
+          c.fill();
+        }
+        c.translate(0, land.lift);
+        c.scale(pop * land.sx, pop * land.sy);
         const bmp = sprite('drill', 100, 120, DRILL_W * zp * pop, drawDrill);
         c.drawImage(bmp, -DRILL_W / 2, -DRILL_W * 0.6, DRILL_W, DRILL_W * 1.2);
       } else {
-        c.scale(pop, pop);
+        this.drawPad(c, SMELTER_W * 0.56, land.shadow);
+        c.translate(0, -land.lift);
+        c.scale(pop * land.sx, pop * land.sy);
         const heat = this.smeltGlow.get(m.id) ?? 0;
         const busy = m.job ? 1 : 0;
         if (busy || heat > 0.05) {
@@ -943,6 +1084,7 @@ export class Renderer {
           c.arc(-((cap - 1) * 4) + k * 8, SMELTER_W / 2 + 5, 2.4, 0, Math.PI * 2);
           c.fill();
         }
+        this.statusLight(c, -SMELTER_W * 0.34, -SMELTER_W * 0.3, smelterStatus(m));
       }
       c.restore();
       if (!m.out) this.badge(c, p.x + 10, p.y - 18);
