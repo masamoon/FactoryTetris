@@ -1,6 +1,6 @@
 # Rockhopper: factories and the sorter (proposal, revision 2, 2026-09-30)
 
-Status: **draft revision 2, pending round 2.** The user chose the full AGENTS.md review process for the sorter and one round for factories. Round 1 found that a sorter on its own has no positive-sum use (see [the review](reviews/2026-09-30-rockhopper-sorter-adversary.md)). This revision therefore pairs it with factories, which are what give ore identity a use. It needs the user's go-ahead on that pairing before round 2. No runtime code is written until the design passes.
+Status: **draft revision 2, pending round 2.** The user chose the full AGENTS.md review process for the sorter and one round for factories. Round 1 found that a sorter on its own has no positive-sum use (see [the review](reviews/2026-09-30-rockhopper-sorter-adversary.md)). This revision therefore pairs it with factories, which are what give ore identity a use. The user chose to design them together (2026-09-30), and the combined design goes through the full process. No runtime code is written until the design passes.
 
 ## Why
 
