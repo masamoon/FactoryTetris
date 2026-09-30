@@ -10,6 +10,8 @@ import {
   dockCost,
   DOCK_ANGLES,
   DOCK_RADIUS,
+  HUB_RADIUS,
+  CROSS_TOUCH,
   DOCKS_MAX,
   DOCKS_START,
   DRILL_BUFFER,
@@ -99,6 +101,8 @@ export interface BeltItem {
 
 export interface Belt {
   to: Target;
+  /** Bend posts the player placed, in order from the machine (at most `MAX_POSTS`). */
+  via?: Point[];
   length: number;
   /** Front (largest pos) first. */
   items: BeltItem[];
@@ -394,9 +398,68 @@ export function targetPos(s: State, t: Target): Point | null {
 
 /** Belt start and end, trimmed to the machine bodies. */
 export function beltEnds(s: State, m: Machine): { a: Point; b: Point } | null {
+  const path = beltPath(s, m);
+  return path ? { a: path[0], b: path[path.length - 1] } : null;
+}
+
+/** A belt's polyline: from the machine's rim, through its bend posts, to the target's rim. */
+export function beltPath(s: State, m: Machine): Point[] | null {
   if (!m.out) return null;
   const q = targetPos(s, m.out.to);
-  return q ? endsBetween(m, machinePos(m), q, m.out.to.kind) : null;
+  return q ? pathBetween(m, machinePos(m), m.out.via ?? [], q, m.out.to.kind) : null;
+}
+
+function pathBetween(m: Machine, p: Point, via: Point[], q: Point, t: Target['kind']): Point[] {
+  if (!via.length) {
+    const e = endsBetween(m, p, q, t);
+    return [e.a, e.b];
+  }
+  const head = endsBetween(m, p, via[0], 'dock').a;
+  const tail = endsBetween(m, via[via.length - 1], q, t).b;
+  return [head, ...via.map((v) => ({ x: v.x, y: v.y })), tail];
+}
+
+export function pathLength(pts: Point[]): number {
+  let L = 0;
+  for (let i = 1; i < pts.length; i++)
+    L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  return L;
+}
+
+/** The point `d` along a polyline, with its piece's direction. */
+export function pointAlong(pts: Point[], d: number) {
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1],
+      b = pts[i];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d <= L || i === pts.length - 1) {
+      const f = L > 0 ? Math.max(0, Math.min(1, d / L)) : 0;
+      const ux = L > 0 ? (b.x - a.x) / L : 1,
+        uy = L > 0 ? (b.y - a.y) / L : 0;
+      return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, ux, uy, piece: i - 1 };
+    }
+    d -= L;
+  }
+  return { x: pts[0].x, y: pts[0].y, ux: 1, uy: 0, piece: 0 };
+}
+
+/** The nearest point on a polyline to `p`: its distance, piece and distance along the line. */
+function nearestOnPath(pts: Point[], p: Point) {
+  let best = { d: Infinity, q: pts[0], piece: 0, along: 0 };
+  let start = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1],
+      b = pts[i];
+    const dx = b.x - a.x,
+      dy = b.y - a.y;
+    const L2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2));
+    const q = { x: a.x + dx * t, y: a.y + dy * t };
+    const d = Math.hypot(p.x - q.x, p.y - q.y);
+    if (d < best.d) best = { d, q, piece: i - 1, along: start + Math.sqrt(L2) * t };
+    start += Math.sqrt(dx * dx + dy * dy);
+  }
+  return best;
 }
 
 /** A belt from machine `m` at `p` to a target of this kind at `q`, trimmed to the bodies. */
@@ -415,25 +478,22 @@ function endsBetween(m: Machine, p: Point, q: Point, t: Target['kind']) {
 }
 
 function beltLength(s: State, m: Machine): number {
-  const e = beltEnds(s, m);
-  return e ? Math.max(1, Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y)) : 1;
+  const path = beltPath(s, m);
+  return path ? Math.max(1, pathLength(path)) : 1;
 }
 
 /** Distance from a point to a machine's belt, the nearest point on it and its fraction (0–1). */
 export function beltDistance(s: State, m: Machine, p: Point) {
-  const e = beltEnds(s, m);
-  if (!e) return null;
-  const dx = e.b.x - e.a.x,
-    dy = e.b.y - e.a.y;
-  const L2 = dx * dx + dy * dy || 1;
-  const t = Math.max(0, Math.min(1, ((p.x - e.a.x) * dx + (p.y - e.a.y) * dy) / L2));
-  const q = { x: e.a.x + dx * t, y: e.a.y + dy * t };
-  return { d: Math.hypot(p.x - q.x, p.y - q.y), t, q };
+  const path = beltPath(s, m);
+  if (!path) return null;
+  const n = nearestOnPath(path, p);
+  const L = pathLength(path) || 1;
+  return { d: n.d, t: n.along / L, q: n.q, piece: n.piece, along: n.along };
 }
 
 /** Belts passing within `tol` of a point, nearest first. */
 export function beltsNear(s: State, p: Point, tol: number) {
-  const out: { id: number; d: number; t: number; q: Point }[] = [];
+  const out: { id: number; d: number; t: number; q: Point; piece: number; along: number }[] = [];
   for (const m of s.machines) {
     const b = beltDistance(s, m, p);
     if (b && b.d <= tol) out.push({ id: m.id, ...b });
@@ -572,16 +632,43 @@ export function reaches(s: State, t: Target | undefined, id: number): boolean {
  * The target matrix: a drill may feed a free dock, a smelter or a drill with a free input; a
  * smelter may feed a free dock or a drill with a free input (never a smelter). No loops.
  */
-export function canTarget(s: State, m: Machine, t: Target): boolean {
-  return targetWhy(s, m, t) === '';
+export function canTarget(s: State, m: Machine, t: Target, via?: Point[]): boolean {
+  return targetWhy(s, m, t, via) === '';
 }
 
-/** Why machine `m` can't link to `t`, in a few words, or '' when it can. */
-export function targetWhy(s: State, m: Machine, t: Target): string {
+/**
+ * Why machine `m` can't link to `t`, in a few words, or '' when it can. The belt runs through
+ * `via` when given (posts pinned while dragging the link), else through the posts it already has
+ * if they still suit the new target (`viaFor`), else straight.
+ */
+export function targetWhy(s: State, m: Machine, t: Target, via?: Point[]): string {
   if (!matrixOk(s, m, t)) return 'invalid';
-  if (s.crossings && laneBlocker(s, m, t)) return 'belt blocked';
+  const v = via ?? viaFor(s, m, t);
+  if (via?.length && withTarget(m, t, via, () => bendWhy(s, m, via))) return 'invalid';
+  if (s.crossings && laneBlocker(s, m, t, undefined, v)) return 'belt blocked';
   return '';
 }
+
+/** Run `fn` as if machine `m`'s belt went to `t` through `via`. */
+function withTarget<T>(m: Machine, t: Target, via: Point[], fn: () => T): T {
+  const old = m.out;
+  m.out = { to: t, via, length: old?.length ?? 1, items: old?.items ?? [] };
+  try {
+    return fn();
+  } finally {
+    m.out = old;
+  }
+}
+
+/** The posts machine `m`'s belt keeps if re-linked to `t`: its own, if they still fit, else none. */
+export function viaFor(s: State, m: Machine, t: Target): Point[] {
+  const via = m.out?.via;
+  if (!via?.length) return [];
+  return withTarget(m, t, via, () => bendWhy(s, m, via)) ? [] : via;
+}
+
+/** The target matrix alone (free dock, free input, no loop), ignoring lanes and posts. */
+export const matrixOnlyOk = (s: State, m: Machine, t: Target) => matrixOk(s, m, t);
 
 function matrixOk(s: State, m: Machine, t: Target): boolean {
   if (t.kind === 'dock') return t.index >= 0 && t.index < s.docks && !dockUsed(s, t.index, m);
@@ -654,14 +741,26 @@ function segDist(p: Point, a: Point, b: Point) {
   return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t);
 }
 
-/** The machine a belt from `m` (at `from`) to `t` would pass under, if any. */
-function laneBlocker(s: State, m: Machine, t: Target, from = machinePos(m)): Machine | null {
+/** Does any piece of a polyline pass within `r` of `c`? */
+function pathNear(pts: Point[], c: Point, r: number) {
+  for (let i = 1; i < pts.length; i++) if (segDist(c, pts[i - 1], pts[i]) < r) return true;
+  return false;
+}
+
+/** The machine a belt from `m` (at `from`, through `via`) to `t` would pass under, if any. */
+function laneBlocker(
+  s: State,
+  m: Machine,
+  t: Target,
+  from = machinePos(m),
+  via: Point[] = []
+): Machine | null {
   const q = targetPos(s, t);
   if (!q) return null;
-  const e = endsBetween(m, from, q, t.kind);
+  const path = pathBetween(m, from, via, q, t.kind);
   for (const x of s.machines) {
     if (x.id === m.id || (t.kind !== 'dock' && x.id === t.id)) continue;
-    if (segDist(machinePos(x), e.a, e.b) < laneClear(x.kind)) return x;
+    if (pathNear(path, machinePos(x), laneClear(x.kind))) return x;
   }
   return null;
 }
@@ -680,8 +779,8 @@ function sitsOnBelt(
   for (const m of s.machines) {
     if (!m.out || m.id === except || m.id === splice) continue;
     if (m.out.to.kind !== 'dock' && m.out.to.id === except) continue;
-    const e = beltEnds(s, m);
-    if (e && segDist(p, e.a, e.b) < laneClear(kind)) return true;
+    const path = beltPath(s, m);
+    if (path && pathNear(path, p, laneClear(kind))) return true;
   }
   return false;
 }
@@ -695,8 +794,11 @@ function lanesBlockedAt(
   const saved = m.kind === 'drill' ? { slot: m.slot, angle: m.angle } : { x: m.x, y: m.y };
   Object.assign(m, place);
   try {
-    if (m.out && laneBlocker(s, m, m.out.to)) return true;
-    return inputsOf(s, m.id).some((x) => laneBlocker(s, x, x.out!.to));
+    if (m.out && (laneBlocker(s, m, m.out.to, undefined, m.out.via) || shapeWhy(s, m, m.out.via)))
+      return true;
+    return inputsOf(s, m.id).some(
+      (x) => laneBlocker(s, x, x.out!.to, undefined, x.out!.via) || shapeWhy(s, x, x.out!.via)
+    );
   } finally {
     Object.assign(m, saved);
   }
@@ -719,20 +821,34 @@ export interface Crossings {
   heat: Map<string, number>;
 }
 
-function segmentOf(s: State, m: Machine): Segment | null {
-  const e = beltEnds(s, m);
+/** A belt as straight segments for plate finding: one per piece between bend posts. */
+function segmentsOf(s: State, m: Machine): Segment[] {
+  const path = beltPath(s, m);
   const to = m.out && targetPos(s, m.out.to);
-  if (!e || !to) return null;
+  if (!path || !to) return [];
   const t = m.out!.to;
-  return {
-    id: m.id,
-    a: e.a,
-    b: e.b,
-    from: machinePos(m),
-    to,
-    src: m.id,
-    dst: t.kind === 'dock' ? -1 - t.index : t.id,
-  };
+  const post = (k: number) => -1000 - m.id * (MAX_POSTS + 1) - k;
+  const out: Segment[] = [];
+  let off = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1],
+      b = path[i];
+    const first = i === 1,
+      last = i === path.length - 1;
+    out.push({
+      id: m.id,
+      piece: i - 1,
+      off,
+      a,
+      b,
+      from: first ? machinePos(m) : a,
+      to: last ? to : b,
+      src: first ? m.id : post(i - 2),
+      dst: last ? (t.kind === 'dock' ? -1 - t.index : t.id) : post(i - 1),
+    });
+    off += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  return out;
 }
 
 function gatesOf(plates: Plate[]): Map<number, Gate[]> {
@@ -769,10 +885,7 @@ const crossingCache = new WeakMap<State, Crossings & { sig: string }>();
 export function crossingsOf(s: State): Crossings {
   if (!s.crossings) return NO_CROSSINGS;
   const segs: Segment[] = [];
-  for (const m of s.machines) {
-    const g = segmentOf(s, m);
-    if (g) segs.push(g);
-  }
+  for (const m of s.machines) segs.push(...segmentsOf(s, m));
   const sig = segs.map((g) => `${g.id}:${g.dst}:${g.a.x},${g.a.y},${g.b.x},${g.b.y}`).join(';');
   const hit = crossingCache.get(s);
   if (hit && hit.sig === sig) return hit;
@@ -786,15 +899,11 @@ export function crossingsOf(s: State): Crossings {
 function platesIf(s: State, m: Machine, t: Target): number {
   const old = m.out;
   m.out = { to: t, length: 1, items: [] };
-  const mine = segmentOf(s, m);
+  const mine = segmentsOf(s, m);
   m.out = old;
-  if (!mine) return 0;
-  const segs = [mine];
-  for (const x of s.machines) {
-    if (x === m) continue;
-    const g = segmentOf(s, x);
-    if (g) segs.push(g);
-  }
+  if (!mine.length) return 0;
+  const segs = [...mine];
+  for (const x of s.machines) if (x !== m) segs.push(...segmentsOf(s, x));
   return findPlates(segs).filter((p) => p.sides.some((q) => q.id === m.id)).length;
 }
 
@@ -930,6 +1039,118 @@ export function smelterSpotWhy(
   return '';
 }
 
+// ---------------------------------------------------------------- bend posts
+
+function setVia(b: Belt, via: Point[]) {
+  if (via.length) b.via = via.map((p) => ({ x: p.x, y: p.y }));
+  else delete b.via;
+}
+
+/** Most bend posts one belt may have (docs/ROCKHOPPER_BEND_POSTS.md, P1). */
+export const MAX_POSTS = 2;
+/** A post's footprint, for keeping it off rocks, machines and the hub. */
+export const POST_RADIUS = 6;
+/** Sharpest turn a belt may make at a post: 120°, so it never folds back on itself. */
+const MIN_TURN_DOT = Math.cos((120 * Math.PI) / 180);
+/** A bent belt's pieces keep this far from the hub's centre (its body plus a margin). */
+const HUB_CLEAR = HUB_RADIUS + 4;
+
+function segSegDist(a: Point, b: Point, c: Point, d: Point): number {
+  const cross = (o: Point, p: Point, q: Point) =>
+    (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = cross(a, b, c),
+    d2 = cross(a, b, d),
+    d3 = cross(c, d, a),
+    d4 = cross(c, d, b);
+  if (d1 * d2 < 0 && d3 * d4 < 0) return 0;
+  return Math.min(segDist(a, c, d), segDist(b, c, d), segDist(c, a, b), segDist(d, a, b));
+}
+
+/** Why a bend post can't stand at `p` (ignoring the belt it bends), or ''. */
+export function postSpotWhy(s: State, p: Point): string {
+  const no = 'no room here';
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return no;
+  if (Math.hypot(p.x, p.y) < DOCK_RADIUS + POST_RADIUS + 4) return no;
+  if (p.x < -330 || p.x > 330 || p.y > 110 || p.y < -1150) return no;
+  for (let i = 0; i < SLOTS.length; i++) {
+    const d = SLOTS[i];
+    if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + POST_RADIUS + 2) return no;
+  }
+  for (const m of s.machines) {
+    const q = machinePos(m);
+    if (Math.hypot(p.x - q.x, p.y - q.y) < laneClear(m.kind) + POST_RADIUS) return no;
+  }
+  return '';
+}
+
+/**
+ * Why machine `m`'s belt can't bend through `via` (P1, P3), or ''. Lanes are checked separately
+ * (they apply only with crossings on).
+ */
+export function bendWhy(s: State, m: Machine, via: Point[] | undefined): string {
+  if (!via?.length) return '';
+  if (!m.out || via.length > MAX_POSTS) return 'invalid';
+  for (const p of via) {
+    const why = postSpotWhy(s, p);
+    if (why) return why;
+  }
+  return shapeWhy(s, m, via);
+}
+
+/**
+ * The shape rules alone (P3): every piece long enough, no turn sharper than 120°, clear of the
+ * hub, and never across itself. Moves check these; post spots only matter where posts are set.
+ */
+function shapeWhy(s: State, m: Machine, via: Point[] | undefined): string {
+  if (!via?.length || !m.out) return '';
+  const q = targetPos(s, m.out.to);
+  if (!q) return 'invalid';
+  const path = pathBetween(m, machinePos(m), via, q, m.out.to.kind);
+  const hub = { x: 0, y: 0 };
+  for (let i = 1; i < path.length; i++)
+    if (segDist(hub, path[i - 1], path[i]) < HUB_CLEAR) return 'over the hub';
+  if (path.length === 4 && segSegDist(path[0], path[1], path[2], path[3]) < CROSS_TOUCH)
+    return 'crosses itself';
+  for (let i = 1; i < path.length; i++)
+    if (Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y) < MIN_FEED)
+      return 'too short';
+  for (let i = 1; i < path.length - 1; i++) {
+    const a = path[i - 1],
+      b = path[i],
+      c = path[i + 1];
+    const l1 = Math.hypot(b.x - a.x, b.y - a.y) || 1,
+      l2 = Math.hypot(c.x - b.x, c.y - b.y) || 1;
+    const dot = ((b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)) / (l1 * l2);
+    if (dot < MIN_TURN_DOT) return 'too sharp';
+  }
+  return '';
+}
+
+/** Why machine `m`'s belt can't bend through `via`, lanes included, or ''. */
+export function bendRefusalWhy(s: State, m: Machine, via: Point[]): string {
+  return (
+    bendWhy(s, m, via) ||
+    (s.crossings && via.length && m.out && laneBlocker(s, m, m.out.to, undefined, via)
+      ? 'belt blocked'
+      : '')
+  );
+}
+
+/** Set machine `id`'s bend posts (an empty list straightens its belt). */
+export function bend(s: State, id: number, via: Point[]): Result {
+  const m = byId(s, id);
+  if (!m?.out) return 'missing';
+  if (!Array.isArray(via)) return 'invalid';
+  const v = via.map((p) => ({ x: Number(p?.x), y: Number(p?.y) }));
+  const why = bendRefusalWhy(s, m, v);
+  if (why) return why;
+  if (v.length) m.out.via = v;
+  else delete m.out.via;
+  relayout(s);
+  s.events.push({ type: 'route', id });
+  return true;
+}
+
 /** The simulation's own splice check: generous, since the UI snaps within screen tolerances. */
 export const SPLICE_REACH = 40;
 /** Shortest belt a splice may leave between the owner and the smelter. */
@@ -952,14 +1173,20 @@ export function canSplice(
   const b = beltDistance(s, owner, p);
   if (!b || b.d > SPLICE_REACH) return false;
   // The owner's shortened belt must still hold a bundle and its spacing.
-  const e = beltEnds(s, owner)!;
-  const feed = Math.hypot(p.x - e.a.x, p.y - e.a.y) - SMELTER_RADIUS * 0.8;
+  const feed = b.along - SMELTER_RADIUS * 0.8;
   if (!anywhere && feed < MIN_FEED) return false;
   if (sm) {
     if (sm.out || owner.id === sm.id) return false;
     if (inputsOf(s, sm.id).length >= inputCap(sm)) return false;
     if (reaches(s, old, sm.id)) return false;
   }
+  // A smelter never lands on one of the belt's own bend posts.
+  if (
+    (owner.out.via ?? []).some(
+      (v) => Math.hypot(v.x - p.x, v.y - p.y) < SMELTER_RADIUS + POST_RADIUS
+    )
+  )
+    return false;
   if (s.crossings && spliceLanesBlocked(s, owner, sm, p)) return false;
   return true;
 }
@@ -969,16 +1196,25 @@ export function spliceLanesBlocked(s: State, owner: Machine, sm: Smelter | null,
   const old = owner.out!.to;
   const q = targetPos(s, old);
   if (!q) return false;
+  const [feedVia, onVia] = splitVia(s, owner, p);
   const lanes = [
-    endsBetween(owner, machinePos(owner), p, 'smelter'),
-    endsBetween({ kind: 'smelter' } as Machine, p, q, old.kind),
+    pathBetween(owner, machinePos(owner), feedVia, p, 'smelter'),
+    pathBetween({ kind: 'smelter' } as Machine, p, onVia, q, old.kind),
   ];
   for (const x of s.machines) {
     if (x.id === owner.id || x.id === sm?.id || (old.kind !== 'dock' && x.id === old.id)) continue;
     const c = machinePos(x);
-    if (lanes.some((e) => segDist(c, e.a, e.b) < laneClear(x.kind))) return true;
+    if (lanes.some((path) => pathNear(path, c, laneClear(x.kind)))) return true;
   }
   return false;
+}
+
+/** A splice at `p` splits `owner`'s bend posts: those before it stay, the rest go onward. */
+function splitVia(s: State, owner: Machine, p: Point): [Point[], Point[]] {
+  const via = owner.out?.via ?? [];
+  if (!via.length) return [[], []];
+  const k = beltDistance(s, owner, p)?.piece ?? 0;
+  return [via.slice(0, k), via.slice(k)];
 }
 
 function pay(s: State, cost: number): boolean {
@@ -1026,8 +1262,12 @@ export function buildDrill(s: State, slot: number, angle: number): Result {
 /** Put smelter `sm` into `owner`'s line: owner → smelter → owner's old target. */
 function spliceInto(s: State, sm: Smelter, owner: Machine) {
   const old = owner.out!.to;
+  const [feedVia, onVia] = splitVia(s, owner, machinePos(sm));
   sm.out = { to: old, length: 1, items: [] };
+  if (onVia.length) sm.out.via = onVia;
   owner.out!.to = { kind: 'smelter', id: sm.id };
+  if (feedVia.length) owner.out!.via = feedVia;
+  else delete owner.out!.via;
   relayout(s);
   s.events.push({ type: 'route', id: owner.id }, { type: 'route', id: sm.id });
 }
@@ -1065,13 +1305,62 @@ export function buildSmelter(s: State, p: Point, splice?: number | null): Result
   return true;
 }
 
-export function route(s: State, id: number, to: Target): Result {
+/**
+ * The machine on dock `t` that `m` (itself on a dock) can trade docks with, or null. A dock takes
+ * one belt, so without this a full hub leaves no dock to move a belt to. Both new belts must
+ * keep clear lanes.
+ */
+export function swapPartner(s: State, m: Machine, t: Target): Machine | null {
+  const from = m.out?.to;
+  if (t.kind !== 'dock' || from?.kind !== 'dock' || from.index === t.index) return null;
+  if (t.index < 0 || t.index >= s.docks) return null;
+  const o = s.machines.find(
+    (x) => x !== m && x.out?.to.kind === 'dock' && x.out.to.index === t.index
+  );
+  if (!o) return null;
+  if (
+    s.crossings &&
+    (laneBlocker(s, m, t, undefined, viaFor(s, m, t)) ||
+      laneBlocker(s, o, from, undefined, viaFor(s, o, from)))
+  )
+    return null;
+  return o;
+}
+
+/**
+ * Link machine `id` to `to`. With `via`, the new belt bends through those posts (pinned while
+ * dragging the link); without, it keeps its posts if they still suit the new target.
+ */
+export function route(s: State, id: number, to: Target, via?: Point[]): Result {
   const m = byId(s, id);
   if (!m) return 'missing';
-  if (m.out && sameTarget(m.out.to, to)) return true;
-  if (!canTarget(s, m, to)) return 'invalid';
-  if (m.out) m.out.to = to;
-  else m.out = { to, length: 1, items: [] };
+  const pinned = Array.isArray(via)
+    ? via.map((p) => ({ x: Number(p?.x), y: Number(p?.y) }))
+    : undefined;
+  if (pinned && pinned.length > MAX_POSTS) return 'invalid';
+  if (m.out && sameTarget(m.out.to, to)) return pinned ? bend(s, id, pinned) : true;
+  const keep = pinned ?? viaFor(s, m, to);
+  if (!canTarget(s, m, to, keep)) {
+    // Dropped on a busy dock: the two belts trade docks, each keeping posts that still fit.
+    const o = pinned?.length ? null : swapPartner(s, m, to);
+    if (!o) return pinned?.length ? targetWhy(s, m, to, keep) || 'invalid' : 'invalid';
+    const from = m.out!.to;
+    const [vm, vo] = [viaFor(s, m, to), viaFor(s, o, from)];
+    o.out!.to = from;
+    m.out!.to = to;
+    setVia(o.out!, vo);
+    setVia(m.out!, vm);
+    relayout(s);
+    s.events.push({ type: 'route', id: o.id }, { type: 'route', id });
+    return true;
+  }
+  if (m.out) {
+    m.out.to = to;
+    setVia(m.out, keep);
+  } else {
+    m.out = { to, length: 1, items: [] };
+    setVia(m.out, keep);
+  }
   relayout(s);
   if (m.out.length === 1) m.out.length = beltLength(s, m);
   relinkAll(s);
@@ -1132,12 +1421,14 @@ export function sell(s: State, id: number): Result {
   if (heir) {
     if (target && canTarget(s, heir, target)) {
       heir.out!.to = target;
+      delete heir.out!.via;
       s.events.push({ type: 'route', id: heir.id });
     } else unlink(heir);
     for (const x of rest) {
       const t: Target = { kind: heir.kind, id: heir.id } as Target;
       if (heir.out && canTarget(s, x, t)) {
         x.out!.to = t;
+        delete x.out!.via;
         s.events.push({ type: 'route', id: x.id });
       } else unlink(x);
     }
@@ -1740,6 +2031,7 @@ export const COMMANDS = {
   upgradeHub,
   setCrossings,
   setRockPrices,
+  bend,
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;

@@ -429,7 +429,8 @@ button:focus-visible {
   stroke-linecap: round;
 }
 
-.rh-move {
+.rh-move,
+.rh-straight {
   width: 48px;
   height: 48px;
   border-color: var(--ink);
@@ -437,7 +438,8 @@ button:focus-visible {
   box-shadow: 0 4px 0 var(--ink);
 }
 
-.rh-move svg {
+.rh-move svg,
+.rh-straight svg {
   width: 22px;
   height: 22px;
   fill: none;

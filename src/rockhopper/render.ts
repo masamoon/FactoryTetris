@@ -12,7 +12,10 @@ import {
   TOW_SECONDS,
 } from './config';
 import {
-  beltEnds,
+  beltPath,
+  targetPos,
+  pathLength,
+  pointAlong,
   byId,
   crossingsOf,
   cellPos,
@@ -27,6 +30,7 @@ import {
   type Drill,
   slotVisible,
   drillSpotWhy,
+  swapPartner,
   rimPos,
   rimRadius,
   type State,
@@ -85,6 +89,8 @@ export interface Overlay {
     target: Target | null;
     /** The target under the finger refuses the link, and why (drawn as a label over it). */
     refused?: (Point & { why: string }) | null;
+    /** Bend posts pinned so far by pausing mid-drag. */
+    via?: Point[];
   } | null;
   selected: number | 'hub' | null;
   /** Screen point of the drill tray button (for the drag hint). */
@@ -97,6 +103,10 @@ export interface Overlay {
   hintSplice: { from: Point; to: Point } | null;
   /** World point of a crossing to explain, once: bundles take turns there. */
   hintCross: Point | null;
+  /** A bend post being placed or dragged: the belt's candidate posts, and why it's refused. */
+  post: { id: number; via: Point[]; at: Point; why?: string; removing?: boolean } | null;
+  /** Holding a belt to drop a post: where, and how far the hold has filled (0–1). */
+  hold: { at: Point; f: number; id?: number } | null;
   /** A one-line notice shown under the counter (screen space), or null. */
   notice: string | null;
   reducedMotion: boolean;
@@ -213,6 +223,13 @@ export class Renderer {
   private refusals: { x: number; y: number; why: string }[] = [];
   /** The placement ghost's price, drawn above it: yellow when affordable, coral when not. */
   private priceTag: { x: number; y: number; price: number; can: boolean } | null = null;
+  /** Refusals that outlive the gesture that caused them (a dropped post that was refused). */
+  private flashes: { x: number; y: number; why: string; until: number }[] = [];
+
+  /** Show a refusal over a world point for a moment after the finger lifts. */
+  flash(p: Point, why: string) {
+    this.flashes.push({ x: p.x, y: p.y, why, until: this.time + 1.2 });
+  }
   /** Dust bursts waiting for their machine to touch down. */
   private dust: { id: number; at: number }[] = [];
   private routedAt = new Map<number, number>();
@@ -572,6 +589,8 @@ export class Renderer {
     this.drawLockedTags(c, s);
     this.drawPops(c, dt, o.placing ? 0.25 : 1);
     this.drawTurnChips(c, s, o);
+    this.flashes = this.flashes.filter((f) => f.until > this.time);
+    for (const f of this.flashes) this.refusals.push({ x: f.x, y: f.y + 36, why: f.why });
     for (const r of this.refusals) {
       const p = this.toScreen(r);
       const text = r.why === 'crossing' ? 'crossing – pick one' : r.why;
@@ -885,13 +904,19 @@ export class Renderer {
     const placing = o.placing?.kind === 'smelter';
     const spliceId = o.placing?.at?.splice;
     for (const m of s.machines) {
-      const e = beltEnds(s, m);
-      if (!e || !m.out) continue;
-      const dx = e.b.x - e.a.x,
-        dy = e.b.y - e.a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const ux = dx / len,
-        uy = dy / len;
+      const path = beltPath(s, m);
+      if (!path || !m.out) continue;
+      const e = { a: path[0], b: path[path.length - 1] };
+      const pen = path[path.length - 2];
+      const lastLen = Math.hypot(e.b.x - pen.x, e.b.y - pen.y) || 1;
+      // The direction the belt arrives in, for the in-port notch and the blocked chip.
+      const ux = (e.b.x - pen.x) / lastLen,
+        uy = (e.b.y - pen.y) / lastLen;
+      const trace = () => {
+        c.beginPath();
+        c.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) c.lineTo(path[i].x, path[i].y);
+      };
       const front = m.out.items[0];
       const toMachine = m.out.to.kind !== 'dock';
       // A belt whose front waits at a machine that won't take it yet is stopped: its dashes freeze.
@@ -904,13 +929,12 @@ export class Renderer {
       const dim = placing && m.id !== spliceId;
       c.globalAlpha = dim ? 0.35 : 1;
       c.lineCap = 'round';
+      c.lineJoin = 'round';
       c.strokeStyle = INK;
       c.lineWidth = 10 + wide;
-      c.beginPath();
-      c.moveTo(e.a.x, e.a.y);
-      c.lineTo(e.b.x, e.b.y);
+      trace();
       c.stroke();
-      c.strokeStyle = o.reroute?.id === m.id ? '#4A3C9A' : DEEP;
+      c.strokeStyle = o.reroute?.id === m.id || o.hold?.id === m.id ? '#4A3C9A' : DEEP;
       c.lineWidth = 6 + wide;
       c.stroke();
       if (m.id === spliceId) {
@@ -942,26 +966,34 @@ export class Renderer {
         c.lineWidth = 1;
         for (const side of [-1, 1]) {
           const off = (3 + wide / 2) * side;
-          c.beginPath();
-          c.moveTo(e.a.x - uy * off, e.a.y + ux * off);
-          c.lineTo(e.b.x - uy * off, e.b.y + ux * off);
-          c.stroke();
+          for (let i = 1; i < path.length; i++) {
+            const a = path[i - 1],
+              b = path[i];
+            const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+            const px = -((b.y - a.y) / L) * off,
+              py = ((b.x - a.x) / L) * off;
+            c.beginPath();
+            c.moveTo(a.x + px, a.y + py);
+            c.lineTo(b.x + px, b.y + py);
+            c.stroke();
+          }
         }
       }
       c.restore();
       if (toMachine) this.inPort(c, e.b, ux, uy, 5 + wide / 2);
       let max = m.out.length;
+      const pathLen = pathLength(path);
       for (const it of m.out.items) {
         // A bundle waiting its turn at a crossing stays put between ticks too.
         const pos = Math.min(it.pos + (it.w ? 0 : BELT_SPEED * DT * alpha), max);
         max = pos - BELT_SPACING;
-        const f = pos / m.out.length;
+        const at = pointAlong(path, (pos / m.out.length) * pathLen);
         c.save();
-        c.translate(e.a.x + ux * len * f, e.a.y + uy * len * f);
+        c.translate(at.x, at.y);
         const n = it.ores.length;
         if (it.mult > 1) {
           // Bars stack into a small ingot pile across the belt.
-          c.rotate(Math.atan2(uy, ux));
+          c.rotate(Math.atan2(at.uy, at.ux));
           c.globalAlpha = dim ? 0.12 : 0.35;
           c.fillStyle = ORES[it.ores[0]].color;
           c.beginPath();
@@ -989,8 +1021,27 @@ export class Renderer {
         c.restore();
       }
       c.globalAlpha = 1;
+      for (const v of m.out.via ?? []) this.post(c, v, dim);
       if (blocked) this.chip(c, e.b.x - ux * 12, e.b.y - uy * 12, 'blocked');
     }
+  }
+
+  /** A bend post: a small ink-rimmed peg the belt wraps around. */
+  private post(c: Ctx, p: Point, dim = false, ghost = false) {
+    c.save();
+    c.globalAlpha = dim ? 0.35 : ghost ? 0.7 : 1;
+    c.beginPath();
+    c.arc(p.x, p.y, 6.5, 0, Math.PI * 2);
+    c.fillStyle = ghost ? CREAM : MUTED;
+    c.fill();
+    c.lineWidth = 2.2;
+    c.strokeStyle = INK;
+    c.stroke();
+    c.beginPath();
+    c.arc(p.x, p.y, 2, 0, Math.PI * 2);
+    c.fillStyle = INK;
+    c.fill();
+    c.restore();
   }
 
   /**
@@ -1590,7 +1641,9 @@ export class Renderer {
         const a = machinePos(m);
         // Valid targets pulse: free docks, and machines with a free input that make no loop.
         for (let i = 0; i < s.docks; i++) {
-          if (!canTarget(s, m, { kind: 'dock', index: i })) continue;
+          const t: Target = { kind: 'dock', index: i };
+          // A busy dock pulses too when the two belts can trade docks.
+          if (!canTarget(s, m, t) && !swapPartner(s, m, t)) continue;
           const p = dockPos(i);
           this.targetRing(c, p.x, p.y, 11);
         }
@@ -1607,11 +1660,58 @@ export class Renderer {
         c.lineWidth = 4 / z;
         c.beginPath();
         c.moveTo(a.x, a.y);
+        for (const v of o.reroute.via ?? []) c.lineTo(v.x, v.y);
         c.lineTo(b.x, b.y);
         c.stroke();
         c.restore();
+        for (const v of o.reroute.via ?? []) this.post(c, v, false, true);
+        const t = o.reroute.target;
+        if (t?.kind === 'dock' && !canTarget(s, m, t) && swapPartner(s, m, t))
+          this.refusals.push({ x: b.x, y: b.y + (36 * Math.max(1, z)) / z, why: 'swap docks' });
         const r = o.reroute.refused;
         if (r) this.refusals.push({ x: r.x, y: r.y + (36 * Math.max(1, z)) / z, why: r.why });
+      }
+    }
+    if (o.hold) {
+      // A ring fills under the finger while a belt is held: releasing early just pans.
+      c.save();
+      c.strokeStyle = CREAM;
+      c.lineWidth = 3 / z;
+      c.globalAlpha = 0.9;
+      c.beginPath();
+      c.arc(o.hold.at.x, o.hold.at.y, 14 / z, -Math.PI / 2, -Math.PI / 2 + o.hold.f * Math.PI * 2);
+      c.stroke();
+      c.restore();
+    }
+    if (o.post) {
+      const m = byId(s, o.post.id);
+      const q = m?.out && targetPos(s, m.out.to);
+      if (m && q) {
+        // The candidate path, dashed over the belt, with the ghost posts on it.
+        const path = [machinePos(m), ...o.post.via, q];
+        c.save();
+        c.setLineDash([7, 6]);
+        c.lineDashOffset = -this.time * 40;
+        c.strokeStyle = o.post.why ? CORAL : CREAM;
+        c.lineWidth = 4 / z;
+        c.beginPath();
+        c.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) c.lineTo(path[i].x, path[i].y);
+        c.stroke();
+        c.restore();
+        for (const v of o.post.via) this.post(c, v, false, true);
+        if (o.post.removing)
+          this.refusals.push({
+            x: o.post.at.x,
+            y: o.post.at.y + (36 * Math.max(1, z)) / z,
+            why: 'straighten',
+          });
+        else if (o.post.why)
+          this.refusals.push({
+            x: o.post.at.x,
+            y: o.post.at.y + (36 * Math.max(1, z)) / z,
+            why: o.post.why,
+          });
       }
     }
   }
@@ -1788,7 +1888,7 @@ export class Renderer {
       c.stroke();
       c.globalAlpha = 1;
       label(c, 'Crossed belts take turns (ringed)', this.w / 2, 146, 15);
-      label(c, 'Move or re-route to untangle', this.w / 2, 166, 13);
+      label(c, 'Hold a belt to bend it, or re-route', this.w / 2, 166, 13);
     }
     if (o.hintJoin) {
       // Drag from one machine onto another: a dashed link grows behind the hand.
