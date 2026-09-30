@@ -71,7 +71,15 @@ export interface Overlay {
     kind: 'drill' | 'smelter';
     /** The snapped spot; `splice` is the belt (owner id) it would go into. */
     at:
-      | (Point & { ok?: boolean; angle?: number; splice?: number; why?: string; slot?: number })
+      | (Point & {
+          ok?: boolean;
+          angle?: number;
+          splice?: number;
+          why?: string;
+          slot?: number;
+          /** What dropping here costs (a drill's price by rock tier, or an upward move). */
+          price?: number;
+        })
       | null;
     moving?: number;
   } | null;
@@ -213,6 +221,8 @@ export class Renderer {
   private stalledAt = new Map<number, number>();
   /** Why the ghost can't drop here, drawn in screen space after the world. */
   private refusals: { x: number; y: number; why: string }[] = [];
+  /** The placement ghost's price, drawn above it: yellow when affordable, coral when not. */
+  private priceTag: { x: number; y: number; price: number; can: boolean } | null = null;
   /** Refusals that outlive the gesture that caused them (a dropped post that was refused). */
   private flashes: { x: number; y: number; why: string; until: number }[] = [];
 
@@ -588,6 +598,20 @@ export class Renderer {
       label(c, text, p.x, p.y - 36 * Math.max(1, this.cam.z) - 26, 15);
     }
     this.refusals = [];
+    if (this.priceTag) {
+      const t = this.priceTag;
+      const p = this.toScreen(t);
+      const y = p.y - 36 * Math.max(1, this.cam.z) - 26;
+      const text = formatNumber(t.price);
+      c.font = '17px "Lilita One", sans-serif';
+      const w = c.measureText(text).width + 22;
+      c.save();
+      c.translate(p.x - w / 2 + 7, y);
+      drawCoin(c, 7);
+      c.restore();
+      label(c, text, p.x + 11, y, 17, t.can ? YELLOW : CORAL);
+      this.priceTag = null;
+    }
     this.drawHints(c, s, o);
   }
 
@@ -1607,6 +1631,8 @@ export class Renderer {
       if (at) {
         this.hologram(c, o.placing.kind, at);
         if (at.ok === false) this.refusals.push({ x: at.x, y: at.y, why: at.why ?? 'no room' });
+        else if (at.price !== undefined)
+          this.priceTag = { x: at.x, y: at.y, price: at.price, can: s.credits >= at.price };
       }
     }
     if (o.reroute) {
@@ -1976,7 +2002,7 @@ function drawHand(c: Ctx, x: number, y: number, k: number) {
   c.restore();
 }
 
-function label(c: Ctx, text: string, x: number, y: number, size = 20) {
+function label(c: Ctx, text: string, x: number, y: number, size = 20, fill = CREAM) {
   c.font = `${size}px "Lilita One", sans-serif`;
   c.textAlign = 'center';
   c.textBaseline = 'middle';
@@ -1984,7 +2010,7 @@ function label(c: Ctx, text: string, x: number, y: number, size = 20) {
   c.lineWidth = 6;
   c.strokeStyle = INK;
   c.strokeText(text, x, y);
-  c.fillStyle = CREAM;
+  c.fillStyle = fill;
   c.fillText(text, x, y);
 }
 

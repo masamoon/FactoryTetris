@@ -20,6 +20,7 @@ import {
   DRILL_RADIUS,
   DRILL_SPACING,
   drillPrice,
+  classicDrillPrice,
   drillRate,
   drillUpgradeCost,
   DT,
@@ -222,6 +223,8 @@ export interface State {
   crossings: boolean;
   /** Transient: a save from before crossings was loaded, so the game explains them once. */
   crossingsNotice?: boolean;
+  /** Drills priced by the rock tier they stand on (the drill-prices experiment), else classic. */
+  rockPrices: boolean;
   tick: number;
   credits: number;
   earned: number;
@@ -521,6 +524,7 @@ export function freshState(seed = 1): State {
     version: 2,
     seed,
     crossings: true,
+    rockPrices: true,
     tick: 0,
     credits: 0,
     earned: 0,
@@ -541,8 +545,37 @@ export const byId = (s: State, id: number) => s.machines.find((m) => m.id === id
 export const drills = (s: State) => s.machines.filter((m): m is Drill => m.kind === 'drill');
 export const smelters = (s: State) => s.machines.filter((m): m is Smelter => m.kind === 'smelter');
 
-export const priceOf = (s: State, kind: Machine['kind']) =>
-  kind === 'drill' ? drillPrice(drills(s).length) : smelterPrice(smelters(s).length);
+/** Drills standing on slot `slot`'s rock, leaving out drill `except`. */
+export const drillsOnRock = (s: State, slot: number, except?: number) =>
+  drills(s).filter((d) => d.id !== except && d.slot === slot).length;
+
+/** A new drill on slot `slot`, leaving out drill `except`: its tier's base, grown per drill there. */
+const rockPrice = (s: State, slot: number, except?: number) =>
+  drillPrice(SLOTS[slot].tier, drillsOnRock(s, slot, except));
+
+/** Price of a new drill on slot `slot`: by its rock (or classic, with the switch off). */
+export const drillPriceOn = (s: State, slot: number) =>
+  s.rockPrices ? rockPrice(s, slot) : classicDrillPrice(drills(s).length);
+
+/**
+ * Price shown in the tray. Drills: the cheapest unlocked rock (the drag ghost shows the price
+ * where it would land). Smelters: 520 × 2^n.
+ */
+export function priceOf(s: State, kind: Machine['kind']): number {
+  if (kind === 'smelter') return smelterPrice(smelters(s).length);
+  if (!s.rockPrices) return classicDrillPrice(drills(s).length);
+  return Math.min(...SLOTS.flatMap((_, i) => (s.slots[i].unlocked ? [rockPrice(s, i)] : [])));
+}
+
+/**
+ * Moving drill `id` to slot `slot` costs what a new drill there is pricier by than one where it
+ * stands (both counted without it), in any direction: never less than buying in place.
+ */
+export function moveDrillCost(s: State, id: number, slot: number): number {
+  const m = byId(s, id);
+  if (!s.rockPrices || !m || m.kind !== 'drill' || m.slot === slot) return 0;
+  return Math.max(0, rockPrice(s, slot, id) - rockPrice(s, m.slot, id));
+}
 
 export function upgradeCost(m: Machine): number | null {
   if (m.kind === 'drill') return m.level >= DRILL_MAX_LEVEL ? null : drillUpgradeCost(m.level);
@@ -1206,7 +1239,7 @@ const base = () => ({
 export function buildDrill(s: State, slot: number, angle: number): Result {
   const why = drillSpotWhy(s, slot, angle);
   if (why) return why;
-  const cost = priceOf(s, 'drill');
+  const cost = drillPriceOn(s, slot);
   if (!pay(s, cost)) return 'credits';
   const d: Drill = {
     id: s.nextId++,
@@ -1412,6 +1445,11 @@ export function moveDrill(s: State, id: number, slot: number, angle: number): Re
   if (!m || m.kind !== 'drill') return 'missing';
   const why = drillSpotWhy(s, slot, angle, id);
   if (why) return why;
+  const cost = moveDrillCost(s, id, slot);
+  if (cost > 0) {
+    if (!pay(s, cost)) return 'credits';
+    m.spent += cost;
+  }
   m.slot = slot;
   m.angle = normAngle(angle);
   m.cell = -1;
@@ -1461,6 +1499,12 @@ export function upgradeHub(s: State, what: HubUpgrade): Result {
   else s.tractorLevel++;
   relinkAll(s);
   s.events.push({ type: 'hub', what });
+  return true;
+}
+
+/** Switch the drill-prices experiment: by rock tier, or classic 14 × 1.55^n with free moves. */
+export function setRockPrices(s: State, on: boolean): Result {
+  s.rockPrices = !!on;
   return true;
 }
 
@@ -1986,6 +2030,7 @@ export const COMMANDS = {
   unlock,
   upgradeHub,
   setCrossings,
+  setRockPrices,
   bend,
 } as const;
 

@@ -23,6 +23,7 @@ import {
   inputsOf,
   machinePos,
   priceOf,
+  drillPriceOn,
   route,
   setLaser,
   slotVisible,
@@ -160,6 +161,10 @@ export const rawChains = (s: State) => drills(s).filter((d) => d.out?.to.kind ==
  * past them only drains it faster into the respawn wait, which this greedy bot can't weigh.
  */
 function freeRim(s: State, i: number): number | null {
+  if (process.env.BOT_FULL_RIM) {
+    for (let a = 0; a < Math.PI * 2; a += 0.04) if (!drillSpotWhy(s, i, a)) return a;
+    return null;
+  }
   // Near each old socket: a belt may run over the exact spot, so try a little to either side.
   const tries = [...Array(LEGACY_SOCKETS[i]).keys()].flatMap((k) =>
     [0, 0.12, -0.12, 0.24, -0.24].map((d) => legacySocketAngle(i, k) + d)
@@ -190,7 +195,7 @@ function act(s: State, mark: (l: string) => void) {
     if (!s.slots[i].unlocked) continue;
     const free = freeRim(s, i);
     if (free === null) continue;
-    const cost = priceOf(s, 'drill');
+    const cost = drillPriceOn(s, i);
     options.push({
       cost,
       score: (SLOTS[i].tier * 1.6) / cost,

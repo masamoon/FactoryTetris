@@ -123,7 +123,17 @@ export const SMELTER_MAX_LEVEL = 8;
 export const smelterUpgradeCost = (level: number) => Math.round(90 * Math.pow(2.2, level - 1));
 export const smelterInputs = (level: number) => (level >= 5 ? 4 : level >= 3 ? 3 : 2);
 
-export const drillPrice = (owned: number) => Math.round(14 * Math.pow(1.55, owned));
+/**
+ * A drill is priced by the rock it stands on: its tier's base, growing gently with the drills
+ * already on that rock. Rim space and finite cells limit drills per rock; the price shouldn't
+ * limit them a second time (docs/ROCKHOPPER_DRILL_PRICES.md).
+ */
+export const DRILL_BASE: Record<1 | 2 | 3 | 4, number> = { 1: 14, 2: 400, 3: 6000, 4: 60000 };
+export const DRILL_GROWTH = 1.15;
+export const drillPrice = (tier: 1 | 2 | 3 | 4, onRock: number) =>
+  Math.round(DRILL_BASE[tier] * Math.pow(DRILL_GROWTH, onRock));
+/** The classic price (the menu switch turns it back on): 14, then ×1.55 per drill owned. */
+export const classicDrillPrice = (owned: number) => Math.round(14 * Math.pow(1.55, owned));
 export const smelterPrice = (owned: number) => Math.round(520 * Math.pow(2, owned));
 export const dockCost = (docks: number) => Math.round(300 * Math.pow(2.6, docks - DOCKS_START));
 export const TRACTOR_MAX = 5;
