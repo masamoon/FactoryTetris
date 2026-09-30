@@ -50,6 +50,8 @@ export interface BotOptions {
   minutes: number;
   laser: boolean;
   seed: number;
+  /** The crossings experiment (plates and clear lanes); on unless set false. */
+  crossings?: boolean;
   log?: (line: string) => void;
 }
 
@@ -59,7 +61,7 @@ function spliceSpot(s: State, owner: Machine): { x: number; y: number } | null {
   if (!e) return null;
   for (let f = 0.25; f <= 0.9; f += 0.05) {
     const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
-    if (smelterSpotOk(s, p) && canSplice(s, owner, null, p)) return p;
+    if (smelterSpotOk(s, p, undefined, owner.id) && canSplice(s, owner, null, p)) return p;
   }
   return null;
 }
@@ -91,6 +93,7 @@ export function runBot(opts: BotOptions): {
   income: [number, number][];
 } {
   const s = freshState(opts.seed);
+  s.crossings = opts.crossings ?? true;
   const beats: Beat[] = [];
   const mark = (label: string) => {
     if (!beats.some((b) => b.label === label)) beats.push({ label, seconds: s.tick / TICK_HZ });
@@ -135,7 +138,10 @@ export const rawChains = (s: State) => drills(s).filter((d) => d.out?.to.kind ==
  * past them only drains it faster into the respawn wait, which this greedy bot can't weigh.
  */
 function freeRim(s: State, i: number): number | null {
-  const tries = [...Array(LEGACY_SOCKETS[i]).keys()].map((k) => legacySocketAngle(i, k));
+  // Near each old socket: a belt may run over the exact spot, so try a little to either side.
+  const tries = [...Array(LEGACY_SOCKETS[i]).keys()].flatMap((k) =>
+    [0, 0.12, -0.12, 0.24, -0.24].map((d) => legacySocketAngle(i, k) + d)
+  );
   return tries.find((a) => !drillSpotWhy(s, i, a)) ?? null;
 }
 
@@ -259,6 +265,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     minutes: arg('--minutes', 30),
     laser: !process.argv.includes('--no-laser'),
     seed: arg('--seed', 1),
+    crossings: !process.argv.includes('--no-crossings'),
   });
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);

@@ -14,6 +14,7 @@ import {
 import {
   beltEnds,
   byId,
+  crossingsOf,
   cellPos,
   firstCells,
   dockPos,
@@ -80,6 +81,10 @@ export interface Overlay {
   hintJoin: { from: Point; to: Point } | null;
   /** From the smelter tray button (screen) onto a belt (world). */
   hintSplice: { from: Point; to: Point } | null;
+  /** World point of a crossing to explain, once: bundles take turns there. */
+  hintCross: Point | null;
+  /** A one-line notice shown under the counter (screen space), or null. */
+  notice: string | null;
   reducedMotion: boolean;
 }
 
@@ -539,6 +544,7 @@ export class Renderer {
     this.drawCracks(c, s);
     this.drawArms(c, s);
     this.drawBelts(c, s, alpha, o);
+    this.drawPlates(c, s, o);
     this.drawHubAndDocks(c, s, o);
     this.drawMachines(c, s, o);
     this.drawFlights(c, s, tickF);
@@ -915,7 +921,8 @@ export class Renderer {
       if (toMachine) this.inPort(c, e.b, ux, uy, 5 + wide / 2);
       let max = m.out.length;
       for (const it of m.out.items) {
-        const pos = Math.min(it.pos + BELT_SPEED * DT * alpha, max);
+        // A bundle waiting its turn at a crossing stays put between ticks too.
+        const pos = Math.min(it.pos + (it.w ? 0 : BELT_SPEED * DT * alpha), max);
         max = pos - BELT_SPACING;
         const f = pos / m.out.length;
         c.save();
@@ -955,6 +962,40 @@ export class Renderer {
     }
   }
 
+  /**
+   * Crossing plates: a small riveted plate wherever two belts touch, so crossings can be counted.
+   * One where bundles keep waiting their turn grows a "take turns" chip (⇄, a shape, not a hue).
+   */
+  private drawPlates(c: Ctx, s: State, o: Overlay) {
+    const x = crossingsOf(s);
+    if (!x.plates.length) return;
+    const dim = o.placing?.kind === 'smelter';
+    for (const p of x.plates) {
+      const heat = x.heat.get(p.key) ?? 0;
+      c.save();
+      c.globalAlpha = dim ? 0.35 : 1;
+      c.translate(p.x, p.y);
+      c.rotate(Math.PI / 4);
+      rrect(c, -5.5, -5.5, 11, 11, 2.5);
+      c.fillStyle = heat > 0.35 ? CREAM : MUTED;
+      c.fill();
+      c.lineWidth = 2;
+      c.strokeStyle = INK;
+      c.stroke();
+      c.fillStyle = INK;
+      for (const [rx, ry] of [
+        [-2.6, 0],
+        [2.6, 0],
+      ]) {
+        c.beginPath();
+        c.arc(rx, ry, 1.1, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.restore();
+      if (heat > 0.35 && !dim) this.chip(c, p.x, p.y - 17, 'turns');
+    }
+  }
+
   /** A notch where a belt enters a machine, so feeding reads differently from passing under. */
   private inPort(c: Ctx, p: Point, ux: number, uy: number, r: number) {
     c.save();
@@ -978,7 +1019,7 @@ export class Renderer {
    * Bottleneck chips, each with its own shape: "full" (a stack of chunks: the belt is the
    * limit, widen it) and "blocked" (‖: the smelter is the limit).
    */
-  private chip(c: Ctx, x: number, y: number, what: 'full' | 'blocked') {
+  private chip(c: Ctx, x: number, y: number, what: 'full' | 'blocked' | 'turns') {
     const k = (1 / Math.max(0.75, this.cam.z)) * (1 + 0.08 * Math.sin(this.time * 6));
     c.save();
     c.translate(x, y);
@@ -993,6 +1034,22 @@ export class Renderer {
     if (what === 'blocked') {
       c.fillRect(-4.5, -4.5, 3, 9);
       c.fillRect(1.5, -4.5, 3, 9);
+    } else if (what === 'turns') {
+      // ⇄: two ways taking turns through one spot.
+      c.lineWidth = 2;
+      c.strokeStyle = INK;
+      c.beginPath();
+      c.moveTo(-5, -2.5);
+      c.lineTo(5, -2.5);
+      c.moveTo(2, -5.5);
+      c.lineTo(5, -2.5);
+      c.lineTo(2, 0.5);
+      c.moveTo(5, 2.5);
+      c.lineTo(-5, 2.5);
+      c.moveTo(-2, -0.5);
+      c.lineTo(-5, 2.5);
+      c.lineTo(-2, 5.5);
+      c.stroke();
     } else {
       // A little pile of chunks: more is arriving than the belt can take.
       for (const [x, y] of [
@@ -1623,6 +1680,12 @@ export class Renderer {
   }
 
   private drawHints(c: Ctx, s: State, o: Overlay) {
+    if (o.notice) label(c, o.notice, this.w / 2, 112, 15);
+    if (o.hintCross) {
+      const p = this.toScreen(o.hintCross);
+      label(c, 'Belts take turns here', p.x, p.y - 58, 15);
+      label(c, 'Move or re-route to untangle', p.x, p.y - 40, 13);
+    }
     if (o.hintJoin) {
       // Drag from one machine onto another: a dashed link grows behind the hand.
       const a = this.toScreen(o.hintJoin.from),

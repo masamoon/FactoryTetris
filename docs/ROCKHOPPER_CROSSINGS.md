@@ -1,6 +1,6 @@
 # Rockhopper: belt crossings (proposal, 2026-09-30)
 
-Status: **pending adversarial review** (the user chose the full AGENTS.md process for this feature). Nothing here is implemented yet.
+Status: **revision 2, pending round-2 review** (the user chose the full AGENTS.md process for this feature). Revision 2 is prototyped on this branch behind a switch, so the reviewer's evidence could be measured; it is not adopted until it passes. Round 1 is recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
 
 ## Why
 
@@ -17,7 +17,55 @@ Evidence of current layouts (greedy bot, seeds 1–3, measured with a scratch pr
 
 **Decision already made with the user:** no hand-drawn belts (rejected in `ROCKHOPPER_LOGISTICS.md`: fiddly on a phone). The layer has to come from making the existing free rearranging matter.
 
-## Proposal
+## Revision 2 (after round-1 review)
+
+Round 1 sent C1–C5, C7 and the clip back (C6 passed on condition of a screenshot). The biggest changes: **a crossing costs the same at any angle**, turns are strictly fair, auto-link avoids crossings, and, by the user's choice on 2026-09-30, **belts may no longer run under machines**.
+
+| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | **Belts that touch share one plate.** Two belts touch where their centre lines come within **10 u** (the drawn tier-1 belt), crossing or not. Each touching pair gets **one plate, 14 u long on each belt** (a bundle spacing), centred where the lines cross, or at the middle of the overlap for near-parallel belts. The length never depends on the angle, so there is no cliff. Belts that share a machine only count farther than 40 u from it, so two inputs converging on one smelter never cross, but a long collinear overlap still does.                                                                                                                                                                                                                                       |
+| C2  | **Strict turns, never a deadlock.** A bundle may enter a plate only with room to get out on its own belt (the bundle ahead is past the exit by a spacing, or still moving) and only if no moving bundle of the other belt is inside. Requests are served oldest first, then by lower belt id, and **a waiting request claims its plates even while refused**, so the other belt can't keep sending new bundles in: when both have traffic, they alternate one bundle at a time. Plates closer than a spacing along one belt form one gate, entered all or nothing (only along that belt, never chained across belts). The oldest request is only ever held by bundles already inside, which always get out, so there is no deadlock; bundles backed up from a machine don't hold a plate. |
+| C3  | **A plate carries one belt's worth of bundles, shared.** Measured: two saturated tier-1 belts keep **3.75 of 7.5 chunks/s each at 47°, 32° and 28° alike**; two belts at 3 chunks/s lose nothing. **Widening does help**: a crossed tier-2 pair each carries 7.5, as much as an uncrossed tier-1 belt. So a crossing on a busy line costs about one tier step on each belt, and the player chooses between untangling (free, but it takes planning and competes with aiming drills at veins) and widening (credits, at the global rising price). Light lines can cross almost for free.                                                                                                                                                                                                   |
+| C4  | **Signals.** Every plate is a small riveted diamond (muted, so crossings can be counted without glowing). A plate where bundles waited for most of the last second turns cream and grows a coral **⇄ chip** (a shape as well as a hue); waiting bundles visibly stop at its edge. A machine held at a crossing says **"Waits at a crossing: untangle it, or widen"** in its bubble; its "full" chip and Widen stay, since widening does help.                                                                                                                                                                                                                                                                                                                                             |
+| C5  | **Auto-link avoids crossings.** A new or unlinked machine takes the free dock that touches no other belt and keeps its lane clear, then the nearest. Crossings that remain come from the player's own links, chains and placement. Nothing is refused on account of a crossing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| C6  | **Teaching.** The first time a plate stays busy for 3 s, a label beside it reads "Belts take turns here / Move or re-route to untangle", for up to 20 s or until it clears (once per session).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| C7  | **A switch and no silent change.** The menu has **"Belt crossings: on/off"**, saved with the game and logged as a command. A save from before crossings loads with them on and shows "New: crossed belts take turns (menu to switch off)" under the counter for 8 s. Crossings are derived from geometry; a bundle's waiting time is saved.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| C8  | **Belts never run under machines** (the user's choice). A link, auto-link or move is refused with **"belt blocked"** if the belt's centre line would pass within a body radius (16 u drill, 22 u smelter) of another machine. A machine can't be built or moved onto another belt (**"on a belt"**), except a smelter dropped into that belt as a splice. Links in existing saves that already run under a machine are kept (grandfathered) until changed. The switch turns C8 off with C1–C7.                                                                                                                                                                                                                                                                                            |
+
+## Evidence (revision 2, bot and headless; not a playtest)
+
+- **Witness:** `npx tsx tools/rockhopper-crossings.ts` ([log](reviews/evidence/rockhopper-crossings-witness.log.txt)).
+- **Two crossed belts:** 3.75 / 3.75 chunks/s saturated at every angle tested (off: 7.5 / 7.5); 3.00 / 3.00 at 3/s each; tier 2 saturated 7.5 / 7.5.
+- **Tangled vs tidy** (the bot's 20-minute factories, 120 s income, crossings on vs off):
+
+  | Layout                              | Plates | Loss vs crossings off |
+  | ----------------------------------- | ------ | --------------------- |
+  | As the bot built it                 | 3–4    | 1–7 %                 |
+  | Docks in the sources' angular order | 1–2    | 1–7 %                 |
+  | Docks shuffled (two shuffles)       | 12–15  | 14–46 %               |
+  | Docks reversed (fully tangled)      | 23–25  | 54–68 %               |
+
+  Untangling a shuffled factory gains 17–81 % income; that is the skill gap, in credits.
+
+- **Pace** (greedy bot, seeds 1–3, crossings on vs off): first smelter 1:03–1:35 and T2 11:10–11:14 in both; 20-minute earnings 229–239k on vs 236–242k off. T2 moves by less than 1 %. The bot is tidy by construction (old socket spots, crossing-free auto-link) and was changed only to look up to 0.24 rad either side of a socket when a belt covers it, and to pass the spliced belt to the smelter spot check.
+- **Tests** (`tests/rockhopper-crossings.test.ts`): half each at three angles; no loss at 3/s and none when switched off; widening doubles chunks; a trickle crossing a saturated stream still gets through at its rate, with no bundle waiting 20 ticks; 12 scrambled random factories (at least 3 plates each) run 120 s with no bundle waiting 4 s and deliveries flowing; shared-machine inputs never cross; lane refusals ("on a belt", "belt blocked") and the switch; save round-trip mid-wait, the old-save notice and the switch.
+- **Screenshots at 390 px** (a bot save with its docks reversed, labelled as a prepared developed save): [hint](reviews/evidence/rockhopper-crossings-tangled-hint.png), [bubble](reviews/evidence/rockhopper-crossings-bubble.png), [old-save notice](reviews/evidence/rockhopper-crossings-notice.png).
+
+## Clip scenario (revision 2)
+
+- **A, 0–10 s** (fresh save, real time): unchanged. A fresh factory has no crossings, since auto-link avoids them.
+- **B, 10–30 s** (disclosed cut to a **prepared developed save**: a bot factory whose two trunks were re-linked across each other; the headless witness is the uncut record):
+  - **B1.** Two busy trunks cross in an X above the hub. The plate shows ⇄, bundles stop at its edge on both belts, the feeding drills pile up, and a bubble reads "Waits at a crossing".
+  - **B2.** The player moves one junction drill round its rock (Move in its bubble) so its belt no longer crosses: the X and its plate vanish and the queues drain. Moving a drill needs no free dock, so this works in any developed save. The shot holds until deliveries settle; the witness logs settled chunks/s on both trunks over a window after the backlog flushes.
+  - **B3.** The next decision: widen the trunk now that it runs clean, or untangle the next plate.
+
+## What this still doesn't address
+
+- The hub fan is still where belts converge. Plates there are real (a tangled factory shows a knot of ⇄ chips at the hub), but belts to neighbouring docks don't touch (19.5 u apart), so a tidy fan stays free.
+- Belts that already ran under machines in existing saves stay until the player changes them.
+- Untangling can still be close to a one-time sort per layout. The trade-offs that keep it alive are: chains and smelter splices that need machines placed near each other, drills aimed at veins versus clear lanes (C8), new docks and slots unlocking over time, and light crossings being nearly free. Whether that is enough needs the human playtest.
+
+## Revision 1 (superseded)
 
 | #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -29,23 +77,6 @@ Evidence of current layouts (greedy bot, seeds 1–3, measured with a scratch pr
 | C6  | **Teaching.** The first time a crossing chip stays on for 3 s, a one-time label sits beside that plate: "Belts take turns here. Move or re-route to untangle." It goes when the crossing is gone or after 20 s.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | C7  | **Saves.** Crossings are derived from geometry every tick and never saved. A bundle's waiting time is saved as an optional field (default 0). No migration: a v2 save keeps its layout, but a tangled save earns less from the first tick. That is disclosed in the change notes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
-## Clip scenario (C1–C4)
-
-- **A, 0–10 s** (fresh save, real time): unchanged. A fresh factory has no crossings.
-- **B, 10–30 s** (disclosed cut to a developed save, with a headless replay as the uncut witness):
-  - **B1.** Two drill chains near their belt cap run to docks on the opposite side of the hub, so their trunks cross in an X above the hub. The plate shows the take-turns chip, bundles queue on both sides, and both feeding drills show piles.
-  - **B2.** The player drags the left trunk from its dock to the free dock on its own side. The X and its plate vanish, the queues drain, and the pops speed up. The shot holds long enough to show the settled rate, measured from deliveries, not the flush of the backlog.
-  - **B3.** A new drill auto-links across a light line: its plate shows no chip. The next decision is whether to widen the trunk now that it runs clean.
-
-The witness has to log the chunks/s of both trunks before and after the re-route, on real numbers.
-
-## Evidence to gather before and after implementing
-
-- Unit tests: two saturated tier-1 belts at 90° each deliver 40–60 % of their cap; two belts at 40 % load lose under 10 %; widening a crossed trunk doesn't raise its bundle rate; no deadlock in randomised layouts (10 000 ticks, every bundle keeps moving or is waiting at a machine); shared-machine pairs never cross; save round-trip keeps bundles' waiting time.
-- Bot pacing, seeds 1–3, against the free-drill numbers (first smelter 1:12–1:36, T2 10:59–11:35). The bot is tidy, so its pace should barely move; if it slows a lot, crossings are too harsh.
-- **Tangled vs tidy** (the skill gap): take the bot's 20-minute saves, swap dock assignments to cross the trunks, and measure credits/min before and after; then untangle. The gap should be clearly visible (10–40 %) without making a tangled factory useless.
-- Browser screenshots at 390 px of plates, the chip, the queue and the bubble text.
-
 ## Rejected or deferred
 
 - **Hand-drawn belts:** rejected (earlier decision, phone usability).
@@ -53,11 +84,8 @@ The witness has to log the chunks/s of both trunks before and after the re-route
 - **Charging per unit of length:** rejected earlier (makes experimenting costly).
 - **Paid bridges** that remove a crossing's cost: deferred. They would give credits a layout sink, but first see whether untangling alone is enough.
 - **Bend posts** (a cheap node dropped on a belt and dragged to route around things): deferred until the playtest shows crossings that can't be avoided.
-- **Belts passing under machines:** out of scope. Still free, and still part of the visual mess; revisit after this experiment.
 
-## Open questions for the reviewer
+## Open
 
-- Does C3's cost make tidying a real decision, or is the untangled layout obvious and solved once per save?
-- Is 7 u the right reach, given the hub fan (docks about 19 u apart)?
-- Does ignoring shared-machine pairs open an exploit?
-- Will players read a slowdown at a plate, or only see drills piling up?
+- The human playtest at 390 px: are plates and ⇄ read as the cause of a slowdown, does untangling feel like skill or a chore, and does "belt blocked" frustrate placement?
+- Whether clear lanes (C8) make some slots hard to link as factories grow (measure how often the bot hits "belt blocked").

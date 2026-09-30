@@ -1,0 +1,24 @@
+1. Two crossed belts (chunks/s each; tier-1 cap 7.5)
+  crossing  47°  saturated: on 3.75 / 3.75, off 7.50 / 7.50  | 3/s each: on 3.00 / 3.00  | tier 2 saturated: on 7.50 / 7.50
+  crossing  32°  saturated: on 3.75 / 3.75, off 7.50 / 7.50  | 3/s each: on 3.00 / 3.00  | tier 2 saturated: on 7.50 / 7.50
+  crossing  28°  saturated: on 3.75 / 3.75, off 7.50 / 7.50  | 3/s each: on 3.00 / 3.00  | tier 2 saturated: on 7.50 / 7.50
+
+2. Tangled vs tidy (bot factories at 20 min; credits/s over 120 s)
+  seed 1
+    as built   plates  4  on 409  off 441  (-7%)
+    tidy       plates  2  on 409  off 441  (-7%)
+    shuffled 1 plates 15  on 314  off 440  (-29%)
+    shuffled 2 plates 14  on 380  off 441  (-14%)
+    tangled    plates 25  on 205  off 441  (-54%)
+  seed 2
+    as built   plates  3  on 380  off 402  (-5%)
+    tidy       plates  1  on 393  off 402  (-2%)
+    shuffled 1 plates 13  on 217  off 402  (-46%)
+    shuffled 2 plates 12  on 280  off 402  (-30%)
+    tangled    plates 23  on 127  off 402  (-68%)
+  seed 3
+    as built   plates  3  on 411  off 416  (-1%)
+    tidy       plates  1  on 413  off 416  (-1%)
+    shuffled 1 plates 14  on 298  off 415  (-28%)
+    shuffled 2 plates 13  on 344  off 415  (-17%)
+    tangled    plates 24  on 163  off 415  (-61%)

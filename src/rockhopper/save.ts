@@ -49,7 +49,14 @@ export function serialize(s: State): string {
   }));
   // The laser follows a live finger; it is never saved, so a reload cannot keep it firing.
   const machines = s.machines.map((m) => (m.kind === 'drill' ? { ...m, stalled: undefined } : m));
-  return JSON.stringify({ ...s, slots, machines, laser: null, events: undefined });
+  return JSON.stringify({
+    ...s,
+    slots,
+    machines,
+    laser: null,
+    events: undefined,
+    crossingsNotice: undefined,
+  });
 }
 
 function isNum(v: unknown): v is number {
@@ -108,6 +115,9 @@ export function deserialize(text: string): State | null {
       version: 2,
       slots,
       events: [],
+      // Saves from before the crossings experiment turn it on, and the game says so once.
+      crossings: typeof raw.crossings === 'boolean' ? raw.crossings : true,
+      crossingsNotice: typeof raw.crossings !== 'boolean' && !legacy ? true : undefined,
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
@@ -132,6 +142,8 @@ export function deserialize(text: string): State | null {
       m.cd = isNum(m.cd) ? Math.max(0, Math.floor(m.cd)) : 0;
       m.wait = isNum(m.wait) ? Math.max(0, Math.floor(m.wait)) : 0;
       m.heldAgo = isNum(m.heldAgo) ? Math.max(0, Math.floor(m.heldAgo)) : 30;
+      m.crossT = isNum(m.crossT) ? Math.max(0, Math.min(1, m.crossT)) : 0;
+      m.cross = !!m.cross;
       if (m.kind === 'drill') {
         const def = SLOTS[m.slot];
         if (!def) return null;
@@ -184,6 +196,8 @@ export function deserialize(text: string): State | null {
         }
         if (legacy || !isNum(item.mult)) item.mult = item.bar ? LONE_BAR_VALUE : 1;
         delete item.bar;
+        if (!isNum(it.w) || it.w < 1) delete it.w;
+        else it.w = Math.floor(it.w);
         if (
           !it.ores.length ||
           it.ores.length > BELT_TIER_MAX ||
@@ -208,7 +222,7 @@ export function deserialize(text: string): State | null {
     for (const m of state.machines) {
       if (m.kind !== 'drill') continue;
       const from = isNum(m.angle) ? m.angle : Math.PI / 2;
-      const why = drillSpotWhy(state, m.slot, from, m.id);
+      const why = drillSpotWhy(state, m.slot, from, m.id, false);
       if (isNum(m.angle) && (!why || why === 'locked')) continue;
       if (why === 'locked') {
         m.angle = from;
@@ -217,7 +231,7 @@ export function deserialize(text: string): State | null {
       let spot: number | null = null;
       for (let k = 1; k <= 144 && spot === null; k++) {
         const a = normAngle(from + (k % 2 ? 1 : -1) * Math.floor(k / 2) * (Math.PI / 72));
-        if (!drillSpotWhy(state, m.slot, a, m.id)) spot = a;
+        if (!drillSpotWhy(state, m.slot, a, m.id, false)) spot = a;
       }
       if (spot === null) return null;
       m.angle = spot;
@@ -229,7 +243,7 @@ export function deserialize(text: string): State | null {
       // The logistics build moved the tiers up: a smelter from an old save may now sit inside
       // a rock. Move it to the nearest legal spot, then fit every belt again.
       for (const m of state.machines) {
-        if (m.kind !== 'smelter' || smelterSpotOk(state, m, m.id)) continue;
+        if (m.kind !== 'smelter' || smelterSpotOk(state, m, m.id, null, false)) continue;
         const spot = nearestLegal(state, m.x, m.y, m.id);
         if (spot) {
           m.x = spot.x;
@@ -251,7 +265,7 @@ function nearestLegal(s: State, x: number, y: number, except: number) {
     for (let k = 0; k < n; k++) {
       const a = (2 * Math.PI * k) / n;
       const p = { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r };
-      if (smelterSpotOk(s, p, except)) return p;
+      if (smelterSpotOk(s, p, except, null, false)) return p;
     }
   }
   return null;

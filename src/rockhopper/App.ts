@@ -18,6 +18,7 @@ import {
   byId,
   canSplice,
   canTarget,
+  crossingsOf,
   sameTarget,
   dockPos,
   drills,
@@ -32,6 +33,7 @@ import {
   slotVisible,
   smelters,
   smelterSpotOk,
+  smelterSpotWhy,
   rimPos,
   step,
   unlockCost,
@@ -129,10 +131,17 @@ export class RockhopperApp {
     hintDrag: false,
     hintJoin: null,
     hintSplice: null,
+    hintCross: null,
+    notice: null,
     reducedMotion: false,
   };
-  /** Tutorial state for the logistics hands (splice, join, recovery). */
-  private taught = { splice: false, join: false };
+  /** Tutorial state for the logistics hands (splice, join, recovery) and the crossing label. */
+  private taught = { splice: false, join: false, cross: false };
+  /** Seconds a crossing has kept bundles waiting, and the crossing label has been shown. */
+  private crossHot = 0;
+  private crossShown = 0;
+  /** Seconds left on the notice that a save from before crossings now has them. */
+  private noticeLeft = 0;
   /** Seconds the splice hand has been shown; it gives up after a while. */
   private spliceHintShown = 0;
   private armed: { kind: 'drill' | 'smelter'; moving?: number } | null = null;
@@ -277,6 +286,17 @@ export class RockhopperApp {
       saveSettings(this.settings);
       setSound();
     });
+    // The crossings experiment can be switched off for comparison; the save remembers it.
+    const cross = el('button', 'rh-pill');
+    const setCross = () =>
+      (cross.textContent = this.state.crossings ? 'Belt crossings: on' : 'Belt crossings: off');
+    setCross();
+    cross.addEventListener('click', () => {
+      this.cmd('setCrossings', !this.state.crossings);
+      this.save();
+      setCross();
+    });
+    this.syncCrossingsButton = setCross;
     const restart = el('button', 'rh-pill rh-danger rh-hold', '<span>Hold to restart</span>');
     this.holdButton(restart, 1000, () => {
       try {
@@ -299,7 +319,7 @@ export class RockhopperApp {
       'rh-menu-foot',
       'Older prototypes: <a href="?mode=works">Asteroid Works</a> · <a href="?mode=tiles">Tile workshop</a>'
     );
-    card.append(title, resume, sound, restart, classic);
+    card.append(title, resume, sound, cross, restart, classic);
     menu.append(card);
     menu.addEventListener('pointerdown', (e) => {
       if (e.target === menu) this.toggleMenu(false);
@@ -307,8 +327,11 @@ export class RockhopperApp {
     return menu;
   }
 
+  private syncCrossingsButton: () => void = () => {};
+
   private toggleMenu(open = this.menuEl.hidden) {
     this.menuEl.hidden = !open;
+    if (open) this.syncCrossingsButton();
     this.paused = open;
     if (open) {
       this.endGesture();
@@ -700,7 +723,10 @@ export class RockhopperApp {
           const t = hit.t + (dir * d) / len;
           if (t < 0 || t > 1) continue;
           const q = { x: e.a.x + (e.b.x - e.a.x) * t, y: e.a.y + (e.b.y - e.a.y) * t };
-          if (!smelterSpotOk(this.state, q, moving) || !canSplice(this.state, owner, mover, q)) {
+          if (
+            !smelterSpotOk(this.state, q, moving, hit.id) ||
+            !canSplice(this.state, owner, mover, q)
+          ) {
             why ||= 'no room here';
             continue;
           }
@@ -717,7 +743,8 @@ export class RockhopperApp {
     }
     if (near.length)
       return { at: { ...near[0].q, ok: false, splice: near[0].id, why }, sock: null };
-    return { at: { ...w, ok: smelterSpotOk(this.state, w, moving) }, sock: null };
+    const lone = smelterSpotWhy(this.state, w, moving);
+    return { at: { ...w, ok: !lone, why: lone || undefined }, sock: null };
   }
 
   private preview(kind: 'drill' | 'smelter', screen: Point, moving?: number) {
@@ -803,7 +830,8 @@ export class RockhopperApp {
       const c = upgradeCost(m);
       const wc = widenPrice(s, m);
       const limited = m.full && !!m.out;
-      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${!!m.out}:${m.kind === 'smelter' && m.jam}`;
+      const crossing = m.cross && !!m.out;
+      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}`;
       build = () => {
         const up = el(
           'button',
@@ -875,11 +903,13 @@ export class RockhopperApp {
           'rh-note',
           !m.out
             ? 'No link: drag from it onto a drill, smelter or dock'
-            : limited
-              ? '<b>Belt-limited</b>: widen the belt'
-              : m.kind === 'smelter' && m.jam
-                ? '<b>Smelter-limited</b>: upgrade the smelter'
-                : ''
+            : crossing
+              ? '<b>Waits at a crossing</b>: untangle it, or widen'
+              : limited
+                ? '<b>Belt-limited</b>: widen the belt'
+                : m.kind === 'smelter' && m.jam
+                  ? '<b>Smelter-limited</b>: upgrade the smelter'
+                  : ''
         );
         note.hidden = !note.innerHTML;
         this.bubbleEl.replaceChildren(note, row);
@@ -1136,7 +1166,9 @@ export class RockhopperApp {
       !this.overlay.placing &&
       showTray;
     this.logisticsHints(showSmelter, dt);
+    this.crossingHints(dt);
     if (this.clipMode) {
+      this.overlay.hintCross = null;
       this.overlay.hintHold = this.overlay.hintDrag = false;
       this.overlay.hintJoin = this.overlay.hintSplice = null;
     }
@@ -1216,6 +1248,47 @@ export class RockhopperApp {
       const to = lonely && pair(lonely, () => true);
       if (lonely && to) o.hintJoin = { from: machinePos(lonely), to: machinePos(to) };
     }
+  }
+
+  /**
+   * Crossings, taught once: after a crossing has kept bundles waiting for 3 s, a label beside it
+   * says why and what to do, for up to 20 s or until it clears. A save from before crossings says
+   * once, under the counter, that they are new (and can be switched off in the menu).
+   */
+  private crossingHints(dt: number) {
+    const s = this.state;
+    const o = this.overlay;
+    if (s.crossingsNotice) {
+      this.noticeLeft = 8;
+      s.crossingsNotice = undefined;
+    }
+    this.noticeLeft = Math.max(0, this.noticeLeft - dt);
+    o.notice =
+      this.noticeLeft > 0 && s.crossings
+        ? 'New: crossed belts take turns (menu to switch off)'
+        : null;
+    o.hintCross = null;
+    if (this.taught.cross || !s.crossings) return;
+    const x = crossingsOf(s);
+    let hot: { x: number; y: number } | null = null,
+      best = 0.5;
+    for (const p of x.plates) {
+      const h = x.heat.get(p.key) ?? 0;
+      if (h > best) {
+        best = h;
+        hot = p;
+      }
+    }
+    if (!hot) {
+      this.crossHot = 0;
+      if (this.crossShown > 0) this.taught.cross = true;
+      return;
+    }
+    this.crossHot += dt;
+    if (this.crossHot < 3) return;
+    this.crossShown += dt;
+    if (this.crossShown > 20) this.taught.cross = true;
+    else if (!this.bubble && !o.placing) o.hintCross = { x: hot.x, y: hot.y };
   }
 
   /** Draw a dot under every real pointer, so captured clips show what the player did. */
