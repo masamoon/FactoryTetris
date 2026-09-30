@@ -1,71 +1,85 @@
-# Rockhopper: the sorter (proposal, 2026-09-30)
+# Rockhopper: factories and the sorter (proposal, revision 2, 2026-09-30)
 
-Status: **draft, pending review.** The user picks the review level. No runtime code is written until the design passes. Factories come after this, on top of it (see [Next: factories](#next-factories)).
+Status: **draft revision 2, pending round 2.** The user chose the full AGENTS.md review process for the sorter and one round for factories. Round 1 found that a sorter on its own has no positive-sum use (see [the review](reviews/2026-09-30-rockhopper-sorter-adversary.md)). This revision therefore pairs it with factories, which are what give ore identity a use. It needs the user's go-ahead on that pairing before round 2. No runtime code is written until the design passes.
 
 ## Why
 
-The user, 2026-09-30: "what more logistics can we add? factories? tunnels?" They picked the sorter first and factories second from the proposal in the project thread. The goal they set earlier is that tidy routing is how a player shows skill ([ROCKHOPPER_CROSSINGS.md](ROCKHOPPER_CROSSINGS.md)).
+The user, 2026-09-30: "what more logistics can we add? factories? tunnels?" They picked a sorter first and factories second. The goal they set earlier is that tidy routing is how a player shows skill ([ROCKHOPPER_CROSSINGS.md](ROCKHOPPER_CROSSINGS.md)).
 
-What the build does today (observed in code):
+What round 1 established (simulation, not playtest):
 
-- **Every machine has exactly one output belt** (`MachineBase.out`, `src/rockhopper/sim.ts`). The factory is a tree whose root is the dock arc, so every trunk converges on the hub. Posts and dock swaps tidy the approach, but the shape is always "many lines → hub".
-- **Most of what a belt carries is plain rock.** T1 rocks are 26 % ore (`TIER_ORE`), so about three quarters of a T1 line's chunks are rock worth 1, against copper at 3 and ice at 5. By value, rock is about 45 % of a T1 line (0.74 × 1 against 0.26 × 3.5; estimated from config, not measured). On T4 rock is half the chunks but about 3 % of the value.
-- **Smelters spend most of their time on rock.** A smelter pairs any two chunks of one ore (`smeltersTick`), rock included, and a level-1 smelter takes in about 8.7 chunks/s. On a T1 line, about 74 % of that capacity turns rock into ×6 rock bars.
-- **Belts spend most of their capacity on rock too.** A tier-1 belt carries 7.5 chunks/s whatever they are.
+- **A bar pays ×3 per chunk whatever the ore**, rock included (`BAR_VALUE` 6 for two chunks, and rock is worth 1). Smelting rock earns what shipping raw copper does, so there is nothing to gain from keeping rock out of a smelter unless the smelter is the bottleneck. When it is, a 90-credit upgrade beats a sorter.
+- **Venting rock is a trap early and an automatic rule late.** It cut the clip line's income by 46–57 % on T1 and cost only 3–8 % on T3/T4.
+- **Early T1 lines are limited by supply, not by belts.** A rock is spent in about 9.5 s, then the tow takes 8 s.
 
-So "what is on the belt" is never a decision. The sorter makes it one, and it is the first machine with two outputs, which gives routing a branch instead of only a merge.
+What this revision adds, measured for this draft (`generateRock`, seeds 1–3, the first 25 cells a drill at each of 8 rim angles reaches; `/tmp/claude-0/sorter-r2/veins.ts`, not kept in the repo):
 
-## Rules
+- **Where a drill sits already partly picks its ore.** Ore types lie in veins (`TIER_ORE` plus the slot's signature, placed by a noise field). Some spots are nearly pure (for example "Au14", "Au19" and "Ice12" on T2; "Cu12" and "Cu9+Ice2" on T1), but most spots mix two ores, and every spot is mostly rock.
+- **Nothing in the game cares which ore arrives**, so vein placement changes only how much value arrives, never where a line should go.
 
-| #   | Rule |
-| --- | ---- |
-| S1  | **A sorter splits one ore off a line.** It takes up to 2 input belts (like a drill junction) and has two output belts: the **main** belt, which carries everything else, and the **side** belt, which carries only its **filter ore**. The filter starts as **Rock**. Tapping the sorter opens its bubble, and the filter chip there cycles Rock → Copper → Ice → Gold → Crystal. The chosen ore is shown as a coloured chip on the sorter. Bars (from smelters) are never sorted; they always take the main belt. |
-| S2  | **It is placed like a smelter.** Drag from the tray and drop on a belt to splice it in (same snapping, clearances and "belt blocked" refusals as smelters, `canSplice`), or into open space and link a drill to it. After a splice, the upstream belt feeds the sorter, and the sorter's main belt takes the old belt's target and the posts after the splice point. |
-| S3  | **Target matrix.** Inputs: drills and sorters (a smelter's bars need no sorting, so smelter → sorter is refused as "already smelted"). Main belt and side belt: a free dock, a smelter with a free input, a drill with a free input, or another sorter. No loops, checked through both belts. The two belts of one sorter may not end on the same machine. |
-| S4  | **An unlinked side belt vents.** When the side belt has no target, the filtered ore is thrown off the sorter as a small grey puff and earns nothing. So a sorter works the moment it lands, and linking the side belt is an upgrade the player chooses. The main belt never vents: unlinked, it backs up like any belt. Auto-link gives the main belt a free dock like any machine, and never links the side belt. |
-| S5  | **Flow.** The sorter keeps two stocks of 6 chunks (main and side). Intake is round-robin over its inputs, one chunk at a time, as many per tick as the matching stock has room for, so it is never the throughput limit on its own. A chunk whose stock is full waits on its input belt, so a backed-up side belt holds up the line (the side belt's "‖" and frozen dashes show it). Each stock loads its own belt with the usual 4-tick cadence. |
-| S6  | **Both belts are ordinary belts.** Each has its own tier, widened separately from the bubble (the bubble shows "Widen main" and "Widen side"), priced by the global tier count. Each can take up to 2 bend posts, is re-routed by dragging from its end on the sorter, takes part in crossings and must keep clear lanes. A dock swap works on either. |
-| S7  | **Price and unlock.** Price 400 × 2ⁿ for n sorters owned (to be tuned with the bot). Selling refunds 50 %, and heals the line the way selling a smelter does, using the main belt's target; the side belt's target loses that input. **Unlock:** the sorter joins the tray as a third item once the player owns a smelter. This is one predicate (`sorterUnlocked(s)`), kept separate so the tech tree being discussed in the project can replace it. |
-| S8  | **Saves.** A new machine kind `sorter` with an optional `side` belt and a `filter` ore. Saves without sorters load unchanged. No migration and no new save key; old builds refuse a save that contains a sorter (checked by the v2 validator test). |
-| S9  | **No switch.** Unlike the earlier experiments, the sorter changes nothing that already exists: a player who never buys one plays the current game. |
+So the missing piece is a machine that wants **specific ores**. That makes where a line goes a decision, and gives the sorter a job: pulling one ore off a mixed line and sending it somewhere else.
 
-Invariants that change in AGENTS.md: "each machine has exactly one output" becomes "each machine has one output, except a sorter, which has a main and a side output". Every loop over belts (`beltPath`, crossings' `segmentsOf`, lanes, relayout, rendering, `inTransitValue`) walks both belts of a sorter.
+## Factories (F)
+
+| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | **A factory joins two bars of different ores into an alloy.** Each factory has one recipe, a pair of ores, shown as two coloured pips on it. An alloy is worth **1.5×** its two bars together (Cu + Ice: 18 + 30 = 48 → 72). Recipes: **Cu + Ice** (available from T1), **Cu + Au**, **Ice + Cr** and **Au + Cr** (these need ores from different tiers, so lines from different rocks have to meet). |
+| F2  | **Anything else passes through.** Raw chunks, rock bars, bars that aren't in the recipe, and recipe bars left unpaired for `LONE_WAIT` go on to the output unchanged. A factory never destroys value and never blocks on a wrong item, so dropping one can't lower income. It only raises income when both of its ores arrive, in about equal numbers.                                                |
+| F3  | **The limit is intake.** A factory takes in at most one item per tick per level step (level 1: 15 items/s, matching a tier-2 belt), and items passing through use that intake too. So a factory fed rock bars and unmatched bars runs below its capacity, and cleaning its input (sorting) pays only once it is busy.                                                                                 |
+| F4  | **Placement and links.** It is placed like a smelter (tray drag, splice onto a belt, or open space) with the same clearances and lane refusals. It has up to 2 inputs (3 at level 3) and one output. Inputs: smelters, drill junctions and sorters. Output: a dock, a drill junction or a sorter; never a smelter or another factory.                                                                 |
+| F5  | **The recipe** is picked in the factory's bubble (a two-pip chip; tapping it cycles the unlocked recipes). It starts as the recipe whose ores its input belts carried most in the last 10 s, else Cu + Ice.                                                                                                                                                                                           |
+| F6  | **Price and unlock.** 2 400 × 2ⁿ (to tune with the bot). Unlock: the tray shows it once the player owns 2 smelters, through one predicate `factoryUnlocked(s)` that the tech tree being discussed can replace. Recipes beyond Cu + Ice unlock with the slot that first offers their second ore.                                                                                                       |
+
+## Sorter (S), revised
+
+| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | **A sorter pulls one ore off a line onto a side belt.** It has up to 2 inputs, a **main** output and a **side** output. Its filter is an ore (Rock, Cu, Ice, Au, Cr; it starts as the ore its inputs carry least of, other than rock). Bars count by their ore, so a sorter works before or after smelting. Alloys always take main.                                                                                                                                  |
+| S2  | **An unlinked side belt merges back into main** (round 1, S4 option a). A sorter does nothing until its side belt is linked, so it never destroys value and never becomes a trap. There is no venting.                                                                                                                                                                                                                                                                |
+| S3  | **Target matrix.** Inputs: drills, smelters, factories and sorters. Main and side outputs: a free dock, a smelter or factory with a free input, a drill junction, or another sorter. Loops are checked through both belts (a depth-first search over every output). The two belts may not end on the same machine; converging again further down is allowed.                                                                                                          |
+| S4  | **Splice table.** A sorter or factory may splice onto any belt a smelter may, and also onto a smelter's, factory's or sorter's output. A smelter may splice onto a sorter's main or side belt. The lane check covers every new belt. Each row gets a test.                                                                                                                                                                                                            |
+| S5  | **Flow.** Two stocks of 6 items, each `{ore, mult}`. Intake is round-robin over the inputs, as much per tick as the matching stock has room for. A full side stock holds the input belt even if the next item is for main (head-of-line); the side belt shows "‖", and widening it is the fix. Tested.                                                                                                                                                                |
+| S6  | **Data model.** Per-belt state (`tier`, `tierBought`, `cd`, `full`, `wait`, `heldAgo`, `cross`) moves from the machine onto `Belt`, and each belt gets an id separate from its machine's. Crossings key segments and posts by belt id. A sorter's main and side belts **do plate each other** when they touch away from the sorter (the shared-machine exemption near the sorter still applies). Save migration fills belt ids and state from the old machine fields. |
+| S7  | **Gestures at 390 px.** The side belt leaves from a visible port on the sorter's rim, with its own 44 px hit area; dragging from the port re-routes the side, and dragging from the body re-routes main. Tapping a belt selects it, and the bubble shows one Widen for the selected belt. A 390 px screenshot with a mis-tap check is required before round 3.                                                                                                        |
+| S8  | **Price and unlock.** 300 × 1.6ⁿ. Unlock: once the player owns a factory, through `sorterUnlocked(s)` (swappable for the tech tree). A sorter has no level.                                                                                                                                                                                                                                                                                                           |
+| S9  | **Selling.** Heal-on-sell uses main's target, as for other machines. If the sold machine was fed by a sorter's side belt and that sorter is the heir, the side takes the target only if the matrix allows it (not the same machine as main); otherwise the side unlinks and merges into main. Tested with sorter → drill → sorter and with side → factory.                                                                                                            |
+
+## Switch and saves
+
+- A menu switch, **"Factories: on/off"**, on by default. Off hides both tray items; existing factories and sorters keep working.
+- Saves: new machine kinds, optional fields. Before the first factory or sorter is saved, the untouched save text is copied to `rockhopper.save.v2.pre-factories`, and `?restore=pre-factories` restores it, the same pattern as the logistics experiment. A test covers loading, restoring, and a sorter whose side is missing, malformed or points at itself.
 
 ## The decisions it gives the player
 
-- **Sort before a smelter, or not.** A sorter in front of a smelter sends it only ore, so one smelter can serve about three T1 lines' copper instead of one line's rock and copper (estimate; to be measured). Rock goes to a dock raw or is vented.
-- **Where on a line to sort.** Sorting near the drills frees capacity on the whole trunk (a tier-1 trunk carrying only T1 ore holds about four times as many drills' worth of ore). Sorting near the hub saves nothing on the trunk.
-- **What to do with the rock.** Vent it (free, loses about 45 % of a T1 line's value), spend a scarce dock on a rock belt, or merge several rock belts through a junction onto one dock. Late in the game, T3/T4 rock is worth so little that venting is nearly free, so sorting becomes the default there.
-- **Routing the branch.** Each linked side belt is one more belt to fit through the factory, across the trunks it just split from. This is where posts, dock swaps and crossing plates start to matter in a way that a pure tree towards the hub never asks for.
-- **Against Widen.** Widening a belt doubles its rate for a step price; a sorter can raise how much ore a belt carries by up to about four times on T1 but costs a machine and the rock's value. Neither dominates for every line; the bot will show where the crossover is.
+- **Which lines meet.** A Cu + Au factory needs copper from T1 (or a copper spot on T2) and gold from a T2 gold vein, so two lines from different rocks have to cross the map to one spot, instead of each running straight to the hub.
+- **Where to put drills on a rock.** A drill on a gold vein feeds the gold side of a recipe; one on a mixed spot needs a sorter.
+- **What to sort.** Pull gold off a mixed T2 line towards the factory and let the rest go on to the hub; or pull rock off a line that feeds a busy factory.
+- **Where the factory sits.** Close to the hub (short output, long inputs) or out in the field (short inputs, one long alloy belt); every added belt competes for crossing-free routes.
+- **Against smelter upgrades and widening.** The factory's 1.5× is on top of smelting, but only for balanced pairs; a lopsided pair wastes most of it.
 
-## Clip scenario
+## Clip scenario (revision 2)
 
-- **0–10 s (developed save, disclosed).** One T1 line of three drills runs into a smelter that shows "‖" (blocked). The belt is mostly lilac rock with a few orange copper chunks, and the smelter spits out lilac rock bars.
-- **10–20 s.** The player drags a sorter from the tray and drops it on the line near the drills. It lands, the chip shows Rock, and lilac chunks start puffing off the side while the main belt goes orange. The smelter's "‖" clears, and it starts turning out orange copper bars.
-- **20–30 s.** The player drags the sorter's side belt to a free dock. The puffs stop, a lilac belt runs to the hub, and the counter's rate goes up again. The trunk now has room for a fourth drill: the next decision.
+- **0–10 s (developed save, disclosed).** Two lines run straight to the hub: an orange copper line and a yellow gold line from a T2 vein, each through a smelter. The counter ticks steadily.
+- **10–20 s.** The player drags a factory into the space between the lines and re-routes both smelter belts into it. Orange and yellow bars meet and fuse into alloys, bigger pops land at the hub, and the rate goes up.
+- **20–30 s.** A third line (mixed ice and gold) runs past. The player drops a sorter on it, sets it to gold and drags the side port to the factory. Gold peels off, the factory's pips both light up, and the rate rises again. The next decision: a crossing plate where the side belt crosses the copper line.
 
-Numbers for each beat come from a witness script before the clip is claimed (like `tools/rockhopper-clip-b.ts`).
+Each beat's numbers come from a witness script (settled rates before and after, cells remaining and crumbles logged), like `tools/rockhopper-clip-b.ts`, before the clip is claimed.
 
 ## Evidence to collect before building
 
-- **Sim witness:** the clip line (three T1 drills → smelter) with no sorter, a sorter venting, and a sorter with a docked side belt; income over 120 s before the rock crumbles, and smelter utilisation on ore.
-- **Bot:** a bot variant that buys sorters, to check pace (first sorter time, 20-minute income) and that raw chains and smelters still get built.
-- **Stress:** `tools/rockhopper-crossings-stress.ts` with sorters, posts and plates; 0 locks or stalls.
+- A sim witness for the clip line, with and without the factory and the sorter, logging crumbles.
+- A bot variant that buys factories and sorters: time of the first factory, income at 20 and 30 min, the share of factories whose pair is balanced, and whether raw chains and smelters are still built.
+- The crossings stress tool with factories, sorters, two-output belts, posts and plates: 0 locks or stalls.
 
-## Questions for the reviewer
+## Questions for round 2
 
-- Is venting (S4) a dominant choice that makes the side belt pointless, or a fair trade?
-- Is the filter cycle (S1) worth its UI before factories exist, or should v1 filter rock only?
-- Does a third tray item cost too much on a 390 px screen?
-- Should the two belts share one tier to keep the bubble simple?
+- Does pass-through (F2) make "put a factory at the end of every line" a universal rule?
+- Is 1.5× enough to pull lines across the map, or so much that nothing else matters?
+- Should recipes be fixed per factory, or should a factory pair any two different ores?
+- Is merge-until-linked (S2) clear on screen, or does an idle sorter just look broken?
 
 ## Rejected or deferred
 
-- **Tunnels or bridges:** deferred. Bend posts already make most crossings avoidable (11 plates → 2 in the prepared save), and a free underpass would remove the crossing puzzle. Revisit only if the playtest shows the hub knot can't be untangled.
-- **A splitter by ratio (half and half):** deferred; the sorter covers the useful case and reads better in a clip.
-- **A collector (3–4 inputs into one trunk):** deferred; drill junctions already merge two.
-
-## Next: factories
-
-After the sorter lands, a **factory** takes bars of two different ores and makes an alloy worth more than both bars together (for example copper + ice). Because each rock mixes its ores on one belt, feeding a factory means sorting one ore off a line and routing it to meet another, often from a different rock. That gives the layout a destination other than the hub. It gets its own design doc and review after the sorter.
+- **Venting** (round 1, S4): cut.
+- **Tunnels or bridges:** deferred. Bend posts already make most crossings avoidable, and a free underpass would remove the crossing puzzle.
+- **A splitter by ratio**, **a collector** with 3–4 inputs: deferred.
