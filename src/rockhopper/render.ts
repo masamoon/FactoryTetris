@@ -25,6 +25,7 @@ import {
   type Smelter,
   type Drill,
   slotVisible,
+  drillSpotWhy,
   rimPos,
   rimRadius,
   type State,
@@ -1389,7 +1390,7 @@ export class Renderer {
     const z = this.cam.z;
     if (o.placing) {
       if (o.placing.kind === 'drill') {
-        // The rim of every rock with room glows: a drill goes anywhere on it. The ghost follows.
+        // Every rock's rim glows where a drill fits: it goes anywhere there. The ghost follows.
         SLOTS.forEach((def, i) => {
           if (!s.slots[i].unlocked) return;
           c.strokeStyle = MINT;
@@ -1397,8 +1398,15 @@ export class Renderer {
           c.lineWidth = 3 / z;
           c.setLineDash([6, 7]);
           c.lineDashOffset = -this.time * 12;
+          // Only the arcs with room glow: a crowded stretch of rim goes dark.
+          const n = 120;
           c.beginPath();
-          c.arc(def.x, def.y, rimRadius(i), 0, Math.PI * 2);
+          for (let k = 0; k < n; k++) {
+            const a0 = (k / n) * 2 * Math.PI;
+            if (drillSpotWhy(s, i, a0 + Math.PI / n, o.placing!.moving)) continue;
+            c.moveTo(def.x + Math.cos(a0) * rimRadius(i), def.y + Math.sin(a0) * rimRadius(i));
+            c.arc(def.x, def.y, rimRadius(i), a0, a0 + (2 * Math.PI) / n);
+          }
           c.stroke();
           c.setLineDash([]);
           c.lineDashOffset = 0;

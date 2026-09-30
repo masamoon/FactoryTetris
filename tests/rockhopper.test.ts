@@ -807,7 +807,13 @@ test('position decides what a drill mines first, and veins stay put across respa
     both++;
     if (g0.cells[k] === g1.cells[k]) same++;
   }
-  assert.equal(same, both, 'shared cells hold the same ore');
+  assert.ok(same >= both * 0.9, `shared cells hold the same ore: ${same} of ${both}`);
+  // Richness stays exact for the tier on every respawn.
+  for (let g = 0; g < 20; g++) {
+    const r = generateRock(5, g, 3);
+    const ore = r.cells.filter((c) => c > 1).length;
+    assert.equal(ore, Math.round(r.total * 0.42), `generation ${g}`);
+  }
 });
 
 test('saves from before free placement keep drills at their old sockets', () => {
@@ -824,8 +830,21 @@ test('saves from before free placement keep drills at their old sockets', () => 
   const d = drills(t)[0];
   assert.ok(Math.abs(d.angle - legacySocketAngle(0, 2)) < 1e-9);
   assert.equal((d as unknown as Record<string, unknown>).socket, undefined);
-  raw.machines[0].socket = 9;
-  assert.equal(deserialize(JSON.stringify(raw)), null, 'a socket the rock never had is refused');
+  // A bad angle (JSON turns NaN into null) or an overlap re-seats the drill; the save survives.
+  buildDrill(s, 0, legacySocketAngle(0, 0));
+  const two = JSON.parse(serialize(s)) as { machines: Record<string, unknown>[] };
+  two.machines[0].angle = null;
+  const u = deserialize(JSON.stringify(two))!;
+  assert.ok(u, 'loads');
+  const [p, q] = drills(u).map((d) => rimPos(0, d.angle));
+  assert.ok(Math.hypot(...xy(p, q)) >= DRILL_SPACING - 1e-9);
+  two.machines[0].angle = two.machines[1].angle;
+  const v = deserialize(JSON.stringify(two))!;
+  const [p2, q2] = drills(v).map((d) => rimPos(0, d.angle));
+  assert.ok(
+    Math.hypot(...xy(p2, q2)) >= DRILL_SPACING - 1e-9,
+    'overlapping drills are pulled apart'
+  );
 });
 
 test('a v1 save refits belts to the moved tiers and lifts smelters out of rocks', () => {

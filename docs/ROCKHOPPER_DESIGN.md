@@ -134,7 +134,7 @@ The design passed review and is implemented in `src/rockhopper/`. A post-impleme
 
 `tools/rockhopper-clip.ts` records segment A in capture mode (`?clip`). It sends real touch events, draws a dot under each real touch, and hides the tutorial hands. Every player command goes through `COMMANDS` in `sim.ts` and is logged with its tick. The tool replays the log headlessly and requires a byte-identical state.
 
-Latest run ([log](reviews/evidence/rockhopper-clip-segment-a.log.txt), [video](reviews/evidence/rockhopper-clip-segment-a.webm), [commands](reviews/evidence/rockhopper-clip-segment-a.commands.json)):
+Latest run ([log](reviews/evidence/rockhopper-clip-segment-a.log.txt), [video](reviews/evidence/rockhopper-clip-segment-a.webm), [commands](reviews/evidence/rockhopper-clip-segment-a.commands.json)): _(this log predates free drill placement: its `buildDrill` arguments are socket indexes, and it replays only on builds before that change)_
 
 | Wall    | Sim     | Event                                |
 | ------- | ------- | ------------------------------------ |

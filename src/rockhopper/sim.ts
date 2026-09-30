@@ -254,8 +254,8 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
   const r = def.r;
   const w = 2 * r + 3;
   const seed = Math.floor(hash(slotIndex * 977 + gen * 31, worldSeed, 13) * 1e9);
-  // Veins stay put for the slot: only the outline changes between rocks, so a drill aimed at a
-  // vein keeps paying off after every respawn.
+  // Veins stay put for the slot: the outline changes between rocks, the richness field doesn't,
+  // so a drill aimed at a vein keeps paying off after every respawn. (Generation 0 is unchanged.)
   const veins = Math.floor(hash(slotIndex * 977, worldSeed, 13) * 1e9);
   const cells = new Array<number>(w * w).fill(0);
   const inside: { i: number; n: number; t: number }[] = [];
@@ -276,19 +276,15 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
   }
   const tier = TIER_ORE[def.tier];
   const ores = [...tier.ores, def.signature, def.signature];
-  // The ore threshold comes from the slot's whole disc, not this rock's outline, so a cell's ore
-  // never depends on the respawn: veins stay where the player aimed.
-  const disc: number[] = [];
-  for (let j = 0; j < w; j++)
-    for (let i = 0; i < w; i++) {
-      const x = i - (r + 1),
-        y = j - (r + 1);
-      if (Math.hypot(x, y) <= r) disc.push(vnoise(x + 40, y + 40, veins + 5, 2.6));
-    }
-  disc.sort((a, b) => b - a);
-  const cut = disc[Math.max(0, Math.round(disc.length * tier.share) - 1)];
+  // Ore cells are the richest share of this rock's own cells, so richness is exact for the tier.
+  // The richness field is the slot's own, so veins barely move between respawns.
+  const oreCount = Math.round(inside.length * tier.share);
+  const byRichness = [...inside].sort((a, b) => b.n - a.n || a.i - b.i);
+  const oreCells = new Set(byRichness.slice(0, oreCount).map((c) => c.i));
   for (const c of inside) {
-    cells[c.i] = c.n >= cut ? ores[Math.min(ores.length - 1, Math.floor(c.t * ores.length))] : 1;
+    cells[c.i] = oreCells.has(c.i)
+      ? ores[Math.min(ores.length - 1, Math.floor(c.t * ores.length))]
+      : 1;
   }
   return {
     r,
@@ -673,7 +669,7 @@ export function smelterSpotOk(s: State, p: Point, except?: number): boolean {
   if (p.x < -330 || p.x > 330 || p.y > 110 || p.y < -1150) return false;
   for (let i = 0; i < SLOTS.length; i++) {
     const d = SLOTS[i];
-    if (!slotVisible(s, i)) continue;
+    // Hidden rocks too: a smelter never sits where a rock will be unlocked.
     if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + SMELTER_RADIUS + 2) return false;
   }
   for (const m of s.machines) {
