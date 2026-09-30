@@ -12,12 +12,19 @@ interface P {
 export interface Segment {
   /** The owning machine's id: every belt is owned by exactly one machine. */
   id: number;
+  /** Which straight piece of a bent belt this is (0 for a straight belt). */
+  piece?: number;
+  /** Distance along the belt at which this piece starts. */
+  off?: number;
   a: P;
   b: P;
   /** Centres of the machines at each end (the target is a dock centre for docks). */
   from: P;
   to: P;
-  /** Machine ids at each end; a dock end is -1 - index, so it never matches a machine. */
+  /**
+   * Machine ids at each end; a dock end is -1 - index and a bend post a unique value below
+   * -1000, so neither ever matches a machine.
+   */
   src: number;
   dst: number;
 }
@@ -135,8 +142,14 @@ function awayFrom(A: Segment, La: number, m: P, clear: number): [number, number]
   return atStart ? [cut, La] : [0, La - cut];
 }
 
-function side(id: number, c: number, L: number): PlateSide {
-  return { id, at: c, lo: Math.max(0, c - CROSS_HALF), hi: Math.min(L, c + CROSS_HALF) };
+function side(g: Segment, c: number, L: number): PlateSide {
+  const off = g.off ?? 0;
+  return {
+    id: g.id,
+    at: off + c,
+    lo: off + Math.max(0, c - CROSS_HALF),
+    hi: off + Math.min(L, c + CROSS_HALF),
+  };
 }
 
 /**
@@ -152,6 +165,8 @@ export function findPlates(segs: Segment[]): Plate[] {
     for (let j = i + 1; j < segs.length; j++) {
       const A = segs[i],
         B = segs[j];
+      // Pieces of one bent belt never share a plate with each other.
+      if (A.id === B.id) continue;
       const La = Ls[i],
         Lb = Ls[j];
       let [from, till] = [0, La];
@@ -180,12 +195,14 @@ export function findPlates(segs: Segment[]): Plate[] {
       const p = at(A, ca, La);
       const dot =
         ((A.b.x - A.a.x) * (B.b.x - B.a.x) + (A.b.y - A.a.y) * (B.b.y - B.a.y)) / (La * Lb);
+      const [P, Q] = A.id < B.id ? [A, B] : [B, A];
+      const tag = (g: Segment) => (g.piece ? `${g.id}.${g.piece}` : `${g.id}`);
       out.push({
-        key: `${Math.min(A.id, B.id)}:${Math.max(A.id, B.id)}`,
+        key: `${tag(P)}:${tag(Q)}`,
         x: p.x,
         y: p.y,
         angle: Math.acos(Math.min(1, Math.abs(dot))),
-        sides: [side(A.id, ca, La), side(B.id, cb, Lb)],
+        sides: [side(A, ca, La), side(B, cb, Lb)],
       });
     }
   }

@@ -14,7 +14,9 @@ import {
 import { Renderer, formatNumber, type Overlay } from './render';
 import {
   beltsNear,
-  beltEnds as beltEndsOf,
+  beltPath,
+  pathLength,
+  pointAlong,
   byId,
   canSplice,
   canTarget,
@@ -29,6 +31,11 @@ import {
   machinePos,
   nearestRim,
   spliceLanesBlocked,
+  postSpotWhy,
+  matrixOnlyOk,
+  bendRefusalWhy,
+  MAX_POSTS,
+  targetPos,
   swapPartner,
   targetWhy,
   priceOf,
@@ -67,12 +74,34 @@ type Hit =
   | { kind: 'machine'; id: number }
   | { kind: 'hub' }
   | { kind: 'locked'; slot: number }
+  | { kind: 'post'; id: number; k: number }
   | { kind: 'empty' };
 
 type Gesture =
   | { type: 'mine'; slot: number }
-  | { type: 'machine'; id: number; x0: number; y0: number; t0: number; dragging: boolean }
-  | { type: 'tap'; hit: Hit; x0: number; y0: number; t0: number; panning: boolean }
+  | {
+      type: 'machine';
+      id: number;
+      x0: number;
+      y0: number;
+      t0: number;
+      dragging: boolean;
+      /** Bend posts pinned by pausing mid-drag, and when the finger last moved (and where). */
+      via: Point[];
+      still: { at: Point; t: number };
+    }
+  | {
+      type: 'tap';
+      hit: Hit;
+      x0: number;
+      y0: number;
+      t0: number;
+      panning: boolean;
+      /** A belt under the finger: holding still on it drops a bend post there. */
+      belt?: { id: number; piece: number };
+    }
+  /** Dragging bend post `k` of machine `id`'s belt (`via` is the candidate list). */
+  | { type: 'post'; id: number; k: number; via: Point[]; grab: Point }
   | { type: 'place'; x0: number; y0: number; t0: number }
   | {
       type: 'tray';
@@ -136,11 +165,13 @@ export class RockhopperApp {
     hintJoin: null,
     hintSplice: null,
     hintCross: null,
+    post: null,
+    hold: null,
     notice: null,
     reducedMotion: false,
   };
   /** Tutorial state for the logistics hands (splice, join, recovery) and the crossing label. */
-  private taught = { splice: false, join: false, cross: false };
+  private taught = { splice: false, join: false, cross: false, bend: false };
   /** Seconds a crossing has kept bundles waiting, and the crossing label has been shown. */
   private crossHot = 0;
   private crossShown = 0;
@@ -405,6 +436,18 @@ export class RockhopperApp {
       if (s.slots[i].unlocked && s.slots[i].rock && dist < d.r * CELL * 0.98)
         return { kind: 'rock', slot: i };
     }
+    // Posts first: one may stand closer to a machine than the machine's grab reach.
+    let post: Hit | null = null,
+      postD = Math.max(12, 18 / z);
+    for (const m of s.machines)
+      (m.out?.via ?? []).forEach((v, k) => {
+        const d = Math.hypot(p.x - v.x, p.y - v.y);
+        if (d < postD) {
+          postD = d;
+          post = { kind: 'post', id: m.id, k };
+        }
+      });
+    if (post) return post;
     let best: Hit | null = null,
       bestD = Infinity;
     for (const m of s.machines) {
@@ -549,9 +592,140 @@ export class RockhopperApp {
         y0: p.y,
         t0: performance.now(),
         dragging: false,
+        via: [],
+        still: { at: p, t: performance.now() },
       };
+    } else if (hit.kind === 'post') {
+      this.closeBubble();
+      const m = byId(this.state, hit.id);
+      const via = (m?.out?.via ?? []).map(pt);
+      const v = via[hit.k];
+      this.gesture = {
+        type: 'post',
+        id: hit.id,
+        k: hit.k,
+        via,
+        grab: { x: v.x - w.x, y: v.y - w.y },
+      };
+      this.dragPost(w);
     } else {
-      this.gesture = { type: 'tap', hit, x0: p.x, y0: p.y, t0: performance.now(), panning: false };
+      const z = this.renderer.cam.z;
+      const b = hit.kind === 'empty' ? beltsNear(this.state, w, Math.max(8, 12 / z))[0] : undefined;
+      this.gesture = {
+        type: 'tap',
+        hit,
+        x0: p.x,
+        y0: p.y,
+        t0: performance.now(),
+        panning: false,
+        belt: b ? { id: b.id, piece: b.piece } : undefined,
+      };
+    }
+  }
+
+  /** How long a belt must be held still before a bend post drops there. */
+  private static readonly HOLD_MS = 350;
+
+  /** Per frame: a finger held still on a belt fills the ring, then becomes a new bend post. */
+  private holdToPost() {
+    const g = this.gesture;
+    this.overlay.hold = null;
+    if (g.type === 'machine' && g.dragging) {
+      this.pinWhileLinking(g);
+      return;
+    }
+    if (g.type !== 'tap' || g.panning || !g.belt || this.pointers.size !== 1) return;
+    const f = (performance.now() - g.t0) / RockhopperApp.HOLD_MS;
+    const p = [...this.pointers.values()][0];
+    const w = this.renderer.toWorld(p.x, p.y);
+    if (f < 1) {
+      // A short grace period first, so a quick tap or pan never flashes the ring.
+      if (f > 0.3) this.overlay.hold = { at: w, f: (f - 0.3) / 0.7, id: g.belt.id };
+      return;
+    }
+    const m = byId(this.state, g.belt.id);
+    const via = (m?.out?.via ?? []).map(pt);
+    if (!m?.out || via.length >= MAX_POSTS) {
+      this.gesture = { ...g, belt: undefined };
+      this.renderer.flash(w, via.length >= MAX_POSTS ? 'two bends at most' : 'no room here');
+      return;
+    }
+    // The new post goes into the piece the finger is on, keeping the posts in order.
+    const k = Math.min(g.belt.piece, via.length);
+    via.splice(k, 0, w);
+    this.closeBubble();
+    // The new post rides above the finger, like a placement ghost, so it stays in view.
+    const z = this.renderer.cam.z;
+    this.gesture = { type: 'post', id: m.id, k, via, grab: { x: 0, y: -44 / z } };
+    this.sfx.tap();
+    this.dragPost(w);
+  }
+
+  /** Dragging a link, a finger held still on open space pins a bend post there. */
+  private pinWhileLinking(g: Extract<Gesture, { type: 'machine' }>) {
+    if (g.via.length >= MAX_POSTS || this.pointers.size !== 1) return;
+    const p = [...this.pointers.values()][0];
+    const w = this.renderer.toWorld(p.x, p.y);
+    const snap = this.snapOrRefuse(g.id, p);
+    if (snap.target || postSpotWhy(this.state, w)) return;
+    const f = (performance.now() - g.still.t) / RockhopperApp.HOLD_MS;
+    if (f < 1) {
+      if (f > 0.3) this.overlay.hold = { at: w, f: (f - 0.3) / 0.7 };
+      return;
+    }
+    g.via.push(pt(w));
+    g.still = { at: p, t: performance.now() + 1e9 };
+    this.sfx.tap();
+    if (this.overlay.reroute) this.overlay.reroute.via = g.via.map(pt);
+  }
+
+  /** Move the dragged post to `w` and show whether the belt could bend that way. */
+  private dragPost(w: Point) {
+    const g = this.gesture;
+    if (g.type !== 'post') return;
+    g.via[g.k] = { x: w.x + g.grab.x, y: w.y + g.grab.y };
+    const m = byId(this.state, g.id);
+    const removing = !!m && this.postRemoves(m, g.via, g.k);
+    const why = removing || !m ? (m ? '' : 'missing') : bendRefusalWhy(this.state, m, g.via);
+    this.overlay.post = {
+      id: g.id,
+      via: removing ? g.via.filter((_, i) => i !== g.k) : g.via.map(pt),
+      at: pt(g.via[g.k]),
+      why: why || undefined,
+      removing,
+    };
+  }
+
+  /** Post `k`, dropped back on the straight line between its neighbours, is removed. */
+  private postRemoves(m: Machine, via: Point[], k: number): boolean {
+    const s = this.state;
+    const q = m.out && targetPos(s, m.out.to);
+    if (!q) return false;
+    const pts = [machinePos(m), ...via, q];
+    const a = pts[k],
+      b = pts[k + 2],
+      p = pts[k + 1];
+    const dx = b.x - a.x,
+      dy = b.y - a.y;
+    const L = Math.hypot(dx, dy) || 1;
+    const off = Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / L;
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (L * L);
+    return off < Math.max(10, 16 / this.renderer.cam.z) && t > 0 && t < 1;
+  }
+
+  /** Release a dragged post: bend the belt through the posts, or say why not. */
+  private dropPost(g: Extract<Gesture, { type: 'post' }>) {
+    this.overlay.post = null;
+    const m = byId(this.state, g.id);
+    if (!m?.out) return;
+    const via = this.postRemoves(m, g.via, g.k) ? g.via.filter((_, i) => i !== g.k) : g.via;
+    const r = this.cmd('bend', g.id, via);
+    if (r !== true) {
+      this.sfx.deny();
+      this.renderer.flash(g.via[g.k], String(r));
+    } else {
+      this.taught.bend = true;
+      this.save();
     }
   }
 
@@ -584,9 +758,19 @@ export class RockhopperApp {
         this.closeBubble();
       }
       if (g.dragging) {
+        if (Math.hypot(p.x - g.still.at.x, p.y - g.still.at.y) > 6)
+          g.still = { at: p, t: performance.now() };
         const snap = this.snapOrRefuse(g.id, p);
-        this.overlay.reroute = { id: g.id, at: w, target: snap.target, refused: snap.refused };
+        this.overlay.reroute = {
+          id: g.id,
+          at: w,
+          target: snap.target,
+          refused: snap.refused,
+          via: g.via.map(pt),
+        };
       }
+    } else if (g.type === 'post') {
+      this.dragPost(w);
     } else if (g.type === 'tap') {
       if (!g.panning && Math.hypot(p.x - g.x0, p.y - g.y0) > 10) g.panning = true;
       if (g.panning) this.renderer.panBy(p.x - prev.x, p.y - prev.y);
@@ -616,11 +800,19 @@ export class RockhopperApp {
       if (g.dragging) {
         const { target, refused } = this.snapOrRefuse(g.id, p);
         if (target) {
-          if (this.cmd('route', g.id, target) !== true) this.sfx.deny();
-          else if (target.kind !== 'dock') this.taught.join = true;
+          const r = g.via.length
+            ? this.cmd('route', g.id, target, g.via)
+            : this.cmd('route', g.id, target);
+          if (r !== true) this.sfx.deny();
+          else {
+            if (target.kind !== 'dock') this.taught.join = true;
+            if (g.via.length) this.taught.bend = true;
+          }
         } else if (refused) this.sfx.deny();
         this.overlay.reroute = null;
       } else if (performance.now() - g.t0 < 300) this.openBubble({ kind: 'machine', id: g.id });
+    } else if (g.type === 'post') {
+      this.dropPost(g);
     } else if (g.type === 'tap' && !g.panning && performance.now() - g.t0 < 300) {
       if (g.hit.kind === 'hub') this.openBubble({ kind: 'hub' });
       else if (g.hit.kind === 'locked') this.openBubble({ kind: 'locked', slot: g.hit.slot });
@@ -644,12 +836,20 @@ export class RockhopperApp {
     if (g.type === 'tray') this.overlay.placing = null;
     this.overlay.finger = null;
     this.overlay.reroute = null;
+    this.overlay.post = null;
+    this.overlay.hold = null;
     this.gesture = { type: 'none' };
   }
 
   /** Nearest valid output target within reach of the finger. */
   private snapTarget(id: number, screen: Point): Target | null {
     return this.snapOrRefuse(id, screen).target;
+  }
+
+  /** Posts pinned in the link being dragged, if any. */
+  private pinned(): Point[] | undefined {
+    const g = this.gesture;
+    return g.type === 'machine' && g.via.length ? g.via : undefined;
   }
 
   /**
@@ -670,12 +870,20 @@ export class RockhopperApp {
       refused: (Point & { why: string }) | null = null,
       refusedD = reach;
     const consider = (t: Target, q: Point, extra = 0) => {
-      const same = m.out && sameTarget(m.out.to, t);
+      const via = this.pinned();
+      const same = m.out && sameTarget(m.out.to, t) && !via;
       const d = Math.hypot(q.x - w.x, q.y - w.y) - extra;
-      if (!same && !canTarget(this.state, m, t) && !swapPartner(this.state, m, t)) {
-        if (d < refusedD && targetWhy(this.state, m, t) === 'belt blocked') {
+      const swap = !via && swapPartner(this.state, m, t);
+      if (!same && !canTarget(this.state, m, t, via) && !swap) {
+        const why = targetWhy(this.state, m, t, via);
+        if (d < refusedD && (why === 'belt blocked' || (via && matrixOnlyOk(this.state, m, t)))) {
           refusedD = d;
-          refused = { x: q.x, y: q.y, why: 'belt blocked' };
+          // Blocked by a machine in the way: pausing mid-drag pins a bend around it.
+          refused = {
+            x: q.x,
+            y: q.y,
+            why: why === 'belt blocked' ? 'belt blocked: pause to bend' : 'can’t bend that way',
+          };
         }
         return;
       }
@@ -745,13 +953,13 @@ export class RockhopperApp {
         why ||= spliceRefusal(this.state, owner, mover, hit.q);
         continue;
       }
-      const e = beltEndsOf(this.state, owner)!;
-      const len = Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) || 1;
+      const path = beltPath(this.state, owner)!;
+      const len = pathLength(path) || 1;
       for (let d = 0; d <= reach; d += 2) {
         for (const dir of d ? [1, -1] : [1]) {
           const t = hit.t + (dir * d) / len;
           if (t < 0 || t > 1) continue;
-          const q = { x: e.a.x + (e.b.x - e.a.x) * t, y: e.a.y + (e.b.y - e.a.y) * t };
+          const q = pt(pointAlong(path, t * len));
           const spot = smelterSpotWhy(this.state, q, moving, hit.id);
           if (spot || !canSplice(this.state, owner, mover, q)) {
             why ||= spot || spliceRefusal(this.state, owner, mover, q);
@@ -858,7 +1066,8 @@ export class RockhopperApp {
       const wc = widenPrice(s, m);
       const limited = m.full && !!m.out;
       const crossing = m.cross && !!m.out;
-      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}`;
+      const bent = m.out?.via?.length ?? 0;
+      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}:${bent}`;
       build = () => {
         const up = el(
           'button',
@@ -924,7 +1133,24 @@ export class RockhopperApp {
         });
         const gap = el('span', 'rh-gap');
         const row = el('div', 'rh-row');
-        row.append(up, wide, move, gap, sellB);
+        row.append(up, wide, move);
+        if (bent) {
+          // Straighten: drop every bend post on this belt.
+          const straight = el(
+            'button',
+            'rh-round rh-straight',
+            '<svg viewBox="0 0 22 22" aria-hidden="true"><path d="M3 16 L9 6 L13 16 L19 6" opacity="0.45"/><path d="M3 11 H19"/></svg>'
+          );
+          straight.setAttribute('aria-label', 'Straighten belt');
+          straight.title = 'Straighten belt';
+          straight.addEventListener('click', () => {
+            if (this.cmd('bend', m.id, []) === true) this.save();
+            else this.sfx.deny();
+            this.closeBubble();
+          });
+          row.append(straight);
+        }
+        row.append(gap, sellB);
         const note = el(
           'div',
           'rh-note',
@@ -1194,6 +1420,7 @@ export class RockhopperApp {
       showTray;
     this.logisticsHints(showSmelter, dt);
     this.crossingHints(dt);
+    this.holdToPost();
     if (this.clipMode) {
       this.overlay.hintCross = null;
       this.overlay.hintHold = this.overlay.hintDrag = false;
@@ -1227,15 +1454,15 @@ export class RockhopperApp {
       smelterBtn.width > 0
     ) {
       const line = drills(s).find((d) => d.out?.to.kind === 'dock');
-      const e = line && beltEndsOf(s, line);
-      if (e) this.spliceHintShown += dt;
-      if (e)
+      const path = line && beltPath(s, line);
+      if (path) this.spliceHintShown += dt;
+      if (path)
         o.hintSplice = {
           from: {
             x: smelterBtn.left + smelterBtn.width / 2 - cr.left,
             y: smelterBtn.top + smelterBtn.height / 2 - cr.top,
           },
-          to: { x: e.a.x + (e.b.x - e.a.x) * 0.45, y: e.a.y + (e.b.y - e.a.y) * 0.45 },
+          to: pt(pointAlong(path, pathLength(path) * 0.45)),
         };
       return;
     }
