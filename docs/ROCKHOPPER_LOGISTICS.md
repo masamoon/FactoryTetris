@@ -138,7 +138,7 @@ Where this section and the revisions above disagree, this section wins.
 - **Slot heights:** T1 −270, T2 −490, T3 −750, T4 −1010. The tiers moved up to leave a yard for smelters between the T1 rocks and the hub.
 - **Smelter clearances:**
   - rock radius + smelter radius + 2 u;
-  - every socket, free or not, reserved for a drill;
+  - every socket, free or not, reserved for a drill (dropped with free drill placement: drills and smelters now just refuse to overlap);
   - hub: dock radius + smelter radius + 6 u;
   - a splice must leave a feed belt of at least 17 u.
 - **Snapping:**
@@ -188,5 +188,5 @@ The pre-logistics save is never written. `?restore=pre-logistics` re-migrates it
 ### Open
 
 - The human playtest at 390 px (the user).
-- Free drill placement (requested by the user after the merge; not designed yet).
+- Free drill placement: built in `docs/ROCKHOPPER_FREE_DRILLS.md`.
 - The geometry-has-no-cost critique from round 4.

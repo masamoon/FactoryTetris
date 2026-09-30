@@ -14,6 +14,7 @@ import { beltCapacity, TICK_HZ } from '../src/rockhopper/config';
 import {
   beltEnds,
   buildDrill,
+  legacySocketAngle,
   buildSmelter,
   canSplice,
   drills,
@@ -63,7 +64,7 @@ s.credits = 1e7;
 const B = 3;
 for (const i of [1, 2, 3]) unlock(s, i);
 for (let i = 0; i < 3 * TICK_HZ; i++) step(s);
-for (let k = 0; k < 3; k++) buildDrill(s, B, k);
+for (let k = 0; k < 3; k++) buildDrill(s, B, legacySocketAngle(B, k));
 const [a, b, c] = drills(s);
 route(s, a.id, { kind: 'drill', id: b.id });
 route(s, c.id, { kind: 'drill', id: b.id });
@@ -93,8 +94,8 @@ for (;;) {
 
 // B3: a second rock with two level-1 drills on one line into a spliced smelter.
 s.events.length = 0;
-buildDrill(s, 1, 0);
-buildDrill(s, 1, 1);
+buildDrill(s, 1, legacySocketAngle(1, 0));
+buildDrill(s, 1, legacySocketAngle(1, 1));
 const [d1, d2] = drills(s).filter((d) => d.slot === 1);
 route(s, d2.id, { kind: 'drill', id: d1.id });
 const dock3 = d1.out ? (d1.out.to as { index: number }).index : -1;

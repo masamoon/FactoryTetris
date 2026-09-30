@@ -15,7 +15,9 @@ import {
   cellPos,
   clearLaser,
   drills,
-  freeSockets,
+  drillSpotWhy,
+  LEGACY_SOCKETS,
+  legacySocketAngle,
   freshState,
   hubCost,
   inputsOf,
@@ -128,6 +130,15 @@ export function runBot(opts: BotOptions): {
 /** Raw chains: drills feeding drill junctions (the logistics the smelters must not replace). */
 export const rawChains = (s: State) => drills(s).filter((d) => d.out?.to.kind === 'drill').length;
 
+/**
+ * A legal rim angle on slot `i`. The bot keeps the old socket spots and counts: crowding a rock
+ * past them only drains it faster into the respawn wait, which this greedy bot can't weigh.
+ */
+function freeRim(s: State, i: number): number | null {
+  const tries = [...Array(LEGACY_SOCKETS[i]).keys()].map((k) => legacySocketAngle(i, k));
+  return tries.find((a) => !drillSpotWhy(s, i, a)) ?? null;
+}
+
 function act(s: State, mark: (l: string) => void) {
   // Free moves first: link anything unlinked.
   for (const m of s.machines) {
@@ -142,14 +153,14 @@ function act(s: State, mark: (l: string) => void) {
   const options: Option[] = [];
   for (let i = 0; i < SLOTS.length; i++) {
     if (!s.slots[i].unlocked) continue;
-    const free = freeSockets(s, i);
-    if (!free.length) continue;
+    const free = freeRim(s, i);
+    if (free === null) continue;
     const cost = priceOf(s, 'drill');
     options.push({
       cost,
       score: (SLOTS[i].tier * 1.6) / cost,
       label: 'drill',
-      run: () => buildDrill(s, i, free[0]),
+      run: () => buildDrill(s, i, free),
     });
   }
   const unlinked = s.machines.filter((m) => !m.out).length;

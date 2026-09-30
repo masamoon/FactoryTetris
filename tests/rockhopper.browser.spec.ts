@@ -73,6 +73,45 @@ test('hold to mine, drag a drill on, and it delivers by itself', async ({ page }
   await page.screenshot({ path: 'test-results/rockhopper-first-drill.png' });
 });
 
+test('a drill goes where it is dropped on the rim, and a crowded drop slides clear', async ({
+  page,
+}) => {
+  await open(page);
+  await page.evaluate(() => {
+    (window as unknown as { __rockhopper: Hook }).__rockhopper.state.credits = 5000;
+  });
+  await expect(page.locator('.rh-tray')).not.toHaveClass(/rh-hidden/);
+  await page.waitForTimeout(600); // the tray slides in
+  const btn = (await page.locator('.rh-tool[data-kind=drill]').boundingBox())!;
+  const R = SLOTS[0].r * 10 + 18;
+  const drop = async (a: number, shot?: string) => {
+    const p = await screen(page, SLOTS[0].x + Math.cos(a) * R, T1Y + Math.sin(a) * R);
+    await page.mouse.move(btn.x + btn.width / 2, btn.y + btn.height / 2);
+    await page.mouse.down();
+    // The ghost sits 30 px above the finger.
+    await page.mouse.move(p.x, p.y + 30, { steps: 10 });
+    if (shot) await page.screenshot({ path: shot });
+    await page.mouse.up();
+  };
+  const a = -Math.PI / 6;
+  await drop(a, 'test-results/rockhopper-free-drill-ghost.png');
+  let s = await hook(page);
+  expect(s.machines).toHaveLength(1);
+  const d = s.machines[0] as { angle: number };
+  const norm = (x: number) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  expect(Math.abs(norm(d.angle) - norm(a))).toBeLessThan(0.08);
+  // Right next to it: the second drill slides along the rim until the two are clear.
+  await drop(a + 0.15);
+  s = await hook(page);
+  expect(s.machines).toHaveLength(2);
+  const [p, q] = s.machines.map((m) => {
+    const x = (m as { angle: number }).angle;
+    return { x: Math.cos(x) * R, y: Math.sin(x) * R };
+  });
+  expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeGreaterThanOrEqual(35.9);
+  await page.screenshot({ path: 'test-results/rockhopper-free-drill-two.png' });
+});
+
 test('tap a machine for its bubble; hold-to-sell refunds half', async ({ page }) => {
   await open(page);
   await page.evaluate(() => {
@@ -181,7 +220,7 @@ async function threeDrills(page: Page) {
       window as unknown as { __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown } }
     ).__rockhopper;
     a.state.credits = 1e6;
-    for (let k = 0; k < 3; k++) a.cmd('buildDrill', 0, k);
+    for (let k = 0; k < 3; k++) a.cmd('buildDrill', 0, ((90 + 120 * k) * Math.PI) / 180);
   });
   await page.waitForTimeout(600);
 }
@@ -211,7 +250,7 @@ test('a smelter dragged onto a belt snaps to it, floats as a hologram, and splic
   await open(page);
   await threeDrills(page);
   const s = await hook(page);
-  const d = s.machines.find((m) => m.kind === 'drill' && m.socket === 0)!;
+  const d = s.machines.find((m) => m.kind === 'drill' && Math.abs(m.angle - Math.PI / 2) < 1e-6)!;
   // Aim at the drill's belt, part way to the hub (the ghost sits 56 px above the finger).
   const sock = await screen(page, 0, T1Y + 78);
   const hub = await screen(page, 0, -49);
@@ -255,7 +294,7 @@ test('dragging from an unlinked drill onto a drill chains it through that juncti
     const a = (
       window as unknown as { __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown } }
     ).__rockhopper;
-    a.cmd('buildDrill', 1, 0);
+    a.cmd('buildDrill', 1, Math.PI / 2);
   });
   const s = await hook(page);
   const lonely = s.machines.find((m) => m.kind === 'drill' && m.slot === 1)!;
@@ -268,7 +307,9 @@ test('dragging from an unlinked drill onto a drill chains it through that juncti
   await page.mouse.move(to.x, to.y, { steps: 12 });
   await page.mouse.up();
   const after = await hook(page);
-  const target = after.machines.find((m) => m.kind === 'drill' && m.slot === 0 && m.socket === 0)!;
+  const target = after.machines.find(
+    (m) => m.kind === 'drill' && m.slot === 0 && Math.abs(m.angle - Math.PI / 2) < 1e-6
+  )!;
   expect(after.machines.find((m) => m.id === lonely.id)!.out?.to).toEqual({
     kind: 'drill',
     id: target.id,
@@ -283,7 +324,7 @@ test('a pre-logistics save is migrated, and the v1 save is never touched', async
       window as unknown as { __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown } }
     ).__rockhopper;
     a.state.credits = 100;
-    a.cmd('buildDrill', 0, 0);
+    a.cmd('buildDrill', 0, Math.PI / 2);
     const raw = JSON.parse(JSON.stringify({ ...a.state, events: undefined, laser: null }));
     raw.version = 1;
     for (const m of raw.machines) {
@@ -338,7 +379,9 @@ test('a smelter is never dropped onto a belt it cannot join (already smelted)', 
         __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown };
       }
     ).__rockhopper;
-    const d = a.state.machines.find((m) => m.kind === 'drill' && m.socket === 0)!;
+    const d = a.state.machines.find(
+      (m) => m.kind === 'drill' && Math.abs(m.angle - Math.PI / 2) < 1e-6
+    )!;
     for (let y = -170; y < -60; y += 2)
       if (a.cmd('buildSmelter', { x: 0, y }, d.id) === true) return { x: 0, y };
     return null;

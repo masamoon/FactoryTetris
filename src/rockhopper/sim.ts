@@ -16,6 +16,7 @@ import {
   DRILL_INPUTS,
   DRILL_MAX_LEVEL,
   DRILL_RADIUS,
+  DRILL_SPACING,
   drillPrice,
   drillRate,
   drillUpgradeCost,
@@ -38,7 +39,7 @@ import {
   smelterPrice,
   smelterTime,
   smelterUpgradeCost,
-  SOCKET_GAP,
+  RIM_GAP,
   TICK_HZ,
   TIER_ORE,
   TOW_SECONDS,
@@ -131,7 +132,8 @@ interface MachineBase {
 export interface Drill extends MachineBase {
   kind: 'drill';
   slot: number;
-  socket: number;
+  /** Where on the rock's rim the drill sits: radians from the rock's centre, y down. */
+  angle: number;
   buffer: Ore[];
   cell: number;
   /** Transient: this tick the drill had to stop because its buffer was full. */
@@ -252,6 +254,9 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
   const r = def.r;
   const w = 2 * r + 3;
   const seed = Math.floor(hash(slotIndex * 977 + gen * 31, worldSeed, 13) * 1e9);
+  // Veins stay put for the slot: only the outline changes between rocks, so a drill aimed at a
+  // vein keeps paying off after every respawn.
+  const veins = Math.floor(hash(slotIndex * 977, worldSeed, 13) * 1e9);
   const cells = new Array<number>(w * w).fill(0);
   const inside: { i: number; n: number; t: number }[] = [];
   for (let j = 0; j < w; j++) {
@@ -264,20 +269,26 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
       if (Math.hypot(x, y) > edge) continue;
       inside.push({
         i: j * w + i,
-        n: vnoise(x + 40, y + 40, seed + 5, 2.6),
-        t: vnoise(x + 70, y + 70, seed + 17, 3.4),
+        n: vnoise(x + 40, y + 40, veins + 5, 2.6),
+        t: vnoise(x + 70, y + 70, veins + 17, 3.4),
       });
     }
   }
   const tier = TIER_ORE[def.tier];
   const ores = [...tier.ores, def.signature, def.signature];
-  const oreCount = Math.round(inside.length * tier.share);
-  const byRichness = [...inside].sort((a, b) => b.n - a.n || a.i - b.i);
-  const oreCells = new Set(byRichness.slice(0, oreCount).map((c) => c.i));
+  // The ore threshold comes from the slot's whole disc, not this rock's outline, so a cell's ore
+  // never depends on the respawn: veins stay where the player aimed.
+  const disc: number[] = [];
+  for (let j = 0; j < w; j++)
+    for (let i = 0; i < w; i++) {
+      const x = i - (r + 1),
+        y = j - (r + 1);
+      if (Math.hypot(x, y) <= r) disc.push(vnoise(x + 40, y + 40, veins + 5, 2.6));
+    }
+  disc.sort((a, b) => b - a);
+  const cut = disc[Math.max(0, Math.round(disc.length * tier.share) - 1)];
   for (const c of inside) {
-    cells[c.i] = oreCells.has(c.i)
-      ? ores[Math.min(ores.length - 1, Math.floor(c.t * ores.length))]
-      : 1;
+    cells[c.i] = c.n >= cut ? ores[Math.min(ores.length - 1, Math.floor(c.t * ores.length))] : 1;
   }
   return {
     r,
@@ -315,18 +326,47 @@ function nearestCell(slotIndex: number, rock: Rock, p: Point): number {
   return best;
 }
 
+/**
+ * The first `n` cells a drill at `p` would dig, nearest first: drills always take the nearest
+ * remaining cell, so this is the order it eats into the rock (other drills aside).
+ */
+export function firstCells(slotIndex: number, rock: Rock, p: Point, n: number): number[] {
+  const def = SLOTS[slotIndex];
+  const lx = (p.x - def.x) / CELL + rock.r + 1,
+    ly = (p.y - def.y) / CELL + rock.r + 1;
+  const out: { k: number; d: number }[] = [];
+  for (let k = 0; k < rock.cells.length; k++) {
+    if (!rock.cells[k]) continue;
+    const dx = (k % rock.w) - lx,
+      dy = Math.floor(k / rock.w) - ly;
+    out.push({ k, d: dx * dx + dy * dy });
+  }
+  return out
+    .sort((a, b) => a.d - b.d || a.k - b.k)
+    .slice(0, n)
+    .map((c) => c.k);
+}
+
 // ---------------------------------------------------------------- geometry
 
-export function socketAngle(slotIndex: number, socket: number): number {
-  return ((90 + (360 / SLOTS[slotIndex].sockets) * socket) * Math.PI) / 180;
+/** Fixed rim sockets per slot from before free placement: saves and tests still name them. */
+export const LEGACY_SOCKETS = [3, 3, 3, 4, 4, 5, 5, 6];
+
+export function legacySocketAngle(slotIndex: number, k: number): number {
+  return ((90 + (360 / LEGACY_SOCKETS[slotIndex]) * k) * Math.PI) / 180;
 }
 
-export function socketPos(slotIndex: number, socket: number): Point {
+/** Radius of the rim drills sit on, from the rock's centre. */
+export const rimRadius = (slotIndex: number) => SLOTS[slotIndex].r * CELL + RIM_GAP;
+
+export function rimPos(slotIndex: number, angle: number): Point {
   const def = SLOTS[slotIndex];
-  const a = socketAngle(slotIndex, socket);
-  const d = def.r * CELL + SOCKET_GAP;
-  return { x: def.x + Math.cos(a) * d, y: def.y + Math.sin(a) * d };
+  const d = rimRadius(slotIndex);
+  return { x: def.x + Math.cos(angle) * d, y: def.y + Math.sin(angle) * d };
 }
+
+/** An angle in [0, 2π). */
+export const normAngle = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 
 export function dockPos(index: number): Point {
   const a = (DOCK_ANGLES[index] * Math.PI) / 180;
@@ -334,7 +374,7 @@ export function dockPos(index: number): Point {
 }
 
 export function machinePos(m: Machine): Point {
-  return m.kind === 'drill' ? socketPos(m.slot, m.socket) : { x: m.x, y: m.y };
+  return m.kind === 'drill' ? rimPos(m.slot, m.angle) : { x: m.x, y: m.y };
 }
 
 export function targetPos(s: State, t: Target): Point | null {
@@ -562,35 +602,70 @@ export function clearLaser(s: State) {
   s.laser = null;
 }
 
-export function freeSockets(s: State, slot: number, except?: number): number[] {
-  const out: number[] = [];
-  for (let k = 0; k < SLOTS[slot].sockets; k++) {
-    if (
-      !s.machines.some(
-        (m) => m.kind === 'drill' && m.id !== except && m.slot === slot && m.socket === k
-      )
-    )
-      out.push(k);
+/** Closest a drill and a smelter centre may be. */
+const DRILL_SMELTER_GAP = SMELTER_RADIUS + DRILL_RADIUS * 0.7;
+
+/**
+ * Why a drill (or drill `except`, being moved) can't sit at this rim angle, or '' when it can.
+ * Drills go anywhere on an unlocked rock's rim, clear of other machines: the rim's length, not a
+ * socket count, decides how many fit.
+ */
+export function drillSpotWhy(s: State, slot: number, angle: number, except?: number): string {
+  if (!s.slots[slot]?.unlocked) return 'locked';
+  if (!Number.isFinite(angle)) return 'no room here';
+  const p = rimPos(slot, angle);
+  for (const m of s.machines) {
+    if (m.id === except) continue;
+    const q = machinePos(m);
+    const min = m.kind === 'drill' ? DRILL_SPACING : DRILL_SMELTER_GAP;
+    if (Math.hypot(p.x - q.x, p.y - q.y) < min) return 'no room here';
   }
-  return out;
+  return '';
 }
 
-/** The free socket nearest to a point, on an unlocked slot. */
-export function nearestSocket(s: State, p: Point, maxDist: number, except?: number) {
-  let best: { slot: number; socket: number } | null = null,
-    bestD = maxDist;
-  SLOTS.forEach((_, i) => {
+export interface RimSpot {
+  slot: number;
+  angle: number;
+  /** '' when a drill can go here; otherwise the reason it can't. */
+  why: string;
+}
+
+/**
+ * The rim spot for a drill dropped at `p`: the nearest unlocked rim within `maxDist`, slid along
+ * the rim by at most one drill spacing to clear its neighbours. The player picks the spot on the
+ * rock; the game only finds the footing. With no legal spot near, it names the nearest refusal.
+ */
+export function nearestRim(s: State, p: Point, maxDist: number, except?: number): RimSpot | null {
+  let best: RimSpot | null = null,
+    bestD = Infinity,
+    refused: RimSpot | null = null,
+    refusedD = maxDist;
+  SLOTS.forEach((def, i) => {
     if (!s.slots[i].unlocked) return;
-    for (const k of freeSockets(s, i, except)) {
-      const q = socketPos(i, k);
-      const d = Math.hypot(q.x - p.x, q.y - p.y);
-      if (d < bestD) {
-        bestD = d;
-        best = { slot: i, socket: k };
+    const R = rimRadius(i);
+    const off = Math.abs(Math.hypot(p.x - def.x, p.y - def.y) - R);
+    if (off > maxDist) return;
+    const a0 = normAngle(Math.atan2(p.y - def.y, p.x - def.x));
+    const step = 2 / R;
+    const reach = DRILL_SPACING / R;
+    for (let d = 0; d <= reach; d += step) {
+      for (const dir of d ? [1, -1] : [1]) {
+        const a = normAngle(a0 + dir * d);
+        const q = rimPos(i, a);
+        const dist = Math.hypot(q.x - p.x, q.y - p.y);
+        if (dist >= bestD) continue;
+        const why = drillSpotWhy(s, i, a, except);
+        if (!why) {
+          bestD = dist;
+          best = { slot: i, angle: a, why };
+        } else if (d === 0 && off < refusedD) {
+          refusedD = off;
+          refused = { slot: i, angle: a, why };
+        }
       }
     }
   });
-  return best as { slot: number; socket: number } | null;
+  return best ?? refused;
 }
 
 export function smelterSpotOk(s: State, p: Point, except?: number): boolean {
@@ -600,16 +675,11 @@ export function smelterSpotOk(s: State, p: Point, except?: number): boolean {
     const d = SLOTS[i];
     if (!slotVisible(s, i)) continue;
     if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + SMELTER_RADIUS + 2) return false;
-    // Every socket is reserved for a drill, built or not, so a drill never lands in a smelter.
-    for (let k = 0; k < d.sockets; k++) {
-      const q = socketPos(i, k);
-      if (Math.hypot(p.x - q.x, p.y - q.y) < SMELTER_RADIUS + DRILL_RADIUS * 0.7) return false;
-    }
   }
   for (const m of s.machines) {
     if (m.id === except) continue;
     const q = machinePos(m);
-    const min = m.kind === 'smelter' ? SMELTER_RADIUS * 2 + 8 : SMELTER_RADIUS + DRILL_RADIUS * 0.7;
+    const min = m.kind === 'smelter' ? SMELTER_RADIUS * 2 + 8 : DRILL_SMELTER_GAP;
     if (Math.hypot(p.x - q.x, p.y - q.y) < min) return false;
   }
   return true;
@@ -665,9 +735,9 @@ const base = () => ({
   heldAgo: HELD_WINDOW,
 });
 
-export function buildDrill(s: State, slot: number, socket: number): Result {
-  if (!s.slots[slot]?.unlocked) return 'locked';
-  if (!freeSockets(s, slot).includes(socket)) return 'occupied';
+export function buildDrill(s: State, slot: number, angle: number): Result {
+  const why = drillSpotWhy(s, slot, angle);
+  if (why) return why;
   const cost = priceOf(s, 'drill');
   if (!pay(s, cost)) return 'credits';
   const d: Drill = {
@@ -678,7 +748,7 @@ export function buildDrill(s: State, slot: number, socket: number): Result {
     out: null,
     ...base(),
     slot,
-    socket,
+    angle: normAngle(angle),
     buffer: [],
     cell: -1,
   };
@@ -814,13 +884,13 @@ export function sell(s: State, id: number): Result {
   return true;
 }
 
-export function moveDrill(s: State, id: number, slot: number, socket: number): Result {
+export function moveDrill(s: State, id: number, slot: number, angle: number): Result {
   const m = byId(s, id);
   if (!m || m.kind !== 'drill') return 'missing';
-  if (!s.slots[slot]?.unlocked) return 'locked';
-  if (!freeSockets(s, slot, id).includes(socket)) return 'occupied';
+  const why = drillSpotWhy(s, slot, angle, id);
+  if (why) return why;
   m.slot = slot;
-  m.socket = socket;
+  m.angle = normAngle(angle);
   m.cell = -1;
   relayout(s);
   s.events.push({ type: 'move', id });
@@ -983,7 +1053,7 @@ function drillsTick(s: State) {
     let budget = drillRate(d.level) * DT;
     while (budget > 1e-9 && d.buffer.length < DRILL_BUFFER && !slot.crumble) {
       if (d.cell < 0 || !rock.cells[d.cell])
-        d.cell = nearestCell(d.slot, rock, socketPos(d.slot, d.socket));
+        d.cell = nearestCell(d.slot, rock, rimPos(d.slot, d.angle));
       if (d.cell < 0) break;
       const need = ORES[rock.cells[d.cell] as Ore].hardness - rock.work[d.cell];
       const use = Math.min(budget, need);

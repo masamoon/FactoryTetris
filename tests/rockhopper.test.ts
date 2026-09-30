@@ -8,6 +8,7 @@ import {
   BELT_SPEED,
   BELT_DASH,
   BELT_TIER_MAX,
+  DRILL_SPACING,
   beltCapacity,
   ORES,
   SLOTS,
@@ -17,6 +18,10 @@ import {
 import {
   beltEnds,
   buildDrill,
+  legacySocketAngle,
+  firstCells,
+  nearestRim,
+  rimPos,
   buildSmelter,
   canTarget,
   cellPos,
@@ -61,6 +66,10 @@ const events = (s: State, ticks: number): SimEvent[] => {
   return out;
 };
 
+const xy = (a: { x: number; y: number }, b: { x: number; y: number }): [number, number] => [
+  a.x - b.x,
+  a.y - b.y,
+];
 const center = (s: State, slot = 0) => ({ x: SLOTS[slot].x, y: SLOTS[slot].y });
 
 test('rocks are deterministic, capped and tier-flavoured', () => {
@@ -97,7 +106,7 @@ test('laser breaks the first rock cell within 300 ms and chunks reach the hub wi
 test('first drill auto-links to a dock, delivers real chunks, and at least matches the base laser', () => {
   const s = freshState(1);
   s.credits = priceOf(s, 'drill');
-  assert.equal(buildDrill(s, 0, 0), true);
+  assert.equal(buildDrill(s, 0, legacySocketAngle(0, 0)), true);
   const d = drills(s)[0];
   assert.deepEqual(d.out?.to, { kind: 'dock', index: 0 });
   run(s, 20 * TICK_HZ);
@@ -114,10 +123,10 @@ test('an unlinked drill fills its buffer and stops (backpressure)', () => {
   const s = freshState(1);
   s.credits = 1e6;
   s.docks = 3;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   unlock(s, 1);
   run(s, 3 * TICK_HZ);
-  buildDrill(s, 1, 0);
+  buildDrill(s, 1, legacySocketAngle(1, 0));
   const last = drills(s)[3];
   assert.equal(last.out, null, 'no free dock');
   run(s, 30 * TICK_HZ);
@@ -132,7 +141,7 @@ test('an unlinked drill fills its buffer and stops (backpressure)', () => {
 test('a smelter dropped on a belt goes into that line, pairs chunks and pays x3 per chunk', () => {
   const s = freshState(1);
   s.credits = 1e6;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   const d = drills(s)[0];
   const e = beltEnds(s, d)!;
   // Off the belt it stands alone: the docks are full, so it waits unlinked.
@@ -161,7 +170,7 @@ test('a smelter dropped on a belt goes into that line, pairs chunks and pays x3 
 test('a drill takes up to two input belts and forwards them as a fair zipper', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   const [a, b, c] = drills(s);
   // b is the junction: a and c feed it, and only b's belt reaches a dock.
   assert.equal(route(s, a.id, { kind: 'drill', id: b.id }), true);
@@ -172,7 +181,7 @@ test('a drill takes up to two input belts and forwards them as a fair zipper', (
   );
   unlock(s, 1);
   run(s, 3 * TICK_HZ);
-  buildDrill(s, 1, 0);
+  buildDrill(s, 1, legacySocketAngle(1, 0));
   const d = drills(s)[3];
   assert.equal(canTarget(s, d, { kind: 'drill', id: b.id }), false, 'cap of two inputs');
   // Saturate: level-2 drills make about 4.5 chunks/s each (13.5/s) on a tier-1 belt (8.5/s).
@@ -194,7 +203,7 @@ test('a drill takes up to two input belts and forwards them as a fair zipper', (
 test('the zipper gives each source an equal share of a saturated belt', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   const [a, b, c] = drills(s);
   route(s, a.id, { kind: 'drill', id: b.id });
   route(s, c.id, { kind: 'drill', id: b.id });
@@ -234,7 +243,7 @@ test('the zipper gives each source an equal share of a saturated belt', () => {
 test('links never loop, and a smelter never feeds a smelter', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   const [a, b, c] = drills(s);
   assert.equal(route(s, a.id, { kind: 'drill', id: b.id }), true);
   assert.equal(route(s, b.id, { kind: 'drill', id: c.id }), true);
@@ -253,8 +262,8 @@ test('smelter intake is round-robin across belts and not capped at one chunk a t
   s.credits = 1e6;
   buildSmelter(s, { x: 110, y: -110 });
   const sm = smelters(s)[0];
-  buildDrill(s, 0, 0);
-  buildDrill(s, 0, 2);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
+  buildDrill(s, 0, legacySocketAngle(0, 2));
   const [a, b] = drills(s);
   for (const d of [a, b]) assert.equal(route(s, d.id, { kind: 'smelter', id: sm.id }), true);
   // Both belts have a bundle waiting: copper on one, ice on the other.
@@ -270,7 +279,7 @@ test('smelter intake is round-robin across belts and not capped at one chunk a t
   t.credits = 1e6;
   buildSmelter(t, { x: 110, y: -110 });
   const tm = smelters(t)[0];
-  buildDrill(t, 0, 0);
+  buildDrill(t, 0, legacySocketAngle(0, 0));
   const d = drills(t)[0];
   route(t, d.id, { kind: 'smelter', id: tm.id });
   d.out!.items.push({ pos: d.out!.length, ores: [2, 2, 2, 2], mult: 1 });
@@ -281,7 +290,7 @@ test('smelter intake is round-robin across belts and not capped at one chunk a t
 test('rocks crumble below 20%, each cell counts once, and a new rock is towed in', () => {
   const s = freshState(1);
   s.credits = 1e6;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   const total = s.slots[0].rock!.total;
   const ev = events(s, 120 * TICK_HZ);
   const crumble = ev.findIndex((e) => e.type === 'crumble' && e.slot === 0);
@@ -304,8 +313,8 @@ test('rocks crumble below 20%, each cell counts once, and a new rock is towed in
 test('save round-trip mid-flight continues identically', () => {
   const a = freshState(3);
   a.credits = 500;
-  buildDrill(a, 0, 0);
-  buildDrill(a, 0, 1);
+  buildDrill(a, 0, legacySocketAngle(0, 0));
+  buildDrill(a, 0, legacySocketAngle(0, 1));
   setLaser(a, 0, center(a));
   run(a, 7 * TICK_HZ + 5);
   clearLaser(a); // the finger lifts before the app is closed
@@ -325,7 +334,7 @@ test('a belt caps what it carries until it is widened, and drills say so', () =>
   const rate = (level: number, tier: number) => {
     const s = freshState(1);
     s.credits = 1e9;
-    buildDrill(s, 0, 0);
+    buildDrill(s, 0, legacySocketAngle(0, 0));
     const d = drills(s)[0];
     while (d.level < level) upgrade(s, d.id);
     while (d.tier < tier) widen(s, d.id);
@@ -355,8 +364,8 @@ test('a belt caps what it carries until it is widened, and drills say so', () =>
 test('the widen price counts owned tier steps only, never belt length', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  buildDrill(s, 0, 0);
-  buildDrill(s, 0, 1);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
+  buildDrill(s, 0, legacySocketAngle(0, 1));
   const [a, b] = drills(s);
   // A short link (to a neighbour) and a long one (to the hub) cost the same to widen.
   route(s, a.id, { kind: 'drill', id: b.id });
@@ -385,7 +394,7 @@ test('belts are slow enough to read, and wider belts ship bigger bundles', () =>
   const meanBundle = (tier: number) => {
     const s = freshState(1);
     s.credits = 1e9;
-    buildDrill(s, 0, 0);
+    buildDrill(s, 0, legacySocketAngle(0, 0));
     const d = drills(s)[0];
     while (d.level < DRILL_MAX_LEVEL) upgrade(s, d.id);
     while (d.tier < tier) widen(s, d.id);
@@ -414,7 +423,7 @@ test('belts are slow enough to read, and wider belts ship bigger bundles', () =>
 test('corrupt bundles are rejected instead of crashing', () => {
   const s = freshState(1);
   s.credits = 100;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   run(s, 4 * TICK_HZ);
   const raw = JSON.parse(serialize(s)) as { machines: { out: { items: { ores: unknown[] }[] } }[] };
   raw.machines[0].out.items[0].ores = [];
@@ -456,7 +465,7 @@ test('every smelter level is a real speed-up, and level 1 outpaces a tier-1 belt
 test('pre-logistics (v1) saves migrate: belt capacity kept, tiers unbought, bar values kept', () => {
   const s = freshState(1);
   s.credits = 1000;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   buildSmelter(s, { x: 110, y: -110 });
   route(s, drills(s)[0].id, { kind: 'smelter', id: smelters(s)[0].id });
   run(s, 8 * TICK_HZ);
@@ -509,7 +518,7 @@ test('selling heals the line only where the target matrix allows it', () => {
   // drill -> J -> dock: selling J hands its dock to the drill.
   const s = freshState(1);
   s.credits = 1e9;
-  for (let k = 0; k < 2; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 2; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   const [a, j] = drills(s);
   route(s, a.id, { kind: 'drill', id: j.id });
   const dock = j.out!.to;
@@ -518,7 +527,7 @@ test('selling heals the line only where the target matrix allows it', () => {
   // smelter S -> drill J -> smelter T: S can't inherit T (no smelter feeds a smelter).
   const t = freshState(1);
   t.credits = 1e9;
-  buildDrill(t, 0, 0);
+  buildDrill(t, 0, legacySocketAngle(0, 0));
   const jj = drills(t)[0];
   buildSmelter(t, { x: 150, y: -60 });
   buildSmelter(t, { x: -150, y: -60 });
@@ -533,9 +542,9 @@ test('selling heals the line only where the target matrix allows it', () => {
 test('a smelter moved onto a belt splices only while it has no output', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   const d = drills(s)[0];
-  for (let k = 0; k < 2; k++) buildDrill(s, 0, k + 1);
+  for (let k = 0; k < 2; k++) buildDrill(s, 0, legacySocketAngle(0, k + 1));
   buildSmelter(s, { x: 150, y: -60 });
   const sm = smelters(s)[0];
   assert.equal(sm.out, null);
@@ -571,7 +580,7 @@ test('a command log replays to the identical state (clip witness)', () => {
   cmd('setLaser', 0, center(s));
   run(s, 6 * TICK_HZ);
   cmd('clearLaser');
-  cmd('buildDrill', 0, 0);
+  cmd('buildDrill', 0, legacySocketAngle(0, 0));
   run(s, 10 * TICK_HZ);
   s.events.length = 0;
   const again = replay(4, log, s.tick);
@@ -581,7 +590,7 @@ test('a command log replays to the identical state (clip witness)', () => {
 test('selling refunds half of everything spent, belt tiers included', () => {
   const s = freshState(1);
   s.credits = 1000;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   const d = drills(s)[0];
   widen(s, d.id);
   const before = s.credits;
@@ -593,9 +602,9 @@ test('selling refunds half of everything spent, belt tiers included', () => {
 test('hub upgrades: docks relink, laser is capped at six levels', () => {
   const s = freshState(1);
   s.credits = 1e7;
-  for (let k = 0; k < 3; k++) buildDrill(s, 0, k);
+  for (let k = 0; k < 3; k++) buildDrill(s, 0, legacySocketAngle(0, k));
   unlock(s, 1);
-  buildDrill(s, 1, 0);
+  buildDrill(s, 1, legacySocketAngle(1, 0));
   assert.equal(drills(s)[3].out, null);
   assert.equal(upgradeHub(s, 'docks'), true);
   assert.deepEqual(drills(s)[3].out?.to.kind, 'dock');
@@ -606,7 +615,7 @@ test('hub upgrades: docks relink, laser is capped at six levels', () => {
 test('credits only come from delivered chunks', () => {
   const s = freshState(2);
   s.credits = 1000;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   buildSmelter(s, { x: 110, y: -110 });
   route(s, drills(s)[0].id, { kind: 'smelter', id: smelters(s)[0].id });
   setLaser(
@@ -652,8 +661,8 @@ test('a lone feeder that outruns its own belt reads full; a slow smelter reads b
   // A level-5 drill (about 14 chunks/s) on a tier-1 belt into a tier-3 junction.
   const s = freshState(1);
   s.credits = 1e9;
-  buildDrill(s, 0, 0);
-  buildDrill(s, 0, 1);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
+  buildDrill(s, 0, legacySocketAngle(0, 1));
   const [f, j] = drills(s);
   route(s, f.id, { kind: 'drill', id: j.id });
   while (f.level < 5) upgrade(s, f.id);
@@ -664,8 +673,8 @@ test('a lone feeder that outruns its own belt reads full; a slow smelter reads b
   // Two level-5 drills into a level-1 smelter: the smelter is the limit.
   const t = freshState(1);
   t.credits = 1e9;
-  buildDrill(t, 0, 0);
-  buildDrill(t, 0, 2);
+  buildDrill(t, 0, legacySocketAngle(0, 0));
+  buildDrill(t, 0, legacySocketAngle(0, 2));
   buildSmelter(t, { x: 150, y: -110 });
   const sm = smelters(t)[0];
   for (const d of drills(t)) {
@@ -684,7 +693,7 @@ test('a lone feeder that outruns its own belt reads full; a slow smelter reads b
 test('splicing or moving never puts belt items behind the belt start', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   const d = drills(s)[0];
   while (d.level < 5) upgrade(s, d.id);
   run(s, 3 * TICK_HZ);
@@ -710,7 +719,7 @@ test('splicing or moving never puts belt items behind the belt start', () => {
 test('belt capacity never depends on belt length (no short-belt bonus)', () => {
   const s = freshState(1);
   s.credits = 1e9;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   const d = drills(s)[0];
   while (d.level < DRILL_MAX_LEVEL) upgrade(s, d.id);
   // The shortest splice the rules allow, right next to the drill.
@@ -729,21 +738,100 @@ test('belt capacity never depends on belt length (no short-belt bonus)', () => {
   assert.ok(rate <= beltCapacity(1) * 1.05, `short belt carried ${rate.toFixed(1)}/s`);
 });
 
-test('free sockets are reserved: a smelter can never sit where a drill could go', () => {
+test('a drill goes anywhere on the rim, clear of its neighbours', () => {
   const s = freshState(1);
-  for (let k = 0; k < SLOTS[0].sockets; k++) {
-    const a = ((90 + (360 / SLOTS[0].sockets) * k) * Math.PI) / 180;
-    const r = SLOTS[0].r * 10 + 18;
-    const q = { x: SLOTS[0].x + Math.cos(a) * r, y: SLOTS[0].y + Math.sin(a) * r };
-    assert.equal(smelterSpotOk(s, q), false, `socket ${k}`);
-    assert.equal(smelterSpotOk(s, { x: q.x + Math.cos(a) * 8, y: q.y + Math.sin(a) * 8 }), false);
+  s.credits = 1e6;
+  const R = SLOTS[0].r * 10 + 18;
+  assert.equal(buildDrill(s, 0, 0.37), true);
+  const p = rimPos(0, drills(s)[0].angle);
+  assert.ok(Math.abs(Math.hypot(p.x - SLOTS[0].x, p.y - SLOTS[0].y) - R) < 1e-9, 'on the rim');
+  // Too close to the first drill: refused, but a drop there slides along the rim to room.
+  assert.equal(buildDrill(s, 0, 0.37 + 20 / R), 'no room here');
+  const near = nearestRim(s, rimPos(0, 0.37 + 20 / R), 90)!;
+  assert.equal(near.why, '');
+  assert.ok(Math.hypot(...xy(rimPos(0, near.angle), p)) >= DRILL_SPACING - 1e-9);
+  // No socket count: the rim's length decides how many fit.
+  let n = 1;
+  for (let k = 1; k < 200; k++) if (buildDrill(s, 0, 0.37 + (k * 2 * Math.PI) / 200) === true) n++;
+  assert.ok(n > 3 && n <= Math.floor((2 * Math.PI * R) / DRILL_SPACING), `${n} drills fit`);
+  for (const a of drills(s))
+    for (const b of drills(s))
+      if (a !== b)
+        assert.ok(
+          Math.hypot(...xy(rimPos(0, a.angle), rimPos(0, b.angle))) >= DRILL_SPACING - 1e-9
+        );
+  assert.equal(buildDrill(s, 1, 0), 'locked');
+});
+
+test('drills and smelters never overlap, whichever came first', () => {
+  const s = freshState(1);
+  s.credits = 1e6;
+  const a = Math.PI / 2 + 0.6;
+  const q = rimPos(0, a);
+  const out = { x: q.x + Math.cos(a) * 16, y: q.y + Math.sin(a) * 16 };
+  assert.equal(buildSmelter(s, out), true);
+  assert.equal(buildDrill(s, 0, a), 'no room here');
+  const slid = nearestRim(s, q, 90)!;
+  assert.equal(slid.why, '');
+  assert.notEqual(slid.angle, a);
+  // And a smelter can't land on a built drill.
+  assert.equal(buildDrill(s, 0, Math.PI * 1.5), true);
+  assert.equal(smelterSpotOk(s, rimPos(0, Math.PI * 1.5)), false);
+});
+
+test('position decides what a drill mines first, and veins stay put across respawns', () => {
+  const s = freshState(1);
+  s.credits = 1e6;
+  const rock = s.slots[0].rock!;
+  // Aim at an ore cell: the drill there digs it (or its neighbours) before the far side.
+  const ore = rock.cells.findIndex((c) => c > 1);
+  assert.ok(ore >= 0);
+  const c = cellPos(0, rock, ore);
+  const a = Math.atan2(c.y - SLOTS[0].y, c.x - SLOTS[0].x);
+  const first = firstCells(0, rock, rimPos(0, a), 4);
+  const far = firstCells(0, rock, rimPos(0, a + Math.PI), 4);
+  assert.equal(first.filter((k) => far.includes(k)).length, 0, 'opposite sides dig apart');
+  buildDrill(s, 0, a);
+  run(s, 4 * TICK_HZ);
+  assert.ok(
+    first.some((k) => !rock.cells[k]),
+    'the aimed cells went first'
+  );
+  // Respawns change the outline, never where the veins run.
+  const g0 = generateRock(3, 0, 7),
+    g1 = generateRock(3, 1, 7);
+  let same = 0,
+    both = 0;
+  for (let k = 0; k < g0.cells.length; k++) {
+    if (!g0.cells[k] || !g1.cells[k]) continue;
+    both++;
+    if (g0.cells[k] === g1.cells[k]) same++;
   }
+  assert.equal(same, both, 'shared cells hold the same ore');
+});
+
+test('saves from before free placement keep drills at their old sockets', () => {
+  const s = freshState(1);
+  s.credits = 1e6;
+  buildDrill(s, 0, legacySocketAngle(0, 2));
+  const raw = JSON.parse(serialize(s)) as { machines: Record<string, unknown>[] };
+  for (const m of raw.machines) {
+    delete m.angle;
+    m.socket = 2;
+  }
+  const t = deserialize(JSON.stringify(raw))!;
+  assert.ok(t, 'loads');
+  const d = drills(t)[0];
+  assert.ok(Math.abs(d.angle - legacySocketAngle(0, 2)) < 1e-9);
+  assert.equal((d as unknown as Record<string, unknown>).socket, undefined);
+  raw.machines[0].socket = 9;
+  assert.equal(deserialize(JSON.stringify(raw)), null, 'a socket the rock never had is refused');
 });
 
 test('a v1 save refits belts to the moved tiers and lifts smelters out of rocks', () => {
   const s = freshState(1);
   s.credits = 1e6;
-  buildDrill(s, 0, 0);
+  buildDrill(s, 0, legacySocketAngle(0, 0));
   buildSmelter(s, { x: 150, y: -110 });
   const sm = smelters(s)[0];
   route(s, drills(s)[0].id, { kind: 'smelter', id: sm.id });

@@ -15,6 +15,7 @@ import {
   beltEnds,
   byId,
   cellPos,
+  firstCells,
   dockPos,
   generateRock,
   machinePos,
@@ -24,8 +25,8 @@ import {
   type Smelter,
   type Drill,
   slotVisible,
-  socketAngle,
-  socketPos,
+  rimPos,
+  rimRadius,
   type State,
   type Target,
   unlockCost,
@@ -63,7 +64,9 @@ export interface Overlay {
   placing: {
     kind: 'drill' | 'smelter';
     /** The snapped spot; `splice` is the belt (owner id) it would go into. */
-    at: (Point & { ok?: boolean; angle?: number; splice?: number; why?: string }) | null;
+    at:
+      | (Point & { ok?: boolean; angle?: number; splice?: number; why?: string; slot?: number })
+      | null;
     moving?: number;
   } | null;
   reroute: { id: number; at: Point; target: Target | null } | null;
@@ -801,7 +804,7 @@ export class Renderer {
       if (m.kind !== 'drill' || m.cell < 0) continue;
       const rock = s.slots[m.slot].rock;
       if (!rock || !rock.cells[m.cell]) continue;
-      const a = socketPos(m.slot, m.socket);
+      const a = rimPos(m.slot, m.angle);
       const b = cellPos(m.slot, rock, m.cell);
       const jitter = Math.sin(this.time * 60 + m.id) * 0.6;
       c.lineCap = 'round';
@@ -1154,7 +1157,7 @@ export class Renderer {
         const working = m.cell >= 0;
         if (working)
           c.translate(Math.sin(this.time * 70 + m.id) * 0.5, Math.cos(this.time * 55 + m.id) * 0.5);
-        c.rotate(socketAngle(m.slot, m.socket) + Math.PI / 2);
+        c.rotate(m.angle + Math.PI / 2);
         if (land.lift > 0) {
           c.fillStyle = 'rgba(10,6,28,0.4)';
           c.beginPath();
@@ -1208,8 +1211,8 @@ export class Renderer {
 
   /** A stopped drill's waiting chunks, piled beside it: backpressure you can see. */
   private pile(c: Ctx, m: Drill) {
-    const a = socketAngle(m.slot, m.socket);
-    const p = socketPos(m.slot, m.socket);
+    const a = m.angle;
+    const p = rimPos(m.slot, a);
     const side = { x: -Math.sin(a), y: Math.cos(a) };
     const out = { x: Math.cos(a), y: Math.sin(a) };
     m.buffer.forEach((ore, k) => {
@@ -1386,27 +1389,36 @@ export class Renderer {
     const z = this.cam.z;
     if (o.placing) {
       if (o.placing.kind === 'drill') {
-        // Every free socket glows; the snapped one gets the ghost.
+        // The rim of every rock with room glows: a drill goes anywhere on it. The ghost follows.
         SLOTS.forEach((def, i) => {
           if (!s.slots[i].unlocked) return;
-          for (let k = 0; k < def.sockets; k++) {
-            if (
-              s.machines.some(
-                (m) =>
-                  m.kind === 'drill' && m.id !== o.placing!.moving && m.slot === i && m.socket === k
-              )
-            )
-              continue;
-            const p = socketPos(i, k);
-            c.fillStyle = 'rgba(60,240,168,0.25)';
-            c.strokeStyle = MINT;
-            c.lineWidth = 2.5 / z;
-            c.beginPath();
-            c.arc(p.x, p.y, 11 + Math.sin(this.time * 6) * 1.5, 0, Math.PI * 2);
-            c.fill();
-            c.stroke();
-          }
+          c.strokeStyle = MINT;
+          c.globalAlpha = 0.55 + Math.sin(this.time * 6) * 0.15;
+          c.lineWidth = 3 / z;
+          c.setLineDash([6, 7]);
+          c.lineDashOffset = -this.time * 12;
+          c.beginPath();
+          c.arc(def.x, def.y, rimRadius(i), 0, Math.PI * 2);
+          c.stroke();
+          c.setLineDash([]);
+          c.lineDashOffset = 0;
+          c.globalAlpha = 1;
         });
+        // Position decides what a drill mines: outline the first cells it would dig.
+        const at = o.placing.at;
+        const rock = at?.ok && at.slot !== undefined ? s.slots[at.slot].rock : null;
+        if (at && rock) {
+          firstCells(at.slot!, rock, at, 6).forEach((k, n) => {
+            const p = cellPos(at.slot!, rock, k);
+            c.globalAlpha = 1 - n * 0.12;
+            c.fillStyle = 'rgba(60,240,168,0.22)';
+            c.fillRect(p.x - CELL / 2, p.y - CELL / 2, CELL, CELL);
+            c.strokeStyle = MINT;
+            c.lineWidth = 2 / z;
+            c.strokeRect(p.x - CELL / 2 + 0.5, p.y - CELL / 2 + 0.5, CELL - 1, CELL - 1);
+          });
+          c.globalAlpha = 1;
+        }
       }
       const at = o.placing.at;
       if (at) {
@@ -1665,7 +1677,7 @@ export class Renderer {
     }
     if (o.hintDrag && o.trayDrill) {
       const t = (this.time % 2) / 2;
-      const target = this.toScreen(socketPos(0, 0));
+      const target = this.toScreen(rimPos(0, Math.PI / 2));
       const e = t < 0.15 ? 0 : t > 0.75 ? 1 : (t - 0.15) / 0.6;
       const ee = e * e * (3 - 2 * e);
       const x = o.trayDrill.x + (target.x - o.trayDrill.x) * ee,
