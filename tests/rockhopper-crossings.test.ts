@@ -19,6 +19,7 @@ import {
   setCrossings,
   smelterSpotWhy,
   step,
+  swapPartner,
   targetWhy,
   widen,
   type Drill,
@@ -317,4 +318,20 @@ test('a splice never leaves a belt under a machine', () => {
     }
   }
   assert.ok(spliced > 20 && refused > 0, `spliced ${spliced}, refused ${refused}`);
+});
+
+test('dropping a belt on a busy dock trades docks, which can untangle a crossing', () => {
+  const { s, a, b } = crossed(Math.PI * 0.6, Math.PI * 0.4);
+  assert.ok(crossingsOf(s).plates.length > 0, 'the belts cross');
+  const [da, db] = [a.out!.to, b.out!.to];
+  assert.equal(route(s, a.id, db), true);
+  assert.deepEqual(a.out!.to, db);
+  assert.deepEqual(b.out!.to, da);
+  assert.equal(crossingsOf(s).plates.length, 0, 'traded, they no longer cross');
+  // Only a belt that ends on a dock can trade: a junction input has no dock to hand over.
+  buildDrill(s, 0, Math.PI * 1.5);
+  const c = drills(s).at(-1)!;
+  assert.equal(route(s, c.id, { kind: 'drill', id: a.id }), true);
+  assert.equal(swapPartner(s, c, a.out!.to), null);
+  assert.equal(route(s, c.id, a.out!.to), 'invalid');
 });

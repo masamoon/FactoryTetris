@@ -27,6 +27,7 @@ import {
   type Drill,
   slotVisible,
   drillSpotWhy,
+  swapPartner,
   rimPos,
   rimRadius,
   type State,
@@ -1564,7 +1565,9 @@ export class Renderer {
         const a = machinePos(m);
         // Valid targets pulse: free docks, and machines with a free input that make no loop.
         for (let i = 0; i < s.docks; i++) {
-          if (!canTarget(s, m, { kind: 'dock', index: i })) continue;
+          const t: Target = { kind: 'dock', index: i };
+          // A busy dock pulses too when the two belts can trade docks.
+          if (!canTarget(s, m, t) && !swapPartner(s, m, t)) continue;
           const p = dockPos(i);
           this.targetRing(c, p.x, p.y, 11);
         }
@@ -1584,6 +1587,9 @@ export class Renderer {
         c.lineTo(b.x, b.y);
         c.stroke();
         c.restore();
+        const t = o.reroute.target;
+        if (t?.kind === 'dock' && !canTarget(s, m, t) && swapPartner(s, m, t))
+          this.refusals.push({ x: b.x, y: b.y + (36 * Math.max(1, z)) / z, why: 'swap docks' });
         const r = o.reroute.refused;
         if (r) this.refusals.push({ x: r.x, y: r.y + (36 * Math.max(1, z)) / z, why: r.why });
       }

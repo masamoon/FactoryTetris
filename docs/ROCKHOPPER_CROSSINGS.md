@@ -17,6 +17,10 @@ Evidence of current layouts (greedy bot, seeds 1–3, measured with a scratch pr
 
 **Decision already made with the user:** no hand-drawn belts (rejected in `ROCKHOPPER_LOGISTICS.md`: fiddly on a phone). The layer has to come from making the existing free rearranging matter.
 
+## Follow-up after the playtest: dock swap (2026-09-30)
+
+The user, after playing: "We still barely any power to tidy up routing." A belt is a straight line to a fixed dock, a dock takes one belt, and once every dock is in use a belt had nowhere to move. Now, **dropping a belt that ends on a dock onto another busy dock trades the two belts' docks** (`swapPartner`, `route` in `sim.ts`). The busy dock pulses as a target while dragging and "swap docks" shows over it ([screenshot](reviews/evidence/rockhopper-dock-swap.png)). Both new belts must keep clear lanes. A belt that ends on a machine has no dock to hand over, so it can't trade. Tested: two crossed belts trading docks no longer cross. Bend posts, which give real routing power, wait on the user's choice of review level.
+
 ## Revision 5 (after round-4 review and the play-through check)
 
 Round 4 passed C1–C3 and C5–C8, passed C4 on a condition (chips tiled edge to edge at the hub) and sent the clip back as minor: the save was legal, but B1 and B2 didn't describe it. A scripted play-through at 390 px (Playwright, headless, not a phone) found silent refusals and a costly preview. Revision 5:

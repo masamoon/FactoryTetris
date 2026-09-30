@@ -29,6 +29,7 @@ import {
   machinePos,
   nearestRim,
   spliceLanesBlocked,
+  swapPartner,
   targetWhy,
   priceOf,
   sellValue,
@@ -671,7 +672,7 @@ export class RockhopperApp {
     const consider = (t: Target, q: Point, extra = 0) => {
       const same = m.out && sameTarget(m.out.to, t);
       const d = Math.hypot(q.x - w.x, q.y - w.y) - extra;
-      if (!same && !canTarget(this.state, m, t)) {
+      if (!same && !canTarget(this.state, m, t) && !swapPartner(this.state, m, t)) {
         if (d < refusedD && targetWhy(this.state, m, t) === 'belt blocked') {
           refusedD = d;
           refused = { x: q.x, y: q.y, why: 'belt blocked' };

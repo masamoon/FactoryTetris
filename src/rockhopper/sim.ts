@@ -1032,11 +1032,37 @@ export function buildSmelter(s: State, p: Point, splice?: number | null): Result
   return true;
 }
 
+/**
+ * The machine on dock `t` that `m` (itself on a dock) can trade docks with, or null. A dock takes
+ * one belt, so without this a full hub leaves no dock to move a belt to. Both new belts must
+ * keep clear lanes.
+ */
+export function swapPartner(s: State, m: Machine, t: Target): Machine | null {
+  const from = m.out?.to;
+  if (t.kind !== 'dock' || from?.kind !== 'dock' || from.index === t.index) return null;
+  if (t.index < 0 || t.index >= s.docks) return null;
+  const o = s.machines.find(
+    (x) => x !== m && x.out?.to.kind === 'dock' && x.out.to.index === t.index
+  );
+  if (!o) return null;
+  if (s.crossings && (laneBlocker(s, m, t) || laneBlocker(s, o, from))) return null;
+  return o;
+}
+
 export function route(s: State, id: number, to: Target): Result {
   const m = byId(s, id);
   if (!m) return 'missing';
   if (m.out && sameTarget(m.out.to, to)) return true;
-  if (!canTarget(s, m, to)) return 'invalid';
+  if (!canTarget(s, m, to)) {
+    // Dropped on a busy dock: the two belts trade docks.
+    const o = swapPartner(s, m, to);
+    if (!o) return 'invalid';
+    o.out!.to = m.out!.to;
+    m.out!.to = to;
+    relayout(s);
+    s.events.push({ type: 'route', id: o.id }, { type: 'route', id });
+    return true;
+  }
   if (m.out) m.out.to = to;
   else m.out = { to, length: 1, items: [] };
   relayout(s);
