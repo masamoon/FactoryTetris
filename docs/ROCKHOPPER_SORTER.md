@@ -1,101 +1,111 @@
-# Rockhopper: factories and the sorter (proposal, revision 3, 2026-09-30)
+# Rockhopper: factories (proposal, revision 4, 2026-09-30)
 
-Status: **draft revision 3, pending round 3.** The user chose the full AGENTS.md review process and chose to design the sorter together with factories (2026-09-30). Rounds 1 and 2 are in [the review](reviews/2026-09-30-rockhopper-sorter-adversary.md). No runtime code is written until the design passes. The one exception is a prototype behind a switch, if round 3 asks for bot and stress evidence that only a prototype can give (the precedent is the crossings experiment).
+Status: **revision 4. Round 3 gave a scoped PASS for a factories-only prototype**, behind the "Factories" switch and **off by default**, once conditions C1–C6 are written in; this revision writes them in. The prototype exists to produce the round-4 evidence. It does not authorize the sorter, a default-on release, or any claim of fun or balance. Rounds 1–3 are in [the review](reviews/2026-09-30-rockhopper-sorter-adversary.md). The sorter (revision 3, S1–S9) is **deferred** until it has a job no other machine does (see [Deferred: the sorter](#deferred-the-sorter)). The file keeps its old name so that the review's links still work.
 
 ## Why
 
-The user, 2026-09-30: "what more logistics can we add? factories? tunnels?" They picked a sorter and factories. The goal they set earlier is that tidy routing is how a player shows skill ([ROCKHOPPER_CROSSINGS.md](ROCKHOPPER_CROSSINGS.md)).
+The user, 2026-09-30: "what more logistics can we add? factories? tunnels?" They picked a sorter and factories, and chose to design them together under the full review process. The goal they set earlier is that tidy routing is how a player shows skill ([ROCKHOPPER_CROSSINGS.md](ROCKHOPPER_CROSSINGS.md)).
 
-What the reviews established (simulation, not playtest):
+What three review rounds established (simulation, not playtest):
 
-- **A bar pays ×3 per chunk whatever the ore, rock included.** Pulling rock off a line only loses money, so a standalone sorter has no positive-sum use (round 1).
-- **Most rocks already carry balanced pairs.** T1 rocks mix Cu and Ice; T2 has Cu, Ice and Au; T3 has Ice, Au and Cr; T4 has Au and Cr. A factory that pairs any two ores at 1.5× just goes at the end of every line: it adds +8 to +23 % on T1 and +14 to +40 % on T3, while meeting two lines adds only 0–10 % more (round 2).
-- **Only Cu + Cr never shares a rock.** Copper lives on T1 and T2 (T2 gold rocks carry almost none), and crystal lives on T3 and T4, 480–740 u away.
+- A bar pays ×3 per chunk whatever the ore, rock included, so pulling rock off a line only loses money (round 1).
+- Most rocks already carry pairable ores. A factory that pairs any two ores at 1.5× just goes at the end of every line (round 2).
+- Only copper and crystal never share a rock. With a copper + crystal premium, meeting two lines adds +7 to +47 %, and one T1 copper line brought to a crystal factory adds +31 to +95 /s (round 3).
+- A sorter never beat sending the whole line: in 7 of 9 runs the whole line matched or won, and T2 lines carry too little copper to sort (round 3).
 
-## The one idea
+## The rule, stated honestly (C4)
 
-**Crystal wants copper.** A factory pairs any two different ores for a small bonus, but copper with crystal is the big prize, and no rock gives both. So the design is built around one decision: getting copper up to the crystal field. That means choosing which lines to send, routing them past everything else, and deciding whether to sort copper off mixed lines so the long belt isn't mostly rock and ice. The local bonus is kept small, so "a factory after every smelter" stays a modest, optional buy.
+**Ship all copper to crystal.** From the moment T3 opens, every paired copper bar earns 4–40× more at a crystal factory than anywhere else, and crystal is always in surplus, so the rule is not _whether_ to send copper but _how_:
 
-Measured for this revision with `/tmp/claude-0/sorter-review-r2/rev3.ts`, which extends the round-2 reviewer's `line.ts`. The real sim builds the lines, and the bar stream at the docks is replayed through an emulated factory (180 s, seeds 1–3, simulation):
+- where the crystal factory stands (near the crystal rock, or near the hub);
+- which way the long copper belt goes past the T2 field, and where it crosses other belts;
+- when its output belt becomes the bottleneck (it carries 6.5–10.3 items/s against 7.5 per tier).
 
-| Two lines (three drills each)           | Local ×1.25, Cu + Cr ×2.5: a factory on each line | One factory where they meet | Meeting adds |
-| --------------------------------------- | ------------------------------------------------- | --------------------------- | ------------ |
-| T1 copper L3 + T3 crystal L5            | +23 to +49 /s                                     | +63 to +129 /s              | +6 to +33 %  |
-| T1 copper L3 + T3 gold L5               | +39 to +45 /s                                     | +48 to +63 /s               | +4 to +7 %   |
-| T2 gold L3 + T3 crystal L5 (little Cu)  | +25 to +64 /s                                     | +66 to +68 /s               | +1 to +11 %  |
-| T1 Cu + T3 Cr under round 2's 1.5× rule | +47 to +98 /s                                     | +82 to +114 /s              | +2 to +11 %  |
-
-A T1 line delivers only 0.33–0.51 paired copper bars/s, against 0.72–1.38 crystal bars/s, so **copper is the scarce side**. Each extra copper line, or copper sorted off a mixed line, raises the premium. Seed 1 is weak because its crystal rock yields fewer crystal bars; the bot has to confirm the spread.
+Whether routing one long belt to a fixed destination is satisfying is a playtest question.
 
 ## Factories (F)
 
-| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F1  | **A factory pairs two bars of different ores into an alloy.** It takes only **paired bars** (×6). Lone ×3 bars and pre-logistics bars pass through. It pairs any two different non-rock ores. An alloy is worth **1.25×** its two bars, except **copper + crystal, worth 2.5×** (18 + 180 = 198 → 495). When a crystal bar could pair with copper or with something else, copper wins. There is no recipe to choose, so there is no recipe chip.                                                                                                                                                                                |
-| F2  | **Pass-through.** These go on to the output unchanged: rock bars, lone bars, alloys, and bars that find no partner within `LONE_WAIT` (2 s). The stock holds at most 6 bars; when it is full, the next bar that can't pair passes at once. Nothing is destroyed or refused. **A factory can still lower income in one way:** if its output belt carries less than what comes in, it backs up. So its output belt starts at the **highest tier among the belts it took over and its inputs**, and it shows "full" like any machine that outruns its belt.                                                                        |
-| F3  | **Work time.** Each alloy takes 0.4 s at level 1 (2.5 alloys/s, which is 5 bars/s), 1.35× faster per level, up to level 6. Passing items take no work time. Inputs: 2, and 3 from level 3. Upgrade: 600 × 2.2^(level − 1). One T3 line brings 4.4–5.1 bars/s, so a level-1 factory is about full on one T3 line and needs upgrades to take a second.                                                                                                                                                                                                                                                                            |
-| F4  | **Placement and links.** A factory is placed like a smelter: tray drag, splice or open space, with the same clearances and lane refusals. Inputs: smelters, drill junctions and sorters. **A drill may not feed a factory directly** (refused with "smelt it first"). Output: a dock, a drill junction or a sorter. Anything that reaches a factory through a junction or a sorter is handled by the item rules (F1, F2), not by topology. `relinkAll` retries smelters first, then factories, then the rest.                                                                                                                   |
-| F5  | **Alloy item.** `BeltItem` gets `alloy?: Ore` (the partner ore), with `ores[0]` the other ore, and `v`, its value in whole credits: floor(multiplier × 6 × (value(a) + value(b))), set once when the alloy is made. Examples: Cu + Ice 60, Ice + Au 127, Au + Cr 315, Cu + Cr 495. An alloy is one item (two bars in, one out). It is drawn as a chunk split diagonally in both ores' colours. The deliver event, the pops, `inTransitValue` and the validator use `v` when it is present. Junctions keep "a bundle never mixes values" by giving alloys their own class: an alloy never shares a bundle with a bar or a chunk. |
-| F6  | **Price and unlock.** 2 400 × 2ⁿ. The tray shows it once the player owns 2 smelters (the bot reaches that at 3:20–3:33). This goes through one predicate, `factoryUnlocked(s)`, that the tech tree being discussed in the project can replace.                                                                                                                                                                                                                                                                                                                                                                                  |
+| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | **A factory pairs two bars of different ores into an alloy.** It takes only paired bars (×6) of non-rock ores. An alloy is worth **1.25×** its two bars, except **copper + crystal, at 2.5×** (18 + 180 = 198 → 495). **Pairing is decided on arrival:** a bar that arrives pairs at once with a waiting bar of a different ore, choosing copper for a crystal bar (or crystal for a copper bar) when one is waiting, else the oldest different-ore bar. A bar with no partner waits in the stock. Both multipliers are config constants (`ALLOY_MULT`, `PREMIUM_MULT`), so the prototype can tune them.                                                                                                        |
+| F2  | **Pass-through.** Rock bars, lone ×3 bars, pre-logistics bars, alloys and raw chunks go straight on to the output. So do bars that find no partner within `LONE_WAIT` (2 s), and a bar that can't pair when the stock (6 bars) is full. Nothing is destroyed or refused.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| F2b | **Output tier (C1).** A factory's output belt **starts at tier 1**, like every new machine; it never inherits a tier. When a factory is spliced onto, or linked from, a belt wider than tier 1, the placement ghost reads "belt will be tier 1", and Widen is one tap away in the bubble. A sim test checks that no sequence of place, splice, link, re-route, move and sell gives any belt a tier without a matching `tierBought` (or a migrated grant).                                                                                                                                                                                                                                                       |
+| F3  | **Work time and levels (C3).** An alloy takes 0.4 s at level 1, 1.35× faster per level, **up to level 3** (0.22 s). Pairs that are waiting for the worker stay in the stock, and F2's stock rule still applies. Inputs: 2, and 3 at level 3. Upgrades: 600 and 1 320. Measured load: one T3 line has only 0.9–2.1 pairable bars/s, so a level-1 factory is 13–36 % busy on it and at most 58 % busy in every meeting measured. Levels 4–6 come back only if the prototype's bot shows a factory more than 70 % busy.                                                                                                                                                                                            |
+| F4  | **Placement and links (C3).** Placed like a smelter: tray drag, splice or open space, with the same clearances and lane refusals. `canSplice` is generalised to a factory as the machine being placed and tested with it. Inputs: smelters and drill junctions. A **drill junction** is a drill with at least one input belt when the link is made; the link is kept (grandfathered) if the drill later loses its inputs. A drill with no inputs is refused ("smelt it first"). While only raw chunks have arrived for 5 s, the factory shows a "smelt it first" hint. Output: a dock or a drill junction; never a smelter or another factory. `relinkAll` retries smelters first, then factories, then drills. |
+| F5  | **Alloy item (C2).** See the next section.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| F6  | **Price and unlock.** 2 400 × 2ⁿ. The tray shows it once the player owns 2 smelters (the bot reaches that at 3:20–3:33), through one predicate, `factoryUnlocked(s)`, that the tech tree being discussed in the project can replace. With the sorter deferred, the tray has three items and keeps its sizes.                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-## Sorter (S)
+## The alloy item (C2)
 
-The sorter now has specific jobs: **pull copper (or another ore) off a mixed line and send it where the premium is**, and merge lines in open space.
+- **Representation.** An item on a belt is a bundle: `BeltItem { pos, ores, mult, alloy?, v? }`. An alloy bundle has `mult` 6, `alloy` set to the higher ore id of the pair, and every entry of `ores` equal to the lower ore id (canonical order). `v` is the alloy's value in whole credits: floor(multiplier × 6 × (value(a) + value(b))), for example Cu + Ice 60, Ice + Au 127, Au + Cr 315, Cu + Cr 495. One alloy is one item: two bars go in and one comes out.
+- **Bundles.** A bundle never mixes values: the class key used in `loadBelts` becomes `(mult, alloy, v)`, so Au + Cr and Cu + Cr alloys never share a bundle, and alloys never share one with bars or chunks.
+- **Taking items off belts.** `takeFront` returns the whole item (`{ore, mult, alloy?, v?}`), and every consumer keeps it: drill junctions, the smelter bypass (`mult > 1` goes to `ready`), and the factory.
+- **Smelter bypass.** `Bar` gains `alloy?` and `v?`, and the smelter's loading step groups by the same class key, so an alloy that passes a smelter keeps its value.
+- **Delivery.** The deliver event carries `v` when present, and the pops, `inTransitValue` and credits use it. `stats.delivered` counts one alloy as one item.
+- **Saves.** The validator accepts `alloy` as an ore id greater than `ores[0]`, and `v` as a non-negative integer.
+- **Look.** A chunk split diagonally in the two ores' colours.
+- **Test.** An alloy made at a factory, passed through a junction and a smelter, delivers exactly `v`.
 
-| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S1  | **A sorter pulls one ore off a line onto a side belt.** It has up to 2 inputs, plus a main and a side output. The filter is Cu, Ice, Au or Cr (no Rock, because pulling rock has no job now), and it starts as **Cu**. Chunks and bars both sort by their ore; alloys always take main.                                                                                                                                                                                                                                                                                                                                                                                |
-| S2  | **An unlinked side belt merges back into main**, so an idle sorter is a two-input merger. This is intended: it is the "collector" that was deferred, and the only way to merge two smelter or factory belts in open space. Until its side is linked, it shows a small "merge" glyph instead of the filter pip, so it doesn't look broken.                                                                                                                                                                                                                                                                                                                              |
-| S3  | **Target matrix.** Inputs: drills, smelters, factories and sorters. Main and side outputs: a free dock, a smelter or factory with a free input, a drill junction, or another sorter. Loops are checked by a depth-first search over every output belt. A sorter's two belts may not end on the same machine. Smelter → sorter → smelter and factory → sorter → factory are allowed, because bars pass through a smelter and alloys pass through a factory. A randomised no-loop test covers two-output graphs.                                                                                                                                                         |
-| S4  | **Splices.** A sorter or factory may splice onto any belt a smelter may, plus a smelter's, factory's or sorter's output. A smelter may splice onto a sorter's main belt or a linked side belt. A splice onto an **unlinked** side belt is refused ("link it first"), because that belt is only a stub. `canSplice` and `spliceLanesBlocked` are generalised to any owner kind and check every new belt. One test per case.                                                                                                                                                                                                                                             |
-| S5  | **Flow.** Two stocks of 6 items, each `{ore, mult, alloy?, v?}`. Intake is round-robin over the inputs, using the sorter's own `rr` as a junction does, and takes as many items per tick as the matching stock has room for. Head-of-line blocking is symmetric: a full side stock holds an input whose front item is for the side, and a full main stock does the same for main-bound items. The blocked belt shows "‖". Tested both ways.                                                                                                                                                                                                                            |
-| S6  | **Data model.** Per-belt state moves from the machine onto `Belt` (`tier`, `tierBought`, `cd`, `fullT`, `full`, `wait`, `heldAgo`, `crossT`, `cross`), and each belt gets its own id. Crossings key segments and posts by belt id. A sorter's main and side belts plate each other where they touch outside the shared-machine exemption. The save migration fills belt ids and state from the old machine fields. This touches `loadBelts`, `moveBelts`, `arbitrate`, `pressureTick`, `segmentsOf`, the post keys, `sell`, `relinkAll`, the validator and the renderer. Migration gets round-trip tests, and the crossings stress tool runs with two-output machines. |
-| S7  | **Gestures at 390 px.** The side belt leaves from a port on the sorter's rim, with its own 44 px hit area. The port is drawn at every zoom where the sorter's body is at least 28 px across; below that, dragging the body re-routes main only. Dragging from the port re-routes the side. **Choosing a belt to widen:** with a sorter's bubble open, tapping one of its two belts (the nearer one within 16 px) selects it, and the bubble's single Widen button acts on the selected belt. Any other tap closes the bubble, as today. A 390 px screenshot and a scripted mis-tap check come before the build is claimed.                                             |
-| S8  | **Price and unlock.** 900 × 1.7ⁿ, so a sorter is never the cheap way round the fifth dock (780), though it beats the sixth (2 028) as a merger, which is fine. It unlocks with the first T3 slot, when crystal exists and copper is worth pulling up to it, through `sorterUnlocked(s)`. The bot variant reports when that is.                                                                                                                                                                                                                                                                                                                                         |
-| S9  | **Selling.** Heal-on-sell uses main's target. If the heir is a sorter that feeds the sold machine from its side, the side takes the target only if the matrix allows it; otherwise the side unlinks and merges into main. Selling a factory whose two smelter inputs can't chain (smelter → smelter isn't allowed) unlinks the second one. Tested.                                                                                                                                                                                                                                                                                                                     |
+## Switch and saves (C5)
 
-## Tray, switch and saves
-
-- **Tray.** With four items, the tools shrink from 78 px to 64 px and the gap from 28 px to 14 px: 4 × 64 + 3 × 14 = 298 px, which fits a 390 px viewport with 16 px gutters. With two or three items, the sizes don't change.
-- **Switch.** A menu item, "Factories: on/off", on by default. Off hides both tray items. Existing factories and sorters keep working, and a sorter's filter can still be changed.
-- **Saves.** Saves move to a new key, **`rockhopper.save.v3`**. On first load it migrates `rockhopper.save.v2`, and it never writes or deletes v2, so a rolled-back build finds the player's v2 save untouched (losing only what was played since). `?restore=pre-factories` deletes v3 and migrates v2 again. Menu → restart clears only v3. A test covers migration, v2 staying untouched, restoring, and loading v2 with the current validator.
+- **Switch.** The menu item "Factories: on/off" is **off by default** during the prototype. Off hides the tray item; existing factories keep working.
+- **Save key.** Saves move to **`rockhopper.save.v3`**. On first load, the build migrates `rockhopper.save.v2` (or v1 if there is no v2), and never writes or deletes v2 or v1, so a rolled-back build finds the player's v2 save untouched.
+- **Loader.** `deserialize` reads the v1, v2 and v3 formats. The v3 validator admits `factory` machines and alloy items.
+- **Restore paths.**
+  - `?restore=pre-factories` deletes v3 and migrates v2 again.
+  - `?restore=pre-logistics` deletes v3 and migrates v1, without touching v2.
+  - Menu → restart clears only v3.
+- **Rollback, then forward again.** A player who rolls back plays on the frozen v2 save. Returning to the v3 build loads the older v3 and loses the play in between. That is accepted for an experiment.
+- **AGENTS.md** gets the new save invariant.
+- **Test.** Migration, v1/v2 untouched, both restore paths, and loading v2 with the current validator.
 
 ## The decisions it gives the player
 
-- **Send copper up.** Copper lines are cheap and early; crystal is late and far away. Every T1 or T2 copper line is a candidate for the long haul to the crystal field, and each one has to find a way past the drills, smelters and trunks in between. This is the long belt that bend posts and crossing plates were built for.
-- **Sort, or send whole lines.** A whole T1 line sent up the map is mostly rock and ice bars. A sorter set to Cu near the drills sends only the copper up and lets the rest go to the hub. That is a real trade: a 900-credit sorter and a second belt, against widening a long trunk and filling the crystal factory's stock with bars that only pass through.
-- **Where the crystal factory sits.** Near the crystal rock (short crystal belts, then one long copper belt up and one long alloy belt down to the hub), or near the hub (a short output and two long input belts).
-- **Whether to build a local factory.** At 1.25×, a factory at the end of an ordinary line is a modest buy, with about a 5–20 minute payback on T1. It competes with smelter upgrades and widening rather than being automatic.
+- **Where the crystal factory stands and how copper gets there.** Near the crystal rock (short crystal belts, one long copper belt up and one long alloy belt down), or near the hub (a short output and two long inputs). Either way the long belt has to find a route past the T2 field, which is what bend posts and crossing plates were built for.
+- **The output belt.** A busy crystal factory outruns a tier-1 output. Widening costs the global widen price, and a second factory spreads the load but costs 2ⁿ.
+- **Local factories.** At 1.25×, a factory at the end of a T1 line pays back in 11–24 min; on a T3 line it pays back in 51–116 s, so "a factory after every T3 smelter" is still a rule there. The bot reports how often it happens.
 
-## Clip scenario (revision 3)
+## Clip scenario (revision 4, for the prototype only)
 
-- **0–10 s (developed save, disclosed, T3 open).** The crystal line runs straight down to the hub through a smelter, with pink bars on a violet belt. A copper line from T1 runs to its own dock. The counter shows the settled rate.
-- **10–20 s.** The player drops a factory on the crystal belt near the crystal rock, then drags the copper smelter's belt up to it, with one bend post around the T2 rocks. Orange bars climb the map and meet pink bars, and two-colour alloys go down to the hub with big pops.
-- **20–30 s.** The factory's copper pip is dim most of the time, because copper is scarce. The player drops a sorter set to Cu on a mixed T2 line and drags its side port up to the factory's third input (the factory is level 3). More alloys come out and the rate rises again. The next decision: the long copper belt crosses a trunk and shows a plate.
+- **0–10 s (developed save, disclosed, T3 open).** A crystal factory already stands near the crystal rock, making local alloys, and the counter shows its settled rate.
+- **10–20 s.** The player drags a T1 copper smelter's belt up to the factory, bending it once around the T2 rocks. Orange bars climb the map (about 5 s), and the first orange-and-pink alloy lands at the hub with a big pop.
+- **20–30 s.** The factory's output belt shows "full": the next decision (widen it, or place a second factory). A crossing plate on the long belt is the other visible cost.
 
-Before the clip is claimed, a witness script logs the numbers for each beat: settled rates before and after, cells remaining, and crumbles. Rock bars on these lines are disclosed: they pass through the factory, and they are the lilac items between the orange and pink ones.
+The beats show pop-level truth. The settled rates (+31 to +95 /s on 259–319 /s in the round-3 measurements, simulation) are logged only in the witness, which also logs T1 crumbles. The uncut witness is kept, and the clip is shot only on the prototype.
 
-## Evidence before build (round 3 decides whether a prototype may produce it)
+## Evidence the prototype must produce (C6)
 
-- **A bot variant** that buys factories and sorters, reporting:
-  - when it buys its first factory and its first sorter;
-  - income at 20 and 30 min, against the current bot (317–408 /s at 20 min);
-  - the share of smelted lines that end in a local factory;
-  - whether it builds a Cu → Cr factory, and how much that adds;
-  - whether it still builds raw chains and smelters.
-- **The crossings stress tool** with factories, sorters, two-output belts, posts and plates: 0 locks or stalls.
+- **The bot, run to 60 min** (it reaches T3 at 28–29 min or later), taught the long copper route and labelled as a scripted upper bound, not a player. It reports:
+  - T3 and T4 times against the current bot;
+  - income at 20, 30, 45 and 60 min;
+  - the share of paired copper bars that reach a crystal factory;
+  - factory busy share and output "full" share;
+  - `tiersBought` and the factory levels bought.
+- **The crossings stress tool** with factories: 0 locks, 0 stalls.
 - **The clip witness** described above.
-- **Screenshots at 390 px:** the four-item tray, the sorter bubble with a belt selected, and the side port.
+- **A 390 px screenshot** of a factory, an alloy on a belt, and the "belt will be tier 1" ghost.
 
-## Questions for round 3
+## Deferred: the sorter
 
-- Are ×1.25 locally and ×2.5 for Cu + Cr the right spread, or does the premium make local factories irrelevant?
-- Is unlocking the sorter at T3 too late for its merger use?
-- Is the two-colour alloy readable at 390 px next to bars?
+Revision 3's sorter (S1–S9, including S6's belt-id refactor and S7's side port) is deferred. It comes back only if the prototype shows a job that no other machine does, measured against whole lines, widening and a spare dock. Round 3's candidates:
+
+- keeping rock bars off a crystal factory's saturated output;
+- separating crystal from gold before a local T3 factory, so that crystal is saved for copper;
+- splitting copper between two sinks, if a second copper recipe is added.
+
+The design is in git history (revision 3 of this file).
+
+## Open questions
+
+- Is routing one long copper belt to a fixed destination satisfying? This needs a playtest.
+- Should copper get a second, nearer sink (for example Cu + Au at the T2 gold rock), so that where copper goes becomes a choice? The prototype can test it by changing a constant.
+- Does the premium make the T1 field so valuable at T3 that the climb from T3 to T4 flattens?
+- Is the two-colour alloy readable at 390 px?
 
 ## Rejected or deferred
 
 - **Venting** (round 1): cut.
-- **A recipe chip** (round 2's F5): cut. A factory pairs whatever arrives and prefers copper + crystal.
+- **A recipe chip** (round 2): cut.
+- **Tier inheritance** (round 3): cut, because it made widening free.
+- **The sorter:** deferred (above).
 - **Tunnels or bridges:** deferred. Bend posts already make most crossings avoidable, and a free underpass would remove the crossing puzzle.
-- **A splitter by ratio:** deferred.
