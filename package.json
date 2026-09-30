@@ -10,7 +10,7 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "prepare": "husky",
-    "test": "tsx --test tests/simulation.test.ts tests/asteroid.test.ts tests/rockhopper.test.ts",
+    "test": "tsx --test tests/simulation.test.ts tests/asteroid.test.ts tests/rockhopper.test.ts tests/rockhopper-crossings.test.ts",
     "test:browser": "playwright test",
     "typecheck": "tsc --noEmit",
     "replay": "tsx tools/replay.ts",

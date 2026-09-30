@@ -91,6 +91,19 @@ export const widenCost = (bought: number) => Math.round(90 * Math.pow(1.7, bough
 /** Input belts a drill (junction) can take. */
 export const DRILL_INPUTS = 2;
 export const BELT_SPACING = 13;
+/** Belts whose centre lines come this close touch: the drawn tier-1 belt is this wide. */
+export const CROSS_TOUCH = 10;
+/**
+ * Half the length of a crossing plate along each belt, the same at any angle. A plate a bundle
+ * spacing long means two saturated belts that take turns each keep about half their bundles.
+ */
+export const CROSS_HALF = 7;
+/**
+ * Belts that share a machine only form a crossing farther than this from its centre; belts that
+ * converge at a narrow angle are left alone farther out, up to CROSS_SHARED_MAX.
+ */
+export const CROSS_SHARED_CLEAR = 40;
+export const CROSS_SHARED_MAX = 120;
 export const DRILL_BUFFER = 4;
 export const SMELTER_QUEUE = 6;
 /** Finished bars (or passing bars) a smelter holds for its output belt. */

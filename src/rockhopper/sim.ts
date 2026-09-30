@@ -47,6 +47,7 @@ import {
   tractorCost,
   widenCost,
 } from './config';
+import { findPlates, type Plate, type PlateSide, type Segment } from './crossings';
 
 export interface Point {
   x: number;
@@ -91,6 +92,8 @@ export interface BeltItem {
   pos: number;
   ores: Ore[];
   mult: number;
+  /** Ticks this bundle has waited its turn at a crossing (absent or 0 when it isn't waiting). */
+  w?: number;
 }
 
 export interface Belt {
@@ -127,6 +130,9 @@ interface MachineBase {
   wait: number;
   /** Ticks since the belt's front last waited at a downstream machine (capped). */
   heldAgo: number;
+  /** Seconds of "bundles wait their turn at a crossing" (0–1) and its hysteresis flag. */
+  crossT: number;
+  cross: boolean;
 }
 
 export interface Drill extends MachineBase {
@@ -208,6 +214,10 @@ export interface Stats {
 export interface State {
   version: 2;
   seed: number;
+  /** Belts that touch share a plate and take turns (the crossings experiment). */
+  crossings: boolean;
+  /** Transient: a save from before crossings was loaded, so the game explains them once. */
+  crossingsNotice?: boolean;
   tick: number;
   credits: number;
   earned: number;
@@ -382,16 +392,18 @@ export function targetPos(s: State, t: Target): Point | null {
 /** Belt start and end, trimmed to the machine bodies. */
 export function beltEnds(s: State, m: Machine): { a: Point; b: Point } | null {
   if (!m.out) return null;
-  const p = machinePos(m),
-    q = targetPos(s, m.out.to);
-  if (!q) return null;
+  const q = targetPos(s, m.out.to);
+  return q ? endsBetween(m, machinePos(m), q, m.out.to.kind) : null;
+}
+
+/** A belt from machine `m` at `p` to a target of this kind at `q`, trimmed to the bodies. */
+function endsBetween(m: Machine, p: Point, q: Point, t: Target['kind']) {
   const dx = q.x - p.x,
     dy = q.y - p.y;
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len,
     uy = dy / len;
   const start = m.kind === 'drill' ? DRILL_RADIUS * 0.6 : SMELTER_RADIUS * 0.8;
-  const t = m.out.to.kind;
   const end = t === 'dock' ? 0 : t === 'smelter' ? SMELTER_RADIUS * 0.8 : DRILL_RADIUS * 0.75;
   return {
     a: { x: p.x + ux * start, y: p.y + uy * start },
@@ -448,6 +460,7 @@ export function freshState(seed = 1): State {
   return {
     version: 2,
     seed,
+    crossings: true,
     tick: 0,
     credits: 0,
     earned: 0,
@@ -527,6 +540,17 @@ export function reaches(s: State, t: Target | undefined, id: number): boolean {
  * smelter may feed a free dock or a drill with a free input (never a smelter). No loops.
  */
 export function canTarget(s: State, m: Machine, t: Target): boolean {
+  return targetWhy(s, m, t) === '';
+}
+
+/** Why machine `m` can't link to `t`, in a few words, or '' when it can. */
+export function targetWhy(s: State, m: Machine, t: Target): string {
+  if (!matrixOk(s, m, t)) return 'invalid';
+  if (s.crossings && laneBlocker(s, m, t)) return 'belt blocked';
+  return '';
+}
+
+function matrixOk(s: State, m: Machine, t: Target): boolean {
   if (t.kind === 'dock') return t.index >= 0 && t.index < s.docks && !dockUsed(s, t.index, m);
   const tm = byId(s, t.id);
   if (!tm || tm.kind !== t.kind || tm.id === m.id) return false;
@@ -543,7 +567,8 @@ function autoLink(s: State, m: Machine): boolean {
     const t: Target = { kind: 'dock', index: i };
     if (!canTarget(s, m, t)) continue;
     const q = dockPos(i);
-    const d = Math.hypot(q.x - p.x, q.y - p.y);
+    // With crossings on, a dock the belt reaches without touching another belt comes first.
+    const d = Math.hypot(q.x - p.x, q.y - p.y) + (s.crossings ? platesIf(s, m, t) * 1e4 : 0);
     if (d < bestD - 1e-6) {
       bestD = d;
       best = t;
@@ -582,6 +607,164 @@ export function relayout(s: State) {
   }
 }
 
+// ---------------------------------------------------------------- lanes
+
+/** Belts run beside machines, never under them: a belt's centre line keeps this far away. */
+export const laneClear = (kind: Machine['kind']) =>
+  kind === 'drill' ? DRILL_RADIUS : SMELTER_RADIUS;
+
+function segDist(p: Point, a: Point, b: Point) {
+  const dx = b.x - a.x,
+    dy = b.y - a.y;
+  const L2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2));
+  return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t);
+}
+
+/** The machine a belt from `m` (at `from`) to `t` would pass under, if any. */
+function laneBlocker(s: State, m: Machine, t: Target, from = machinePos(m)): Machine | null {
+  const q = targetPos(s, t);
+  if (!q) return null;
+  const e = endsBetween(m, from, q, t.kind);
+  for (const x of s.machines) {
+    if (x.id === m.id || (t.kind !== 'dock' && x.id === t.id)) continue;
+    if (segDist(machinePos(x), e.a, e.b) < laneClear(x.kind)) return x;
+  }
+  return null;
+}
+
+/**
+ * Would a machine of this kind at `p` sit on a belt? Belts it owns or that end at it don't count
+ * (`except`), nor the belt it is being spliced into (`splice`).
+ */
+function sitsOnBelt(
+  s: State,
+  kind: Machine['kind'],
+  p: Point,
+  except?: number,
+  splice?: number | null
+) {
+  for (const m of s.machines) {
+    if (!m.out || m.id === except || m.id === splice) continue;
+    if (m.out.to.kind !== 'dock' && m.out.to.id === except) continue;
+    const e = beltEnds(s, m);
+    if (e && segDist(p, e.a, e.b) < laneClear(kind)) return true;
+  }
+  return false;
+}
+
+/** With machine `m` moved to `place`, does any of its belts (out or in) pass under a machine? */
+function lanesBlockedAt(
+  s: State,
+  m: Machine,
+  place: { slot: number; angle: number } | Point
+): boolean {
+  const saved = m.kind === 'drill' ? { slot: m.slot, angle: m.angle } : { x: m.x, y: m.y };
+  Object.assign(m, place);
+  try {
+    if (m.out && laneBlocker(s, m, m.out.to)) return true;
+    return inputsOf(s, m.id).some((x) => laneBlocker(s, x, x.out!.to));
+  } finally {
+    Object.assign(m, saved);
+  }
+}
+
+// ---------------------------------------------------------------- crossings
+
+/** A run of plates along one belt that a bundle enters together (all or nothing). */
+export interface Gate {
+  lo: number;
+  hi: number;
+  plates: { plate: Plate; mine: PlateSide; other: PlateSide }[];
+}
+
+export interface Crossings {
+  plates: Plate[];
+  /** Gates per belt (by owner id), in order along the belt. */
+  gates: Map<number, Gate[]>;
+  /** Presentation only: smoothed share of recent ticks a bundle waited at each plate (by key). */
+  heat: Map<string, number>;
+}
+
+function segmentOf(s: State, m: Machine): Segment | null {
+  const e = beltEnds(s, m);
+  const to = m.out && targetPos(s, m.out.to);
+  if (!e || !to) return null;
+  const t = m.out!.to;
+  return {
+    id: m.id,
+    a: e.a,
+    b: e.b,
+    from: machinePos(m),
+    to,
+    src: m.id,
+    dst: t.kind === 'dock' ? -1 - t.index : t.id,
+  };
+}
+
+function gatesOf(plates: Plate[]): Map<number, Gate[]> {
+  const sides = new Map<number, Gate['plates']>();
+  for (const plate of plates) {
+    for (const k of [0, 1] as const) {
+      const mine = plate.sides[k];
+      const list = sides.get(mine.id) ?? [];
+      list.push({ plate, mine, other: plate.sides[1 - k] });
+      sides.set(mine.id, list);
+    }
+  }
+  const gates = new Map<number, Gate[]>();
+  for (const [id, list] of sides) {
+    list.sort((a, b) => a.mine.lo - b.mine.lo || a.plate.key.localeCompare(b.plate.key));
+    const out: Gate[] = [];
+    for (const p of list) {
+      const g = out[out.length - 1];
+      // Plates closer than a spacing are one gate, so a bundle never stops inside a plate.
+      if (g && p.mine.lo < g.hi + BELT_SPACING) {
+        g.hi = Math.max(g.hi, p.mine.hi);
+        g.plates.push(p);
+      } else out.push({ lo: p.mine.lo, hi: p.mine.hi, plates: [p] });
+    }
+    gates.set(id, out);
+  }
+  return gates;
+}
+
+const NO_CROSSINGS: Crossings = { plates: [], gates: new Map(), heat: new Map() };
+const crossingCache = new WeakMap<State, Crossings & { sig: string }>();
+
+/** The factory's crossing plates, derived from belt geometry (cached until a belt moves). */
+export function crossingsOf(s: State): Crossings {
+  if (!s.crossings) return NO_CROSSINGS;
+  const segs: Segment[] = [];
+  for (const m of s.machines) {
+    const g = segmentOf(s, m);
+    if (g) segs.push(g);
+  }
+  const sig = segs.map((g) => `${g.id}:${g.dst}:${g.a.x},${g.a.y},${g.b.x},${g.b.y}`).join(';');
+  const hit = crossingCache.get(s);
+  if (hit && hit.sig === sig) return hit;
+  const plates = findPlates(segs);
+  const next = { sig, plates, gates: gatesOf(plates), heat: hit?.heat ?? new Map() };
+  crossingCache.set(s, next);
+  return next;
+}
+
+/** How many plates machine `m`'s belt would have if it went to `t` (for auto-link). */
+function platesIf(s: State, m: Machine, t: Target): number {
+  const old = m.out;
+  m.out = { to: t, length: 1, items: [] };
+  const mine = segmentOf(s, m);
+  m.out = old;
+  if (!mine) return 0;
+  const segs = [mine];
+  for (const x of s.machines) {
+    if (x === m) continue;
+    const g = segmentOf(s, x);
+    if (g) segs.push(g);
+  }
+  return findPlates(segs).filter((p) => p.sides.some((q) => q.id === m.id)).length;
+}
+
 // ---------------------------------------------------------------- commands
 
 export type Result = true | string;
@@ -606,7 +789,13 @@ const DRILL_SMELTER_GAP = SMELTER_RADIUS + DRILL_RADIUS * 0.7;
  * Drills go anywhere on an unlocked rock's rim, clear of other machines: the rim's length, not a
  * socket count, decides how many fit.
  */
-export function drillSpotWhy(s: State, slot: number, angle: number, except?: number): string {
+export function drillSpotWhy(
+  s: State,
+  slot: number,
+  angle: number,
+  except?: number,
+  lanes = true
+): string {
   if (!s.slots[slot]?.unlocked) return 'locked';
   if (!Number.isFinite(angle)) return 'no room here';
   const p = rimPos(slot, angle);
@@ -615,6 +804,11 @@ export function drillSpotWhy(s: State, slot: number, angle: number, except?: num
     const q = machinePos(m);
     const min = m.kind === 'drill' ? DRILL_SPACING : DRILL_SMELTER_GAP;
     if (Math.hypot(p.x - q.x, p.y - q.y) < min) return 'no room here';
+  }
+  if (lanes && s.crossings) {
+    if (sitsOnBelt(s, 'drill', p, except)) return 'on a belt';
+    const m = except === undefined ? undefined : byId(s, except);
+    if (m && lanesBlockedAt(s, m, { slot, angle: normAngle(angle) })) return 'belt blocked';
   }
   return '';
 }
@@ -632,53 +826,75 @@ export interface RimSpot {
  * rock; the game only finds the footing. With no legal spot near, it names the nearest refusal.
  */
 export function nearestRim(s: State, p: Point, maxDist: number, except?: number): RimSpot | null {
-  let best: RimSpot | null = null,
-    bestD = Infinity,
-    refused: RimSpot | null = null,
-    refusedD = maxDist;
+  // Only the rock whose rim is nearest the finger: a refused spot names its reason rather than
+  // jumping the ghost to a neighbouring rock (which would mine different ore).
+  let slot = -1,
+    off = maxDist;
   SLOTS.forEach((def, i) => {
     if (!s.slots[i].unlocked) return;
-    const R = rimRadius(i);
-    const off = Math.abs(Math.hypot(p.x - def.x, p.y - def.y) - R);
-    if (off > maxDist) return;
-    const a0 = normAngle(Math.atan2(p.y - def.y, p.x - def.x));
-    const step = 2 / R;
-    const reach = DRILL_SPACING / R;
-    for (let d = 0; d <= reach; d += step) {
-      for (const dir of d ? [1, -1] : [1]) {
-        const a = normAngle(a0 + dir * d);
-        const q = rimPos(i, a);
-        const dist = Math.hypot(q.x - p.x, q.y - p.y);
-        if (dist >= bestD) continue;
-        const why = drillSpotWhy(s, i, a, except);
-        if (!why) {
-          bestD = dist;
-          best = { slot: i, angle: a, why };
-        } else if (d === 0 && off < refusedD) {
-          refusedD = off;
-          refused = { slot: i, angle: a, why };
-        }
-      }
-    }
+    const d = Math.abs(Math.hypot(p.x - def.x, p.y - def.y) - rimRadius(i));
+    if (d <= off) [slot, off] = [i, d];
   });
-  return best ?? refused;
+  if (slot < 0) return null;
+  const def = SLOTS[slot];
+  const R = rimRadius(slot);
+  const a0 = normAngle(Math.atan2(p.y - def.y, p.x - def.x));
+  const step = 2 / R;
+  const reach = DRILL_SPACING / R;
+  let refused: RimSpot | null = null;
+  for (let d = 0; d <= reach; d += step) {
+    for (const dir of d ? [1, -1] : [1]) {
+      const a = normAngle(a0 + dir * d);
+      const why = drillSpotWhy(s, slot, a, except);
+      // Sliding outward, the first legal spot is the nearest one.
+      if (!why) return { slot, angle: a, why };
+      if (d === 0) refused = { slot, angle: a, why };
+    }
+  }
+  return refused;
 }
 
-export function smelterSpotOk(s: State, p: Point, except?: number): boolean {
-  if (Math.hypot(p.x, p.y) < DOCK_RADIUS + SMELTER_RADIUS + 6) return false;
-  if (p.x < -330 || p.x > 330 || p.y > 110 || p.y < -1150) return false;
+export function smelterSpotOk(
+  s: State,
+  p: Point,
+  except?: number,
+  splice?: number | null,
+  lanes = true
+): boolean {
+  return smelterSpotWhy(s, p, except, splice, lanes) === '';
+}
+
+/**
+ * Why a smelter (or smelter `except`, being moved) can't stand at `p`, or ''. Dropped into a
+ * line, it may sit on that belt (`splice`), but never on another one.
+ */
+export function smelterSpotWhy(
+  s: State,
+  p: Point,
+  except?: number,
+  splice?: number | null,
+  lanes = true
+): string {
+  const no = 'no room here';
+  if (Math.hypot(p.x, p.y) < DOCK_RADIUS + SMELTER_RADIUS + 6) return no;
+  if (p.x < -330 || p.x > 330 || p.y > 110 || p.y < -1150) return no;
   for (let i = 0; i < SLOTS.length; i++) {
     const d = SLOTS[i];
     // Hidden rocks too: a smelter never sits where a rock will be unlocked.
-    if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + SMELTER_RADIUS + 2) return false;
+    if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + SMELTER_RADIUS + 2) return no;
   }
   for (const m of s.machines) {
     if (m.id === except) continue;
     const q = machinePos(m);
     const min = m.kind === 'smelter' ? SMELTER_RADIUS * 2 + 8 : DRILL_SMELTER_GAP;
-    if (Math.hypot(p.x - q.x, p.y - q.y) < min) return false;
+    if (Math.hypot(p.x - q.x, p.y - q.y) < min) return no;
   }
-  return true;
+  if (lanes && s.crossings) {
+    if (sitsOnBelt(s, 'smelter', p, except, splice)) return 'on a belt';
+    const m = except === undefined ? undefined : byId(s, except);
+    if (m && lanesBlockedAt(s, m, { x: p.x, y: p.y })) return 'belt blocked';
+  }
+  return '';
 }
 
 /** The simulation's own splice check: generous, since the UI snaps within screen tolerances. */
@@ -711,7 +927,25 @@ export function canSplice(
     if (inputsOf(s, sm.id).length >= inputCap(sm)) return false;
     if (reaches(s, old, sm.id)) return false;
   }
+  if (s.crossings && spliceLanesBlocked(s, owner, sm, p)) return false;
   return true;
+}
+
+/** Would either belt a splice at `p` leaves (owner → smelter, smelter → old target) pass under a machine? */
+export function spliceLanesBlocked(s: State, owner: Machine, sm: Smelter | null, p: Point) {
+  const old = owner.out!.to;
+  const q = targetPos(s, old);
+  if (!q) return false;
+  const lanes = [
+    endsBetween(owner, machinePos(owner), p, 'smelter'),
+    endsBetween({ kind: 'smelter' } as Machine, p, q, old.kind),
+  ];
+  for (const x of s.machines) {
+    if (x.id === owner.id || x.id === sm?.id || (old.kind !== 'dock' && x.id === old.id)) continue;
+    const c = machinePos(x);
+    if (lanes.some((e) => segDist(c, e.a, e.b) < laneClear(x.kind))) return true;
+  }
+  return false;
 }
 
 function pay(s: State, cost: number): boolean {
@@ -729,6 +963,8 @@ const base = () => ({
   cd: 0,
   wait: 0,
   heldAgo: HELD_WINDOW,
+  crossT: 0,
+  cross: false,
 });
 
 export function buildDrill(s: State, slot: number, angle: number): Result {
@@ -768,7 +1004,7 @@ function spliceInto(s: State, sm: Smelter, owner: Machine) {
  * into that line; otherwise it stands alone and takes a free dock if there is one.
  */
 export function buildSmelter(s: State, p: Point, splice?: number | null): Result {
-  if (!smelterSpotOk(s, p)) return 'blocked';
+  if (!smelterSpotOk(s, p, undefined, splice)) return 'blocked';
   const owner = splice == null ? undefined : byId(s, splice);
   if (splice != null && !canSplice(s, owner, null, p)) return 'invalid';
   const cost = priceOf(s, 'smelter');
@@ -897,7 +1133,7 @@ export function moveDrill(s: State, id: number, slot: number, angle: number): Re
 export function moveSmelter(s: State, id: number, p: Point, splice?: number | null): Result {
   const m = byId(s, id);
   if (!m || m.kind !== 'smelter') return 'missing';
-  if (!smelterSpotOk(s, p, id)) return 'blocked';
+  if (!smelterSpotOk(s, p, id, splice)) return 'blocked';
   const owner = splice == null ? undefined : byId(s, splice);
   if (splice != null && !canSplice(s, owner, m, p)) return 'invalid';
   m.x = p.x;
@@ -934,6 +1170,16 @@ export function upgradeHub(s: State, what: HubUpgrade): Result {
   else s.tractorLevel++;
   relinkAll(s);
   s.events.push({ type: 'hub', what });
+  return true;
+}
+
+/**
+ * Switch the crossings experiment (plates and clear lanes). Turning it on keeps every existing
+ * link, even one that runs under a machine: only new links and moves must keep lanes clear.
+ */
+export function setCrossings(s: State, on: boolean): Result {
+  s.crossings = !!on;
+  s.crossingsNotice = undefined;
   return true;
 }
 
@@ -1158,15 +1404,110 @@ function sample(m: Machine, on: boolean, alpha: number) {
   [m.fullT, m.full] = smooth(m.fullT, m.full, on, alpha);
 }
 
+/**
+ * Crossings: who may enter a gate this tick. A bundle enters only with room to get all the way
+ * out on its own belt, and only if no bundle of the other belt is moving through the plate. The
+ * longest-waiting request claims its plates first (then the lower belt id); a claim holds even
+ * when that request is still refused, so a stream of bundles can't starve the other belt. The
+ * oldest request is only ever held by bundles already inside, which always get out, so nothing
+ * deadlocks. Bundles that can't move (backed up from a machine) don't hold a plate. Returns the
+ * bundles that must stop at a gate, with where.
+ */
+function arbitrate(s: State, x: Crossings, step: number): Map<BeltItem, number> {
+  const stop = new Map<BeltItem, number>();
+  const stuckOn = new Map<number, Set<BeltItem>>();
+  const reqs: { id: number; it: BeltItem; gate: Gate }[] = [];
+  for (const m of s.machines) {
+    const b = m.out;
+    const gates = x.gates.get(m.id);
+    if (!b || !gates) {
+      for (const it of b?.items ?? []) delete it.w;
+      continue;
+    }
+    const items = b.items;
+    const stuck = new Set<BeltItem>();
+    for (let k = 0; k < items.length; k++) {
+      const it = items[k];
+      const ahead = items[k - 1];
+      const blocked = ahead
+        ? (stuck.has(ahead) || (ahead.w ?? 0) > 0) && ahead.pos - it.pos <= BELT_SPACING + 1e-6
+        : b.to.kind !== 'dock' && it.pos >= b.length - 1e-6;
+      if (blocked) stuck.add(it);
+      // The bundle ahead may move first this tick, so only the step limits the reach here.
+      const reach = Math.min(it.pos + step, b.length);
+      const gate = gates.find((g) => g.lo >= it.pos - 1e-6 && g.lo < reach - 1e-6);
+      if (!gate) {
+        delete it.w;
+        continue;
+      }
+      // Room to get out: the bundle ahead is clear of the exit, or still moving (it can only stop
+      // at the next gate, at least a spacing past this one, or in a backlog that frees the plate).
+      const aheadHeld = !!ahead && (stuck.has(ahead) || (ahead.w ?? 0) > 0);
+      if (ahead && aheadHeld && ahead.pos < gate.hi + BELT_SPACING - 1e-6) {
+        // No room to get out yet: an ordinary backlog, not a wait for the crossing. It is held,
+        // so the bundles bunched behind it (maybe inside an earlier plate) don't hold that plate.
+        delete it.w;
+        stop.set(it, gate.lo);
+        stuck.add(it);
+        continue;
+      }
+      reqs.push({ id: m.id, it, gate });
+    }
+    stuckOn.set(m.id, stuck);
+  }
+  const moving = (q: PlateSide) =>
+    (byId(s, q.id)?.out?.items ?? []).some(
+      (it) => it.pos > q.lo + 1e-6 && it.pos < q.hi - 1e-6 && !stuckOn.get(q.id)?.has(it)
+    );
+  reqs.sort((a, b) => (b.it.w ?? 0) - (a.it.w ?? 0) || a.id - b.id || b.it.pos - a.it.pos);
+  const claim = new Map<string, number>();
+  for (const r of reqs) {
+    let ok = true;
+    for (const p of r.gate.plates) {
+      const owner = claim.get(p.plate.key);
+      if ((owner !== undefined && owner !== r.id) || moving(p.other)) ok = false;
+    }
+    for (const p of r.gate.plates) if (!claim.has(p.plate.key)) claim.set(p.plate.key, r.id);
+    if (ok) delete r.it.w;
+    else {
+      r.it.w = (r.it.w ?? 0) + 1;
+      stop.set(r.it, r.gate.lo);
+    }
+  }
+  // Presentation and bubble signals: which plates and belts have bundles waiting their turn.
+  const hot = new Set<string>();
+  for (const r of reqs) if (r.it.w) for (const p of r.gate.plates) hot.add(p.plate.key);
+  for (const p of x.plates) {
+    const h = x.heat.get(p.key) ?? 0;
+    x.heat.set(p.key, h + ((hot.has(p.key) ? 1 : 0) - h) * HEAT_ALPHA);
+  }
+  return stop;
+}
+
+/** Smoothing per tick for crossing signals (about a second). */
+const HEAT_ALPHA = DT / 1;
+
+function crossTick(s: State) {
+  for (const m of s.machines) {
+    const on = !!m.out?.items.some((it) => (it.w ?? 0) > 0);
+    [m.crossT, m.cross] = smooth(m.crossT, m.cross, on, HEAT_ALPHA);
+  }
+}
+
 function moveBelts(s: State) {
   const step = BELT_SPEED * DT;
+  const x = crossingsOf(s);
+  const stop = x.plates.length ? arbitrate(s, x, step) : null;
+  if (!stop) for (const m of s.machines) for (const it of m.out?.items ?? []) delete it.w;
   for (const m of s.machines) {
     const b = m.out;
     if (!b) continue;
     let max = b.length;
     for (const it of b.items) {
+      const at = stop?.get(it);
+      const lim = at === undefined ? max : Math.min(max, at);
       // Never backwards: bunched items (after a splice or move) wait until there is room.
-      it.pos = Math.max(it.pos, Math.min(it.pos + step, max));
+      it.pos = Math.max(it.pos, Math.min(it.pos + step, lim));
       max = it.pos - BELT_SPACING;
     }
     const front = b.items[0];
@@ -1312,6 +1653,7 @@ export function step(s: State) {
   drillsTick(s);
   loadBelts(s);
   moveBelts(s);
+  crossTick(s);
   smeltersTick(s);
   pressureTick(s);
   flightsTick(s);
@@ -1352,6 +1694,7 @@ export const COMMANDS = {
   moveSmelter,
   unlock,
   upgradeHub,
+  setCrossings,
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;

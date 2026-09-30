@@ -1,0 +1,3 @@
+bot seed 1 at 12 min; 262 of 2000 shuffles buildable under C8; shuffle 595: 11 plates, every link passes canTarget -> docs/reviews/evidence/rockhopper-crossings-prepared-save.json
+B1 as saved: 11 plates, 195/s on vs 271/s off
+B2 re-routes all legal: 2 plates, 264/s on

@@ -184,6 +184,8 @@ test('a drill takes up to two input belts and forwards them as a fair zipper', (
   buildDrill(s, 1, legacySocketAngle(1, 0));
   const d = drills(s)[3];
   assert.equal(canTarget(s, d, { kind: 'drill', id: b.id }), false, 'cap of two inputs');
+  // Its only free docks lie across the junction's belt: sell it so no crossing shares that belt.
+  sell(s, d.id);
   // Saturate: level-2 drills make about 4.5 chunks/s each (13.5/s) on a tier-1 belt (8.5/s).
   // The window stays inside the rock's life, before it crumbles.
   for (const m of [a, b, c]) while (m.level < 2) upgrade(s, m.id);

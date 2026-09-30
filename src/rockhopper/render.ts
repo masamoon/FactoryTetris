@@ -14,6 +14,7 @@ import {
 import {
   beltEnds,
   byId,
+  crossingsOf,
   cellPos,
   firstCells,
   dockPos,
@@ -70,7 +71,13 @@ export interface Overlay {
       | null;
     moving?: number;
   } | null;
-  reroute: { id: number; at: Point; target: Target | null } | null;
+  reroute: {
+    id: number;
+    at: Point;
+    target: Target | null;
+    /** The target under the finger refuses the link, and why (drawn as a label over it). */
+    refused?: (Point & { why: string }) | null;
+  } | null;
   selected: number | 'hub' | null;
   /** Screen point of the drill tray button (for the drag hint). */
   trayDrill: Point | null;
@@ -80,6 +87,10 @@ export interface Overlay {
   hintJoin: { from: Point; to: Point } | null;
   /** From the smelter tray button (screen) onto a belt (world). */
   hintSplice: { from: Point; to: Point } | null;
+  /** World point of a crossing to explain, once: bundles take turns there. */
+  hintCross: Point | null;
+  /** A one-line notice shown under the counter (screen space), or null. */
+  notice: string | null;
   reducedMotion: boolean;
 }
 
@@ -539,6 +550,7 @@ export class Renderer {
     this.drawCracks(c, s);
     this.drawArms(c, s);
     this.drawBelts(c, s, alpha, o);
+    this.drawPlates(c, s, o);
     this.drawHubAndDocks(c, s, o);
     this.drawMachines(c, s, o);
     this.drawFlights(c, s, tickF);
@@ -549,6 +561,7 @@ export class Renderer {
     c.setTransform(d, 0, 0, d, 0, 0);
     this.drawLockedTags(c, s);
     this.drawPops(c, dt, o.placing ? 0.25 : 1);
+    this.drawTurnChips(c, s, o);
     for (const r of this.refusals) {
       const p = this.toScreen(r);
       const text = r.why === 'crossing' ? 'crossing – pick one' : r.why;
@@ -915,7 +928,8 @@ export class Renderer {
       if (toMachine) this.inPort(c, e.b, ux, uy, 5 + wide / 2);
       let max = m.out.length;
       for (const it of m.out.items) {
-        const pos = Math.min(it.pos + BELT_SPEED * DT * alpha, max);
+        // A bundle waiting its turn at a crossing stays put between ticks too.
+        const pos = Math.min(it.pos + (it.w ? 0 : BELT_SPEED * DT * alpha), max);
         max = pos - BELT_SPACING;
         const f = pos / m.out.length;
         c.save();
@@ -955,6 +969,70 @@ export class Renderer {
     }
   }
 
+  /**
+   * Crossing plates: a small riveted plate wherever two belts touch, so crossings can be counted.
+   * One where bundles keep waiting their turn is drawn cream and grows a chip (`drawTurnChips`).
+   */
+  private drawPlates(c: Ctx, s: State, o: Overlay) {
+    const x = crossingsOf(s);
+    if (!x.plates.length) return;
+    const dim = o.placing?.kind === 'smelter';
+    for (const p of x.plates) {
+      const heat = x.heat.get(p.key) ?? 0;
+      c.save();
+      c.globalAlpha = dim ? 0.35 : 1;
+      c.translate(p.x, p.y);
+      c.rotate(Math.PI / 4);
+      rrect(c, -5.5, -5.5, 11, 11, 2.5);
+      c.fillStyle = heat > 0.35 ? CREAM : MUTED;
+      c.fill();
+      c.lineWidth = 2;
+      c.strokeStyle = INK;
+      c.stroke();
+      c.fillStyle = INK;
+      for (const [rx, ry] of [
+        [-2.6, 0],
+        [2.6, 0],
+      ]) {
+        c.beginPath();
+        c.arc(rx, ry, 1.1, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.restore();
+    }
+  }
+
+  /**
+   * The "take turns" chips (⇄, a shape, not a hue) on plates where bundles keep waiting. Drawn in
+   * screen space after pops, so smelters, flights and income pops at the hub never cover them.
+   * Where plates bunch up (the hub fan), the hottest one speaks for its neighbours: chips never
+   * stack on each other, and every hot plate is still drawn cream.
+   */
+  private drawTurnChips(c: Ctx, s: State, o: Overlay) {
+    if (o.placing?.kind === 'smelter') return;
+    const x = crossingsOf(s);
+    const z = this.cam.z;
+    const size = (18 * z) / Math.max(0.75, z);
+    const hot = x.plates
+      .map((p) => ({ p, heat: x.heat.get(p.key) ?? 0 }))
+      .filter((h) => h.heat > 0.35)
+      .sort((a, b) => b.heat - a.heat || a.p.key.localeCompare(b.p.key));
+    const drawn: Point[] = [];
+    for (const { p } of hot) {
+      const q = this.toScreen({ x: p.x, y: p.y - 17 });
+      // Two chip widths apart, so a knot shows a few separate chips rather than a tiled column.
+      if (drawn.some((d) => Math.hypot(d.x - q.x, d.y - q.y) < size * 2)) continue;
+      // Never over the teaching label under the counter.
+      if (o.hintCross && q.y < 190) continue;
+      drawn.push(q);
+      c.save();
+      c.translate(q.x, q.y);
+      c.scale(z, z);
+      this.chip(c, 0, 0, 'turns');
+      c.restore();
+    }
+  }
+
   /** A notch where a belt enters a machine, so feeding reads differently from passing under. */
   private inPort(c: Ctx, p: Point, ux: number, uy: number, r: number) {
     c.save();
@@ -978,7 +1056,7 @@ export class Renderer {
    * Bottleneck chips, each with its own shape: "full" (a stack of chunks: the belt is the
    * limit, widen it) and "blocked" (‖: the smelter is the limit).
    */
-  private chip(c: Ctx, x: number, y: number, what: 'full' | 'blocked') {
+  private chip(c: Ctx, x: number, y: number, what: 'full' | 'blocked' | 'turns') {
     const k = (1 / Math.max(0.75, this.cam.z)) * (1 + 0.08 * Math.sin(this.time * 6));
     c.save();
     c.translate(x, y);
@@ -993,6 +1071,22 @@ export class Renderer {
     if (what === 'blocked') {
       c.fillRect(-4.5, -4.5, 3, 9);
       c.fillRect(1.5, -4.5, 3, 9);
+    } else if (what === 'turns') {
+      // ⇄: two ways taking turns through one spot.
+      c.lineWidth = 2;
+      c.strokeStyle = INK;
+      c.beginPath();
+      c.moveTo(-5, -2.5);
+      c.lineTo(5, -2.5);
+      c.moveTo(2, -5.5);
+      c.lineTo(5, -2.5);
+      c.lineTo(2, 0.5);
+      c.moveTo(5, 2.5);
+      c.lineTo(-5, 2.5);
+      c.moveTo(-2, -0.5);
+      c.lineTo(-5, 2.5);
+      c.lineTo(-2, 5.5);
+      c.stroke();
     } else {
       // A little pile of chunks: more is arriving than the belt can take.
       for (const [x, y] of [
@@ -1386,6 +1480,35 @@ export class Renderer {
     c.restore();
   }
 
+  private rimCache = { key: '', rooms: new Map<number, boolean[]>() };
+
+  /**
+   * Which of `n` arcs of a rock's rim have room for a drill, cached until a machine, link or the
+   * switch changes: with lanes, each check walks every belt, so per-frame checks cost a phone
+   * frames while a drill is dragged.
+   */
+  private rimRoom(s: State, slot: number, n: number, moving?: number): boolean[] {
+    const key =
+      `${moving}:${s.crossings}:${s.docks}:` +
+      s.machines
+        .map((m) => {
+          const at = m.kind === 'drill' ? `${m.slot},${m.angle}` : `${m.x},${m.y}`;
+          const to = m.out ? JSON.stringify(m.out.to) : '-';
+          return `${m.id}@${at}>${to}`;
+        })
+        .join(';') +
+      `:${s.slots.map((x) => (x.unlocked ? 1 : 0)).join('')}`;
+    if (key !== this.rimCache.key) this.rimCache = { key, rooms: new Map() };
+    let room = this.rimCache.rooms.get(slot);
+    if (!room) {
+      room = [];
+      for (let k = 0; k < n; k++)
+        room.push(!drillSpotWhy(s, slot, (k / n) * 2 * Math.PI + Math.PI / n, moving));
+      this.rimCache.rooms.set(slot, room);
+    }
+    return room;
+  }
+
   private drawOverlay(c: Ctx, s: State, o: Overlay) {
     const z = this.cam.z;
     if (o.placing) {
@@ -1400,10 +1523,11 @@ export class Renderer {
           c.lineDashOffset = -this.time * 12;
           // Only the arcs with room glow: a crowded stretch of rim goes dark.
           const n = 120;
+          const room = this.rimRoom(s, i, n, o.placing!.moving);
           c.beginPath();
           for (let k = 0; k < n; k++) {
             const a0 = (k / n) * 2 * Math.PI;
-            if (drillSpotWhy(s, i, a0 + Math.PI / n, o.placing!.moving)) continue;
+            if (!room[k]) continue;
             c.moveTo(def.x + Math.cos(a0) * rimRadius(i), def.y + Math.sin(a0) * rimRadius(i));
             c.arc(def.x, def.y, rimRadius(i), a0, a0 + (2 * Math.PI) / n);
           }
@@ -1460,6 +1584,8 @@ export class Renderer {
         c.lineTo(b.x, b.y);
         c.stroke();
         c.restore();
+        const r = o.reroute.refused;
+        if (r) this.refusals.push({ x: r.x, y: r.y + (36 * Math.max(1, z)) / z, why: r.why });
       }
     }
   }
@@ -1623,6 +1749,21 @@ export class Renderer {
   }
 
   private drawHints(c: Ctx, s: State, o: Overlay) {
+    if (o.notice) label(c, o.notice, this.w / 2, 112, 15);
+    if (o.hintCross) {
+      // A ring on the busy plate, and the words up top, clear of the hub, pops and bubbles.
+      const p = this.toScreen(o.hintCross);
+      const t = (this.time % 1.4) / 1.4;
+      c.strokeStyle = CREAM;
+      c.globalAlpha = 1 - t;
+      c.lineWidth = 3;
+      c.beginPath();
+      c.arc(p.x, p.y, 12 + t * 22, 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = 1;
+      label(c, 'Crossed belts take turns (ringed)', this.w / 2, 146, 15);
+      label(c, 'Move or re-route to untangle', this.w / 2, 166, 13);
+    }
     if (o.hintJoin) {
       // Drag from one machine onto another: a dashed link grows behind the hand.
       const a = this.toScreen(o.hintJoin.from),

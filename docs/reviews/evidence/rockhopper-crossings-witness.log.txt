@@ -1,0 +1,31 @@
+1. Two crossed belts (chunks/s each; tier-1 cap 7.5)
+  crossing  47°  saturated: on 3.75 / 3.75, off 7.50 / 7.50  | 3/s each: on 3.00 / 3.00  | tier 2 saturated: on 7.50 / 7.50
+  crossing  32°  saturated: on 3.75 / 3.75, off 7.50 / 7.50  | 3/s each: on 3.00 / 3.00  | tier 2 saturated: on 7.50 / 7.50
+  crossing  28°  saturated: on 3.75 / 3.75, off 7.50 / 7.50  | 3/s each: on 3.00 / 3.00  | tier 2 saturated: on 7.50 / 7.50
+
+2. Tangled vs tidy, bot factories at 20 min (credits/s over 120 s)
+   Shuffles keep only layouts a player could build now (clear lanes, C8).
+  seed 1
+    as built     plates  4  on 409  (-7% vs off 441)
+    tidy         plates  2  on 409  (-7% vs off 441)
+    legal shuffles: 12 of 111 tried; plates 5–12; income change best -7%, median -10%, worst -24%
+  seed 2
+    as built     plates  3  on 380  (-5% vs off 402)
+    tidy         plates  1  on 393  (-2% vs off 402)
+    legal shuffles: 12 of 111 tried; plates 4–11; income change best -2%, median -32%, worst -42%
+  seed 3
+    as built     plates  3  on 411  (-1% vs off 416)
+    tidy         plates  1  on 413  (-1% vs off 416)
+    legal shuffles: 12 of 111 tried; plates 4–11; income change best -1%, median -12%, worst -34%
+
+3. A careless bot (re-routes one dock link at random every 10 s), 20 min
+  seed 1 greedy    earned 239k  plates 4  income on 409 off 441 (-7%)  | lanes refused: socket spots 0 on a belt + 0 blocked of 978; link targets 50 of 136
+  seed 1 careless  earned 209k  plates 4  income on 322 off 337 (-4%)  | lanes refused: socket spots 0 on a belt + 0 blocked of 1112; link targets 46 of 139
+  seed 2 greedy    earned 229k  plates 3  income on 380 off 402 (-5%)  | lanes refused: socket spots 0 on a belt + 0 blocked of 1004; link targets 51 of 137
+  seed 2 careless  earned 208k  plates 7  income on 358 off 404 (-11%)  | lanes refused: socket spots 0 on a belt + 0 blocked of 1589; link targets 38 of 117
+  seed 3 greedy    earned 239k  plates 3  income on 411 off 416 (-1%)  | lanes refused: socket spots 0 on a belt + 0 blocked of 995; link targets 50 of 136
+  seed 3 careless  earned 200k  plates 12  income on 220 off 380 (-42%)  | lanes refused: socket spots 0 on a belt + 0 blocked of 1208; link targets 41 of 123
+
+4. Clip B2 witness: two level-5 drills kept supplied (staged), their trunks crossed
+  crossed (plates 1), settled 5–25 s: 3.75 / 3.75 chunks/s
+  moved A by -92° (plates 0), backlog flushed for 5 s, settled next 20 s: 7.50 / 7.50 chunks/s (cap 7.5)

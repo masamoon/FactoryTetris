@@ -27,6 +27,7 @@ import {
   setLaser,
   slotVisible,
   smelterSpotOk,
+  targetWhy,
   smelters,
   step,
   unlock,
@@ -50,6 +51,10 @@ export interface BotOptions {
   minutes: number;
   laser: boolean;
   seed: number;
+  /** The crossings experiment (plates and clear lanes); on unless set false. */
+  crossings?: boolean;
+  /** A careless player: every 10 s one dock-bound machine is re-routed to a random free dock. */
+  messy?: boolean;
   log?: (line: string) => void;
 }
 
@@ -59,10 +64,13 @@ function spliceSpot(s: State, owner: Machine): { x: number; y: number } | null {
   if (!e) return null;
   for (let f = 0.25; f <= 0.9; f += 0.05) {
     const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
-    if (smelterSpotOk(s, p) && canSplice(s, owner, null, p)) return p;
+    if (smelterSpotOk(s, p, undefined, owner.id) && canSplice(s, owner, null, p)) return p;
   }
   return null;
 }
+
+/** How often the lane rule (C8) said no: socket spots and link targets tried, and refused. */
+export const refusals = { spots: 0, onBelt: 0, spotBlocked: 0, links: 0, linkBlocked: 0 };
 
 /** Link an unlinked machine: the nearest drill junction or smelter with room (never a loop). */
 function linkUp(s: State, m: Machine): Target | null {
@@ -72,7 +80,10 @@ function linkUp(s: State, m: Machine): Target | null {
   for (const x of s.machines) {
     if (!x.out) continue;
     const t = { kind: x.kind, id: x.id } as Target;
-    if (!canTarget(s, m, t)) continue;
+    const why = targetWhy(s, m, t);
+    if (why !== 'invalid') refusals.links++;
+    if (why === 'belt blocked') refusals.linkBlocked++;
+    if (why) continue;
     const q = machinePos(x);
     // Prefer machines whose belt is not already saturated, and smelters for raw drills.
     const d =
@@ -91,6 +102,9 @@ export function runBot(opts: BotOptions): {
   income: [number, number][];
 } {
   const s = freshState(opts.seed);
+  s.crossings = opts.crossings ?? true;
+  for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
+  let mess = opts.seed * 7919 + 1;
   const beats: Beat[] = [];
   const mark = (label: string) => {
     if (!beats.some((b) => b.label === label)) beats.push({ label, seconds: s.tick / TICK_HZ });
@@ -117,6 +131,17 @@ export function runBot(opts: BotOptions): {
       } else clearLaser(s);
     }
     if (s.tick % 10 === 0) act(s, mark);
+    if (opts.messy && s.tick % (10 * TICK_HZ) === 0) {
+      mess = (mess * 16807) % 2147483647;
+      const ms = s.machines.filter((m) => m.out?.to.kind === 'dock');
+      const m = ms[mess % Math.max(1, ms.length)];
+      if (m) {
+        const free = [...Array(s.docks).keys()].filter((k) =>
+          canTarget(s, m, { kind: 'dock', index: k })
+        );
+        if (free.length) route(s, m.id, { kind: 'dock', index: free[mess % free.length] });
+      }
+    }
     step(s);
     s.events.length = 0;
     if (s.tick % (30 * TICK_HZ) === 0) {
@@ -135,7 +160,17 @@ export const rawChains = (s: State) => drills(s).filter((d) => d.out?.to.kind ==
  * past them only drains it faster into the respawn wait, which this greedy bot can't weigh.
  */
 function freeRim(s: State, i: number): number | null {
-  const tries = [...Array(LEGACY_SOCKETS[i]).keys()].map((k) => legacySocketAngle(i, k));
+  // Near each old socket: a belt may run over the exact spot, so try a little to either side.
+  const tries = [...Array(LEGACY_SOCKETS[i]).keys()].flatMap((k) =>
+    [0, 0.12, -0.12, 0.24, -0.24].map((d) => legacySocketAngle(i, k) + d)
+  );
+  for (let k = 0; k < LEGACY_SOCKETS[i]; k++) {
+    const why = drillSpotWhy(s, i, legacySocketAngle(i, k));
+    if (why === 'no room here' || why === 'locked') continue;
+    refusals.spots++;
+    if (why === 'on a belt') refusals.onBelt++;
+    if (why === 'belt blocked') refusals.spotBlocked++;
+  }
   return tries.find((a) => !drillSpotWhy(s, i, a)) ?? null;
 }
 
@@ -259,6 +294,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     minutes: arg('--minutes', 30),
     laser: !process.argv.includes('--no-laser'),
     seed: arg('--seed', 1),
+    crossings: !process.argv.includes('--no-crossings'),
   });
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);
