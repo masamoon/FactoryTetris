@@ -362,3 +362,242 @@ Only the T2 gold rock, which carries almost no copper, makes meeting matter. Els
 - Is a 1.5× that scales with ore value (+2.7 /s on a T1 line, +80 /s on a T3 line) the intended curve? Or should late recipes pay less?
 - Is "one factory for two lines" (saving the 2ⁿ price) a sufficient reason to route lines together? Only a playtest can say whether it reads as a decision.
 - Whether an idle, merging sorter looks broken at 390 px needs the screenshot and a human.
+
+## Round 3: revision 3
+
+The reviewer checked revision 3's claims against `sim.ts`, `config.ts`, `save.ts`, `App.ts`, `render.ts` and `style.css`, reran `/tmp/claude-0/sorter-review-r2/rev3.ts` (it reproduces the proposal's table exactly), ran the greedy bot (seeds 1–3, 20 and 30 min), and wrote an extension in `/tmp/claude-0/sorter-review-r3/` (not kept in the repo). All numbers are **simulation**, not playtest.
+
+- `r3.ts` records each line alone in its own state (three drills chained into a junction, a smelter spliced on, 180 s, seeds 1–3), then replays the dock stream through an emulated revision-3 factory. Unlike `rev3.ts`, it models **F3's work time** (0.4 s per alloy at level 1, pairs wait in the 6-bar stock while the factory works), floors alloy values as F5 does, and reports utilization and output items/s. It still ignores the factory's output belt capacity (reported, not enforced) and the travel time of a long belt.
+- `meet3.ts`: one crystal factory fed by a T3 or T4 line plus copper sources, against a factory on each line; a sorter emulated by sending only a line's paired copper bars; and copper pulled off T2 lines.
+- `bot20.ts`: the current bot's tier steps and T3 timing.
+
+**Does `rev3.ts` emulate the rules?** Mostly. It applies ×1.25/×2.5, copper-first pairing, the 6-bar stock and `LONE_WAIT`, and excludes lone and rock bars. It leaves out F3's work time, the output belt and alloy flooring, and it pairs greedily on arrival. That last detail matters: with work time, bars sit in the stock longer, copper finds crystal more often, and seed 1's meeting gain rises from +63 to +81 /s. The realized premium depends on an unspecified detail of when a factory commits a crystal bar (see F1).
+
+| #                      | Verdict                                    | Main finding                                                                                                                                                                                                                                                                                                              |
+| ---------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1                     | PASS with conditions                       | Facts check out, and meeting now matters (+7 to +47 %). But it is a new universal rule: a copper bar earns 38–208 credits more at a crystal factory than the 5–10 it earns locally, crystal is never the scarce side, and whole lines to the factory also free a dock. "Which copper goes up" is always "all of it".      |
+| F2                     | REVISE                                     | "Output tier = highest of its inputs" is free widening. A factory is a pass-through merger whose inherited tiers are unbought, never count toward `n`, and stay with it after the widened input is re-routed. At 20–30 min three widen steps cost 60k–172k; a factory costs 2.4k–9.6k.                                    |
+| F3                     | PASS with conditions                       | Arithmetic is right (2.5 alloys/s = 5 bars/s), the conclusion is wrong: only 0.9–2.1 of a T3 line's 4.4–4.9 bars/s are pairable. A level-1 factory is 13–36 % busy on one T3 line and 19–58 % in every measured meeting. Levels 2 and 4–6 buy nothing measurable.                                                         |
+| F4                     | PASS with conditions                       | "A drill may not feed a factory" but "drill junctions" may, and a junction is a drill. Define it, and say what happens when a junction loses its inputs. Raw chunks through a junction still pass through a 2 400-credit machine silently.                                                                                |
+| F5                     | PASS with conditions                       | Values are right (60, 127, 315, 495). Gaps: `BeltItem` is a bundle, smelter `Bar` has no alloy field (factory → junction → smelter is legal, and the bypass would turn a 495 alloy into an 18 bar), `takeFront` returns a bare `Ore`, and the junction class must key on the pair and `v`, not only on "alloy".           |
+| F6                     | PASS with conditions                       | Unlock at 3:20–3:33 is right, but the premium arrives with T3, which the bot reaches at 28.4–28.8 min (seeds 1–2) and not by 30 min on seed 3. For ~25 minutes the factory is local-only: +2 to +4 /s on T1 (payback 11–24 min, not 5–20), +3 to +15 /s on T2.                                                            |
+| S1                     | REVISE                                     | Sorting copper off a T1 line does not beat sending the whole line (whole ≥ sorted in 7 of 9 runs; sorted wins by at most +15 /s), because pass-through is free, T1 ice also pairs with surplus crystal, and the sorted build needs a dock the whole-line build frees. The "real trade" in the doc isn't there.            |
+| S2                     | PASS with conditions                       | Fine as a rule, but a factory already is a 2–3 input open-space merger from 3:20 (everything passes through). From T3 on, the sorter's merger role is duplicated.                                                                                                                                                         |
+| S3                     | PASS                                       | The item-based wording resolves round 2. The randomised no-loop test stands.                                                                                                                                                                                                                                              |
+| S4, S5, S9             | PASS with conditions                       | Specified; the listed tests are the conditions. New gap: nothing says what tier a sorter's main and side belts start at (F2's problem again).                                                                                                                                                                             |
+| S6                     | PASS with conditions                       | Right model, still the largest change. It exists only because the sorter has two outputs, so it should be built only if the sorter earns a job (S8).                                                                                                                                                                      |
+| S7                     | PASS with conditions                       | Belt selection (nearer within 16 px) and closing (any other tap) are specified. The 390 px screenshot and scripted mis-tap check remain.                                                                                                                                                                                  |
+| S8                     | REVISE                                     | T3 is 28–30+ min in; at that point the filter use is measured weak (S1, S-T2 below) and the merger use is duplicated by factories. No measured job justifies the sorter or its S6/S7 cost yet.                                                                                                                            |
+| Tray, switch and saves | PASS with conditions                       | 4 × 64 + 3 × 14 = 298 px checks out; even ~70 px price labels ("1.22M") fit (≈ 322 px of 358). v3 key fixes round 2. Gaps: `?restore=pre-logistics` semantics under v3, a loader for three formats, the hidden-tool margin, and the AGENTS.md save invariant.                                                             |
+| Clip                   | REVISE                                     | Beat 3 uses a third input on a factory dropped at level 1 ten seconds earlier: two upgrades (1 920 credits) are hidden. A mixed T2 line carries 0.00–0.33 copper bars/s (one every 3 s to never, typically 8–22 s) and adds 0 to +66 /s, usually about +10 /s on ~350 /s. "The rate rises again" is not truthful.         |
+| Evidence plan          | PASS with conditions (prototype, scoped)   | A prototype is needed: the bot and the stress tool can't run on a design doc. But the 20 and 30 min checkpoints end before T3, so they can't see the premium or the sorter at all.                                                                                                                                        |
+| **Overall**            | **REVISE for adoption; scoped PASS below** | Factories with a Cu + Cr premium are a coherent, positive-sum idea worth a prototype. The sorter has no measured job, F2 breaks the global widen-price invariant, and the clip's third beat is neither legal as shown nor truthful. A factories-only evidence prototype may proceed once conditions C1–C6 are in the doc. |
+
+### Measured by the reviewer (simulation)
+
+**One line, a local factory at ×1.25 (W = 0.4 s, `r3.ts`, seeds 1–3, 180 s):**
+
+| Line (three drills) | Base /s | Bars/s  | Pairable Cu / Ice / Au / Cr bars/s        | Local gain           | L1 busy | Payback at 2 400 / 9 600 |
+| ------------------- | ------- | ------- | ----------------------------------------- | -------------------- | ------- | ------------------------ |
+| T1 Cu slot 0, L3    | 28–32   | 3.2     | 0.35–0.46 / 0.15–0.31 / 0 / 0             | +2 to +4 (6–12 %)    | 6–12 %  | 11–22 min / 44–89 min    |
+| T1 Cu slot 1, L3    | 30–34   | 3.2     | 0.21–0.64 / 0.14–0.48 / 0 / 0             | +2 to +3 (6–8 %)     | 6–8 %   | 16–23 min / —            |
+| T1 Ice slot 2, L3   | 29–32   | 3.2     | 0.27–0.57 / 0.14–0.36 / 0 / 0             | +2 to +4 (6–12 %)    | 6–12 %  | 11–24 min / —            |
+| T2 Ice slot 3, L3   | 62–64   | 3.6–3.9 | **0.00–0.33** / 0.53–0.97 / 0.25–0.32 / 0 | +6 to +11 (10–17 %)  | 10–23 % | 4–7 min / 15–26 min      |
+| T2 Au slot 4, L3    | 79–82   | 3.3–3.6 | **0.04–0.12** / 0.09–0.49 / 0.68–0.88 / 0 | +3 to +15 (4–18 %)   | 5–24 %  | 3–13 min / 11–50 min     |
+| T3 Au slot 5, L5    | 209–212 | 4.7–4.9 | 0 / 0.13–0.18 / 0.98–1.25 / 0.54–0.63     | +34 to +40 (18–20 %) | 24–28 % | 60–70 s / 4–5 min        |
+| T3 Cr slot 6, L5    | 229–291 | 4.4–4.6 | 0 / 0.03–0.27 / 0.32–1.01 / 0.73–1.38     | +21 to +47 (7–21 %)  | 13–36 % | 51–116 s / 3–8 min       |
+| T4 Cr slot 7, L6    | 410–466 | 4.7–5.1 | 0 / 0 / 0.17–0.51 / 1.98–2.43             | +6 to +27 (1–7 %)    | 4–17 %  | 1.5–6.5 min / 6–25 min   |
+
+**One crystal factory where lines meet, against a local factory on each line (W = 0.4 s, `meet3.ts`):**
+
+| Lines into one factory             | Base /s | Meeting adds           | Per copper bar sent | Factory busy | Output items/s | Cu + Cr alloys    |
+| ---------------------------------- | ------- | ---------------------- | ------------------- | ------------ | -------------- | ----------------- |
+| T3 Cr + T1 slot 0 (whole line)     | 259–319 | +31 to +95 (12–30 %)   | +87 to +208         | 31–48 %      | 6.5–6.8        | one per 3.2–8.6 s |
+| T3 Au + T1 slot 0                  | 239–244 | +17 to +34 (7–14 %)    | +38 to +79          | 39–45 %      | 6.9            | one per 7.8–20 s  |
+| T4 + T1 slot 0                     | 439–498 | +55 to +79 (12–16 %)   | +121 to +183        | 19–30 %      | 7.4–7.5        | one per 4–5.6 s   |
+| T3 Cr + T1 slots 0 and 1 (level 3) | 289–353 | +73 to +155 (25–47 %)  | +78 to +190         | 47–58 %      | 9.4–9.6        | one per 1.8–3.4 s |
+| T4 + T1 slots 0 and 1              | 472–528 | +83 to +153 (18–29 %)  | +124 to +158        | 36–48 %      | 10.2–10.3      | one per 2–4 s     |
+| T3 Cr + T2 Ice slot 3 (whole line) | 293–353 | +9 to +71 (3–20 %)     | —                   | 46–55 %      | 6.7–7.2        | 0–35 in 180 s     |
+| T3 Cr + T2 Au slot 4 (whole line)  | 308–373 | −2 to +44 (−1 to 12 %) | —                   | 41–53 %      | 6.7–7.0        | 3–5 in 180 s      |
+
+A local factory earns a T1 copper bar about 5–10 credits (T1 local gain ÷ copper bars). At a crystal factory the same bar earns 38–208 more, 4–40 times as much. Crystal bars outnumber copper bars on every T3/T4 line measured (0.54–2.43 against 0.21–0.64 per T1 line), and three-drill lines on all three T1 slots together (at most about 1.7 copper bars/s) can't saturate one T4 line (1.98–2.43 crystal bars/s).
+
+**Sorter against whole lines (`meet3.ts`, E3/E4):**
+
+| Crystal line + T1 slot 0 | Whole line up     | Only copper up (sorter), rest to a dock | Items/s sent up (whole / sorted) |
+| ------------------------ | ----------------- | --------------------------------------- | -------------------------------- |
+| T3 Cr, seeds 1–3         | +81 / +117 / +124 | +82 / +112 / +139                       | 3.2 / 0.35–0.46                  |
+| T4, seeds 1–3            | +66 / +84 / +92   | +64 / +80 / +76                         | 3.2 / 0.35–0.46                  |
+| T3 Au, seeds 1–3         | +69 / +53 / +77   | +55 / +51 / +66                         | 3.2 / 0.35–0.46                  |
+
+A whole T1 line needs 3.2 items/s, well inside a tier-1 belt (7.5/s), so the long trunk never needs widening. What does bind is the **factory's output**: 6.5–7.5 items/s with one whole T1 line, 9.4–10.3 with two, against 7.5 per tier. Sorting copper off T2 lines sends 0.00–0.33 bars/s (seed 3 slot 3: none in 180 s) and adds +0 to +66 /s over the crystal line's own factory (+10, +66, 0, +11, +10, +17).
+
+**Bot pacing (`bot20.ts`, current build):**
+
+| Seed | Income 20 / 30 min | Tier steps owned at 20 / 30 min | Three widen steps at 30 min | T3 reached  |
+| ---- | ------------------ | ------------------------------- | --------------------------- | ----------- |
+| 1    | 408 / 483          | 10 / 11                         | 172 422                     | 28:48       |
+| 2    | 397 / 594          | 10 / 11                         | 172 422                     | 28:24       |
+| 3    | 317 / 378          | 9 / 11                          | 172 422                     | after 30:00 |
+
+**Claims that check out:** ore values and bar arithmetic; alloy values (floor(1.25 × 6 × 17) = 127, and so on); "only Cu + Cr never shares a rock"; distances (480–759 u from T1 slots to T3 slot 6 and T4); T1 copper bars 0.33–0.51/s on slot 0; the proposal's table (reproduced exactly by `rev3.ts`); tray arithmetic; sorter price against docks (900 > 780, < 2 028); bot income at 20 min (317–408 /s); restart writes the fresh save at once (`App.ts`), so "restart clears only v3" can't resurrect v2.
+
+**Claims that don't:** "a level-1 factory is about full on one T3 line" (13–36 % busy); "about a 5–20 minute payback on T1" (11–24 min); "a whole T1 line … filling the crystal factory's stock with bars that only pass through" (pass-through items never enter the stock, F2); "widening a long trunk" (the trunk carries 3.2 items/s; the factory output is what binds); the clip's beat 3 (below).
+
+### Findings by rule
+
+#### F1 (PASS with conditions): copper + crystal
+
+- **It creates a real decision about how, not about whether.** Every copper bar should go to crystal, every time, from the moment T3 opens:
+  - it earns 4–40× more there;
+  - crystal is in surplus on every measured T3/T4 line, and T4 alone could absorb all T1 copper;
+  - sending a whole line up also frees that line's hub dock.
+- So the brief's "universal rule" returns in a new form: "ship all copper to crystal". What remains is spatial: where the crystal factory sits, and how the long belt finds a way past the T2 field. Layout is free (L6) and bend posts avoid most crossings, so that route may cost little. Whether it is fun is a playtest question, and the doc should say so plainly instead of calling it a choice of "which lines to send".
+- **Option, not required:** give copper a second, nearer sink (for example Cu + Au at ×1.8 at the T2 gold rock, which carries almost no copper). Copper would then have to be split between a near-medium and a far-large destination, and the factory would have a purpose from T2 (~11 min) instead of T3 (~29 min). Measure it before adopting.
+- **×2.5 is not too small or too large locally.** It adds 12–47 % to a crystal line. But it re-values the T1 field enormously: one line of three cheap T1 drills adds +31 to +95 /s at a crystal factory, two add +73 to +155 /s, against a T3 line's base of 209–291 /s. The bot must show this doesn't trivialise the T3 → T4 climb.
+- **Specify commitment.** "When a crystal bar could pair with copper or with something else, copper wins" is decided at the moment of pairing. Whether a factory pairs on arrival or holds bars while it works moves seed 1 from +63 to +81 /s. Say which.
+
+#### F2 (REVISE): output tier
+
+- **Free widening.** A factory is a merger: bars of any ore, rock bars, lone bars and (through junctions) raw chunks pass through. Its output "starts at the highest tier among the belts it took over and its inputs". These inherited steps are unbought, so they never raise `tiersBought` and never cost anything. The tier stays with the machine (L2), so:
+  1. widen one line to tier 4 (three steps, counted once);
+  2. drop a factory on it, or link it in: the factory's output is tier 4 for free;
+  3. re-route the widened line elsewhere (free, L6): both belts are now tier 4.
+- At 20–30 min, the next three widen steps cost 59 662–172 422; the first three factories cost 2 400–9 600. A factory is the cheap way to buy capacity, which is exactly what L2 was written to prevent ("re-routing can't be used to buy cheaply").
+- A splice duplicates the tier too: the upstream belt keeps it and the factory's output gets it. A smelter splice today gives tier 1 (`base()` in `spliceInto`), so no tier is ever granted now.
+- **Required fix (pick one):**
+  - The factory's output starts at tier 1 and shows "full" like any machine. The placement ghost warns when the spliced belt is wider ("belt will be tier 1"), with Widen one tap away.
+  - Or the inherited steps are **bought** at placement: the ghost's price includes them at the current `widenCost`, they count in `tierBought`, and selling refunds 50 % of them.
+- Neither needs new mechanics. The same rule must cover a sorter's two belts, which the doc doesn't give a tier.
+
+#### F3 (PASS with conditions): work time
+
+- The numbers are consistent: 0.4 s per alloy is 2.5 alloys/s, 5 bars/s. Level 6 is 0.089 s (11 alloys/s). Upgrades cost 600, 1 320, 2 904, 6 389, 14 055 (25 262 to level 6).
+- The justification is false: a T3 line's pairable bars are 0.9–2.1/s, not 4.4–5.1. A level-1 factory is 13–36 % busy on one T3 line, and at most 58 % in every meeting measured, including two T1 copper lines into a T3 crystal line.
+- So level 2 buys nothing measurable, level 3 buys the third input (1 920 in total), and levels 4–6 (23 348 more) buy nothing in any measured build. A greedy player or bot will waste credits on them.
+- **Conditions:**
+  - Correct the claim.
+  - Say what happens while the factory works: pairs wait in the stock, and the stock rule of F2 still applies.
+  - Cap the levels at 3, or keep 4–6 only if the prototype's bot shows a factory more than 70 % busy.
+
+#### F4 (PASS with conditions): placement and links
+
+- A drill junction is a `Drill`. "A drill may not feed a factory directly" and "inputs: drill junctions" need a definition: a drill with at least one input belt at link time.
+  - Say what happens when that drill later loses its inputs (keep the link, as grandfathered links are kept).
+- A junction of three raw drills can still feed a factory, and every chunk passes through unchanged. Show the "smelt it first" hint on the factory while only raw chunks arrive, or refuse links from a junction with no smelter upstream.
+- The `canSplice` generalisation (it accepts only drill owners and refuses smelter targets today) is in S4; test it with a factory owner.
+
+#### F5 (PASS with conditions): alloy item
+
+- Values check out. The item spec has four gaps:
+  - **Bundles.** `BeltItem` is a bundle (`ores: Ore[]`, one `mult`). Say that a bundle of alloys holds one pair and one `v`, with the pair in a canonical order (lower ore in `ores`, higher in `alloy`), or two Cu + Cr alloys can't share a bundle.
+  - **Junction class.** `loadBelts` groups by `mult`. The class key must be `(mult, alloy, v)`, so Au + Cr and Cu + Cr alloys never share a bundle.
+  - **Smelter bypass.** Factory → junction → smelter is legal. The smelter bypass takes any `mult > 1` into `ready` as `Bar {ore, mult}` and loads bundles by `mult`. Without `alloy` and `v` on `Bar`, a 495 alloy leaves the smelter as a bar worth `ORES[ore].value × mult`. Credits would vanish silently.
+  - **`takeFront`** returns a bare `Ore`; every consumer (junction, smelter, factory, sorter) needs the whole item.
+- The deliver event, pops, `inTransitValue` and the validator are covered. Add `stats.delivered` (one alloy counts as one item) and a validator check that `v` is a non-negative integer.
+
+#### F6 (PASS with conditions): price and unlock
+
+- The unlock timing and price are plausible, and `factoryUnlocked(s)` is the right seam.
+- From 3:20 to ~29 min the factory is a local-only buy: T1 payback 11–24 min at n = 0, T2 3–13 min. The one idea arrives about 25 minutes after the tray item. That is acceptable for a modest buy, but the bot must show whether it buys factories early and whether that delays T2 or T3.
+
+#### S1 and S8 (REVISE): the sorter's job
+
+- **Filtering copper off a T1 line doesn't pay.**
+  - Whole lines are as good or better in 7 of 9 runs.
+  - The sorted build needs a hub dock for the rest of the line; the whole-line build frees one.
+  - Pass-through costs the factory nothing, and T1 ice also pairs with surplus crystal.
+- **The only binding constraint measured is the factory's output belt** (6.5–10.3 items/s against 7.5 per tier). A sorter could keep rock bars off it, but so could a widen step (18k–31k at 20–30 min) or a second dock belt. That is a narrow job and not yet measured.
+- **Filtering copper off T2 lines is too thin** to see or to matter: one copper bar every 3 s at best, usually every 8–22 s, sometimes none.
+- **The merger job is duplicated.** A factory takes 2–3 belts in open space and passes everything through, from 3:20.
+- **The T3 unlock** lands at 28.4 min, 28.8 min and after 30 min on the three seeds.
+- **Required:** find a job only the sorter does, and measure it. Until then, defer the sorter (S1–S9) and its S6/S7 cost; the factories stand on their own. Candidates to measure:
+  - keeping a crystal factory's output under a belt tier;
+  - separating crystal from gold before a local T3 factory, so crystal is kept for copper;
+  - a copper split between two sinks (F1's option).
+
+#### S2 to S7, S9
+
+- **S2:** acceptable, but see S8: from 3:20 the factory is already a merger.
+- **S3:** PASS.
+- **S4, S5, S9:** the listed tests.
+  - Add: the starting tier of a sorter's two belts, under F2's rule.
+  - Add: heal-on-sell must not grant a tier.
+- **S6:** the conditions stand (round-trip migration tests, and the stress tool with two-output machines). Build it only if the sorter survives S8.
+- **S7:** the screenshot and scripted mis-tap check stand.
+
+#### Tray, switch and saves (PASS with conditions)
+
+- **Tray.**
+  - 298 px fits. Price labels use Lilita One 19 px plus a 16 px coin; a five-glyph price ("38.4K", "1.22M") is about 67–70 px, wider than a 64 px tool. Four such wraps still take about 322 px, inside 358 px.
+  - `.rh-tool-wrap.rh-hidden` uses `margin: 0 -14px` to cancel the 28 px gap. It must become `-7px` with a 14 px gap, or a hidden item pulls its neighbours 14 px closer.
+  - Without the sorter (S8), the tray has three items and needs no change.
+- **Saves.** The v3 key fixes round 2. Also specify:
+  - **`?restore=pre-logistics` in a v3 build.** Today it deletes `SAVE_KEY` and reloads the next key. With `SAVE_KEY = v3`, it would load v2, not v1. It must delete v3 and migrate v1, without touching v2.
+  - **The loader.** `deserialize` must read v1, v2 and v3 formats. The v3 validator admits `factory` (and `sorter`), alloy items and `v`.
+  - **AGENTS.md.** Update its save invariant (it names v1 and v2 only).
+  - **Rollback, then forward again.** A player who rolls back to the v2 build plays on the frozen v2 save; returning to the v3 build loads the older v3 and loses that play. State it.
+- **Switch:** fine as specified.
+
+#### Clip (REVISE)
+
+- **Beat 3 hides costs.** The factory is dropped at level 1 in beat 2, so a third input in beat 3 needs two upgrades (600 + 1 320). They must be shown, or the factory must already stand (at level 3) in the disclosed developed save, before the clip starts.
+- **Beat 3's source is too thin.** A mixed T2 line carries 0.00–0.33 copper bars/s. In the median run the sorter adds about +10 /s on 300–370 /s (3 %), with one copper bar every 8–22 s. "More alloys come out and the rate rises again" is not true on most seeds. A T1 copper line is the truthful source, and it needs no sorter (S1).
+- **Beat 2 conflates two causes.** Dropping the factory on the crystal belt starts Au + Cr and Ice + Cr alloys at once: a local factory alone adds +21 to +47 /s. Of 141–218 alloys in 180 s, only 21–56 are Cu + Cr (one every 3.2–8.6 s). If the copper link is the claimed cause, the factory must already be running before it.
+- **Timing.** The copper belt is about 500–590 u, which at 110 u/s is 4.6–5.4 s before the first copper bar arrives. A settled rate can't be shown within a 10 s beat that also contains the drop, the drag and a bend post. Use pop-level truth (the first two-colour alloy and its pop), and measure the settled rate only in the witness.
+- **Undefined UI.** The "copper pip" isn't in the spec. Specify the factory's stock display, or cut the beat.
+- **A truthful rewrite.** Disclosed developed save, T3 open, and a crystal factory already running with local alloys and its settled rate shown:
+  - The player drags a T1 copper smelter's belt up to it, bending once.
+  - Orange bars climb, and the first orange-pink alloy pops.
+  - The next decision is the factory's "full" output belt, or the trunk's plate.
+  - The witness logs both settled rates (+31 to +95 /s on 259–319 /s, simulation) and T1 crumbles.
+
+#### Evidence plan (PASS with conditions, scoped)
+
+- **A prototype is needed:** the bot and the crossings stress tool can't be run on a doc. The table's emulation can't see belts, docks, splices or tier exploits.
+- **The checkpoints must move.** The bot reaches T3 at 28.4–28.8 min, or after 30 min, so "income at 20 and 30 min" can't see the premium. Run to 60 min and report:
+  - T3 and T4 times against the current bot;
+  - income at 20, 30, 45 and 60 min;
+  - the share of paired copper bars that reach a crystal factory;
+  - factory busy share and output "full" share;
+  - `tiersBought`, and factory levels bought.
+- **Label the bot.** The bot must be taught the long copper route. It is then a scripted strategy and an upper bound, not a player.
+- **Test the F2 fix,** as a sim test: no sequence of place, link, re-route and sell grants a belt tier without a matching `tierBought`.
+
+### Round-2 required changes
+
+| #   | Status   | Note                                                                                                                                                                                 |
+| --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Resolved | Facts are right. Cu + Cr is the only never-shared pair, and meeting now matters (+7 to +47 %). It brings a new universal rule (F1).                                                  |
+| 2   | Partly   | ×1.25 makes T1 local factories weak (11–24 min payback), but T3 lines still pay back in 51–116 s at n = 0, so "a factory after every T3 smelter" holds. No bot share yet.            |
+| 3   | Mostly   | Representation, value, colour, deliver, `inTransitValue`, validator and sorter routing are specified. Missing: smelter bypass (`Bar`), bundles, the junction class key, `takeFront`. |
+| 4   | Partly   | Intake arithmetic fixed; levels and prices defined; "sorting pays once busy" dropped. The new claim "about full on one T3 line" is false (13–36 % busy).                             |
+| 5   | Partly   | The output tier is addressed, but the fix is free widening (F2). Raw drill → factory is refused, but raw chunks still reach a factory through a junction.                            |
+| 6   | Open     | Not measured in the doc. Measured here: sorting doesn't beat whole lines on T1 and is too thin on T2, and the factory duplicates the merger job.                                     |
+| 7   | Mostly   | The v3 key is right. `?restore=pre-logistics` under v3, the three-format loader and the AGENTS.md invariant remain.                                                                  |
+| 8   | Resolved | 298 px fits (about 322 px with the widest prices). Belt selection and closing are specified. The hidden-wrap margin must follow the gap.                                             |
+| 9   | Partly   | Rock bars disclosed and the scarce ore targeted, but beat 3 hides two upgrades and its T2 source is too thin; beat 2 conflates the local factory with the copper link.               |
+| 10  | Open     | Specified, not produced, and its checkpoints end before T3.                                                                                                                          |
+
+### Conditions for the scoped prototype PASS
+
+The PASS authorizes a **factories-only prototype** behind the "Factories" switch, **off by default** until round 4, to produce the evidence below. It does not authorize the sorter, a default-on release, or any claim of fun or balance. Write these in first:
+
+1. **F2:** replace tier inheritance with one of the two fixes in F2 (tier 1 with a ghost warning, or inherited steps bought and counted). Add the sim test that no command sequence grants an unbought tier.
+2. **F5:** carry `alloy` and `v` through `Bar`, the smelter bypass and its `loadBelts` branch, junction bundles (class key `(mult, alloy, v)`), `takeFront` and `stats.delivered`. Pick a canonical pair order. Test that an alloy crossing a junction and a smelter delivers exactly `v`.
+3. **F3 and F4:** correct the "about full" claim. Cap factory levels at 3 unless the bot shows over 70 % busy. Define a drill junction, and flag raw-only input.
+4. **F1:** state the rule honestly ("ship all copper to crystal; the decision is the route and the factory's place"), and specify when a factory commits a crystal bar to a non-copper partner.
+5. **Saves:** v3 as written, plus `?restore=pre-logistics` under v3, a v1/v2/v3 loader, and the AGENTS.md invariant.
+6. **Evidence:** the bot to 60 min with the metrics in the evidence plan, and the crossings stress tool with factories (0 locks, 0 stalls).
+
+For round 4, beyond the prototype:
+
+7. **The sorter:** show a job it alone does, measured against whole lines, widening and a spare dock, before S1–S9 (and S6's belt-id refactor) are built. Otherwise leave it deferred.
+8. **The clip:** rewrite it as in the Clip section, with a pre-built crystal factory, a T1 copper source, pop-level truth in the beat and settled rates in the witness. Shoot it only on the prototype, with the uncut witness kept.
+
+### Open questions (round 3)
+
+- Is routing one long copper belt past the T2 field a satisfying decision when its destination is always the same? Only a playtest can say.
+- Should copper have a second sink so the choice is where it goes, not just how?
+- Does the premium make the T1 field so valuable at T3 that the T3 → T4 climb flattens? The bot can bound it; only players can say whether it feels good.
+- Is the two-colour alloy readable at 390 px next to bars? Still unanswered: it needs a screenshot and a human.
