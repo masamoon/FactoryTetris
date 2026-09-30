@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import type { State } from '../src/rockhopper/sim';
 import { SLOTS } from '../src/rockhopper/config';
 
@@ -403,4 +404,58 @@ test('a smelter is never dropped onto a belt it cannot join (already smelted)', 
   expect(hovering.placing?.at?.ok).toBe(false);
   await page.mouse.up();
   expect((await hook(page)).machines.filter((m) => m.kind === 'smelter')).toHaveLength(1);
+});
+
+test('holding a belt drops a bend post; it can be dragged off, re-placed and survives a reload', async ({
+  page,
+}) => {
+  const save = readFileSync(
+    'docs/reviews/evidence/rockhopper-crossings-prepared-save.json',
+    'utf8'
+  );
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, save);
+  await open(page, '');
+  // Drill 4's trunk runs through open space here; a post 50 u to its left bends it legally.
+  const on = await screen(page, -8.9, -97.1);
+  const post = await screen(page, -58, -106.8);
+  const via = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { __rockhopper: Hook }).__rockhopper.state.machines.find(
+          (m) => m.id === 4
+        )!.out!.via ?? null
+    );
+  async function drag(a: { x: number; y: number }, b: { x: number; y: number }, hold: number) {
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.waitForTimeout(hold);
+    await page.mouse.move(b.x, b.y, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+  // A quick drag pans; it never bends.
+  await drag(on, { x: on.x + 40, y: on.y + 40 }, 30);
+  expect(await via()).toBeNull();
+  await page.evaluate(() =>
+    (
+      window as unknown as { __rockhopper: { renderer: { resetView(): void } } }
+    ).__rockhopper.renderer.resetView()
+  );
+  await page.waitForTimeout(500);
+  // Hold, then drag: the new post rides 44 px above the finger.
+  await drag(on, { x: post.x, y: post.y + 44 }, 500);
+  expect((await via())?.length).toBe(1);
+  // Dragging it back onto the straight line removes it.
+  await drag(post, on, 0);
+  expect(await via()).toBeNull();
+  await drag(on, { x: post.x, y: post.y + 44 }, 500);
+  expect((await via())?.length).toBe(1);
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
+  expect((await via())?.length).toBe(1);
 });

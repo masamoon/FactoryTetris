@@ -11,6 +11,7 @@
 import { BELT_SPACING, SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
   beltEnds,
+  bend,
   buildDrill,
   crossingsOf,
   buildSmelter,
@@ -50,13 +51,15 @@ export interface StressResult {
   plates: number;
   worstWait: number;
   stalledWindows: number;
+  /** Belts that ended the run with bend posts. */
+  bent: number;
   /** Bundles that sat still 20 s outside a machine backlog. */
   locked: number;
   /** What each lock looked like when found, for debugging. */
   locks: string[];
 }
 
-export function stress(seed: number, seconds: number, moves: boolean): StressResult {
+export function stress(seed: number, seconds: number, moves: boolean, posts = false): StressResult {
   const s: State = freshState(seed);
   s.credits = 1e12;
   s.docks = 9;
@@ -91,6 +94,19 @@ export function stress(seed: number, seconds: number, moves: boolean): StressRes
         ? { kind: 'dock', index: Math.floor(rnd() * 9) }
         : ({ kind: x.kind, id: x.id } as Target);
     route(s, m.id, t);
+  }
+  if (posts) {
+    // Random bend posts (docs/ROCKHOPPER_BEND_POSTS.md): up to two on a belt, kept when legal.
+    for (let k = 0; k < s.machines.length * 3; k++) {
+      const m = ms[Math.floor(rnd() * ms.length)];
+      if (!m.out) continue;
+      const n = 1 + Math.floor(rnd() * 2);
+      const via = Array.from({ length: n }, () => ({
+        x: (rnd() - 0.5) * 560,
+        y: 60 - rnd() * 420,
+      }));
+      bend(s, m.id, via);
+    }
   }
   for (const d of drills(s))
     while (d.level < 3 + Math.floor(rnd() * 4) && upgrade(s, d.id) === true);
@@ -142,6 +158,7 @@ export function stress(seed: number, seconds: number, moves: boolean): StressRes
     plates,
     worstWait: worst,
     stalledWindows: stalled,
+    bent: s.machines.filter((m) => m.out?.via?.length).length,
     locked,
     locks,
   };
@@ -153,18 +170,25 @@ if (process.argv[1]?.includes('rockhopper-crossings-stress')) {
   let bad = 0,
     worst = 0,
     crossed = 0;
-  for (const moves of [false, true]) {
+  let bent = 0;
+  for (const [moves, posts] of [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ]) {
     for (let seed = 1; seed <= seeds; seed++) {
-      const r = stress(seed, seconds, moves);
+      const r = stress(seed, seconds, moves, posts);
+      if (posts && r.bent) bent++;
       worst = Math.max(worst, r.worstWait);
       if (r.plates) crossed++;
       if (r.worstWait >= 4 * TICK_HZ || r.stalledWindows || r.locked) {
         bad++;
-        console.log(`FAIL seed ${seed} moves ${moves}: ${JSON.stringify(r)}`);
+        console.log(`FAIL seed ${seed} moves ${moves} posts ${posts}: ${JSON.stringify(r)}`);
       }
     }
   }
   console.log(
-    `${seeds} seeds × {no moves, moves}, ${seconds} s each: ${crossed} runs had plates, ${bad} failures; worst wait ${(worst / TICK_HZ).toFixed(2)} s`
+    `${seeds} seeds × {no moves, moves} × {straight, random posts}, ${seconds} s each: ${crossed} runs had plates, ${bent} had bent belts, ${bad} failures; worst wait ${(worst / TICK_HZ).toFixed(2)} s`
   );
 }

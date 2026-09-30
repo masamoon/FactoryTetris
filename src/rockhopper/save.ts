@@ -15,6 +15,8 @@ import {
   normAngle,
   relayout,
   smelterSpotOk,
+  MAX_POSTS,
+  type Point,
   type Rock,
   type State,
 } from './sim';
@@ -214,6 +216,25 @@ export function deserialize(text: string): State | null {
             ? Number.isInteger(t.index)
             : (t.kind === 'smelter' || t.kind === 'drill') && isNum(t.id);
         if (!ok) return null;
+        // Bend posts are optional: a malformed list straightens the belt rather than losing the save.
+        const via = (m.out as { via?: unknown }).via;
+        if (via !== undefined) {
+          const good =
+            Array.isArray(via) &&
+            via.length > 0 &&
+            via.length <= MAX_POSTS &&
+            via.every(
+              (p) =>
+                p &&
+                isNum((p as Point).x) &&
+                isNum((p as Point).y) &&
+                Math.abs((p as Point).x) < 400 &&
+                (p as Point).y > -1300 &&
+                (p as Point).y < 200
+            );
+          if (good) m.out.via = (via as Point[]).map((p) => ({ x: p.x, y: p.y }));
+          else delete m.out.via;
+        }
       }
       ids.add(m.id);
     }
