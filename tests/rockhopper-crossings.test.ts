@@ -24,6 +24,7 @@ import {
   type State,
 } from '../src/rockhopper/sim';
 import { deserialize, serialize } from '../src/rockhopper/save';
+import { stress } from '../tools/rockhopper-crossings-stress';
 
 /**
  * Two drills on the first rock, each routed to a dock on the far side of the other so their
@@ -241,4 +242,39 @@ test('waiting bundles and the switch survive a save round-trip', () => {
   assert.equal(deserialize(serialize(loaded))!.crossingsNotice, undefined);
   setCrossings(loaded, false);
   assert.equal(deserialize(serialize(loaded))!.crossings, false);
+});
+
+// Round 2 found a lock: a bundle held for room behind a crossing wasn't counted as held, so the
+// bundles bunched behind it kept an earlier plate claimed forever. These seeds catch it.
+test('saturated random factories with chains, smelters and moves never lock up', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const moves of [false, true]) {
+      const r = stress(seed, 90, moves);
+      assert.ok(r.worstWait < 4 * TICK_HZ, `seed ${seed}: waited ${r.worstWait} ticks`);
+      assert.equal(r.stalledWindows, 0, `seed ${seed}: stopped delivering`);
+    }
+  }
+});
+
+test('two inputs converging on one smelter at a narrow angle never cross', () => {
+  for (const gap of [0.25, 0.3, 0.4]) {
+    const s = freshState(1);
+    s.credits = 1e9;
+    assert.equal(buildSmelter(s, { x: 0, y: -115 }), true);
+    const sm = s.machines[0];
+    assert.equal(buildDrill(s, 0, 4.71 - gap), true);
+    assert.equal(buildDrill(s, 0, 4.71 + gap), true);
+    for (const d of drills(s)) assert.equal(route(s, d.id, { kind: 'smelter', id: sm.id }), true);
+    assert.equal(crossingsOf(s).plates.length, 0, `gap ${gap}`);
+  }
+});
+
+test('pre-logistics (v1) saves get crossings on, and the notice', () => {
+  const s = freshState(1);
+  const v1 = JSON.parse(serialize(s)) as Record<string, unknown>;
+  v1.version = 1;
+  delete v1.crossings;
+  const loaded = deserialize(JSON.stringify(v1))!;
+  assert.equal(loaded.crossings, true);
+  assert.equal(loaded.crossingsNotice, true);
 });

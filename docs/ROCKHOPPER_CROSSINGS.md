@@ -1,6 +1,6 @@
 # Rockhopper: belt crossings (proposal, 2026-09-30)
 
-Status: **revision 2, pending round-2 review** (the user chose the full AGENTS.md process for this feature). Revision 2 is prototyped on this branch behind a switch, so the reviewer's evidence could be measured; it is not adopted until it passes. Round 1 is recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
+Status: **revision 3, pending round-3 review** (the user chose the full AGENTS.md process for this feature). It is prototyped on this branch behind a switch, so the reviewers' evidence could be measured; it is not adopted until it passes. Rounds 1 and 2 are recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
 
 ## Why
 
@@ -16,6 +16,22 @@ What the build does today (observed in code):
 Evidence of current layouts (greedy bot, seeds 1–3, measured with a scratch probe; a bot is tidier than a person because it keeps the old socket spots and nearest docks): 0 true crossings at 6 min, 1 at 12 min, 2–3 at 20 min, among 8/15/21 belts. The [developed 12-minute still](reviews/evidence/rockhopper-logistics-developed-12min.png) shows the visual mess is mostly belts converging and overlapping near the hub and passing under smelters, more than clean X crossings.
 
 **Decision already made with the user:** no hand-drawn belts (rejected in `ROCKHOPPER_LOGISTICS.md`: fiddly on a phone). The layer has to come from making the existing free rearranging matter.
+
+## Revision 3 (after round-2 review)
+
+Round 2 passed C3 and C5, passed C4, C6, C7 and C8 on conditions, and blocked on a real deadlock in C2. Revision 3 changes only these points; everything else in revision 2 stands.
+
+- **C2, the lock (fixed).** A bundle held for room behind a crossing now counts as held, and so do the bundles bunched behind it, so they never keep an earlier plate claimed. A stress tool (`npx tsx tools/rockhopper-crossings-stress.ts`) builds random factories with legal commands only: 3–10 drills anywhere on the T1 rims, raw chains, spliced and standalone smelters, random re-routes, drills upgraded to level 3–6 so belts saturate, and optionally a machine moved every 15 s. Before the fix it caught the lock; after it, **500 seeds × with and without moves, 150 s each: 0 failures, worst wait 0.83 s** (a test runs 40 seeds × both).
+- **C1, inputs of one machine.** Belts that share a machine are left alone out to where converging lines would touch anyway, 10 / (2 sin(θ/2)) + 7 u from it (at least 40 u, at most 120 u), so two drills feeding one smelter from a narrow angle don't cross; near-collinear belts that run over each other beyond 120 u still do. A plate is cut short where it would run off a belt's end (so it can be under 14 u there); a bundle loaded at a belt's start inside a plate waits at the gate edge and is arbitrated like any other.
+- **C6.** The words sit under the counter, clear of the hub, pops and bubbles; a pulsing ring marks the plate ([screenshot](reviews/evidence/rockhopper-crossings-tangled-hint.png)).
+- **C7.** v1 saves get the notice too.
+- **Evidence** (all in the [witness log](reviews/evidence/rockhopper-crossings-witness.log.txt), bot and headless, not a playtest):
+  - **Only layouts a player can build.** Of 111 random dock shuffles per seed, 12 were legal under C8. Their income against crossings off: best −1 to −7 %, median −10 to −32 %, worst −24 to −42 %. The tidy layout loses 1–7 %.
+  - **A careless bot** (re-routes one dock link at random every 10 s): 4, 7 and 12 plates at 20 min, losing 4 %, 11 % and 42 % against crossings off, where the greedy bot has 3–4 plates and loses 1–7 %.
+  - **How often lanes refuse the bot:** 0 of about 1,000–1,600 socket-spot checks were refused ("on a belt" or "belt blocked"); **about 37 % of machine-to-machine link targets** it considered were refused as "belt blocked" (50 of 136, seed 1). The bot still builds 9–10 raw chains and 6 smelters by 20 minutes.
+  - **Pace:** unchanged (first smelter 1:03–1:35, T2 11:10–11:14, crossings on or off).
+  - **Clip B2:** two level-5 drills kept supplied, trunks crossed: 3.75 / 3.75 chunks/s settled; after moving one drill 92° round its rock, a 5 s flush, then 7.50 / 7.50 settled over 20 s.
+- **Clip.** B1's prepared save must be one a player could build under C8 (a legal shuffle), and is labelled as prepared; B2 uses the logged witness above.
 
 ## Revision 2 (after round-1 review)
 

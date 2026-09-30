@@ -1682,9 +1682,18 @@ export class Renderer {
   private drawHints(c: Ctx, s: State, o: Overlay) {
     if (o.notice) label(c, o.notice, this.w / 2, 112, 15);
     if (o.hintCross) {
+      // A ring on the busy plate, and the words up top, clear of the hub, pops and bubbles.
       const p = this.toScreen(o.hintCross);
-      label(c, 'Belts take turns here', p.x, p.y - 58, 15);
-      label(c, 'Move or re-route to untangle', p.x, p.y - 40, 13);
+      const t = (this.time % 1.4) / 1.4;
+      c.strokeStyle = CREAM;
+      c.globalAlpha = 1 - t;
+      c.lineWidth = 3;
+      c.beginPath();
+      c.arc(p.x, p.y, 12 + t * 22, 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = 1;
+      label(c, 'Crossed belts take turns (ringed)', this.w / 2, 146, 15);
+      label(c, 'Move or re-route to untangle', this.w / 2, 166, 13);
     }
     if (o.hintJoin) {
       // Drag from one machine onto another: a dashed link grows behind the hand.

@@ -35,3 +35,23 @@ Conditions for a PASS (reversible experiment only):
 6. A switch, no silent change to v2 saves, and 390 px screenshots of plates, chip and label.
 7. The clip labelled as a developed save, with an uncut witness logging settled rates.
 8. The doc records honestly what is still unaddressed (hub convergence, belts under machines).
+
+## Round 2: revision 2 (prototyped behind a switch)
+
+The reviewer re-ran the witness (reproduced exactly) and the tests (all passing), then stress-tested random factories built with legal commands, measured the lane rule on the bot's saves, and checked the 390 px screenshots.
+
+| #    | Verdict            | Main finding                                                                                                                                                                                                                            |
+| ---- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1   | REVISE             | The cost is angle-independent now, but two drills 6–10° apart feeding one smelter get a plate, contradicting "inputs of one smelter never cross". Plates at a belt's start are cut to 8.5 u.                                            |
+| C2   | REVISE (blocking)  | **Permanent deadlock**: a bundle held for room behind a crossing wasn't marked held, so the bundles bunched behind it inside an earlier plate kept it claimed. About 20 of 150 random factories locked; the smallest case had 3 drills. |
+| C3   | PASS               | 3.75 / 3.75 at 47°, 32° and 28°; widening cancels the loss, as stated.                                                                                                                                                                  |
+| C4   | PASS (conditional) | In a hub knot the ⇄ chips pile up under smelters and pops.                                                                                                                                                                              |
+| C5   | PASS               | Auto-link ranks docks by plate count; leftovers measured.                                                                                                                                                                               |
+| C6   | PASS (conditional) | The label sat over the smelters and a pop covered it.                                                                                                                                                                                   |
+| C7   | PASS (minor)       | v1 saves got crossings with no notice.                                                                                                                                                                                                  |
+| C8   | PASS (conditional) | No spot was left unlinkable, but lanes cut the options (seed 1 at 12 min: 210 vs 256 placeable rim spots, 9.6 vs 16 legal targets per new drill), and the skill-gap evidence used layouts C8 forbids.                                   |
+| Clip | REVISE             | B1 depends on C2; the prepared tangled save contains links a player can no longer build.                                                                                                                                                |
+
+Conditions for a PASS: fix the lock and stress it (500+ seeds, with and without mid-run moves, saturated chains and smelters, no wait over 4 s); re-run the witness with C8-legal tangles and a less tidy bot, and log how often lanes refuse; fix or document the smelter-input case and give v1 saves the notice; a 390 px screenshot with the label clear; a settled-rate log for the clip's B2 move.
+
+Resolution (revision 3): see the design doc.

@@ -2,7 +2,7 @@
  * Belt crossings: where two straight belts touch, they share a fixed-length plate and take turns.
  * Pure geometry, no game state: the simulation feeds it belt segments and arbitrates the plates.
  */
-import { CROSS_HALF, CROSS_SHARED_CLEAR, CROSS_TOUCH } from './config';
+import { CROSS_HALF, CROSS_SHARED_CLEAR, CROSS_SHARED_MAX, CROSS_TOUCH } from './config';
 
 interface P {
   x: number;
@@ -104,11 +104,32 @@ function touching(A: Segment, B: Segment, La: number, Lb: number, from: number, 
   return { lo: edge(best, from), hi: edge(best, till) };
 }
 
-/** The part of A (as [from, till]) farther than the clearance from a machine at its end. */
-function awayFrom(A: Segment, La: number, m: P): [number, number] {
+/** The far end of A from machine `m` (A starts or ends at it). */
+function farEnd(A: Segment, m: P): P {
+  return Math.hypot(A.a.x - m.x, A.a.y - m.y) < Math.hypot(A.b.x - m.x, A.b.y - m.y) ? A.b : A.a;
+}
+
+/**
+ * How far from a shared machine two of its belts are left alone: they converge on it, so they
+ * touch near it without crossing. At an angle θ between them their centre lines come within the
+ * touching distance at 5 / sin(θ/2) u, so the clearance grows as they close up, up to a cap:
+ * beyond it, near-collinear belts really do run over each other.
+ */
+function sharedClear(A: Segment, B: Segment, m: P): number {
+  const a = farEnd(A, m),
+    b = farEnd(B, m);
+  const t = Math.abs(Math.atan2(a.y - m.y, a.x - m.x) - Math.atan2(b.y - m.y, b.x - m.x));
+  const theta = Math.min(t, 2 * Math.PI - t);
+  const s = Math.sin(theta / 2);
+  const reach = s > 1e-6 ? CROSS_TOUCH / (2 * s) + CROSS_HALF : Infinity;
+  return Math.min(CROSS_SHARED_MAX, Math.max(CROSS_SHARED_CLEAR, reach));
+}
+
+/** The part of A (as [from, till]) farther than `clear` from a machine at its end. */
+function awayFrom(A: Segment, La: number, m: P, clear: number): [number, number] {
   const atStart = Math.hypot(A.a.x - m.x, A.a.y - m.y) < Math.hypot(A.b.x - m.x, A.b.y - m.y);
   const d0 = Math.hypot((atStart ? A.a : A.b).x - m.x, (atStart ? A.a : A.b).y - m.y);
-  const cut = Math.max(0, CROSS_SHARED_CLEAR - d0);
+  const cut = Math.max(0, clear - d0);
   return atStart ? [cut, La] : [0, La - cut];
 }
 
@@ -119,7 +140,8 @@ function side(id: number, c: number, L: number): PlateSide {
 /**
  * Every plate between belts that touch (centre lines within the drawn belt width). A plate has
  * the same length at any angle: it sits where the lines cross, or at the middle of the stretch
- * where near-parallel belts overlap. Belts that share a machine only count away from it.
+ * where near-parallel belts overlap. It is cut short where it would run off a belt's end.
+ * Belts that share a machine only count away from it (see `sharedClear`).
  */
 export function findPlates(segs: Segment[]): Plate[] {
   const out: Plate[] = [];
@@ -137,7 +159,8 @@ export function findPlates(segs: Segment[]): Plate[] {
           : A.dst === B.src || A.dst === B.dst
             ? A.to
             : null;
-      if (shared) [from, till] = awayFrom(A, La, shared);
+      const clear = shared ? sharedClear(A, B, shared) : 0;
+      if (shared) [from, till] = awayFrom(A, La, shared, clear);
       const touch = touching(A, B, La, Lb, from, till);
       if (!touch) continue;
       const cross = intersect(A, B, La, Lb);
@@ -149,7 +172,7 @@ export function findPlates(segs: Segment[]): Plate[] {
       }
       if (shared) {
         // The plate's stretch on B must also stay clear of the shared machine.
-        const [bf, bt] = awayFrom(B, Lb, shared);
+        const [bf, bt] = awayFrom(B, Lb, shared, clear);
         if (cb < bf || cb > bt) continue;
       }
       const p = at(A, ca, La);

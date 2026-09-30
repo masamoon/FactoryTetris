@@ -1430,9 +1430,11 @@ function arbitrate(s: State, x: Crossings, step: number): Map<BeltItem, number> 
       // at the next gate, at least a spacing past this one, or in a backlog that frees the plate).
       const aheadHeld = !!ahead && (stuck.has(ahead) || (ahead.w ?? 0) > 0);
       if (ahead && aheadHeld && ahead.pos < gate.hi + BELT_SPACING - 1e-6) {
-        // No room to get out yet: an ordinary backlog, not a wait for the crossing.
+        // No room to get out yet: an ordinary backlog, not a wait for the crossing. It is held,
+        // so the bundles bunched behind it (maybe inside an earlier plate) don't hold that plate.
         delete it.w;
         stop.set(it, gate.lo);
+        stuck.add(it);
         continue;
       }
       reqs.push({ id: m.id, it, gate });
