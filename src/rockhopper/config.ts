@@ -42,18 +42,17 @@ export interface SlotDef {
   signature: Ore;
   /** Credits to unlock; 0 = unlocked in a fresh save. */
   price: number;
-  sockets: number;
 }
 
 export const SLOTS: readonly SlotDef[] = [
-  { tier: 1, x: 0, y: -270, r: 6, signature: COPPER, price: 0, sockets: 3 },
-  { tier: 1, x: -170, y: -270, r: 6, signature: COPPER, price: 700, sockets: 3 },
-  { tier: 1, x: 170, y: -270, r: 6, signature: ICE, price: 3000, sockets: 3 },
-  { tier: 2, x: -150, y: -490, r: 8, signature: ICE, price: 15000, sockets: 4 },
-  { tier: 2, x: 150, y: -490, r: 8, signature: GOLD, price: 40000, sockets: 4 },
-  { tier: 3, x: -170, y: -750, r: 10, signature: GOLD, price: 160000, sockets: 5 },
-  { tier: 3, x: 170, y: -750, r: 10, signature: CRYSTAL, price: 360000, sockets: 5 },
-  { tier: 4, x: 0, y: -1010, r: 11, signature: CRYSTAL, price: 1800000, sockets: 6 },
+  { tier: 1, x: 0, y: -270, r: 6, signature: COPPER, price: 0 },
+  { tier: 1, x: -170, y: -270, r: 6, signature: COPPER, price: 700 },
+  { tier: 1, x: 170, y: -270, r: 6, signature: ICE, price: 3000 },
+  { tier: 2, x: -150, y: -490, r: 8, signature: ICE, price: 15000 },
+  { tier: 2, x: 150, y: -490, r: 8, signature: GOLD, price: 40000 },
+  { tier: 3, x: -170, y: -750, r: 10, signature: GOLD, price: 160000 },
+  { tier: 3, x: 170, y: -750, r: 10, signature: CRYSTAL, price: 360000 },
+  { tier: 4, x: 0, y: -1010, r: 11, signature: CRYSTAL, price: 1800000 },
 ];
 
 /** Share of cells that are ore (not rock) and which ores a tier can contain. */
@@ -64,8 +63,10 @@ export const TIER_ORE: Record<number, { share: number; ores: Ore[] }> = {
   4: { share: 0.5, ores: [GOLD, CRYSTAL, CRYSTAL] },
 };
 
-/** Drills sit this far outside the asteroid radius. */
-export const SOCKET_GAP = 18;
+/** Drills sit on a rim this far outside the asteroid radius, at any angle. */
+export const RIM_GAP = 18;
+/** Closest two drill centres may be, on one rock or across neighbours: a rim's length sets how many fit. */
+export const DRILL_SPACING = 36;
 export const HUB_RADIUS = 40;
 export const DOCK_RADIUS = 49;
 /** Screen-space dock angles in degrees, in unlock order: all on the upper arc, facing the field. */

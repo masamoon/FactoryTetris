@@ -7,7 +7,17 @@ import {
   SMELTER_MAX_LEVEL,
   SMELTER_QUEUE,
 } from './config';
-import { freshState, relayout, smelterSpotOk, type Rock, type State } from './sim';
+import {
+  drillSpotWhy,
+  freshState,
+  LEGACY_SOCKETS,
+  legacySocketAngle,
+  normAngle,
+  relayout,
+  smelterSpotOk,
+  type Rock,
+  type State,
+} from './sim';
 
 /**
  * The logistics experiment saves under its own key and never writes or deletes the v1 key, so
@@ -124,8 +134,18 @@ export function deserialize(text: string): State | null {
       m.heldAgo = isNum(m.heldAgo) ? Math.max(0, Math.floor(m.heldAgo)) : 30;
       if (m.kind === 'drill') {
         const def = SLOTS[m.slot];
-        if (!def || !Number.isInteger(m.socket) || m.socket < 0 || m.socket >= def.sockets)
-          return null;
+        if (!def) return null;
+        if (!isNum(m.angle)) {
+          // Saves from before free placement name one of the rock's fixed sockets. A drill with
+          // neither is re-seated on its rim below rather than losing the save.
+          const k = old.socket;
+          m.angle =
+            Number.isInteger(k) && (k as number) >= 0 && (k as number) < LEGACY_SOCKETS[m.slot]
+              ? legacySocketAngle(m.slot, k as number)
+              : NaN;
+        }
+        delete old.socket;
+        if (isNum(m.angle)) m.angle = normAngle(m.angle);
         if (!Array.isArray(m.buffer) || !m.buffer.every(isOre)) return null;
         m.level = Math.min(m.level, DRILL_MAX_LEVEL);
       } else {
@@ -183,9 +203,31 @@ export function deserialize(text: string): State | null {
       }
       ids.add(m.id);
     }
+    // A drill with no angle, or overlapping another machine, moves to the nearest free rim spot.
+    let moved = false;
+    for (const m of state.machines) {
+      if (m.kind !== 'drill') continue;
+      const from = isNum(m.angle) ? m.angle : Math.PI / 2;
+      const why = drillSpotWhy(state, m.slot, from, m.id);
+      if (isNum(m.angle) && (!why || why === 'locked')) continue;
+      if (why === 'locked') {
+        m.angle = from;
+        continue;
+      }
+      let spot: number | null = null;
+      for (let k = 1; k <= 144 && spot === null; k++) {
+        const a = normAngle(from + (k % 2 ? 1 : -1) * Math.floor(k / 2) * (Math.PI / 72));
+        if (!drillSpotWhy(state, m.slot, a, m.id)) spot = a;
+      }
+      if (spot === null) return null;
+      m.angle = spot;
+      m.cell = -1;
+      moved = true;
+    }
+    if (moved && !legacy) relayout(state);
     if (legacy) {
       // The logistics build moved the tiers up: a smelter from an old save may now sit inside
-      // a rock or on a socket. Move it to the nearest legal spot, then fit every belt again.
+      // a rock. Move it to the nearest legal spot, then fit every belt again.
       for (const m of state.machines) {
         if (m.kind !== 'smelter' || smelterSpotOk(state, m, m.id)) continue;
         const spot = nearestLegal(state, m.x, m.y, m.id);

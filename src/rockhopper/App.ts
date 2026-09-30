@@ -26,14 +26,13 @@ import {
   freshState,
   hubCost,
   machinePos,
-  nearestSocket,
+  nearestRim,
   priceOf,
   sellValue,
   slotVisible,
   smelters,
   smelterSpotOk,
-  socketAngle,
-  socketPos,
+  rimPos,
   step,
   unlockCost,
   upgradeCost,
@@ -659,13 +658,19 @@ export class RockhopperApp {
     const z = this.renderer.cam.z;
     if (kind === 'drill') {
       const w = this.renderer.toWorld(screen.x, screen.y - 30);
-      const sock = nearestSocket(this.state, w, Math.max(90, 70 / z), moving);
-      if (!sock) return { at: { ...w, ok: false, angle: 0 }, sock: null };
-      const q = socketPos(sock.slot, sock.socket);
-      return {
-        at: { ...q, ok: true, angle: socketAngle(sock.slot, sock.socket) + Math.PI / 2 },
-        sock,
+      // Anywhere on a rock's rim: the ghost follows the finger around it, and slides at most one
+      // drill's width to clear a neighbour. A full rock or a crowded spot refuses with a reason.
+      const rim = nearestRim(this.state, w, Math.max(90, 70 / z), moving);
+      if (!rim) return { at: { ...w, ok: false, angle: 0 }, sock: null };
+      const q = rimPos(rim.slot, rim.angle);
+      const at = {
+        ...q,
+        ok: !rim.why,
+        angle: rim.angle + Math.PI / 2,
+        why: rim.why || undefined,
+        slot: rim.slot,
       };
+      return { at, sock: rim.why ? null : rim };
     }
     const w = this.renderer.toWorld(screen.x, screen.y - 56);
     // Dropped on a belt, a smelter goes into that line: the crosshair snaps onto the belt when
@@ -724,11 +729,11 @@ export class RockhopperApp {
     let r: true | string = 'blocked';
     if (moving !== undefined) {
       if (kind === 'drill' && spot.sock)
-        r = this.cmd('moveDrill', moving, spot.sock.slot, spot.sock.socket);
+        r = this.cmd('moveDrill', moving, spot.sock.slot, spot.sock.angle);
       else if (kind === 'smelter' && spot.at.ok)
         r = this.cmd('moveSmelter', moving, pt(spot.at), splice(spot.at));
     } else if (kind === 'drill' && spot.sock)
-      r = this.cmd('buildDrill', spot.sock.slot, spot.sock.socket);
+      r = this.cmd('buildDrill', spot.sock.slot, spot.sock.angle);
     else if (kind === 'smelter' && spot.at.ok)
       r = this.cmd('buildSmelter', pt(spot.at), splice(spot.at));
     if (r !== true) {

@@ -3,7 +3,7 @@
 You are Hop, a tiny mining robot at a space station. You start by lasering asteroids by hand, then build machines that mine them for you. It is an automation game crossed with an incremental game, built for portrait touch screens.
 
 - **Hold a rock** to laser it. Chunks burst out and stream home, and each chunk becomes credits when it lands.
-- **Drag a drill** from the tray onto an asteroid. It snaps to a rim socket and bites inward on its own. A belt links it to a hub dock, and you can watch every chunk ride in.
+- **Drag a drill** from the tray onto an asteroid. Drop it anywhere on the rock's rim: it eats the nearest cells first, so aim it at a vein. A belt links it to a hub dock, and you can watch every chunk ride in.
 - **Rocks run out.** Below 20 % they crumble, and a new rock is towed into the same slot. Your drills stay put and carry on.
 - **Docks are scarce.** A **smelter** merges up to three belts into one dock and turns each chunk into a bar worth three times as much. To re-route a belt, drag from a machine to a dock or a smelter.
 - **Tap a locked slot's price** to unlock it. Higher tiers are bigger, richer rocks: copper, ice, gold, then crystal.
