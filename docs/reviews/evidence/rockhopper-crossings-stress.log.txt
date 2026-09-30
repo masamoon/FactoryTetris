@@ -1,0 +1,1 @@
+500 seeds × {no moves, moves}, 150 s each: 822 runs had plates, 0 failures; worst wait 0.83 s
