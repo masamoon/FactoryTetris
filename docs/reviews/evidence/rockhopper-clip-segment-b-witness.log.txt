@@ -1,0 +1,14 @@
+staged: seed 1, three level-2 drills on slot 3 (T2); junction #2 -> dock 0
+B1 start: cells remaining 174 of 174
+B1 saturated (3 s after 7 s fill): 7.3 chunks/s through a tier-1 belt (capacity 7.5); junction full=true; feeders full=false,false; cells 80
+B2 widen: junction belt tier 2 (capacity 15.0)
+B2 +2 s backlog flush (not settled income): 7.5 chunks/s
+B2 +3 s: 8.0 chunks/s, 12 credits/s from the belt; cells 58
+B2 +4 s: 7.0 chunks/s, 23 credits/s from the belt; cells 51
+B2 +5 s: 12.0 chunks/s, 35 credits/s from the belt; cells 44
+B2 +6 s: 14.0 chunks/s, 37 credits/s from the belt; cells 34  (CRUMBLE: depletion; crumble arrivals excluded)
+B3 staged: slot 1 drills #4 <- #5, line to dock 1
+B3 before: 6.0 chunks/s, 11.3 credits/s
+B3 splice at -146,-168: true
+B3 after: 3.0 bars/s, 34.0 credits/s (x3.00); smelter jam=false
+slot 1 cells remaining 0 of -

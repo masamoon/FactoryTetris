@@ -27,7 +27,10 @@ export const ORES: Record<Ore, OreDef> = {
   5: { name: 'Crystal', value: 30, hardness: 4, color: '#FF5BD8', dark: '#C42FA3' },
 };
 
-export const BAR_MULTIPLIER = 3;
+/** A bar is two chunks of one ore, worth this many chunks (so ×3 per chunk). */
+export const BAR_VALUE = 6;
+/** A lone chunk smelted because the queue held no pair: ×3, like the legacy bar. */
+export const LONE_BAR_VALUE = 3;
 
 export interface SlotDef {
   tier: 1 | 2 | 3 | 4;
@@ -43,14 +46,14 @@ export interface SlotDef {
 }
 
 export const SLOTS: readonly SlotDef[] = [
-  { tier: 1, x: 0, y: -230, r: 6, signature: COPPER, price: 0, sockets: 3 },
-  { tier: 1, x: -170, y: -230, r: 6, signature: COPPER, price: 400, sockets: 3 },
-  { tier: 1, x: 170, y: -230, r: 6, signature: ICE, price: 2000, sockets: 3 },
-  { tier: 2, x: -150, y: -460, r: 8, signature: ICE, price: 18000, sockets: 4 },
-  { tier: 2, x: 150, y: -460, r: 8, signature: GOLD, price: 40000, sockets: 4 },
-  { tier: 3, x: -170, y: -720, r: 10, signature: GOLD, price: 160000, sockets: 5 },
-  { tier: 3, x: 170, y: -720, r: 10, signature: CRYSTAL, price: 360000, sockets: 5 },
-  { tier: 4, x: 0, y: -990, r: 11, signature: CRYSTAL, price: 1800000, sockets: 6 },
+  { tier: 1, x: 0, y: -270, r: 6, signature: COPPER, price: 0, sockets: 3 },
+  { tier: 1, x: -170, y: -270, r: 6, signature: COPPER, price: 700, sockets: 3 },
+  { tier: 1, x: 170, y: -270, r: 6, signature: ICE, price: 3600, sockets: 3 },
+  { tier: 2, x: -150, y: -490, r: 8, signature: ICE, price: 18000, sockets: 4 },
+  { tier: 2, x: 150, y: -490, r: 8, signature: GOLD, price: 40000, sockets: 4 },
+  { tier: 3, x: -170, y: -750, r: 10, signature: GOLD, price: 160000, sockets: 5 },
+  { tier: 3, x: 170, y: -750, r: 10, signature: CRYSTAL, price: 360000, sockets: 5 },
+  { tier: 4, x: 0, y: -1010, r: 11, signature: CRYSTAL, price: 1800000, sockets: 6 },
 ];
 
 /** Share of cells that are ore (not rock) and which ores a tier can contain. */
@@ -70,25 +73,27 @@ export const DOCK_ANGLES = [-90, -113, -67, -136, -44, -159, -21, -180, 0];
 export const DOCKS_START = 3;
 export const DOCKS_MAX = 9;
 
-export const BELT_SPEED = 95; // units per second at level 1
-/**
- * Belts never move faster than this: 4.5 u a tick, about 5.4 u a frame in a 25 fps video, well
- * under half the 13 u bundle spacing, so every bundle can be followed by eye.
- */
-export const BELT_SPEED_MAX = 135;
+/** Belts all move at one readable speed; capacity comes from bundle size (the belt's tier). */
+export const BELT_SPEED = 110;
 /** Belt dash pattern (units): the period stays well above per-frame travel at 25 fps. */
 export const BELT_DASH: [number, number] = [4, 14];
+/** Most chunks one bundle can hold on a belt of this tier: tiers 1–4. */
+export const BELT_TIER_MAX = 4;
 /**
- * Upgrades raise belt capacity in two readable ways: a little more speed (capped), and bigger
- * stacks per bundle. Together they always exceed the feeding machine's output rate.
+ * Chunks per second a belt of this tier can carry. A belt loads a bundle once the last one has
+ * moved a full spacing, which on the 30 Hz tick is every ceil(spacing / step) ticks: 7.5/s.
  */
-export const beltSpeed = (level: number) =>
-  Math.min(BELT_SPEED_MAX, BELT_SPEED * Math.pow(1.25, level - 1));
-/** Chunks (or bars) per bundle on a belt fed by a machine of this level: 1, 1, 2, 2, 3, 3, 4, 4. */
-export const stackSize = (level: number) => 1 + Math.floor((level - 1) / 2);
+export const beltCapacity = (tier: number) =>
+  (TICK_HZ / Math.ceil(BELT_SPACING / (BELT_SPEED / TICK_HZ))) * tier;
+/** Price of the next tier step, by how many tier steps are bought and owned (never by length). */
+export const widenCost = (bought: number) => Math.round(90 * Math.pow(1.7, bought));
+/** Input belts a drill (junction) can take. */
+export const DRILL_INPUTS = 2;
 export const BELT_SPACING = 13;
 export const DRILL_BUFFER = 4;
-export const SMELTER_QUEUE = 4;
+export const SMELTER_QUEUE = 6;
+/** Finished bars (or passing bars) a smelter holds for its output belt. */
+export const SMELTER_READY = 4;
 export const SMELTER_RADIUS = 22;
 export const DRILL_RADIUS = 16;
 
@@ -98,13 +103,14 @@ export const LASER_COST = [30, 160, 800, 3500, 15000];
 export const drillRate = (level: number) => 2 * Math.pow(1.45, level - 1);
 export const DRILL_MAX_LEVEL = 7;
 export const drillUpgradeCost = (level: number) => Math.round(24 * Math.pow(2.1, level - 1));
-export const smelterTime = (level: number) => 0.5 / Math.pow(1.4, level - 1);
+/** Seconds per bar (two chunks): a level-1 smelter takes in more than a tier-1 belt carries. */
+export const smelterTime = (level: number) => 0.23 / Math.pow(1.4, level - 1);
 export const SMELTER_MAX_LEVEL = 8;
 export const smelterUpgradeCost = (level: number) => Math.round(90 * Math.pow(2.2, level - 1));
-export const smelterInputs = (level: number) => (level >= 3 ? 4 : 3);
+export const smelterInputs = (level: number) => (level >= 5 ? 4 : level >= 3 ? 3 : 2);
 
 export const drillPrice = (owned: number) => Math.round(14 * Math.pow(1.55, owned));
-export const smelterPrice = (owned: number) => Math.round(320 * Math.pow(2, owned));
+export const smelterPrice = (owned: number) => Math.round(520 * Math.pow(2, owned));
 export const dockCost = (docks: number) => Math.round(300 * Math.pow(2.6, docks - DOCKS_START));
 export const TRACTOR_MAX = 5;
 export const tractorCost = (level: number) => Math.round(150 * Math.pow(3, level));

@@ -13,10 +13,12 @@
 import { chromium, type CDPSession, type Page } from '@playwright/test';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { TICK_HZ } from '../src/rockhopper/config';
+import { SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import { replay, type LoggedCommand } from '../src/rockhopper/sim';
 import { serialize } from '../src/rockhopper/save';
 import type { State } from '../src/rockhopper/sim';
+
+const T1Y = SLOTS[0].y;
 
 const out = process.argv[2] ?? 'docs/reviews/evidence';
 const url = process.env.ROCKHOPPER_URL ?? 'http://localhost:8084/?fresh&clip&seed=1';
@@ -100,7 +102,7 @@ async function main() {
   await note('start (fresh save)');
 
   // 0–5 s: hold the rock and sweep slowly across it.
-  const rock = await screen(0, -230);
+  const rock = await screen(0, T1Y);
   const a = { x: rock.x + 18, y: rock.y + 34 };
   await touch(cdp, 'touchStart', a.x, a.y);
   await note('touch down on the rock');
@@ -114,7 +116,7 @@ async function main() {
 
   // 5–10 s: drag the drill from the tray onto the rock, slowly enough to follow.
   const btn = (await page.locator('.rh-tool[data-kind=drill]').boundingBox())!;
-  const sock = await screen(0, -230 + 78);
+  const sock = await screen(0, T1Y + 78);
   const from = { x: btn.x + btn.width / 2, y: btn.y + btn.height / 2 };
   await touch(cdp, 'touchStart', from.x, from.y);
   await wait(120);

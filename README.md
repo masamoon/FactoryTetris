@@ -19,6 +19,7 @@ npm run typecheck
 npm test                  # simulation tests (all modes)
 npm run bot:rockhopper    # greedy scripted pacing bot (upper bound, not a playtest)
 npm run clip:rockhopper   # real-time 10 s capture from a fresh save (needs npm start)
+npx tsx tools/rockhopper-clip-b.ts   # headless witness for the staged segment B
 npm run test:browser      # Playwright touch/UI tests (set CHROMIUM_PATH to reuse a local Chromium)
 npm run lint
 npm run build             # dist/

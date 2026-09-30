@@ -1,6 +1,6 @@
 import {
   BELT_SPACING,
-  beltSpeed,
+  BELT_SPEED,
   BELT_DASH,
   CELL,
   DT,
@@ -21,15 +21,18 @@ import {
   type Point,
   type Rock,
   type SimEvent,
+  type Smelter,
+  type Drill,
   slotVisible,
   socketAngle,
   socketPos,
   type State,
   type Target,
   unlockCost,
-  smelterInputsOf,
+  canTarget,
+  inputCap,
+  inputsOf,
 } from './sim';
-import { smelterInputs } from './config';
 import {
   CORAL,
   CREAM,
@@ -56,13 +59,22 @@ type Ctx = CanvasRenderingContext2D;
 export interface Overlay {
   /** World point under the mining finger. */
   finger: Point | null;
-  placing: { kind: 'drill' | 'smelter'; at: Point | null; moving?: number } | null;
+  placing: {
+    kind: 'drill' | 'smelter';
+    /** The snapped spot; `splice` is the belt (owner id) it would go into. */
+    at: (Point & { ok?: boolean; angle?: number; splice?: number; why?: string }) | null;
+    moving?: number;
+  } | null;
   reroute: { id: number; at: Point; target: Target | null } | null;
   selected: number | 'hub' | null;
   /** Screen point of the drill tray button (for the drag hint). */
   trayDrill: Point | null;
   hintHold: boolean;
   hintDrag: boolean;
+  /** World points: drag from a machine onto another (join or recovery). */
+  hintJoin: { from: Point; to: Point } | null;
+  /** From the smelter tray button (screen) onto a belt (world). */
+  hintSplice: { from: Point; to: Point } | null;
   reducedMotion: boolean;
 }
 
@@ -137,6 +149,18 @@ const DRILL_W = 30;
 const SMELTER_W = 50;
 const HUB_W = 100;
 const HOP_W = 38;
+/** Landing: fall time, squash time (seconds) and drop height (world units). */
+const LAND_DROP = 0.22;
+const LAND_SQUASH = 0.18;
+const LAND_HEIGHT = 26;
+const PAD_RIM = '#8C82C4';
+
+/** ● working, ‖ output backed up (or unlinked with bars waiting), ○ idle. */
+function smelterStatus(m: Smelter): 'work' | 'blocked' | 'idle' {
+  if (m.full || (!m.out && m.ready.length >= 4)) return 'blocked';
+  if (m.job) return 'work';
+  return 'idle';
+}
 
 export class Renderer {
   readonly ctx: Ctx;
@@ -158,6 +182,13 @@ export class Renderer {
   private previewCache = new Map<string, Rock>();
   private smeltGlow = new Map<number, number>();
   private placedAt = new Map<number, number>();
+  /** Build or move time per machine: drives the landing drop, squash and dust. */
+  private landedAt = new Map<number, number>();
+  private stalledAt = new Map<number, number>();
+  /** Why the ghost can't drop here, drawn in screen space after the world. */
+  private refusals: { x: number; y: number; why: string }[] = [];
+  /** Dust bursts waiting for their machine to touch down. */
+  private dust: { id: number; at: number }[] = [];
   private routedAt = new Map<number, number>();
   hop = { x: 60, y: -40, tilt: 0 };
   /** Screen rectangles of the locked-slot price tags drawn this frame (tappable). */
@@ -266,7 +297,10 @@ export class Renderer {
 
   // ------------------------------------------------------------ events
 
+  private reducedMotionLast = false;
+
   consume(s: State, events: SimEvent[], reducedMotion: boolean) {
+    this.reducedMotionLast = reducedMotion;
     for (const e of events) {
       if (e.type === 'break') {
         const n = e.by === 'crumble' ? 3 : e.by === 'laser' ? 8 : 5;
@@ -378,8 +412,12 @@ export class Renderer {
         }
       } else if (e.type === 'route') {
         this.routedAt.set(e.id, this.time);
-      } else if (e.type === 'build' || e.type === 'upgrade') {
+      } else if (e.type === 'build' || e.type === 'move') {
+        this.landedAt.set(e.id, this.time);
+        this.dust.push({ id: e.id, at: this.time + LAND_DROP });
+      } else if (e.type === 'upgrade' || e.type === 'widen') {
         this.placedAt.set(e.id, this.time);
+        if (e.type === 'widen') this.routedAt.set(e.id, this.time);
         const m = byId(s, e.id);
         if (m) {
           const p = machinePos(m);
@@ -464,6 +502,12 @@ export class Renderer {
     this.shake *= Math.exp(-dt * 9);
     this.hubBounce *= Math.exp(-dt * 7);
     for (const [id, v] of this.smeltGlow) this.smeltGlow.set(id, v * Math.exp(-dt * 2.5));
+    this.dust = this.dust.filter((d) => {
+      if (this.time < d.at) return true;
+      const m = byId(s, d.id);
+      if (m) this.touchdown(machinePos(m), m.kind === 'smelter' ? SMELTER_W * 0.6 : 18);
+      return false;
+    });
 
     const c = this.ctx;
     const d = this.dpr;
@@ -499,7 +543,13 @@ export class Renderer {
 
     c.setTransform(d, 0, 0, d, 0, 0);
     this.drawLockedTags(c, s);
-    this.drawPops(c, dt);
+    this.drawPops(c, dt, o.placing ? 0.25 : 1);
+    for (const r of this.refusals) {
+      const p = this.toScreen(r);
+      const text = r.why === 'crossing' ? 'crossing – pick one' : r.why;
+      label(c, text, p.x, p.y + 44, 15);
+    }
+    this.refusals = [];
     this.drawHints(c, s, o);
   }
 
@@ -789,61 +839,91 @@ export class Renderer {
   }
 
   private drawBelts(c: Ctx, s: State, alpha: number, o: Overlay) {
+    const placing = o.placing?.kind === 'smelter';
+    const spliceId = o.placing?.at?.splice;
     for (const m of s.machines) {
       const e = beltEnds(s, m);
       if (!e || !m.out) continue;
       const dx = e.b.x - e.a.x,
         dy = e.b.y - e.a.y;
       const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len,
+        uy = dy / len;
       const front = m.out.items[0];
-      const jammed = !!front && m.out.to.kind === 'smelter' && front.pos >= m.out.length - 0.5;
-      const speed = beltSpeed(m.level);
+      const toMachine = m.out.to.kind !== 'dock';
+      // A belt whose front waits at a machine that won't take it yet is stopped: its dashes freeze.
+      const stopped = !!front && toMachine && front.pos >= m.out.length - 0.5;
+      const target = toMachine ? byId(s, (m.out.to as { id: number }).id) : undefined;
+      const blocked = stopped && target?.kind === 'smelter' && target.jam;
       // A fresh or re-routed belt flashes so automatic rewiring (auto-link, splice) is visible.
       const flash = Math.max(0, 1 - (this.time - (this.routedAt.get(m.id) ?? -10)) / 0.8);
+      const wide = 2 * (m.tier - 1);
+      const dim = placing && m.id !== spliceId;
+      c.globalAlpha = dim ? 0.35 : 1;
       c.lineCap = 'round';
       c.strokeStyle = INK;
-      c.lineWidth = 10;
+      c.lineWidth = 10 + wide;
       c.beginPath();
       c.moveTo(e.a.x, e.a.y);
       c.lineTo(e.b.x, e.b.y);
       c.stroke();
       c.strokeStyle = o.reroute?.id === m.id ? '#4A3C9A' : DEEP;
-      c.lineWidth = 6;
+      c.lineWidth = 6 + wide;
       c.stroke();
-      if (flash > 0) {
-        c.strokeStyle = CREAM;
-        c.globalAlpha = flash;
-        c.lineWidth = 7;
+      if (m.id === spliceId) {
+        c.strokeStyle = YELLOW;
+        c.globalAlpha = 0.75 + 0.25 * Math.sin(this.time * 9);
+        c.lineWidth = 7 + wide;
         c.stroke();
         c.globalAlpha = 1;
       }
+      if (flash > 0) {
+        c.strokeStyle = CREAM;
+        c.globalAlpha = flash;
+        c.lineWidth = 7 + wide;
+        c.stroke();
+        c.globalAlpha = dim ? 0.35 : 1;
+      }
       c.save();
       c.setLineDash(BELT_DASH);
-      c.lineDashOffset = jammed ? 0 : -this.time * speed;
-      c.strokeStyle = jammed ? CORAL : MINT;
-      c.globalAlpha = jammed ? 0.6 : 0.9;
+      c.lineDashOffset = stopped ? -(m.id * 7) : -this.time * BELT_SPEED;
+      c.strokeStyle = stopped ? LILAC : MINT;
+      c.globalAlpha = (dim ? 0.35 : 1) * (stopped ? 0.55 : 0.9);
       c.lineWidth = 2.6;
       c.stroke();
+      if (m.tier > 1) {
+        // Wider belts carry side rails, one per extra tier, so the tier reads without numbers.
+        c.setLineDash([]);
+        c.globalAlpha = dim ? 0.2 : 0.5;
+        c.strokeStyle = MUTED;
+        c.lineWidth = 1;
+        for (const side of [-1, 1]) {
+          const off = (3 + wide / 2) * side;
+          c.beginPath();
+          c.moveTo(e.a.x - uy * off, e.a.y + ux * off);
+          c.lineTo(e.b.x - uy * off, e.b.y + ux * off);
+          c.stroke();
+        }
+      }
       c.restore();
-      const ux = dx / len,
-        uy = dy / len;
+      if (toMachine) this.inPort(c, e.b, ux, uy, 5 + wide / 2);
       let max = m.out.length;
       for (const it of m.out.items) {
-        const pos = Math.min(it.pos + speed * DT * alpha, max);
+        const pos = Math.min(it.pos + BELT_SPEED * DT * alpha, max);
         max = pos - BELT_SPACING;
         const f = pos / m.out.length;
         c.save();
         c.translate(e.a.x + ux * len * f, e.a.y + uy * len * f);
         const n = it.ores.length;
-        if (it.bar) {
+        if (it.mult > 1) {
           // Bars stack into a small ingot pile across the belt.
           c.rotate(Math.atan2(uy, ux));
-          c.globalAlpha = 0.35;
+          c.globalAlpha = dim ? 0.12 : 0.35;
           c.fillStyle = ORES[it.ores[0]].color;
           c.beginPath();
           c.arc(0, 0, 8.5 + n * 1.5, 0, Math.PI * 2);
           c.fill();
-          c.globalAlpha = 1;
+          c.globalAlpha = dim ? 0.35 : 1;
           for (let k = 0; k < n; k++) {
             const [ox, oy] = BAR_PILE[n - 1][k];
             c.save();
@@ -853,7 +933,7 @@ export class Renderer {
           }
         } else {
           // Chunks travel as a tumbling cluster; a bigger cluster is a bigger delivery.
-          c.rotate((it.pos * 0.05) % 6.28);
+          if (!stopped || pos < m.out.length - 0.5) c.rotate((it.pos * 0.05) % 6.28);
           for (let k = 0; k < n; k++) {
             const [ox, oy] = CHUNK_PILE[n - 1][k];
             c.save();
@@ -864,7 +944,59 @@ export class Renderer {
         }
         c.restore();
       }
+      c.globalAlpha = 1;
+      if (blocked) this.chip(c, e.b.x - ux * 12, e.b.y - uy * 12, 'blocked');
     }
+  }
+
+  /** A notch where a belt enters a machine, so feeding reads differently from passing under. */
+  private inPort(c: Ctx, p: Point, ux: number, uy: number, r: number) {
+    c.save();
+    c.translate(p.x, p.y);
+    c.rotate(Math.atan2(uy, ux));
+    c.fillStyle = CREAM;
+    c.strokeStyle = INK;
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(-6, -r - 2);
+    c.lineTo(1, 0);
+    c.lineTo(-6, r + 2);
+    c.lineTo(-3, 0);
+    c.closePath();
+    c.fill();
+    c.stroke();
+    c.restore();
+  }
+
+  /**
+   * Bottleneck chips, each with its own shape: "full" (a stack of chunks: the belt is the
+   * limit, widen it) and "blocked" (‖: the smelter is the limit).
+   */
+  private chip(c: Ctx, x: number, y: number, what: 'full' | 'blocked') {
+    const k = (1 / Math.max(0.75, this.cam.z)) * (1 + 0.08 * Math.sin(this.time * 6));
+    c.save();
+    c.translate(x, y);
+    c.scale(k, k);
+    rrect(c, -9, -8, 18, 16, 6);
+    c.fillStyle = what === 'full' ? CREAM : CORAL;
+    c.fill();
+    c.lineWidth = 2.4;
+    c.strokeStyle = INK;
+    c.stroke();
+    c.fillStyle = INK;
+    if (what === 'blocked') {
+      c.fillRect(-4.5, -4.5, 3, 9);
+      c.fillRect(1.5, -4.5, 3, 9);
+    } else {
+      // A little pile of chunks: more is arriving than the belt can take.
+      for (const [x, y] of [
+        [-3.2, 2.2],
+        [3.2, 2.2],
+        [0, -2.8],
+      ])
+        c.fillRect(x - 2.4, y - 2.4, 4.8, 4.8);
+    }
+    c.restore();
   }
 
   private drawHubAndDocks(c: Ctx, s: State, o: Overlay) {
@@ -904,12 +1036,116 @@ export class Renderer {
     c.restore();
   }
 
+  /**
+   * Landing: the machine drops from above its footprint (its shadow grows under it), squashes
+   * on impact and throws dust. Returns the lift in world units and the squash scale.
+   */
+  private landing(id: number): { lift: number; sx: number; sy: number; shadow: number } {
+    const age = this.time - (this.landedAt.get(id) ?? -10);
+    if (age >= LAND_DROP + LAND_SQUASH) return { lift: 0, sx: 1, sy: 1, shadow: 1 };
+    if (age < LAND_DROP) {
+      const u = age / LAND_DROP;
+      return { lift: LAND_HEIGHT * (1 - u * u), sx: 1, sy: 1, shadow: 0.55 + 0.45 * u * u };
+    }
+    const v = Math.sin(((age - LAND_DROP) / LAND_SQUASH) * Math.PI);
+    return { lift: 0, sx: 1 + 0.16 * v, sy: 1 - 0.18 * v, shadow: 1 };
+  }
+
+  private touchdown(p: Point, r: number) {
+    if (!this.reducedMotionLast) this.shake = Math.max(this.shake, 2.5);
+    this.particles.push({
+      x: p.x,
+      y: p.y,
+      vx: 0,
+      vy: 0,
+      life: 0,
+      max: 0.4,
+      size: r * 1.5,
+      color: CREAM,
+      spin: 0,
+      rot: 0,
+      ring: true,
+    });
+    for (let i = 0; i < 12; i++) {
+      const a = (Math.PI * 2 * i) / 12 + Math.random() * 0.3;
+      this.particles.push({
+        x: p.x + Math.cos(a) * r * 0.8,
+        y: p.y + Math.sin(a) * r * 0.6,
+        vx: Math.cos(a) * 55,
+        vy: Math.sin(a) * 40,
+        life: 0,
+        max: 0.45,
+        size: 3.2,
+        color: LILAC,
+        spin: 3,
+        rot: a,
+      });
+    }
+  }
+
+  /** The bolted landing pad every smelter stands on; drawn above belts so they pass under. */
+  private drawPad(c: Ctx, r: number, shadow: number) {
+    c.save();
+    c.fillStyle = 'rgba(10,6,28,0.45)';
+    c.beginPath();
+    c.ellipse(0, r * 0.28, r * 1.02 * shadow, r * 0.78 * shadow, 0, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    for (let k = 0; k < 8; k++) {
+      const a = Math.PI / 8 + (Math.PI / 4) * k;
+      if (k) c.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      else c.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    c.closePath();
+    c.fillStyle = INK;
+    c.fill();
+    c.lineWidth = 2;
+    c.strokeStyle = PAD_RIM;
+    c.stroke();
+    c.fillStyle = PAD_RIM;
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 4 + (Math.PI / 2) * k;
+      c.beginPath();
+      c.arc(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78, 1.7, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.restore();
+  }
+
+  /** Smelter status: a light with a shape, so it reads without colour. */
+  private statusLight(c: Ctx, x: number, y: number, state: 'work' | 'blocked' | 'idle') {
+    c.save();
+    c.translate(x, y);
+    c.fillStyle = INK;
+    c.beginPath();
+    c.arc(0, 0, 5.2, 0, Math.PI * 2);
+    c.fill();
+    if (state === 'work') {
+      c.fillStyle = YELLOW;
+      c.beginPath();
+      c.arc(0, 0, 3.4 + 0.5 * Math.sin(this.time * 10), 0, Math.PI * 2);
+      c.fill();
+    } else if (state === 'blocked') {
+      c.fillStyle = CORAL;
+      c.fillRect(-2.8, -2.8, 2, 5.6);
+      c.fillRect(0.8, -2.8, 2, 5.6);
+    } else {
+      c.strokeStyle = MUTED;
+      c.lineWidth = 1.4;
+      c.beginPath();
+      c.arc(0, 0, 2.8, 0, Math.PI * 2);
+      c.stroke();
+    }
+    c.restore();
+  }
+
   private drawMachines(c: Ctx, s: State, o: Overlay) {
     const zp = this.cam.z * this.dpr;
     for (const m of s.machines) {
       const p = machinePos(m);
       const age = this.time - (this.placedAt.get(m.id) ?? -10);
       const pop = age < 0.35 ? 1 + Math.sin((age / 0.35) * Math.PI) * 0.25 : 1;
+      const land = this.landing(m.id);
       c.save();
       c.translate(p.x, p.y);
       if (m.kind === 'drill') {
@@ -917,11 +1153,20 @@ export class Renderer {
         if (working)
           c.translate(Math.sin(this.time * 70 + m.id) * 0.5, Math.cos(this.time * 55 + m.id) * 0.5);
         c.rotate(socketAngle(m.slot, m.socket) + Math.PI / 2);
-        c.scale(pop, pop);
+        if (land.lift > 0) {
+          c.fillStyle = 'rgba(10,6,28,0.4)';
+          c.beginPath();
+          c.ellipse(0, 0, 13 * land.shadow, 10 * land.shadow, 0, 0, Math.PI * 2);
+          c.fill();
+        }
+        c.translate(0, land.lift);
+        c.scale(pop * land.sx, pop * land.sy);
         const bmp = sprite('drill', 100, 120, DRILL_W * zp * pop, drawDrill);
         c.drawImage(bmp, -DRILL_W / 2, -DRILL_W * 0.6, DRILL_W, DRILL_W * 1.2);
       } else {
-        c.scale(pop, pop);
+        this.drawPad(c, SMELTER_W * 0.56, land.shadow);
+        c.translate(0, -land.lift);
+        c.scale(pop * land.sx, pop * land.sy);
         const heat = this.smeltGlow.get(m.id) ?? 0;
         const busy = m.job ? 1 : 0;
         if (busy || heat > 0.05) {
@@ -935,19 +1180,45 @@ export class Renderer {
         );
         c.drawImage(bmp, -SMELTER_W / 2, -SMELTER_W / 2, SMELTER_W, SMELTER_W);
         // Input capacity pips.
-        const used = smelterInputsOf(s, m.id).length,
-          cap = smelterInputs(m.level);
+        const used = inputsOf(s, m.id).length,
+          cap = inputCap(m);
         for (let k = 0; k < cap; k++) {
           c.fillStyle = k < used ? MINT : 'rgba(255,244,224,0.35)';
           c.beginPath();
           c.arc(-((cap - 1) * 4) + k * 8, SMELTER_W / 2 + 5, 2.4, 0, Math.PI * 2);
           c.fill();
         }
+        this.statusLight(c, -SMELTER_W * 0.34, -SMELTER_W * 0.3, smelterStatus(m));
       }
       c.restore();
+      if (m.kind === 'drill') {
+        // A held-back drill shows its waiting chunks; the pile lingers briefly so it never flickers.
+        if (m.stalled) this.stalledAt.set(m.id, this.time);
+        if (this.time - (this.stalledAt.get(m.id) ?? -10) < 0.6 && m.buffer.length) this.pile(c, m);
+      }
       if (!m.out) this.badge(c, p.x + 10, p.y - 18);
+      else if (m.full) this.chip(c, p.x + 12, p.y - (m.kind === 'drill' ? 16 : 26), 'full');
       if (o.selected === m.id) this.selectRing(c, p.x, p.y, m.kind === 'drill' ? 24 : 34);
     }
+  }
+
+  /** A stopped drill's waiting chunks, piled beside it: backpressure you can see. */
+  private pile(c: Ctx, m: Drill) {
+    const a = socketAngle(m.slot, m.socket);
+    const p = socketPos(m.slot, m.socket);
+    const side = { x: -Math.sin(a), y: Math.cos(a) };
+    const out = { x: Math.cos(a), y: Math.sin(a) };
+    m.buffer.forEach((ore, k) => {
+      const col = k % 2,
+        row = Math.floor(k / 2);
+      c.save();
+      c.translate(
+        p.x + side.x * (15 + col * 7) + out.x * (row * 7 - 2),
+        p.y + side.y * (15 + col * 7) + out.y * (row * 7 - 2)
+      );
+      drawChunk(c, ore, 3.2);
+      c.restore();
+    });
   }
 
   private badge(c: Ctx, x: number, y: number) {
@@ -1135,50 +1406,25 @@ export class Renderer {
       }
       const at = o.placing.at;
       if (at) {
-        c.save();
-        c.globalAlpha = 0.75;
-        c.translate(at.x, at.y);
-        if (o.placing.kind === 'drill' && 'angle' in at)
-          c.rotate((at as Point & { angle: number }).angle);
-        const bmp =
-          o.placing.kind === 'drill'
-            ? sprite('drill', 100, 120, DRILL_W * z * this.dpr, drawDrill)
-            : sprite('smelter', 140, 140, SMELTER_W * z * this.dpr, (x) => drawSmelter(x));
-        const W = o.placing.kind === 'drill' ? DRILL_W : SMELTER_W;
-        const H = o.placing.kind === 'drill' ? DRILL_W * 1.2 : SMELTER_W;
-        c.drawImage(bmp, -W / 2, o.placing.kind === 'drill' ? -W * 0.6 : -H / 2, W, H);
-        c.restore();
-        const ok = (at as Point & { ok?: boolean }).ok !== false;
-        c.strokeStyle = ok ? MINT : CORAL;
-        c.lineWidth = 3 / z;
-        c.beginPath();
-        c.arc(
-          at.x,
-          at.y,
-          (o.placing.kind === 'drill' ? 20 : 32) + Math.sin(this.time * 8) * 2,
-          0,
-          Math.PI * 2
-        );
-        c.stroke();
+        this.hologram(c, o.placing.kind, at);
+        if (at.ok === false) this.refusals.push({ x: at.x, y: at.y, why: at.why ?? 'no room' });
       }
     }
     if (o.reroute) {
       const m = byId(s, o.reroute.id);
       if (m) {
         const a = machinePos(m);
-        // Valid targets pulse.
+        // Valid targets pulse: free docks, and machines with a free input that make no loop.
         for (let i = 0; i < s.docks; i++) {
-          if (s.machines.some((x) => x !== m && x.out?.to.kind === 'dock' && x.out.to.index === i))
-            continue;
+          if (!canTarget(s, m, { kind: 'dock', index: i })) continue;
           const p = dockPos(i);
           this.targetRing(c, p.x, p.y, 11);
         }
-        if (m.kind === 'drill')
-          for (const sm of s.machines) {
-            if (sm.kind !== 'smelter') continue;
-            const inputs = smelterInputsOf(s, sm.id).filter((x) => x !== m).length;
-            if (inputs < smelterInputs(sm.level)) this.targetRing(c, sm.x, sm.y, 32);
-          }
+        for (const x of s.machines) {
+          if (!canTarget(s, m, { kind: x.kind, id: x.id } as Target)) continue;
+          const q = machinePos(x);
+          this.targetRing(c, q.x, q.y, x.kind === 'smelter' ? 32 : 20);
+        }
         const b = o.reroute.target ? this.targetPoint(s, o.reroute.target) : o.reroute.at;
         c.save();
         c.setLineDash([7, 6]);
@@ -1192,6 +1438,78 @@ export class Renderer {
         c.restore();
       }
     }
+  }
+
+  /**
+   * The placement ghost reads as floating: a flat cream hologram (no ink), lifted and bobbing
+   * above its footprint, which has a shadow and a crosshair at the exact drop point. Mint or
+   * coral appear only in the footprint ring (and an ✕ when the spot is refused).
+   */
+  private hologram(
+    c: Ctx,
+    kind: 'drill' | 'smelter',
+    at: Point & { ok?: boolean; angle?: number; splice?: number }
+  ) {
+    const z = this.cam.z;
+    const ok = at.ok !== false;
+    const R = kind === 'drill' ? 16 : 28;
+    const lift = 16 + Math.sin(this.time * 5) * 3;
+    c.save();
+    c.translate(at.x, at.y);
+    // Footprint: shadow, ring and crosshair.
+    c.fillStyle = 'rgba(10,6,28,0.5)';
+    c.beginPath();
+    c.ellipse(0, 0, R * (0.85 - lift / 120), R * (0.62 - lift / 160), 0, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = ok ? MINT : CORAL;
+    c.lineWidth = 3 / z;
+    c.setLineDash([6 / z, 5 / z]);
+    c.lineDashOffset = -this.time * 20;
+    c.beginPath();
+    c.arc(0, 0, R + 4, 0, Math.PI * 2);
+    c.stroke();
+    c.setLineDash([]);
+    c.lineWidth = 2 / z;
+    c.strokeStyle = CREAM;
+    const h = 7;
+    c.beginPath();
+    c.moveTo(-h, 0);
+    c.lineTo(h, 0);
+    c.moveTo(0, -h);
+    c.lineTo(0, h);
+    c.stroke();
+    if (!ok) {
+      c.strokeStyle = CORAL;
+      c.lineWidth = 4 / z;
+      c.beginPath();
+      c.moveTo(-R * 0.5, -R * 0.5);
+      c.lineTo(R * 0.5, R * 0.5);
+      c.moveTo(R * 0.5, -R * 0.5);
+      c.lineTo(-R * 0.5, R * 0.5);
+      c.stroke();
+    }
+    // Tether from the hologram down to the footprint.
+    c.strokeStyle = 'rgba(255,244,224,0.5)';
+    c.lineWidth = 1.5 / z;
+    c.setLineDash([3 / z, 3 / z]);
+    c.beginPath();
+    c.moveTo(0, -lift + R * 0.4);
+    c.lineTo(0, -2);
+    c.stroke();
+    c.setLineDash([]);
+    // The hologram itself: a flat cream silhouette, lifted.
+    c.translate(0, -lift);
+    if (kind === 'drill' && at.angle !== undefined) c.rotate(at.angle);
+    const bmp =
+      kind === 'drill'
+        ? sprite('holo-drill', 100, 120, DRILL_W * z * this.dpr, (x) => holo(x, drawDrill))
+        : sprite('holo-smelter', 140, 140, SMELTER_W * z * this.dpr, (x) =>
+            holo(x, (y) => drawSmelter(y))
+          );
+    c.globalAlpha = 0.55 + 0.15 * Math.sin(this.time * 8);
+    if (kind === 'drill') c.drawImage(bmp, -DRILL_W / 2, -DRILL_W * 0.6, DRILL_W, DRILL_W * 1.2);
+    else c.drawImage(bmp, -SMELTER_W / 2, -SMELTER_W / 2, SMELTER_W, SMELTER_W);
+    c.restore();
   }
 
   private targetPoint(s: State, t: Target): Point {
@@ -1251,7 +1569,7 @@ export class Renderer {
     });
   }
 
-  private drawPops(c: Ctx, dt: number) {
+  private drawPops(c: Ctx, dt: number, fade: number) {
     const keep: Pop[] = [];
     for (const p of this.pops) {
       p.age += dt;
@@ -1263,7 +1581,7 @@ export class Renderer {
       // The collecting pop sits still above the dock arc; released ones jump up and fade.
       const free = Math.max(0, p.age - POP_HOLD);
       const y = sp.y - 14 - (free > 0 ? 34 + free * 120 : 0);
-      c.globalAlpha = free > 0 ? Math.max(0, 1 - free / 0.55) : 1;
+      c.globalAlpha = (free > 0 ? Math.max(0, 1 - free / 0.55) : 1) * fade;
       c.font = `${Math.round(size)}px "Lilita One", sans-serif`;
       c.textAlign = 'center';
       c.textBaseline = 'alphabetic';
@@ -1281,6 +1599,53 @@ export class Renderer {
   }
 
   private drawHints(c: Ctx, s: State, o: Overlay) {
+    if (o.hintJoin) {
+      // Drag from one machine onto another: a dashed link grows behind the hand.
+      const a = this.toScreen(o.hintJoin.from),
+        b = this.toScreen(o.hintJoin.to);
+      const t = (this.time % 2.2) / 2.2;
+      const e = t < 0.15 ? 0 : t > 0.8 ? 1 : (t - 0.15) / 0.65;
+      const ee = e * e * (3 - 2 * e);
+      const x = a.x + (b.x - a.x) * ee,
+        y = a.y + (b.y - a.y) * ee;
+      c.globalAlpha = t > 0.9 ? 1 - (t - 0.9) / 0.1 : 1;
+      c.save();
+      c.setLineDash([7, 6]);
+      c.lineDashOffset = -this.time * 40;
+      c.strokeStyle = MINT;
+      c.lineWidth = 4;
+      c.beginPath();
+      c.moveTo(a.x, a.y);
+      c.lineTo(x, y);
+      c.stroke();
+      c.restore();
+      drawHand(c, x, y, 0.85);
+      c.globalAlpha = 1;
+    }
+    if (o.hintSplice) {
+      // Drag the smelter from the tray and drop it onto a belt.
+      const a = o.hintSplice.from,
+        b = this.toScreen(o.hintSplice.to);
+      const t = (this.time % 2.4) / 2.4;
+      const e = t < 0.15 ? 0 : t > 0.75 ? 1 : (t - 0.15) / 0.6;
+      const ee = e * e * (3 - 2 * e);
+      const x = a.x + (b.x - a.x) * ee,
+        y = a.y + (b.y - a.y) * ee;
+      c.globalAlpha = t > 0.88 ? 1 - (t - 0.88) / 0.12 : 1;
+      if (e >= 1) {
+        c.strokeStyle = YELLOW;
+        c.lineWidth = 4;
+        c.beginPath();
+        c.arc(b.x, b.y, 14 + 6 * Math.sin(this.time * 9), 0, Math.PI * 2);
+        c.stroke();
+      }
+      const bmp = sprite('holo-smelter', 140, 140, 44 * this.dpr, (x) =>
+        holo(x, (y) => drawSmelter(y))
+      );
+      c.drawImage(bmp, x - 22, y - 66, 44, 44);
+      drawHand(c, x, y, 1);
+      c.globalAlpha = 1;
+    }
     if (o.hintHold && s.slots[0].rock) {
       const p = this.toScreen({ x: SLOTS[0].x + 14, y: SLOTS[0].y + 18 });
       const t = (this.time % 1.6) / 1.6;
@@ -1314,6 +1679,18 @@ export class Renderer {
   }
 }
 
+/** Draw a sprite as a flat cream silhouette with scanlines: a hologram, not a placed machine. */
+function holo(c: Ctx, draw: (c: Ctx) => void) {
+  draw(c);
+  c.globalCompositeOperation = 'source-in';
+  c.fillStyle = CREAM;
+  c.fillRect(0, 0, 400, 400);
+  c.globalCompositeOperation = 'destination-out';
+  c.fillStyle = '#000';
+  for (let y = 0; y < 400; y += 9) c.fillRect(0, y, 400, 3);
+  c.globalCompositeOperation = 'source-over';
+}
+
 function drawHand(c: Ctx, x: number, y: number, k: number) {
   c.save();
   c.translate(x, y);
@@ -1334,8 +1711,8 @@ function drawHand(c: Ctx, x: number, y: number, k: number) {
   c.restore();
 }
 
-function label(c: Ctx, text: string, x: number, y: number) {
-  c.font = '20px "Lilita One", sans-serif';
+function label(c: Ctx, text: string, x: number, y: number, size = 20) {
+  c.font = `${size}px "Lilita One", sans-serif`;
   c.textAlign = 'center';
   c.textBaseline = 'middle';
   c.lineJoin = 'round';

@@ -1,5 +1,7 @@
 # Rockhopper — redo design (2026-09-29)
 
+> **Superseded in part (2026-09-30):** routing, belts and smelters are now defined by the logistics revision in [ROCKHOPPER_LOGISTICS.md](ROCKHOPPER_LOGISTICS.md), which wins wherever the two disagree (R5, R6, belt speed, smelter splicing, auto-link, slot heights and prices).
+
 The user asked for a complete redo because the Asteroid Works prototype "feels terrible to play". The requested loop: a tiny ship/robot mines asteroids, by hand at first and then with machinery. It should play as a cross between an automation game and an incremental game, and read clearly in a silent 20-second portrait clip, like a typical mobile "fake game ad" (their readability, not their deception). It should be touch-first, with as few buttons and panels as possible. The visual identity comes from a Claude Design canvas.
 
 ## What was wrong with Asteroid Works (observed)
