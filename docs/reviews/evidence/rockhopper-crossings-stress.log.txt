@@ -1,1 +1,2 @@
 500 seeds × {no moves, moves}, 150 s each: 822 runs had plates, 0 failures; worst wait 0.83 s
+(no bundle waited 4 s at a crossing, no run stopped delivering, and no bundle sat still 20 s outside a queue backed up from a machine)

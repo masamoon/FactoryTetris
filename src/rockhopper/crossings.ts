@@ -111,9 +111,11 @@ function farEnd(A: Segment, m: P): P {
 
 /**
  * How far from a shared machine two of its belts are left alone: they converge on it, so they
- * touch near it without crossing. At an angle θ between them their centre lines come within the
- * touching distance at 5 / sin(θ/2) u, so the clearance grows as they close up, up to a cap:
- * beyond it, near-collinear belts really do run over each other.
+ * touch near it without crossing. At an angle θ between them a point on one comes within the
+ * touching distance of the other at 10 / sin θ u from the machine; this uses the chord
+ * 10 / (2 sin(θ/2)) instead, which is at most 0.7 u shorter below 17° (above that the 40 u floor
+ * rules), and the +7 u half-plate margin covers it. The clearance grows as they close up, up to a
+ * cap: beyond it, near-collinear belts really do run over each other.
  */
 function sharedClear(A: Segment, B: Segment, m: P): number {
   const a = farEnd(A, m),

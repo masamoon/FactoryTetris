@@ -931,7 +931,25 @@ export function canSplice(
     if (inputsOf(s, sm.id).length >= inputCap(sm)) return false;
     if (reaches(s, old, sm.id)) return false;
   }
+  if (s.crossings && spliceLanesBlocked(s, owner, sm, p)) return false;
   return true;
+}
+
+/** Would either belt a splice at `p` leaves (owner → smelter, smelter → old target) pass under a machine? */
+function spliceLanesBlocked(s: State, owner: Machine, sm: Smelter | null, p: Point) {
+  const old = owner.out!.to;
+  const q = targetPos(s, old);
+  if (!q) return false;
+  const lanes = [
+    endsBetween(owner, machinePos(owner), p, 'smelter'),
+    endsBetween({ kind: 'smelter' } as Machine, p, q, old.kind),
+  ];
+  for (const x of s.machines) {
+    if (x.id === owner.id || x.id === sm?.id || (old.kind !== 'dock' && x.id === old.id)) continue;
+    const c = machinePos(x);
+    if (lanes.some((e) => segDist(c, e.a, e.b) < laneClear(x.kind))) return true;
+  }
+  return false;
 }
 
 function pay(s: State, cost: number): boolean {

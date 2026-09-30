@@ -555,6 +555,7 @@ export class Renderer {
     c.setTransform(d, 0, 0, d, 0, 0);
     this.drawLockedTags(c, s);
     this.drawPops(c, dt, o.placing ? 0.25 : 1);
+    this.drawTurnChips(c, s, o);
     for (const r of this.refusals) {
       const p = this.toScreen(r);
       const text = r.why === 'crossing' ? 'crossing – pick one' : r.why;
@@ -964,7 +965,7 @@ export class Renderer {
 
   /**
    * Crossing plates: a small riveted plate wherever two belts touch, so crossings can be counted.
-   * One where bundles keep waiting their turn grows a "take turns" chip (⇄, a shape, not a hue).
+   * One where bundles keep waiting their turn is drawn cream and grows a chip (`drawTurnChips`).
    */
   private drawPlates(c: Ctx, s: State, o: Overlay) {
     const x = crossingsOf(s);
@@ -992,7 +993,34 @@ export class Renderer {
         c.fill();
       }
       c.restore();
-      if (heat > 0.35 && !dim) this.chip(c, p.x, p.y - 17, 'turns');
+    }
+  }
+
+  /**
+   * The "take turns" chips (⇄, a shape, not a hue) on plates where bundles keep waiting. Drawn in
+   * screen space after pops, so smelters, flights and income pops at the hub never cover them.
+   * Where plates bunch up (the hub fan), the hottest one speaks for its neighbours: chips never
+   * stack on each other, and every hot plate is still drawn cream.
+   */
+  private drawTurnChips(c: Ctx, s: State, o: Overlay) {
+    if (o.placing?.kind === 'smelter') return;
+    const x = crossingsOf(s);
+    const z = this.cam.z;
+    const size = (18 * z) / Math.max(0.75, z);
+    const hot = x.plates
+      .map((p) => ({ p, heat: x.heat.get(p.key) ?? 0 }))
+      .filter((h) => h.heat > 0.35)
+      .sort((a, b) => b.heat - a.heat || a.p.key.localeCompare(b.p.key));
+    const drawn: Point[] = [];
+    for (const { p } of hot) {
+      const q = this.toScreen({ x: p.x, y: p.y - 17 });
+      if (drawn.some((d) => Math.hypot(d.x - q.x, d.y - q.y) < size + 2)) continue;
+      drawn.push(q);
+      c.save();
+      c.translate(q.x, q.y);
+      c.scale(z, z);
+      this.chip(c, 0, 0, 'turns');
+      c.restore();
     }
   }
 

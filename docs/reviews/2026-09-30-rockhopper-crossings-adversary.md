@@ -55,3 +55,23 @@ The reviewer re-ran the witness (reproduced exactly) and the tests (all passing)
 Conditions for a PASS: fix the lock and stress it (500+ seeds, with and without mid-run moves, saturated chains and smelters, no wait over 4 s); re-run the witness with C8-legal tangles and a less tidy bot, and log how often lanes refuse; fix or document the smelter-input case and give v1 saves the notice; a 390 px screenshot with the label clear; a settled-rate log for the clip's B2 move.
 
 Resolution (revision 3): see the design doc.
+
+## Round 3: revision 3
+
+The reviewer reproduced the tests and the witness, then wrote its own generator beyond the stress tool: tier-2 rims too, 5–14 drills, level-5 smelters with 4 inputs, chains of junction drills, random widening, and a "chaos" variant (moves, re-routes, sells, new drills, the switch off for 3 s, save/load mid-run every 7 s). It flagged any bundle still for 20 s outside a machine backlog, since the stress tool's checks miss a lock on one belt. **1,432 runs with plates, 0 locks, worst wait 1.63 s**; every flag traced was a real backlog.
+
+| #    | Verdict            | Main finding                                                                                                                                               |
+| ---- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1   | PASS               | Condition met (0 of 13 input pairs 6–10° apart got a plate). The doc and comment gave the chord, not the exact 10 / sin θ; harmless inside the 7 u margin. |
+| C2   | PASS               | Condition met: lock fixed, no lock in 1,600+ adversarial runs.                                                                                             |
+| C3   | PASS               | Met in round 2.                                                                                                                                            |
+| C4   | PASS (conditional) | The ⇄ chips in the hub knot are still covered by pops and smelters.                                                                                        |
+| C5   | PASS               | Met in round 2.                                                                                                                                            |
+| C6   | PASS               | Label clear of hub, pops and bubbles.                                                                                                                      |
+| C7   | PASS               | v1 saves get the notice.                                                                                                                                   |
+| C8   | PASS (conditional) | A splice up to 40 u off a belt can leave a new belt under a machine (17 of 300 random seeds; not reachable by the in-game drag).                           |
+| Clip | REVISE             | No save a player could build exists for B1; the screenshot save has links that fail "belt blocked".                                                        |
+
+Conditions: lane-check spliced belts, with a test; build B1's save as a legal shuffle and label it prepared; draw the ⇄ chips above pops, with a hub screenshot; add a still-bundle check to the stress tool; fix the C1 wording; record that the switch lets links under machines survive. Open for the playtest: skill or one-time sort (the bot's own layout sits within 3 % of tidy), whether refusing about 37 % of link targets frustrates, whether ⇄ reads at the hub.
+
+Resolution (revision 4): see the design doc.

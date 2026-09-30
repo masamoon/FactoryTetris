@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { beltCapacity, SMELTER_RADIUS, TICK_HZ } from '../src/rockhopper/config';
 import {
+  beltEnds,
   buildDrill,
   buildSmelter,
   canTarget,
@@ -252,6 +253,7 @@ test('saturated random factories with chains, smelters and moves never lock up',
       const r = stress(seed, 90, moves);
       assert.ok(r.worstWait < 4 * TICK_HZ, `seed ${seed}: waited ${r.worstWait} ticks`);
       assert.equal(r.stalledWindows, 0, `seed ${seed}: stopped delivering`);
+      assert.equal(r.locked, 0, `seed ${seed}: a bundle sat still outside a backlog`);
     }
   }
 });
@@ -277,4 +279,42 @@ test('pre-logistics (v1) saves get crossings on, and the notice', () => {
   const loaded = deserialize(JSON.stringify(v1))!;
   assert.equal(loaded.crossings, true);
   assert.equal(loaded.crossingsNotice, true);
+});
+
+// Round 3 found a hole in C8: a smelter spliced up to 40 u off a belt left new belts under machines.
+test('a splice never leaves a belt under a machine', () => {
+  let spliced = 0,
+    refused = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const s = freshState(seed);
+    s.credits = 1e12;
+    s.docks = 9;
+    let r = seed * 7919;
+    const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 8; i++) buildDrill(s, Math.floor(rnd() * 2), rnd() * Math.PI * 2);
+    for (let i = 0; i < 4; i++) buildSmelter(s, { x: (rnd() - 0.5) * 400, y: -60 - rnd() * 140 });
+    for (let k = 0; k < 30; k++) {
+      const ds = drills(s).filter((d) => d.out?.to.kind === 'dock');
+      const d = ds[Math.floor(rnd() * ds.length)];
+      const e = d && beltEnds(s, d);
+      if (!e) continue;
+      const f = 0.3 + rnd() * 0.6;
+      const L = Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y);
+      const off = (rnd() - 0.5) * 70;
+      const p = {
+        x: e.a.x + (e.b.x - e.a.x) * f - ((e.b.y - e.a.y) / L) * off,
+        y: e.a.y + (e.b.y - e.a.y) * f + ((e.b.x - e.a.x) / L) * off,
+      };
+      const res = buildSmelter(s, p, d.id);
+      if (res !== true) {
+        refused++;
+        continue;
+      }
+      spliced++;
+      const sm = s.machines[s.machines.length - 1];
+      assert.ok(canTarget(s, d, d.out!.to), `seed ${seed}: the feed runs under a machine`);
+      assert.ok(canTarget(s, sm, sm.out!.to), `seed ${seed}: the onward belt runs under a machine`);
+    }
+  }
+  assert.ok(spliced > 20 && refused > 0, `spliced ${spliced}, refused ${refused}`);
 });
