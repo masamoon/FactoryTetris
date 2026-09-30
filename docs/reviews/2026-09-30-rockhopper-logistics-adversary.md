@@ -65,3 +65,33 @@ Conditions for a PASS:
 1. The bot re-derives prices and pacing, and shows raw chains still being built by 20 minutes.
 2. The segment-B capture, with an uncut witness and a cells-remaining log.
 3. A human playtest at 390 px, which only the user can run. It stays unresolved, and its findings are reported separately from bot and clip results.
+
+## Round 4: post-implementation review of the merged build (PR #14)
+
+An independent adversarial agent drove the working build: sim probes, and Playwright at 390 and 360 px. `npm test` passed 76/76 and the browser spec 10/10, but most of its findings were cases those tests never exercised.
+
+| #   | Implementation-time decision                    | Verdict | Resolution (PR #15)                                                                                                                                                                                                                                                                                                                   |
+| --- | ----------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Belt capacity of 7.5/s per tier (the tick grid) | PASS    | Capacity is now length-independent: a per-belt load cooldown. Doc figures updated.                                                                                                                                                                                                                                                    |
+| D2  | Tiers moved up to leave a yard                  | REVISE  | Migration refits every belt and moves any v1 smelter that now sits inside a rock or on a socket to the nearest legal spot.                                                                                                                                                                                                            |
+| D3  | Relaxed smelter clearances                      | REVISE  | Every socket, free or not, is reserved for a drill. A splice must leave a feed belt of at least 17 u.                                                                                                                                                                                                                                 |
+| D4  | Snapping slides along the belt                  | REVISE  | A drop on a belt that can't take a smelter is refused with a reason ("already smelted", "already linked", "inputs full", "no room here", "crossing – pick one"). The slide is capped at one smelter width, and the label sits above the ghost.                                                                                        |
+| D5  | The "full" rule                                 | REVISE  | Signals are cause-based. "Full" is sampled at each load chance (bundle full and items still waiting) with smoothing and hysteresis. "Blocked" is sampled when a smelter refuses intake. A belt held downstream (front waiting longer than a load cycle within the last second) is not blamed. Tests cover the three reproduced cases. |
+| D6  | A lone chunk becomes a ×3 bar after 2 s         | PASS    | —                                                                                                                                                                                                                                                                                                                                     |
+| D7  | Move icon and short labels                      | PASS    | —                                                                                                                                                                                                                                                                                                                                     |
+| D8  | Price retune                                    | PASS    | Retuned again for honest belts (see pacing below).                                                                                                                                                                                                                                                                                    |
+
+Bugs found and fixed:
+
+- **Belt items at negative positions** after a splice or move. Relayout now clamps items in order, and items never move backwards.
+- **A smelter overlapping a free socket.** Sockets are reserved.
+- **Short belts beat capacity by 45 %.** Fixed by the load cooldown.
+- **v1 migration.** Stale belt lengths and smelters inside rocks are fixed. Grandfathered inputs now show as coral pips.
+- **Frozen dashes flickering on every junction feeder.** Dashes freeze only after the front has waited about 0.4 s.
+- **Hint hands drawn over an open bubble.** Fixed. The splice hand also gives up after 25 s, or once the player has dragged a smelter.
+- **`?restore=pre-logistics` repeating on every refresh.** The parameter is stripped after use.
+
+Structural finding, recorded and not fixed (it is a design question):
+
+- The player now has real verbs: chain, splice, widen. But geometry is still free (straight, free belts of any length that cross anything), and the dominant play reduces to "merge tree → trunk → smelter → widen the trunk".
+- The user has since asked separately for **free drill placement** (no fixed sockets). That is the next design step, and it would give position a consequence.

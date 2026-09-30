@@ -22,6 +22,7 @@ import {
   cellPos,
   inputsOf,
   moveSmelter,
+  smelterSpotOk,
   widen,
   widenPrice,
   clearLaser,
@@ -197,7 +198,10 @@ test('the zipper gives each source an equal share of a saturated belt', () => {
   const [a, b, c] = drills(s);
   route(s, a.id, { kind: 'drill', id: b.id });
   route(s, c.id, { kind: 'drill', id: b.id });
-  // Keep every source supplied, each with its own ore: b's buffer gold, a copper, c ice.
+  // No rock: only the chunks supplied below move. Keep every source supplied, each with its
+  // own ore: b's buffer gold, a copper, c ice.
+  s.slots[0].rock = null;
+  s.slots[0].arriveAt = 1e9;
   const count = new Map<number, number>([
     [2, 0],
     [3, 0],
@@ -642,4 +646,128 @@ test('the bot still builds raw drill chains by 20 minutes (smelters do not repla
     beats.some((b) => b.label === 'widen'),
     'belts get widened'
   );
+});
+
+test('a lone feeder that outruns its own belt reads full; a slow smelter reads blocked', () => {
+  // A level-5 drill (about 14 chunks/s) on a tier-1 belt into a tier-3 junction.
+  const s = freshState(1);
+  s.credits = 1e9;
+  buildDrill(s, 0, 0);
+  buildDrill(s, 0, 1);
+  const [f, j] = drills(s);
+  route(s, f.id, { kind: 'drill', id: j.id });
+  while (f.level < 5) upgrade(s, f.id);
+  while (j.tier < 3) widen(s, j.id);
+  run(s, 3 * TICK_HZ);
+  assert.ok(f.full, 'the feeder is the limit');
+  assert.ok(!j.full, 'the junction has room');
+  // Two level-5 drills into a level-1 smelter: the smelter is the limit.
+  const t = freshState(1);
+  t.credits = 1e9;
+  buildDrill(t, 0, 0);
+  buildDrill(t, 0, 2);
+  buildSmelter(t, { x: 150, y: -110 });
+  const sm = smelters(t)[0];
+  for (const d of drills(t)) {
+    route(t, d.id, { kind: 'smelter', id: sm.id });
+    while (d.level < 5) upgrade(t, d.id);
+    while (d.tier < 3) widen(t, d.id);
+  }
+  run(t, 4 * TICK_HZ);
+  assert.ok(sm.jam, 'the smelter reads blocked');
+  assert.ok(
+    drills(t).every((d) => !d.full),
+    'its feeders are not blamed'
+  );
+});
+
+test('splicing or moving never puts belt items behind the belt start', () => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  buildDrill(s, 0, 0);
+  const d = drills(s)[0];
+  while (d.level < 5) upgrade(s, d.id);
+  run(s, 3 * TICK_HZ);
+  assert.ok(d.out!.items.length > 5);
+  const e = beltEnds(s, d)!;
+  let spliced = false;
+  for (let f = 0.05; f < 0.95 && !spliced; f += 0.02) {
+    const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
+    spliced = buildSmelter(s, p, d.id) === true;
+  }
+  assert.ok(spliced);
+  const count = (x: typeof d) => x.out!.items.reduce((n, it) => n + it.ores.length, 0);
+  const before = count(d) + d.buffer.length;
+  for (let i = 0; i < 2 * TICK_HZ; i++) {
+    step(s);
+    s.events.length = 0;
+    for (const m of s.machines)
+      for (const it of m.out?.items ?? []) assert.ok(it.pos >= 0 && it.pos <= m.out!.length);
+  }
+  assert.ok(before > 0);
+});
+
+test('belt capacity never depends on belt length (no short-belt bonus)', () => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  buildDrill(s, 0, 0);
+  const d = drills(s)[0];
+  while (d.level < DRILL_MAX_LEVEL) upgrade(s, d.id);
+  // The shortest splice the rules allow, right next to the drill.
+  const e = beltEnds(s, d)!;
+  for (let f = 0.02; f < 0.95; f += 0.01) {
+    const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
+    if (buildSmelter(s, p, d.id) === true) break;
+  }
+  const sm = smelters(s)[0];
+  assert.ok(sm, 'spliced');
+  while (sm.level < 5) upgrade(s, sm.id);
+  run(s, 2 * TICK_HZ);
+  const q0 = s.stats.drillBroken;
+  run(s, 3 * TICK_HZ);
+  const rate = (s.stats.drillBroken - q0) / 3;
+  assert.ok(rate <= beltCapacity(1) * 1.05, `short belt carried ${rate.toFixed(1)}/s`);
+});
+
+test('free sockets are reserved: a smelter can never sit where a drill could go', () => {
+  const s = freshState(1);
+  for (let k = 0; k < SLOTS[0].sockets; k++) {
+    const a = ((90 + (360 / SLOTS[0].sockets) * k) * Math.PI) / 180;
+    const r = SLOTS[0].r * 10 + 18;
+    const q = { x: SLOTS[0].x + Math.cos(a) * r, y: SLOTS[0].y + Math.sin(a) * r };
+    assert.equal(smelterSpotOk(s, q), false, `socket ${k}`);
+    assert.equal(smelterSpotOk(s, { x: q.x + Math.cos(a) * 8, y: q.y + Math.sin(a) * 8 }), false);
+  }
+});
+
+test('a v1 save refits belts to the moved tiers and lifts smelters out of rocks', () => {
+  const s = freshState(1);
+  s.credits = 1e6;
+  buildDrill(s, 0, 0);
+  buildSmelter(s, { x: 150, y: -110 });
+  const sm = smelters(s)[0];
+  route(s, drills(s)[0].id, { kind: 'smelter', id: sm.id });
+  run(s, 3 * TICK_HZ);
+  const v1 = JSON.parse(serialize(s)) as Record<string, unknown> & {
+    machines: Record<string, unknown>[];
+  };
+  v1.version = 1;
+  for (const m of v1.machines) {
+    delete m.tier;
+    delete m.tierBought;
+    if (m.kind === 'smelter') {
+      // Legal in the old layout, now inside the moved first rock.
+      m.x = 0;
+      m.y = SLOTS[0].y + 30;
+    }
+    const out = m.out as { length: number } | null;
+    if (out) out.length = 74.5; // stale, from the old geometry
+  }
+  const loaded = deserialize(JSON.stringify(v1))!;
+  const lsm = smelters(loaded)[0];
+  assert.ok(smelterSpotOk(loaded, lsm, lsm.id), 'moved to a legal spot');
+  for (const m of loaded.machines) {
+    const e = beltEnds(loaded, m);
+    if (e) assert.ok(Math.abs(Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) - m.out!.length) < 1e-6);
+  }
 });

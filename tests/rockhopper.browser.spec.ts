@@ -325,3 +325,39 @@ test('a pre-logistics save is migrated, and the v1 save is never touched', async
   await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
   expect((await hook(page)).credits).toBeGreaterThanOrEqual(777);
 });
+
+test('a smelter is never dropped onto a belt it cannot join (already smelted)', async ({
+  page,
+}) => {
+  await open(page);
+  await threeDrills(page);
+  // Splice one smelter into the middle drill's line, then aim a second at the bar belt it feeds.
+  const placed = await page.evaluate(() => {
+    const a = (
+      window as unknown as {
+        __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown };
+      }
+    ).__rockhopper;
+    const d = a.state.machines.find((m) => m.kind === 'drill' && m.socket === 0)!;
+    for (let y = -170; y < -60; y += 2)
+      if (a.cmd('buildSmelter', { x: 0, y }, d.id) === true) return { x: 0, y };
+    return null;
+  });
+  expect(placed).not.toBeNull();
+  const s = await hook(page);
+  const sm = s.machines.find((m) => m.kind === 'smelter')!;
+  const dock = s.machines.find((m) => m.id === sm.id)!.out!;
+  expect(dock.to.kind).toBe('dock');
+  // Aim at the smelter's own output (bar) belt, halfway to the hub's dock arc.
+  const at = sm as unknown as { x: number; y: number };
+  const aim = await screen(page, at.x / 2, (at.y - 49) / 2);
+  const btn = (await page.locator('.rh-tool[data-kind=smelter]').boundingBox())!;
+  await page.mouse.move(btn.x + btn.width / 2, btn.y + btn.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(aim.x, aim.y + 56, { steps: 12 });
+  await page.waitForTimeout(150);
+  const hovering = await app(page);
+  expect(hovering.placing?.at?.ok).toBe(false);
+  await page.mouse.up();
+  expect((await hook(page)).machines.filter((m) => m.kind === 'smelter')).toHaveLength(1);
+});
