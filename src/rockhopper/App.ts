@@ -31,6 +31,8 @@ import {
   spliceLanesBlocked,
   targetWhy,
   priceOf,
+  drillPriceOn,
+  moveDrillCost,
   sellValue,
   slotVisible,
   smelters,
@@ -300,7 +302,22 @@ export class RockhopperApp {
       this.save();
       setCross();
     });
-    this.syncCrossingsButton = setCross;
+    // The drill-prices experiment: by rock, or the classic price for comparison.
+    const prices = el('button', 'rh-pill');
+    const setPrices = () =>
+      (prices.textContent = this.state.rockPrices
+        ? 'Drill prices: by rock'
+        : 'Drill prices: classic');
+    setPrices();
+    prices.addEventListener('click', () => {
+      this.cmd('setRockPrices', !this.state.rockPrices);
+      this.save();
+      setPrices();
+    });
+    this.syncCrossingsButton = () => {
+      setCross();
+      setPrices();
+    };
     const restart = el('button', 'rh-pill rh-danger rh-hold', '<span>Hold to restart</span>');
     this.holdButton(restart, 1000, () => {
       try {
@@ -323,7 +340,7 @@ export class RockhopperApp {
       'rh-menu-foot',
       'Older prototypes: <a href="?mode=works">Asteroid Works</a> · <a href="?mode=tiles">Tile workshop</a>'
     );
-    card.append(title, resume, sound, cross, restart, classic);
+    card.append(title, resume, sound, cross, prices, restart, classic);
     menu.append(card);
     menu.addEventListener('pointerdown', (e) => {
       if (e.target === menu) this.toggleMenu(false);
@@ -714,12 +731,18 @@ export class RockhopperApp {
       const rim = nearestRim(this.state, w, Math.max(90, 70 / z), moving);
       if (!rim) return { at: { ...w, ok: false, angle: 0 }, sock: null };
       const q = rimPos(rim.slot, rim.angle);
+      // The price where it would land: a new drill's by its rock, a move's when it costs.
+      const price =
+        moving === undefined
+          ? drillPriceOn(this.state, rim.slot)
+          : moveDrillCost(this.state, moving, rim.slot);
       const at = {
         ...q,
         ok: !rim.why,
         angle: rim.angle + Math.PI / 2,
         why: rim.why || undefined,
         slot: rim.slot,
+        price: price > 0 && (this.state.rockPrices || moving === undefined) ? price : undefined,
       };
       return { at, sock: rim.why ? null : rim };
     }

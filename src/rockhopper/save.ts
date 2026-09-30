@@ -118,6 +118,8 @@ export function deserialize(text: string): State | null {
       // Saves from before the crossings experiment turn it on, and the game says so once.
       crossings: typeof raw.crossings === 'boolean' ? raw.crossings : true,
       crossingsNotice: typeof raw.crossings !== 'boolean' ? true : undefined,
+      // Saves from before the drill-prices experiment load with it on.
+      rockPrices: typeof raw.rockPrices === 'boolean' ? raw.rockPrices : true,
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
