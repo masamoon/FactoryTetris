@@ -72,7 +72,7 @@ export class Sfx {
       else if (e.type === 'build' || e.type === 'move') {
         this.tone('build', 180, { type: 'square', gain: 0.05, dur: 0.12, slide: 0.5, gap: 0 });
         this.tone('build2', 360, { type: 'triangle', gain: 0.04, dur: 0.1, slide: 1.5, gap: 0 });
-      } else if (e.type === 'upgrade' || e.type === 'hub')
+      } else if (e.type === 'upgrade' || e.type === 'hub' || e.type === 'widen')
         this.tone('up', 520, { type: 'triangle', gain: 0.05, dur: 0.16, slide: 2, gap: 0 });
       else if (e.type === 'unlock')
         this.tone('unlock', 392, { type: 'triangle', gain: 0.06, dur: 0.4, slide: 2, gap: 0 });

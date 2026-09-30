@@ -7,19 +7,23 @@
  */
 import { SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
+  beltEnds,
   buildDrill,
   buildSmelter,
+  canSplice,
+  canTarget,
   cellPos,
   clearLaser,
   drills,
   freeSockets,
   freshState,
   hubCost,
+  inputsOf,
+  machinePos,
   priceOf,
   route,
   setLaser,
   slotVisible,
-  smelterInputsOf,
   smelterSpotOk,
   smelters,
   step,
@@ -28,7 +32,11 @@ import {
   upgrade,
   upgradeCost,
   upgradeHub,
+  widen,
+  widenPrice,
+  type Machine,
   type State,
+  type Target,
 } from '../src/rockhopper/sim';
 
 export interface Beat {
@@ -40,19 +48,39 @@ export interface BotOptions {
   minutes: number;
   laser: boolean;
   seed: number;
-  /** Stop after this many drills (for clip witnesses). */
   log?: (line: string) => void;
 }
 
-/** Open space about a third of the way from the newest drills' rock to the hub. */
-function smelterSpot(s: State): { x: number; y: number } | null {
-  const ds = drills(s);
-  const d = ds.find((x) => !x.out) ?? ds[ds.length - 1];
-  const aim = d ? { x: SLOTS[d.slot].x * 0.6, y: SLOTS[d.slot].y * 0.62 } : { x: 0, y: -110 };
-  const tries: { x: number; y: number }[] = [];
-  for (let y = -60; y >= -1000; y -= 15) for (let x = -300; x <= 300; x += 15) tries.push({ x, y });
-  tries.sort((a, b) => Math.hypot(a.x - aim.x, a.y - aim.y) - Math.hypot(b.x - aim.x, b.y - aim.y));
-  return tries.find((p) => smelterSpotOk(s, p)) ?? null;
+/** A spot on a drill's dock-bound belt where a smelter can be spliced in, nearest the drill. */
+function spliceSpot(s: State, owner: Machine): { x: number; y: number } | null {
+  const e = beltEnds(s, owner);
+  if (!e) return null;
+  for (let f = 0.25; f <= 0.9; f += 0.05) {
+    const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
+    if (smelterSpotOk(s, p) && canSplice(s, owner, null, p)) return p;
+  }
+  return null;
+}
+
+/** Link an unlinked machine: the nearest drill junction or smelter with room (never a loop). */
+function linkUp(s: State, m: Machine): Target | null {
+  const p = machinePos(m);
+  let best: Target | null = null,
+    bd = Infinity;
+  for (const x of s.machines) {
+    if (!x.out) continue;
+    const t = { kind: x.kind, id: x.id } as Target;
+    if (!canTarget(s, m, t)) continue;
+    const q = machinePos(x);
+    // Prefer machines whose belt is not already saturated, and smelters for raw drills.
+    const d =
+      Math.hypot(q.x - p.x, q.y - p.y) + (x.full ? 400 : 0) + (x.kind === 'smelter' ? -40 : 0);
+    if (d < bd) {
+      bd = d;
+      best = t;
+    }
+  }
+  return best && route(s, m.id, best) === true ? best : null;
 }
 
 export function runBot(opts: BotOptions): {
@@ -97,13 +125,21 @@ export function runBot(opts: BotOptions): {
   return { state: s, beats, income };
 }
 
+/** Raw chains: drills feeding drill junctions (the logistics the smelters must not replace). */
+export const rawChains = (s: State) => drills(s).filter((d) => d.out?.to.kind === 'drill').length;
+
 function act(s: State, mark: (l: string) => void) {
+  // Free moves first: link anything unlinked.
+  for (const m of s.machines) {
+    if (m.out) continue;
+    const t = linkUp(s, m);
+    if (t?.kind === 'drill') mark('first chain');
+  }
   const ds = drills(s);
   const sms = smelters(s);
   // Candidate purchases, each scored by estimated payoff per credit; buy the best affordable.
-  type Option = { cost: number; score: number; label: string; run: () => void };
+  type Option = { cost: number; score: number; label: string; run: () => unknown };
   const options: Option[] = [];
-  // Drill into a free socket, preferring richer tiers.
   for (let i = 0; i < SLOTS.length; i++) {
     if (!s.slots[i].unlocked) continue;
     const free = freeSockets(s, i);
@@ -117,24 +153,44 @@ function act(s: State, mark: (l: string) => void) {
     });
   }
   const unlinked = s.machines.filter((m) => !m.out).length;
-  const backedUp = sms.filter((sm) => sm.queue.length >= 4).length;
-  if (unlinked > 0 || backedUp > 0 || (sms.length === 0 && ds.length >= 3)) {
-    const spot = smelterSpot(s);
+  const saturated = s.machines.filter((m) => m.full && m.out);
+  const jammed = sms.filter((m) => m.jam);
+  // A smelter spliced into a busy dock line: compress it and triple its value.
+  const lines = ds
+    .filter((d) => d.out?.to.kind === 'dock')
+    .sort((a, b) => inputsOf(s, b.id).length - inputsOf(s, a.id).length || b.level - a.level);
+  // Only raw lines are worth compressing: skip lines that already run through a smelter.
+  const raw = lines.filter(
+    (d) =>
+      !s.machines.some(
+        (x) =>
+          x.kind === 'smelter' &&
+          x.out?.to.kind === 'dock' &&
+          x.out.to.index === (d.out!.to as { index: number }).index
+      )
+  );
+  const line = raw.find((d) => spliceSpot(s, d));
+  if (line && ds.length >= 3) {
     const cost = priceOf(s, 'smelter');
-    if (spot)
-      options.push({
-        cost,
-        score: (3 + unlinked) / cost,
-        label: 'smelter',
-        run: () => buildSmelter(s, spot),
-      });
+    options.push({
+      cost,
+      score: (3.5 + unlinked) / cost,
+      label: 'smelter',
+      run: () => buildSmelter(s, spliceSpot(s, line)!, line.id),
+    });
+  }
+  for (const m of saturated) {
+    const c = widenPrice(s, m);
+    if (c !== null)
+      options.push({ cost: c, score: 2.2 / c, label: 'widen', run: () => widen(s, m.id) });
   }
   const dc = hubCost(s, 'docks');
-  if (dc !== null && (unlinked > 0 || backedUp > 0))
+  const docksFull = s.machines.filter((m) => m.out?.to.kind === 'dock').length >= s.docks;
+  if (dc !== null && (unlinked > 0 || (docksFull && saturated.length > 0)))
     options.push({ cost: dc, score: 2.5 / dc, label: 'dock', run: () => upgradeHub(s, 'docks') });
   for (let i = 0; i < SLOTS.length; i++) {
     const c = unlockCost(s, i);
-    if (c !== null && slotVisible(s, i) && ds.filter((d) => d.slot !== undefined).length >= 2)
+    if (c !== null && slotVisible(s, i) && ds.length >= 2)
       options.push({
         cost: c,
         score: (SLOTS[i].tier * 4) / c,
@@ -144,14 +200,17 @@ function act(s: State, mark: (l: string) => void) {
   }
   for (const m of s.machines) {
     const c = upgradeCost(m);
-    if (c !== null)
-      options.push({
-        cost: c,
-        score: (m.kind === 'drill' ? 0.7 : 0.9) / c,
-        label: `${m.kind} upgrade`,
-        run: () => upgrade(s, m.id),
-      });
+    if (c === null) continue;
+    // Upgrading a belt-limited drill is a dead purchase; a jammed smelter is worth it.
+    const w = m.kind === 'drill' ? (m.full ? 0.1 : 0.7) : m.jam ? 2 : 0.6;
+    options.push({
+      cost: c,
+      score: w / c,
+      label: `${m.kind} upgrade`,
+      run: () => upgrade(s, m.id),
+    });
   }
+  void jammed;
   const tc = hubCost(s, 'tractor');
   if (tc !== null)
     options.push({
@@ -165,29 +224,11 @@ function act(s: State, mark: (l: string) => void) {
     options.push({ cost: lc, score: 0.8 / lc, label: 'laser', run: () => upgradeHub(s, 'laser') });
   options.sort((a, b) => b.score - a.score);
   const pick = options[0];
-  if (pick && s.credits >= pick.cost) {
-    pick.run();
+  if (pick && s.credits >= pick.cost && pick.run() === true) {
     const n = (l: string) => s.machines.filter((m) => m.kind === l).length;
     if (pick.label === 'drill') mark(`drill #${n('drill')}`);
     else if (pick.label === 'smelter') mark(`smelter #${n('smelter')}`);
     else mark(pick.label);
-    // Relieve backed-up smelters: move one of their drills to any free dock.
-    for (let i = 0; i < s.docks; i++) {
-      const used = s.machines.some((m) => m.out?.to.kind === 'dock' && m.out.to.index === i);
-      if (used) continue;
-      const jammed = smelters(s).find((sm) => sm.queue.length >= 4);
-      const d =
-        jammed && drills(s).find((x) => x.out?.to.kind === 'smelter' && x.out.to.id === jammed.id);
-      if (d) route(s, d.id, { kind: 'dock', index: i });
-    }
-    // Route direct-to-dock drills into smelters with spare inputs, freeing docks.
-    for (const sm of smelters(s)) {
-      for (const d of drills(s)) {
-        if (smelterInputsOf(s, sm.id).length >= 3) break;
-        if (d.out?.to.kind === 'dock' && drills(s).some((x) => !x.out))
-          route(s, d.id, { kind: 'smelter', id: sm.id });
-      }
-    }
   }
   if (s.slots.filter((x) => x.unlocked).length === 3) mark('T1 fully unlocked');
   if (s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 2)) mark('T2 reached');
@@ -215,7 +256,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
       .join('  ')
   );
   console.log(
-    `\nend: credits ${state.credits}, earned ${state.earned}, drills ${drills(state).length}, smelters ${smelters(state).length}, docks ${state.docks}, laser ${state.laserLevel}, stats`,
+    `\nend: credits ${state.credits}, earned ${state.earned}, drills ${drills(state).length}, raw chains ${rawChains(state)}, smelters ${smelters(state).length}, docks ${state.docks}, tiers ${state.machines.map((m) => m.tier).join('')}, laser ${state.laserLevel}, stats`,
     state.stats
   );
 }

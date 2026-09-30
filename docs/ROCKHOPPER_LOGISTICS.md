@@ -1,6 +1,6 @@
 # Rockhopper — logistics revision (proposal, 2026-09-30)
 
-Status: **revision 2, pending round-2 adversarial review.** Nothing here is adopted until it passes.
+Status: **PASS (round 3), scoped as a reversible experiment for the user's playtest.** It is not evidence of fun or balance.
 
 ## User feedback (2026-09-30)
 
@@ -58,6 +58,52 @@ Save migration (v1 stays loadable):
   - **B2.** The player taps the junction drill, and the bubble reads "belt-limited". Widen to tier 2 (17/s): stacks of two appear, the piles drain, and the shot holds about 6 s so the settled income is shown, not the backlog flush.
   - **B3.** On another line (two level-1 drills, about 6.2/s), the player drags a smelter. The cream hologram floats, the line glows at the crosshair, and the smelter lands on its pad. Pairs go in, single bars come out, and the pops show the ×3 rate once it settles.
   - **B4.** A newly bought drill shows "no link": the next decision.
+
+## Revision 3 (after round-2 review)
+
+Round 2 passed L5, L6 and P1, and accepted a PASS scoped to an experiment once the rest is fixed. Revision 3 changes only these points; everything else in revision 2 stands.
+
+- **L1**
+  - **Input caps:** a drill accepts at most **2** input belts, so a wide merge has to branch through more drills. A star into one collector is impossible.
+  - **Keeps forwarding:** a receiving drill forwards even while its own rock crumbles, is empty or is being towed.
+  - **Zipper pointer:** it persists across loads, so the drill's own buffer is not served first every time.
+  - **Target matrix:**
+    - A drill may target a free dock, a smelter with a free input, or a drill with a free input (not itself, no loop).
+    - A smelter may target a free dock or a drill with a free input. A smelter never feeds a smelter.
+    - Bars joining a raw junction ride in their own bundles. Part-empty bundles are accepted.
+- **L2**
+  - **What the price counts:** `n` is the number of tier steps currently **bought** and owned. Selling a machine lowers it.
+  - **Migrated tiers:** tiers granted by save migration are recorded as unbought and never raise `n`.
+  - **Smelters:** the smelter bubble also shows Widen.
+- **L3**
+  - Intake peels **as many chunks per tick as the queue has room for** (still round-robin, one chunk per input in turn), so a smelter is never capped at 30 chunks/s.
+  - Prices and pacing are re-derived with the bot.
+- **L4**
+  - **Tolerances are measured on screen:**
+    - The crosshair splices when it is within max(8 u, 12 px / zoom) of a belt's centre line, and the ghost visibly **snaps** onto that line.
+    - The drop is refused only if a second belt passes within max(3 u, 4 px / zoom) of the snapped point.
+  - **Clearances:** the existing ones stay (rock radius + socket gap + smelter radius + 4 u, the hub + smelter radius + 26 u, and other machines).
+  - **Recovery:** after a standalone drop, the first time, a hand shows dragging a drill onto the new smelter.
+  - **Heal on sell:** the lowest-id input takes over the sold machine's target. The other inputs chain into it while it has free inputs, and any left over become unlinked. This can't create a loop.
+- **L7**
+  - **Blocked:** a **‖** chip at the belt's end, and the belt's dashes freeze. It uses the same glyph as P3.
+  - **Saturated:** a **"full"** chip showing a stack of chunks, drawn on the machine that loads the belt. That includes a lone drill that outruns its own belt.
+  - Both chips have 1 s of hysteresis.
+- **Clip B1/B2**
+  - **B1:** with a fair zipper, all three level-2 drills pile up (each gets about 2.8 of the 4.5 chunks/s it produces).
+  - **B2:** a T1 rock yields about 90 cells before it crumbles, so the hold ends in the crumble. It is shown honestly as depletion followed by the tow, and "settled income" is measured only before the crumble, from belt deliveries (the bot witness logs the cells remaining).
+- **Migration**
+  - **Existing smelter links:** links over the new input caps are **grandfathered** until the player changes one.
+  - **Tier counter:** migrated tiers don't count toward `n`.
+  - **Backup:** before migrating, the untouched v1 text is copied to `rockhopper.save.v1.pre-logistics`, so the experiment can be undone.
+  - **Save version:** the save stays under `rockhopper.save.v1`, with an internal `version: 2`.
+- **Round-3 fixes (written in as the PASS requires)**
+  - **Heal on sell:** the heir takes the sold machine's target only if the target matrix and the input caps allow it. Otherwise the heir and the remaining inputs become unlinked. Tested with smelter → drill → smelter.
+  - **Restore path:** the experiment saves to a **new key**, `rockhopper.save.v2`. It migrates `rockhopper.save.v1` on first load and **never writes or deletes the v1 key**, so rolling back to the old build finds the untouched pre-logistics save.
+    - `?restore=pre-logistics` deletes the v2 save and re-migrates from v1.
+    - Menu → restart clears only v2.
+    - A test covers migration, v1 staying untouched, restoring, and loading with the v1 validator.
+- **Scope:** a PASS authorizes implementing this as a **reversible experiment for the user's playtest**. It is not evidence of fun or balance. Bot and clip results are reported separately from human findings.
 
 ## Open conditions
 

@@ -1,10 +1,26 @@
-import { CELL, DT, HUB_RADIUS, LASER_POWER, ORES, SLOTS, TRACTOR_MAX, DOCKS_MAX } from './config';
+import {
+  BELT_TIER_MAX,
+  beltCapacity,
+  CELL,
+  DT,
+  HUB_RADIUS,
+  LASER_POWER,
+  ORES,
+  SLOTS,
+  TRACTOR_MAX,
+  DOCKS_MAX,
+} from './config';
 import { Renderer, formatNumber, type Overlay } from './render';
 import {
+  beltsNear,
+  beltEnds as beltEndsOf,
   byId,
+  canSplice,
   canTarget,
+  sameTarget,
   dockPos,
   drills,
+  inputsOf,
   freshState,
   hubCost,
   machinePos,
@@ -19,16 +35,19 @@ import {
   step,
   unlockCost,
   upgradeCost,
+  widenPrice,
   type HubUpgrade,
   applyCommand,
   type CommandName,
   type LoggedCommand,
+  type Machine,
   type Point,
   type State,
   type Target,
 } from './sim';
 import {
   deserialize,
+  LEGACY_SAVE_KEY,
   loadSettings,
   SAVE_KEY,
   saveSettings,
@@ -60,6 +79,9 @@ type Gesture =
     }
   | { type: 'pinch'; d0: number; z0: number; mx: number; my: number }
   | { type: 'none' };
+
+const pt = (p: Point) => ({ x: p.x, y: p.y });
+const splice = (p: object) => ('splice' in p ? (p.splice as number) : null);
 
 type Bubble = { kind: 'machine'; id: number } | { kind: 'hub' } | { kind: 'locked'; slot: number };
 
@@ -94,8 +116,12 @@ export class RockhopperApp {
     trayDrill: null,
     hintHold: false,
     hintDrag: false,
+    hintJoin: null,
+    hintSplice: null,
     reducedMotion: false,
   };
+  /** Tutorial state for the logistics hands (splice, join, recovery). */
+  private taught = { splice: false, join: false };
   private armed: { kind: 'drill' | 'smelter'; moving?: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private gesture: Gesture = { type: 'none' };
@@ -120,7 +146,9 @@ export class RockhopperApp {
     let loaded: State | null = null;
     if (!params.has('fresh')) {
       try {
-        const text = localStorage.getItem(SAVE_KEY);
+        // Undo the logistics experiment's save: the untouched v1 save is migrated again.
+        if (params.get('restore') === 'pre-logistics') localStorage.removeItem(SAVE_KEY);
+        const text = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(LEGACY_SAVE_KEY);
         if (text) loaded = deserialize(text);
       } catch {
         loaded = null;
@@ -536,6 +564,7 @@ export class RockhopperApp {
         const target = this.snapTarget(g.id, p);
         if (target) {
           if (this.cmd('route', g.id, target) !== true) this.sfx.deny();
+          else if (target.kind !== 'dock') this.taught.join = true;
         }
         this.overlay.reroute = null;
       } else if (performance.now() - g.t0 < 300) this.openBubble({ kind: 'machine', id: g.id });
@@ -574,7 +603,7 @@ export class RockhopperApp {
     let best: Target | null = null,
       bestD = reach;
     const consider = (t: Target, q: Point, extra = 0) => {
-      const same = m.out && JSON.stringify(m.out.to) === JSON.stringify(t);
+      const same = m.out && sameTarget(m.out.to, t);
       if (!same && !canTarget(this.state, m, t)) return;
       const d = Math.hypot(q.x - w.x, q.y - w.y) - extra;
       if (d < bestD) {
@@ -583,8 +612,9 @@ export class RockhopperApp {
       }
     };
     for (let i = 0; i < this.state.docks; i++) consider({ kind: 'dock', index: i }, dockPos(i));
-    if (m.kind === 'drill')
-      for (const sm of smelters(this.state)) consider({ kind: 'smelter', id: sm.id }, sm, 12);
+    // Machines are big targets: a smelter, or a drill acting as a junction.
+    for (const x of this.state.machines)
+      consider({ kind: x.kind, id: x.id } as Target, machinePos(x), x.kind === 'smelter' ? 12 : 4);
     if (!best && Math.hypot(w.x, w.y) < HUB_RADIUS + 20) {
       // Dropped on the hub body: take the nearest free dock.
       let bd = Infinity;
@@ -615,6 +645,51 @@ export class RockhopperApp {
       };
     }
     const w = this.renderer.toWorld(screen.x, screen.y - 56);
+    // Dropped on a belt, a smelter goes into that line: the crosshair snaps onto the belt when
+    // within 12 px. A second belt right at the snap point (a crossing) refuses the drop.
+    const sm = moving === undefined ? null : byId(this.state, moving);
+    const canSpliceHere = !sm || (sm.kind === 'smelter' && !sm.out);
+    const near = canSpliceHere
+      ? beltsNear(this.state, w, Math.max(8, 12 / z)).filter((b) => b.id !== moving)
+      : [];
+    const hit = near.find((b) => {
+      const owner = byId(this.state, b.id);
+      return canSplice(this.state, owner, sm?.kind === 'smelter' ? sm : null, b.q);
+    });
+    if (hit) {
+      // Slide along that belt to the nearest spot with room and no crossing, so the player
+      // picks the line and the game finds the footing.
+      const owner = byId(this.state, hit.id)!;
+      const e = beltEndsOf(this.state, owner)!;
+      const len = Math.hypot(e.b.x - e.a.x, e.b.y - e.a.y) || 1;
+      const clear = (q: Point) =>
+        !beltsNear(this.state, q, Math.max(3, 4 / z)).some(
+          (b) => b.id !== hit.id && b.id !== moving
+        );
+      let crossingOnly = false;
+      for (let d = 0; d <= len; d += 2) {
+        for (const dir of d ? [1, -1] : [1]) {
+          const t = hit.t + (dir * d) / len;
+          if (t < 0 || t > 1) continue;
+          const q = { x: e.a.x + (e.b.x - e.a.x) * t, y: e.a.y + (e.b.y - e.a.y) * t };
+          if (!smelterSpotOk(this.state, q, moving)) continue;
+          if (!clear(q)) {
+            crossingOnly = true;
+            continue;
+          }
+          return { at: { ...q, ok: true, splice: hit.id }, sock: null };
+        }
+      }
+      return {
+        at: {
+          ...hit.q,
+          ok: false,
+          splice: hit.id,
+          why: crossingOnly ? 'crossing' : 'no room on this line',
+        },
+        sock: null,
+      };
+    }
     return { at: { ...w, ok: smelterSpotOk(this.state, w, moving) }, sock: null };
   }
 
@@ -628,18 +703,32 @@ export class RockhopperApp {
     if (moving !== undefined) {
       if (kind === 'drill' && spot.sock)
         r = this.cmd('moveDrill', moving, spot.sock.slot, spot.sock.socket);
-      else if (kind === 'smelter' && spot.at.ok) r = this.cmd('moveSmelter', moving, spot.at);
+      else if (kind === 'smelter' && spot.at.ok)
+        r = this.cmd('moveSmelter', moving, pt(spot.at), splice(spot.at));
     } else if (kind === 'drill' && spot.sock)
       r = this.cmd('buildDrill', spot.sock.slot, spot.sock.socket);
-    else if (kind === 'smelter' && spot.at.ok) r = this.cmd('buildSmelter', spot.at);
+    else if (kind === 'smelter' && spot.at.ok)
+      r = this.cmd('buildSmelter', pt(spot.at), splice(spot.at));
     if (r !== true) {
       this.sfx.deny();
       if (r === 'credits') this.flashCounter();
       return false;
     }
+    if (kind === 'smelter') {
+      this.taught.splice = true;
+      const sm = moving ?? this.state.machines[this.state.machines.length - 1]?.id;
+      const m = sm === undefined ? null : byId(this.state, sm);
+      // A standalone smelter with nothing to do: show dragging a drill onto it, once.
+      if (m && !m.out && !inputsOf(this.state, m.id).length && !this.recovered) {
+        this.recoverFor = m.id;
+      }
+    }
     this.save();
     return true;
   }
+
+  private recoverFor: number | null = null;
+  private recovered = false;
 
   private flashCounter() {
     this.counterEl.classList.remove('rh-deny');
@@ -685,19 +774,23 @@ export class RockhopperApp {
       const m = byId(s, b.id);
       if (!m) return this.closeBubble();
       const c = upgradeCost(m);
-      key = `m${m.id}:${m.level}:${c}`;
+      const wc = widenPrice(s, m);
+      const limited = m.full && !!m.out;
+      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${!!m.out}:${m.kind === 'smelter' && m.jam}`;
       build = () => {
         const up = el(
           'button',
-          'rh-pill rh-go',
-          `<span class="rh-lv">Lv ${m.level}</span>${c === null ? 'MAX' : `Upgrade ${cost(c)}`}`
+          'rh-pill rh-go rh-stack',
+          `<span class="rh-lv">Lv ${m.level}</span><span>${c === null ? 'MAX' : `Up ${cost(c)}`}</span>`
         );
         up.setAttribute(
           'aria-label',
           c === null ? 'Fully upgraded' : `Upgrade to level ${m.level + 1} for ${c}`
         );
-        this.bubbleRefresh = () =>
+        this.bubbleRefresh = () => {
           up.classList.toggle('rh-poor', c === null || this.state.credits < c);
+          wide.classList.toggle('rh-poor', wc === null || this.state.credits < wc);
+        };
         this.repeatButton(up, () => {
           const r = this.cmd('upgrade', m.id);
           if (r !== true) {
@@ -706,7 +799,30 @@ export class RockhopperApp {
           }
           return true;
         });
-        const move = el('button', 'rh-pill', 'Move');
+        // Widen: the machine's own output belt, one tier (bigger bundles) at a time.
+        const wide = el(
+          'button',
+          'rh-pill rh-go rh-stack rh-widen',
+          `<span class="rh-lv">Belt ${m.tier}/${BELT_TIER_MAX}</span><span>${wc === null ? 'MAX' : `Widen ${cost(wc)}`}</span>`
+        );
+        wide.setAttribute(
+          'aria-label',
+          wc === null
+            ? 'Belt fully widened'
+            : `Widen belt to carry ${Math.round(beltCapacity(m.tier + 1))} per second for ${wc}`
+        );
+        this.repeatButton(wide, () => {
+          const r = this.cmd('widen', m.id);
+          if (r === 'credits') this.flashCounter();
+          return r === true;
+        });
+        const move = el(
+          'button',
+          'rh-round rh-move',
+          '<svg viewBox="0 0 22 22" aria-hidden="true"><path d="M11 2 V20 M2 11 H20 M11 2 L8 5 M11 2 L14 5 M11 20 L8 17 M11 20 L14 17 M2 11 L5 8 M2 11 L5 14 M20 11 L17 8 M20 11 L17 14"/></svg>'
+        );
+        move.setAttribute('aria-label', 'Move');
+        move.title = 'Move';
         move.addEventListener('click', () => {
           this.armed = { kind: m.kind, moving: m.id };
           this.overlay.placing = { kind: m.kind, at: null, moving: m.id };
@@ -725,7 +841,21 @@ export class RockhopperApp {
           this.save();
         });
         const gap = el('span', 'rh-gap');
-        this.bubbleEl.replaceChildren(up, move, gap, sellB);
+        const row = el('div', 'rh-row');
+        row.append(up, wide, move, gap, sellB);
+        const note = el(
+          'div',
+          'rh-note',
+          !m.out
+            ? 'No link: drag from it onto a drill, smelter or dock'
+            : limited
+              ? '<b>Belt-limited</b>: widen the belt'
+              : m.kind === 'smelter' && m.jam
+                ? '<b>Smelter-limited</b>: upgrade the smelter'
+                : ''
+        );
+        note.hidden = !note.innerHTML;
+        this.bubbleEl.replaceChildren(note, row);
       };
     } else if (b.kind === 'hub') {
       const items: [HubUpgrade, string, string][] = [
@@ -978,7 +1108,84 @@ export class RockhopperApp {
       !this.overlay.finger &&
       !this.overlay.placing &&
       showTray;
-    if (this.clipMode) this.overlay.hintHold = this.overlay.hintDrag = false;
+    this.logisticsHints(showSmelter);
+    if (this.clipMode) {
+      this.overlay.hintHold = this.overlay.hintDrag = false;
+      this.overlay.hintJoin = this.overlay.hintSplice = null;
+    }
+  }
+
+  /**
+   * The logistics hands. Splice: the first smelter, from the tray onto a drill's belt. Join: an
+   * unlinked drill, dragged onto a neighbouring drill or smelter. Recovery: a standalone smelter
+   * with nothing feeding it, with a drill dragged onto it.
+   */
+  private logisticsHints(showSmelter: boolean) {
+    const s = this.state;
+    const o = this.overlay;
+    const busy = !!o.finger || !!o.placing || !!o.reroute || this.gesture.type !== 'none';
+    o.hintSplice = null;
+    o.hintJoin = null;
+    if (busy) return;
+    const learned = s.machines.some((m) => m.out && m.out.to.kind !== 'dock');
+    if (learned) this.taught.join = true;
+    if (smelters(s).length) this.taught.splice = true;
+    const smelterBtn = this.tools.smelter.button.getBoundingClientRect();
+    const cr = this.canvas.getBoundingClientRect();
+    if (
+      !this.taught.splice &&
+      showSmelter &&
+      s.credits >= priceOf(s, 'smelter') &&
+      smelterBtn.width > 0
+    ) {
+      const line = drills(s).find((d) => d.out?.to.kind === 'dock');
+      const e = line && beltEndsOf(s, line);
+      if (e)
+        o.hintSplice = {
+          from: {
+            x: smelterBtn.left + smelterBtn.width / 2 - cr.left,
+            y: smelterBtn.top + smelterBtn.height / 2 - cr.top,
+          },
+          to: { x: e.a.x + (e.b.x - e.a.x) * 0.45, y: e.a.y + (e.b.y - e.a.y) * 0.45 },
+        };
+      return;
+    }
+    const pair = (from: Machine, test: (x: Machine) => boolean) => {
+      const p = machinePos(from);
+      let best: Machine | null = null,
+        bd = Infinity;
+      for (const x of s.machines) {
+        if (x === from || !test(x)) continue;
+        if (!canTarget(s, from, { kind: x.kind, id: x.id } as Target)) continue;
+        const q = machinePos(x);
+        const d = Math.hypot(q.x - p.x, q.y - p.y);
+        if (d < bd) {
+          bd = d;
+          best = x;
+        }
+      }
+      return best;
+    };
+    if (this.recoverFor !== null) {
+      const sm = byId(s, this.recoverFor);
+      if (!sm || inputsOf(s, sm.id).length) {
+        this.recoverFor = null;
+        this.recovered = true;
+      } else {
+        const at = machinePos(sm);
+        const dist = (x: Machine) => Math.hypot(machinePos(x).x - at.x, machinePos(x).y - at.y);
+        const feeder = drills(s)
+          .filter((x) => canTarget(s, x, { kind: 'smelter', id: sm.id }))
+          .sort((a, b) => dist(a) - dist(b))[0];
+        if (feeder) o.hintJoin = { from: machinePos(feeder), to: at };
+        return;
+      }
+    }
+    if (!this.taught.join) {
+      const lonely = drills(s).find((d) => !d.out);
+      const to = lonely && pair(lonely, () => true);
+      if (lonely && to) o.hintJoin = { from: machinePos(lonely), to: machinePos(to) };
+    }
   }
 
   /** Draw a dot under every real pointer, so captured clips show what the player did. */
