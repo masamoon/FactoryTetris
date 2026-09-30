@@ -95,3 +95,14 @@ The reviewer re-ran the tests, reproduced the prepared save, probed splices (400
 Play-through findings: re-routing onto a lane-blocked target was silent (no snap, nothing on release); a Move could jump the drill to a neighbouring rock instead of saying "belt blocked"; smelter moves are refused at 63 % of open spots in a developed factory; misleading splice refusal text; the rim glow cost about 10 ms per frame at 25 machines while dragging a drill; the hint's ring could hop between plates. No save/load or switch bugs, no console errors.
 
 Resolution (revision 5): see the design doc.
+
+## Round 5: revision 5 (narrow)
+
+Only revision 5's changes were checked (Playwright at 390 px and headless scripts, not a playtest). **Every item passed; no bugs found.**
+
+- **C4: PASS.** Across about 2,400 recorded frames, at most 3 chips showed at default zoom and 5 at 2.2×. The closest two chips came was 2.17 chip widths apart. No chip was drawn over the teaching label. The hint ring moves only when its plate cools below the heat threshold, which a player may see happen once.
+- **Clip: PASS.** The tool's log matches the doc. B2's three re-routes, done as real drags, were each accepted; the knot dropped to 2 plates and income to about 270/s over 30 s.
+- **"belt blocked" while dragging: PASS.** The label shows only for lane refusals. When a blocked target is nearer the finger than a legal one, the refusal wins (3 % of random drags near machines at 0.67× zoom, 0.02 % at 2.2×; never with the finger on a legal machine's body).
+- **Splice text: PASS.** "belt blocked" shows only when lanes refuse. A loop refusal still reads "no room here" (older, not new).
+- **Nearest rock only: PASS (as designed).** In 8 % of finger positions between close rocks, a crowded nearer rock now refuses instead of the ghost jumping; the 14 u gaps between tier-1 rocks need more precise aim.
+- **Rim-glow cache: PASS.** It was never stale across respawns, a sell, an unlock, a committed move, the switch, or a level-up.

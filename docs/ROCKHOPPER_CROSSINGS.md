@@ -1,6 +1,6 @@
 # Rockhopper: belt crossings (proposal, 2026-09-30)
 
-Status: **revision 5, built behind a switch for the user's playtest** (round 4 passed every rule; revision 5 fixes the clip and the play-through findings) (the user chose the full AGENTS.md process for this feature). It is prototyped on this branch behind a switch, so the reviewers' evidence could be measured; it is not adopted until it passes. Rounds 1–4 are recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
+Status: **revision 5, passed round 5; built behind a switch (on by default) for the user's playtest**. It is a reversible experiment, not adopted until the playtest says so (the user chose the full AGENTS.md process for this feature). It is prototyped on this branch behind a switch, so the reviewers' evidence could be measured; it is not adopted until it passes. Rounds 1–5 are recorded in [the review](reviews/2026-09-30-rockhopper-crossings-adversary.md).
 
 ## Why
 
