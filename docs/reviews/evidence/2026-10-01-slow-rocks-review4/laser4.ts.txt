@@ -1,0 +1,21 @@
+import { ORES, LASER_POWER, TICK_HZ } from './src/rockhopper/config';
+import { generateRock } from './src/rockhopper/sim';
+const DT = 1 / TICK_HZ;
+const band = (l: number, D: number) => (l === 0 ? 4 : l <= D / 4 ? 3 : l <= D / 2 ? 2 : l < D ? 1 : 0);
+function run(slot: number, depth: number, lvl: number, aim: 'centre' | 'best', T: number) {
+  const rock = generateRock(slot, 1, 1); const w = rock.w, c = rock.r + 1;
+  const L = rock.cells.map((x) => (x ? depth : 0)); const work = rock.cells.map(() => 0);
+  let fx = c, fy = c;
+  if (aim === 'best') { let bv = -1; rock.cells.forEach((o, k) => { if (o && ORES[o as 1].value > bv && Math.hypot(k % w - c, Math.floor(k / w) - c) < rock.r - 3) { bv = ORES[o as 1].value; fx = k % w; fy = Math.floor(k / w); } }); }
+  const first = [-1, -1, -1, -1, -1]; let changes = 0, value = 0;
+  for (let t = 0; t < T * TICK_HZ; t++) {
+    let best = -1, bd = Infinity;
+    for (let k = 0; k < L.length; k++) { if (!L[k]) continue; const d = Math.hypot(k % w - fx, Math.floor(k / w) - fy); if (d < bd) { bd = d; best = k; } }
+    if (best < 0) break;
+    work[best] += LASER_POWER[lvl - 1] * DT; const o = rock.cells[best] as 1;
+    if (work[best] >= ORES[o].hardness - 1e-9) { work[best] = 0; const b = band(L[best], depth); L[best]--; value += ORES[o].value; const nb = band(L[best], depth); if (nb !== b) { changes++; if (first[nb] < 0) first[nb] = t / TICK_HZ; } }
+  }
+  return `scratched ${first[1].toFixed(1)}s half ${first[2].toFixed(1)}s quarter ${first[3].toFixed(1)}s firstHole ${first[4].toFixed(1)}s bandChanges/${T}s ${changes} vps ${(value / T).toFixed(1)}`;
+}
+for (const [slot, depth, name] of [[1, 40, 'T1'], [3, 60, 'T2'], [5, 80, 'T3']] as const) for (const aim of ['centre', 'best'] as const) for (const lvl of [1, 3, 6])
+  console.log(`${name} d${depth} ${aim} L${lvl}: ${run(slot, depth, lvl, aim, 120)}`);
