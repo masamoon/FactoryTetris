@@ -1,0 +1,47 @@
+import { SLOTS, ORES, LASER_POWER, TICK_HZ } from './src/rockhopper/config';
+import { generateRock } from './src/rockhopper/sim';
+const DT = 1 / TICK_HZ;
+const fmt = (x: number) => (x < 0 ? '  >T' : x.toFixed(0).padStart(4));
+// finger modes: centre cell, best-value cell
+function run(slot: number, gen: number, depth: number, lvl: number, rule: 'nearest' | 'sweep', aim: 'centre' | 'best', T: number) {
+  const rock = generateRock(slot, gen, 1);
+  const w = rock.w, c = rock.r + 1;
+  const L = rock.cells.map((x) => (x ? depth : 0));
+  const work = rock.cells.map(() => 0);
+  let fx = c, fy = c;
+  if (aim === 'best') { let bv = -1; rock.cells.forEach((o, k) => { if (o && ORES[o as 1].value > bv && Math.hypot(k % w - c, Math.floor(k / w) - c) < rock.r - 3) { bv = ORES[o as 1].value; fx = k % w; fy = Math.floor(k / w); } }); }
+  const band = (l: number) => Math.ceil((4 * l) / depth); // 4 bands; 0 = gone
+  const b0 = L.map(band);
+  let firstBand = -1, firstHole = -1, value = 0, holes = 0; const changedAt: number[] = [];
+  const disc: number[] = []; rock.cells.forEach((o, k) => { if (o && Math.hypot(k % w - fx, Math.floor(k / w) - fy) <= 2.5) disc.push(k); });
+  let halfDisc = -1;
+  for (let t = 0; t < T * TICK_HZ; t++) {
+    let best = -1, bl = -1, bd = Infinity;
+    for (let k = 0; k < L.length; k++) {
+      if (!L[k]) continue;
+      const d = Math.hypot(k % w - fx, Math.floor(k / w) - fy);
+      if (rule === 'nearest') { if (d < bd) { bd = d; best = k; } }
+      else if (d <= 2.5 && (L[k] > bl || (L[k] === bl && d < bd))) { bl = L[k]; bd = d; best = k; }
+    }
+    if (best < 0) { // fallback nearest
+      for (let k = 0; k < L.length; k++) { if (!L[k]) continue; const d = Math.hypot(k % w - fx, Math.floor(k / w) - fy); if (d < bd) { bd = d; best = k; } }
+    }
+    if (best < 0) break;
+    work[best] += LASER_POWER[lvl - 1] * DT;
+    const o = rock.cells[best] as 1;
+    if (work[best] >= ORES[o].hardness - 1e-9) {
+      work[best] = 0; L[best]--; value += ORES[o].value;
+      if (band(L[best]) !== b0[best] && firstBand < 0) firstBand = t / TICK_HZ;
+      if (!L[best]) { holes++; if (firstHole < 0) firstHole = t / TICK_HZ; }
+      if (halfDisc < 0 && disc.filter((k) => band(L[k]) !== b0[k]).length >= disc.length / 2) halfDisc = t / TICK_HZ;
+    }
+  }
+  return { firstBand, halfDisc, firstHole, holes, vps: value / T, disc: disc.length };
+}
+const T = 120;
+for (const [slot, gen, depth, name] of [[1, 1, 40, 'T1 slot1'], [3, 1, 60, 'T2 slot3']] as const)
+  for (const aim of ['centre', 'best'] as const)
+    for (const lvl of [1, 3, 6]) {
+      const n = run(slot, gen, depth, lvl, 'nearest', aim, T), sw = run(slot, gen, depth, lvl, 'sweep', aim, T), d1 = run(slot, gen, 1, lvl, 'nearest', aim, T);
+      console.log(`${name} d${depth} aim ${aim.padEnd(6)} L${lvl} | today(d1) holes ${d1.holes} vps ${d1.vps.toFixed(1)} | nearest: 1stBand ${fmt(n.firstBand)}s 1stHole ${fmt(n.firstHole)}s holes/${T}s ${n.holes} vps ${n.vps.toFixed(1)} | sweep(disc ${sw.disc}): 1stBand ${fmt(sw.firstBand)}s halfDisc ${fmt(sw.halfDisc)}s 1stHole ${fmt(sw.firstHole)}s holes ${sw.holes} vps ${sw.vps.toFixed(1)}`);
+    }

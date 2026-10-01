@@ -1,0 +1,51 @@
+import { runBot } from './bot';
+import { SLOTS, TICK_HZ, dockCost } from './src/rockhopper/config';
+import { drills, moveDrill, sell, drillSpotWhy, route, canTarget, beltPath, crossingsOf, pathLength, type State } from './src/rockhopper/sim';
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const PAD = process.env.PAD === undefined ? -1 : Number(process.env.PAD), FROM = Number(process.env.FROM ?? 900);
+const MIN = Number(process.env.MIN ?? 40), sector = !!process.env.SECTOR, POLICY = process.env.POLICY ?? 'hub', SCRAP = !!process.env.SCRAP;
+const G = globalThis as any;
+const R = 150;
+const near = (s: State, r: number) => crossingsOf(s).plates.filter((p) => Math.hypot(p.x, p.y) < r);
+const hubPlatesOf = (s: State, id: number) => near(s, R).filter((p) => p.sides.some((q) => q.id === id)).length;
+for (const seed of (process.env.SEEDS ?? '1,2,3,4').split(',').map(Number)) {
+  G.PAD = undefined; G.PADSLOT = undefined; G.chunks = 0; G.crumbleChunks = 0; G.maxFlight = 0;
+  let padAt = -1, dockAt = -1, moved = 0, sold = 0, rerouted = 0, e30 = 0, p30 = '', scrapLost = 0;
+  const keep = (s: State, i: number) => { padAt = s.tick; G.PADSLOT = i; s.slots[i].arriveAt = 1e12; };
+  G.onSpent = (s: State, i: number) => { if (PAD !== i || padAt >= 0 || s.tick < FROM * TICK_HZ || SCRAP) return; keep(s, i); };
+  const { beats, state } = runBot({ minutes: MIN, laser: true, seed, sector,
+    onTick: (s) => {
+      if (PAD >= 0 && SCRAP && padAt < 0 && s.tick === FROM * TICK_HZ) {
+        const sl = s.slots[PAD];
+        if (sl.rock) { scrapLost = sl.rock.remaining; sl.rock = null; sl.crumble = 0; for (const d of drills(s)) if (d.slot === PAD) d.cell = -1; }
+        keep(s, PAD);
+      }
+      if (padAt >= 0 && s.tick === padAt + 1) {
+        const ds = drills(s).filter((d) => d.slot === PAD);
+        const cands = s.slots.map((x, i) => i).filter((i) => i !== PAD && s.slots[i].unlocked && s.slots[i].rock)
+          .sort((a, b) => Math.hypot(SLOTS[a].x - SLOTS[PAD].x, SLOTS[a].y - SLOTS[PAD].y) - Math.hypot(SLOTS[b].x - SLOTS[PAD].x, SLOTS[b].y - SLOTS[PAD].y));
+        for (const d of ds) {
+          let ok = false;
+          for (const i of cands) { for (let a = 0; a < 6.28 && !ok; a += 0.05) if (!drillSpotWhy(s, i, a, d.id) && moveDrill(s, d.id, i, a) === true) ok = true; if (ok) break; }
+          if (ok) moved++; else if (sell(s, d.id) === true) sold++;
+        }
+      }
+      if (padAt >= 0 && s.tick % 30 === 0) {
+        const price = dockCost(s.docks >= 9 ? 10 : s.docks);
+        if (!G.PAD && s.credits >= price) { s.credits -= price; G.PAD = { slot: PAD, n: 2 }; dockAt = s.tick; }
+        if (G.PAD) for (let k = 0; k < G.PAD.n; k++) {
+          const t = { kind: 'dock' as const, index: 20 + k };
+          if (s.machines.some((m) => m.out?.to.kind === 'dock' && m.out.to.index === t.index)) continue;
+          let ms = s.machines.filter((m) => m.out?.to.kind === 'dock' && m.out.to.index < 20)
+            .map((m) => ({ m, L: pathLength(beltPath(s, m)!), H: hubPlatesOf(s, m.id) }));
+          if (POLICY === 'long') ms.sort((a, b) => b.L - a.L);
+          else ms = ms.filter((x) => x.H > 0).sort((a, b) => b.H - a.H || b.L - a.L);
+          for (const { m } of ms) if (canTarget(s, m, t) && route(s, m.id, t) === true) { rerouted++; break; }
+        }
+      }
+      if (s.tick === 30 * 60 * TICK_HZ) { e30 = s.earned; p30 = `${near(s, R).length}/${crossingsOf(s).plates.length}`; }
+    } });
+  const b = (re: RegExp) => { const x = beats.find((q) => re.test(q.label)); return x ? fmt(x.seconds) : '-'; };
+  const used = state.machines.filter((m) => m.out?.to.kind === 'dock' && m.out.to.index >= 20).length;
+  console.log(`s${seed}${sector ? 'S' : 'C'} pad${PAD} ${POLICY}${SCRAP ? '+scrap' : ''} pad@${padAt < 0 ? '-' : fmt(padAt / TICK_HZ)} dock@${dockAt < 0 ? '-' : fmt(dockAt / TICK_HZ)} lostCells ${scrapLost} mv${moved}/sold${sold} rr${rerouted} used${used} | T2 ${b(/unlock T2/)} T3 ${b(/unlock T3/)} | e30 ${Math.round(e30 / 1000)}k e40 ${Math.round(state.earned / 1000)}k | plates hub/all 30m ${p30} 40m ${near(state, R).length}/${crossingsOf(state).plates.length} | hubdocks ${state.docks}`);
+}

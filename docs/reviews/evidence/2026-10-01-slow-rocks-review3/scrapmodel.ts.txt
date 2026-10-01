@@ -1,0 +1,51 @@
+import { SLOTS, ORES, CELL, drillRate } from './src/rockhopper/config';
+import { generateRock, rimPos } from './src/rockhopper/sim';
+import { useSector } from './src/rockhopper/sector';
+const DEPTH: Record<number, number> = { 1: 40, 2: 60, 3: 80, 4: 100 };
+const NDR: Record<number, number> = { 1: 3, 2: 4, 3: 5, 4: 6 };
+const LOCK = 120 + 3, TOW = 3, DT = 0.25;
+type R = { aRate: number; bRate: number; bAt: number; cRate: number; cAt: number; life: number; plan: string };
+function one(slot: number, seed: number, sector: boolean, lvl: number, placed: 'veins' | 'even'): R {
+  useSector(seed, sector);
+  const def = SLOTS[slot]; const rock = generateRock(slot, 2, seed); const w = rock.w, c = rock.r + 1;
+  const D = DEPTH[def.tier];
+  const L = rock.cells.map((x) => (x ? D : 0)); const work = rock.cells.map(() => 0);
+  const pos = (k: number) => ({ x: def.x + (k % w - c) * CELL, y: def.y + (Math.floor(k / w) - c) * CELL });
+  // pick angles
+  const n = NDR[def.tier]; const angs: number[] = [];
+  const score = (a: number) => { const p = rimPos(slot, a); let v = 0; rock.cells.forEach((o, k) => { if (!o) return; const q = pos(k); const d = Math.hypot(q.x - p.x, q.y - p.y) / CELL; if (d < 6) v += ORES[o as 1].value / ORES[o as 1].hardness - 2; }); return v; };
+  if (placed === 'even') for (let i = 0; i < n; i++) angs.push((i * 2 * Math.PI) / n);
+  else { const cand = Array.from({ length: 72 }, (_, i) => (i * Math.PI) / 36).map((a) => ({ a, v: score(a) })).sort((x, y) => y.v - x.v); for (const q of cand) { if (angs.length >= n) break; if (angs.every((b) => Math.abs(((q.a - b + 3 * Math.PI) % (2 * Math.PI)) - Math.PI) > 0.5)) angs.push(q.a); } }
+  const dp = angs.map((a) => rimPos(slot, a)); const cur = angs.map(() => -1);
+  const total = L.reduce((a, b) => a + b, 0); let left = total; let t = 0, V = 0; const curve: [number, number][] = [];
+  const rate = drillRate(lvl) * DT;
+  while (left > total * 0.05) {
+    for (let i = 0; i < dp.length; i++) {
+      let b = rate;
+      while (b > 1e-9) {
+        if (cur[i] < 0 || !L[cur[i]]) { let best = -1, bd = Infinity; for (let k = 0; k < L.length; k++) { if (!L[k]) continue; const q = pos(k); const d = Math.hypot(q.x - dp[i].x, q.y - dp[i].y); if (d < bd) { bd = d; best = k; } } cur[i] = best; }
+        if (cur[i] < 0) break; const o = rock.cells[cur[i]] as 1; const need = ORES[o].hardness - work[cur[i]]; const u = Math.min(b, need); work[cur[i]] += u; b -= u;
+        if (u >= need - 1e-9) { work[cur[i]] = 0; L[cur[i]]--; left--; V += ORES[o].value; }
+      }
+    }
+    t += DT; curve.push([t, V]);
+  }
+  // crumble: remaining delivered at once (value approx avg of leftover)
+  let rest = 0; L.forEach((l, k) => { if (l) rest += l * ORES[rock.cells[k] as 1].value; }); const Vend = V + rest;
+  const aRate = Vend / (t + TOW);
+  let bRate = 0, bAt = 0, cRate = 0, cAt = 0;
+  for (const [ts, v] of curve) { const rb = v / (ts + LOCK); if (rb > bRate) { bRate = rb; bAt = ts / t; } const rc = v / (ts + TOW); if (rc > cRate) { cRate = rc; cAt = ts / t; } }
+  if (aRate >= bRate) { bRate = aRate; bAt = 1; } if (aRate >= cRate) { cRate = aRate; cAt = 1; }
+  return { aRate, bRate, bAt, cRate, cAt, life: t, plan: (def as any).veins?.kind ?? 'classic' };
+}
+for (const lvl of [1, 3]) for (const placed of ['veins', 'even'] as const) {
+  const rows: Record<string, R[]> = {};
+  for (let seed = 1; seed <= 30; seed++) for (const slot of [1, 3, 5]) { const r = one(slot, seed, true, lvl, placed); (rows[`T${SLOTS[slot].tier}`] ??= []).push(r); }
+  for (const [k, rs] of Object.entries(rows)) {
+    const gB = rs.map((r) => r.bRate / r.aRate - 1), gC = rs.map((r) => r.cRate / r.aRate - 1);
+    const q = (a: number[], p: number) => [...a].sort((x, y) => x - y)[Math.floor(p * (a.length - 1))];
+    const lives = rs.map((r) => r.life).sort((a, b) => a - b);
+    const byPlan: Record<string, number[]> = {}; rs.forEach((r, i) => (byPlan[r.plan] ??= []).push(gC[i]));
+    console.log(`drill L${lvl} ${placed.padEnd(5)} ${k} life ${(lives[0] / 60).toFixed(1)}–${(lives[lives.length - 1] / 60).toFixed(1)} min | scrap w/ 2-min lock: wins ${gB.filter((g) => g > 0.005).length}/${rs.length}, max +${(100 * Math.max(...gB)).toFixed(1)}% | scrap w/o lock (drills parked elsewhere): wins ${gC.filter((g) => g > 0.005).length}/${rs.length}, median +${(100 * q(gC, 0.5)).toFixed(1)}%, p90 +${(100 * q(gC, 0.9)).toFixed(1)}%, max +${(100 * Math.max(...gC)).toFixed(1)}% at ${(100 * rs[gC.indexOf(Math.max(...gC))].cAt).toFixed(0)}% of life | best plan ${Object.entries(byPlan).map(([p, g]) => `${p} ${(100 * g.reduce((a, b) => a + b, 0) / g.length).toFixed(0)}%`).join(' ')}`);
+  }
+}
