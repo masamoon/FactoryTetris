@@ -76,6 +76,29 @@ test('a new game on the slow-burn setting has deep rocks and says so in the menu
   await expect(page.getByText(/slow-burn rocks/)).toBeVisible();
 });
 
+test('the Factories switch shows a locked tray item and survives a new game', async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => {
+    (window as unknown as { __rockhopper: Hook }).__rockhopper.state.credits = 100;
+  });
+  const wrap = page.locator('.rh-tool-wrap').filter({ has: page.locator('[data-kind=factory]') });
+  await expect(wrap).toBeHidden();
+  await page.locator('.rh-menu-btn').click();
+  await page.getByText('Factories: off').click();
+  await expect(page.getByText('Factories: on')).toBeVisible();
+  await page.getByText('Resume').click();
+  // On, the item is in the tray at once, saying what opens it.
+  await expect(wrap).toBeVisible();
+  await expect(wrap.locator('.rh-price')).toHaveText('2 smelters');
+  // A new game keeps the switch.
+  await open(page);
+  expect((await hook(page)).factories).toBe(true);
+  await page.evaluate(() => {
+    (window as unknown as { __rockhopper: Hook }).__rockhopper.state.credits = 100;
+  });
+  await expect(wrap).toBeVisible();
+});
+
 test('opening frame is the rock, the hub and one counter', async ({ page }) => {
   await open(page);
   await expect(page.locator('.rh-credits')).toHaveText('0');

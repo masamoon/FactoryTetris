@@ -382,6 +382,8 @@ export interface Settings {
   sectors: boolean;
   /** Slow-burn rocks: new games get deep rocks and auto-tow (default on). */
   slowRocks: boolean;
+  /** The factories experiment, kept across restarts (default off). */
+  factories: boolean;
 }
 
 export function loadSettings(): Settings {
@@ -391,9 +393,10 @@ export function loadSettings(): Settings {
       muted: !!raw.muted,
       sectors: raw.sectors !== false,
       slowRocks: raw.slowRocks !== false,
+      factories: raw.factories === true,
     };
   } catch {
-    return { muted: false, sectors: true, slowRocks: true };
+    return { muted: false, sectors: true, slowRocks: true, factories: false };
   }
 }
 
