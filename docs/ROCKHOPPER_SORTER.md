@@ -85,6 +85,31 @@ The beats show pop-level truth. The settled rates (+31 to +95 /s on 259–319 /s
 - **The clip witness** described above.
 - **A 390 px screenshot** of a factory, an alloy on a belt, and the "belt will be tier 1" ghost.
 
+## Prototype evidence (2026-10-01, simulation)
+
+The prototype is built as revision 4 describes, behind the switch and off by default. The bot is a scripted upper bound, not a player: `npm run bot:rockhopper -- --minutes 60 --factories`. It buys a factory spliced after a smelter (a crystal factory when a smelter carries T3 or T4 ore, otherwise a local one) and routes every T1-only copper smelter's belt to a crystal factory with a free input.
+
+| Seed | T3 (base → factories) | Income /s at 20 / 30 / 45 / 60 min, base | With factories        | Copper bars reaching crystal | Busy | Output full | Factories (levels)                | tiersBought |
+| ---- | --------------------- | ---------------------------------------- | --------------------- | ---------------------------- | ---- | ----------- | --------------------------------- | ----------- |
+| 1    | 28:46 → 29:52         | 408 / 483 / 527 / 681                    | 410 / 453 / 574 / 707 | 0 % (1 of 8 653)             | 8 %  | 37 %        | 1 crystal (52:13), 3 local (3333) | 15 → 15     |
+| 2    | 28:26 → 30:28         | 397 / 594 / 664 / 832                    | 373 / 464 / 547 / 789 | 0 % (22 of 9 218)            | 10 % | 18 %        | 1 crystal (52:31), 3 local (3333) | 15 → 15     |
+| 3    | 32:15 → 34:58         | 317 / 378 / 434 / 488                    | 302 / 353 / 414 / 500 | 0 % (0 of 11 847)            | 2 %  | 35 %        | 3 local (333)                     | 13 → 13     |
+
+Neither bot reaches T4 within 60 min. Income is within ±10 % at 60 min and up to 22 % lower at 30 min, because the bot spends on local factories before T3.
+
+**Why copper never meets crystal.** A 5-minute trace of seed 1's crystal factory (in a first bot version that also routed a T2 line to it) made 2 copper + crystal alloys against 230 copper + ice, 86 ice + gold and 16 gold + crystal:
+
+- **Rock floods the output.** Its T3 smelter made 526 rock bars and 101 crystal bars. Rock bars pass through (F2), fill the output belt (full 55 % of the time, all 4 ready slots holding rock bars), and the factory then stops taking anything in, so the copper belt backs up.
+- **Pairing on arrival spends crystal and copper on other partners.** A copper bar pairs at once with any waiting ice or gold, and a crystal bar pairs with ice or gold when no copper is waiting at that instant, so the premium pair almost never forms.
+
+The round-3 measurements that promised +31 to +95 /s assumed copper and crystal meet; the rules as written don't let them.
+
+**Crossings stress with factories.** `npx tsx tools/rockhopper-crossings-stress.ts 200 150 --factories`: 800 runs, 416 ending with factories, 732 with plates, 336 with bent belts; 0 failures, worst wait 0.93 s.
+
+**Tests.** `tests/rockhopper-factories.test.ts`: premium and plain alloys, pass-through, lone wait, the copper-for-crystal preference, an alloy through a junction and a smelter delivering exactly `v`, the matrix and "smelt it first", the switch and unlock, tier 1 on a wide belt, a fuzz of place, splice, route, move, widen and sell that never grants an unbought tier, and the v3 save round trip. The browser spec covers v2 and v1 migration and both restore paths.
+
+Still owed: the clip witness and 390 px screenshots, which wait on the pairing decision.
+
 ## Deferred: the sorter
 
 Revision 3's sorter (S1–S9, including S6's belt-id refactor and S7's side port) is deferred. It comes back only if the prototype shows a job that no other machine does, measured against whole lines, widening and a spare dock. Round 3's candidates:
