@@ -118,3 +118,11 @@ Must-fix for revision 4: (1) S1 back to the nearest-cell laser, with a first "sc
 Scrap must not redraw the rock (hold the scrapped rock and bring the same one back), saved; (3) S9 state
 an accepted gap or name a purchase that fills it, and publish one price table that meets the targets
 over 8 seeds on each field.
+
+### How revision 4 answers it
+
+The laser keeps today's nearest-cell rule, and the first shade band is "scratched" (1). A scrapped rock
+is held and comes back unchanged when the pad is unmarked, and that state is saved (2). S9 names its
+price table (T1 ×2.5, T2 ×4, T3 ×1.6) from a 24-combination search, accepts a gap of at most 1.5× today's
+per seed, and reports that sectors miss some targets and why (3). Pad docks are capped at one per pad
+and share the dock price ladder.
