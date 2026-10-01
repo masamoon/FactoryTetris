@@ -110,3 +110,51 @@ The same reviewer re-ran its patched sim with revision 3's rules: five recipe no
 All four conditions are written in: the crystal times are stated and their counts cut from 30 to 20, with over-target runs still expected (TT4); the copper-to-crystal share is back in the bot's reports and the evidence list (TT9); the clip says "a T2 drill belt" and logs the time to the first alloy on a factory already on the line; the mock is reviewed before any code (TT8, evidence). Revision 4 was not re-reviewed; the conditions were wording, a count change and report items.
 
 Still open: the 390 px mock, the crossings stress tool with the Lab, and every human question in the proposal's open questions.
+
+## Mock review
+
+The proposal's gate (TT8): a 390 px mock at T3 zoom of the dome, the drag ghost and a four-row bubble, reviewed before any code. `tools/rockhopper-lab-mock.ts` draws the Lab over a real bot save in the real game (seed 2, 34 min, factories on). A separate adversarial reviewer judged the images against the game's own sprites and conventions (`render.ts`, `App.ts`, `style.css`).
+
+**Round 1: REVISE.**
+
+- The dome glass was ice-cyan, so a lit ice ring vanished into it.
+- The unlit ring was too faint to name the missing ore.
+- The ghost ignored the game's placement hologram.
+- The yellow snap highlight matched both gold and the splice highlight.
+- The active bubble row used the mint fill the game keeps for spending.
+- The skim chunk was about 2 px.
+- Several states were missing: off belt, no belt, a pair, a bar, beside a plate.
+- The run's zoom was 0.622, not 0.58.
+
+All of these were changed:
+
+- lavender dome, and dashed rings in the ore's colour;
+- the game's hologram, with a mint or coral ring, and a cross plus "drop it on a belt" off a belt;
+- other belts dimmed;
+- a chip pill where a missing ore is a dashed outline with a coral slash;
+- no yellow;
+- an active row that is cream with a mint ring;
+- a belt-sized skim chunk;
+- all states shown, with the camera held at 0.58.
+
+**Round 2: PASS with conditions.**
+
+- The dome, rings, count, snap and coverage passed.
+- The conditions:
+  1. the hologram drew hold rings that contradicted its pill;
+  2. the clearances ignored machines and chips off the Lab's own belt;
+  3. the idle Lab after "learned" said nothing about tapping it;
+  4. the "no belt" Lab looked live, and sat on a belt;
+  5. the bubble's pan needed rules (pan only when needed, ease, return on close, follow the Lab).
+
+All five are now written into TT2 and TT8 and shown in the re-shot images:
+
+- no rings on the hologram;
+- straight-line clearance from every machine and its chip;
+- "tap to pick";
+- an inert dome drawn off the belt;
+- the pan rules.
+
+The optional fixes taken: a darker "Active" label, and a 2 s cap on the reveal line. The re-shoot was not reviewed a third time; its changes are exactly the five conditions.
+
+Still needs a real phone: how much the thumb hides the ghost, the rings in sunlight and for colour-blind players, tap accuracy next to drills and chips, the skim arc in motion, and whether the pan feels natural.
