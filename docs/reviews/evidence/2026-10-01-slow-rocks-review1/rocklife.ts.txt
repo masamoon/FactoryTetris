@@ -1,0 +1,23 @@
+import { SLOTS, TICK_HZ, ORES } from '../src/rockhopper/config';
+import { freshState, step, buildDrill, drills } from '../src/rockhopper/sim';
+const slotI = Number(process.env.SLOT ?? 0), N = Number(process.env.N ?? 3), lvl = Number(process.env.LVL ?? 1);
+const sector = !!process.env.SECTOR;
+for (const seed of [1, 2, 3]) {
+  const s = freshState(seed, sector);
+  s.credits = 1e12;
+  const sl = s.slots[slotI];
+  if (!sl.rock) { sl.unlocked = true; sl.arriveAt = 0; step(s); }
+  (globalThis as any).__lay = { laser: 0, drill: 0, crumble: 0 };
+  let built = 0;
+  for (let k = 0; k < 40 && built < N; k++) { if (buildDrill(s, slotI, (2 * Math.PI * k) / N + 0.01 * Math.floor(k / N)) === true) built++; }
+  for (const d of drills(s)) d.level = lvl;
+  const rock = sl.rock!;
+  let t = 0, crumbleAt = -1;
+  while (sl.rock === rock && t < 3600 * TICK_HZ) {
+    for (const d of drills(s)) d.buffer.length = 0;
+    step(s); t++;
+    if (crumbleAt < 0 && sl.crumble) crumbleAt = t;
+  }
+  const G = (globalThis as any).__lay; const tot = G.drill + G.crumble + G.laser;
+  console.log(`seed ${seed} slot ${slotI} T${SLOTS[slotI].tier} drills ${built}xL${lvl}: life ${(t / TICK_HZ / 60).toFixed(2)} min, crumble at ${(crumbleAt / TICK_HZ / 60).toFixed(2)} min, layers ${tot}, crumble share ${(100 * G.crumble / tot).toFixed(0)}% of chunks`);
+}

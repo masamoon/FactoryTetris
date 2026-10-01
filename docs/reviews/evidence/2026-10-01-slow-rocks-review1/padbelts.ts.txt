@@ -1,0 +1,13 @@
+import { runBot } from './bot';
+import { SLOTS, CELL } from '../src/rockhopper/config';
+import { beltPath } from '../src/rockhopper/sim';
+const sd = (p: any, a: any, b: any) => { const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy; const t = L ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L)) : 0; return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy); };
+for (const sector of [false, true]) for (const seed of [1, 2, 3, 4]) {
+  const { state: s } = runBot({ minutes: 30, laser: true, seed, sector });
+  const out: string[] = [];
+  for (let i = 0; i < 3; i++) { const d = SLOTS[i]; let n = 0;
+    for (const m of s.machines) { const p = beltPath(s, m); if (!p) continue;
+      for (let k = 0; k + 1 < p.length; k++) if (sd(d, p[k], p[k + 1]) < d.r * CELL - 10) { n++; break; } }
+    out.push(`slot${i}:${n}`); }
+  console.log(`${sector ? 'sector' : 'classic'} seed ${seed}: belts crossing T1 pad interiors at 30 min: ${out.join(' ')}`);
+}

@@ -1,0 +1,94 @@
+--- /home/user/FactoryTetris/tools/rockhopper-bot.ts	2026-10-01 14:25:38.193736300 +0000
++++ bot.ts	2026-10-01 15:18:25.166238129 +0000
+@@ -5,7 +5,7 @@
+  *
+  *   npm run bot:rockhopper [-- --minutes 20 --no-laser]
+  */
+-import { BAR_VALUE, COPPER, CRYSTAL, SLOTS, TICK_HZ } from '../src/rockhopper/config';
++import { BAR_VALUE, COPPER, CRYSTAL, SLOTS, TICK_HZ } from '/tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/src/rockhopper/config';
+ import {
+   beltEnds,
+   buildDrill,
+@@ -47,7 +47,7 @@
+   type Machine,
+   type State,
+   type Target,
+-} from '../src/rockhopper/sim';
++} from '/tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/src/rockhopper/sim';
+ 
+ export interface Beat {
+   label: string;
+@@ -70,6 +70,8 @@
+    */
+   factories?: boolean;
+   log?: (line: string) => void;
++  instantTow?: boolean;
++  onTick?: (s: State) => void;
+ }
+ 
+ /** A spot on a drill's dock-bound belt where a smelter can be spliced in, nearest the drill. */
+@@ -167,6 +169,7 @@
+   const s = freshState(opts.seed, opts.sector ?? false);
+   s.crossings = opts.crossings ?? true;
+   if (opts.factories) setFactories(s, true);
++  if (opts.instantTow) s.tractorLevel = 99;
+   for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
+   for (const k of Object.keys(factoryStats) as (keyof typeof factoryStats)[]) factoryStats[k] = 0;
+   let mess = opts.seed * 7919 + 1;
+@@ -208,6 +211,7 @@
+       }
+     }
+     step(s);
++    opts.onTick?.(s);
+     for (const e of s.events) {
+       if (e.type !== 'deliver' || e.ore !== COPPER) continue;
+       if (e.alloy === CRYSTAL) factoryStats.cuCr++;
+@@ -405,48 +409,3 @@
+   if (s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 4)) mark('T4 reached');
+ }
+ 
+-if (process.argv[1]?.includes('rockhopper-bot')) {
+-  const arg = (k: string, d: number) => {
+-    const i = process.argv.indexOf(k);
+-    return i >= 0 ? Number(process.argv[i + 1]) : d;
+-  };
+-  const { state, beats, income } = runBot({
+-    minutes: arg('--minutes', 30),
+-    laser: !process.argv.includes('--no-laser'),
+-    seed: arg('--seed', 1),
+-    crossings: !process.argv.includes('--no-crossings'),
+-    factories: process.argv.includes('--factories'),
+-    sector: process.argv.includes('--sector'),
+-  });
+-  const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+-  for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);
+-  console.log(
+-    '\nincome (credits/s):',
+-    income
+-      .filter((_, i) => i % 2 === 1)
+-      .map(([m, v]) => `${m}m ${v.toFixed(1)}`)
+-      .join('  ')
+-  );
+-  console.log(
+-    `\nend: credits ${state.credits}, earned ${state.earned}, drills ${drills(state).length}, raw chains ${rawChains(state)}, smelters ${smelters(state).length}, docks ${state.docks}, tiers ${state.machines.map((m) => m.tier).join('')}, laser ${state.laserLevel}, stats`,
+-    state.stats
+-  );
+-  if (factories(state).length || process.argv.includes('--factories')) {
+-    const f = factoryStats;
+-    const cu = f.cuBars + f.cuCr + f.cuOther;
+-    console.log(
+-      `factories: ${factories(state).length} (crystal ${f.crystal}, local ${f.local}), levels ${factories(
+-        state
+-      )
+-        .map((x) => x.level)
+-        .join(
+-          ''
+-        )}, busy ${((100 * f.busy) / Math.max(1, f.ticks)).toFixed(0)}%, output full ${((100 * f.full) / Math.max(1, f.ticks)).toFixed(0)}%, copper routes ${f.copperRoutes} (refused ${f.copperRouteRefused}), alloys delivered ${f.alloys}`
+-    );
+-    console.log(
+-      `paired copper bars reaching a crystal factory: ${((100 * f.cuCr) / Math.max(1, cu)).toFixed(0)}% (${f.cuCr} of ${cu}; ${f.cuOther} in other alloys)`
+-    );
+-  }
+-  console.log(`tiersBought ${tiersBought(state)}`);
+-  void byId;
+-}

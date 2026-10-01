@@ -1,0 +1,12 @@
+import { runBot } from './bot';
+import { TICK_HZ } from '../src/rockhopper/config';
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const PAD = process.env.PAD === undefined ? -1 : Number(process.env.PAD), FROM = Number(process.env.FROM ?? 600);
+for (const seed of [1, 2, 3, 4]) {
+  let padAt = -1;
+  const { beats, state, income } = runBot({ minutes: 30, laser: true, seed,
+    onTick: (s) => { if (PAD >= 0 && s.tick > FROM * TICK_HZ && !s.slots[PAD].rock && s.slots[PAD].unlocked) { s.slots[PAD].arriveAt = 1e12; if (padAt < 0) padAt = s.tick; } } });
+  const b = (re: RegExp) => { const x = beats.find((q) => re.test(q.label)); return x ? fmt(x.seconds) : '-'; };
+  const inc = income.filter(([m]) => m === 20 || m === 30).map(([m, v]) => `${m}m ${v.toFixed(0)}/s`).join(' ');
+  console.log(`seed ${seed} pad ${PAD} from ${padAt < 0 ? '-' : fmt(padAt / TICK_HZ)}: T2 ${b(/unlock T2/)} T3 ${b(/unlock T3/)} earned ${Math.round(state.earned / 1000)}k ${inc}`);
+}

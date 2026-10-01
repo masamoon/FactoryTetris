@@ -1,0 +1,56 @@
+--- src/rockhopper/sim.ts	2026-10-01 14:25:38.189736300 +0000
++++ /tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/src/rockhopper/sim.ts	2026-10-01 15:33:12.784757473 +0000
+@@ -1720,8 +1720,26 @@
+   const rock = slot.rock!;
+   const ore = rock.cells[index] as Ore;
+   const p = cellPos(slotIndex, rock, index);
+-  rock.cells[index] = 0;
++  const DEPTH = Number(process.env.DEPTH ?? 1);
++  const L = ((rock as any).layers ??= new Array(rock.cells.length).fill(0));
++  if (!L[index]) {
++    const gx = (index % rock.w) - (rock.r + 1), gy = Math.floor(index / rock.w) - (rock.r + 1);
++    const rho = Math.min(1, Math.hypot(gx, gy) / rock.r);
++    L[index] = process.env.CORE ? 1 + Math.round((DEPTH - 1) * Math.max(0, (1 - rho) / (1 - 1.5 / rock.r))) * (Math.hypot(gx, gy) > rock.r - 1.5 ? 0 : 1) : DEPTH;
++  }
++  let mult = 1;
++  if (by === 'crumble') { mult = L[index]; L[index] = 0; }
++  else L[index]--;
++  const G = globalThis as any; G.chunks = (G.chunks ?? 0) + mult; if (by === 'crumble') { G.crumbleChunks = (G.crumbleChunks ?? 0) + mult; G.maxFlight = Math.max(G.maxFlight ?? 0, mult * ORES[ore].value); }
++  (rock as any).lr = ((rock as any).lr ?? rock.total * (process.env.CORE ? 1 : DEPTH)) - mult;
+   rock.work[index] = 0;
++  if (L[index] > 0) {
++    s.events.push({ type: 'break', slot: slotIndex, cell: index, ore, x: p.x, y: p.y, by });
++    if (by === 'laser') s.stats.laserBroken++; else s.stats.drillBroken++;
++    if (by !== 'drill') s.flights.push({ ore, value: ORES[ore].value, x: p.x, y: p.y, t0: s.tick, t1: s.tick + Math.round(Math.min(FLIGHT_MAX, Math.max(FLIGHT_MIN, Math.hypot(p.x, p.y) / FLIGHT_SPEED)) * TICK_HZ) });
++    return ore;
++  }
++  rock.cells[index] = 0;
+   rock.remaining--;
+   s.events.push({ type: 'break', slot: slotIndex, cell: index, ore, x: p.x, y: p.y, by });
+   if (by === 'laser') s.stats.laserBroken++;
+@@ -1732,14 +1750,14 @@
+     const secs = Math.min(FLIGHT_MAX, Math.max(FLIGHT_MIN, dist / FLIGHT_SPEED));
+     s.flights.push({
+       ore,
+-      value: ORES[ore].value,
++      value: ORES[ore].value * mult,
+       x: p.x,
+       y: p.y,
+       t0: s.tick,
+       t1: s.tick + Math.round(secs * TICK_HZ),
+     });
+   }
+-  if (!slot.crumble && rock.remaining > 0 && rock.remaining < rock.total * CRUMBLE_AT) {
++  if (!slot.crumble && rock.remaining > 0 && (process.env.LCRUMBLE ? (rock as any).lr < rock.total * DEPTH * Number(process.env.LCRUMBLE) : rock.remaining < rock.total * CRUMBLE_AT)) {
+     slot.crumble = Math.max(1, Math.ceil(rock.remaining / (CRUMBLE_SECONDS * TICK_HZ)));
+     s.events.push({ type: 'crumble', slot: slotIndex });
+   }
+@@ -1773,7 +1791,7 @@
+     if (rock.remaining <= 0) {
+       slot.rock = null;
+       slot.crumble = 0;
+-      slot.arriveAt = s.tick + Math.round(arrivalSeconds(s.tractorLevel) * TICK_HZ);
++      slot.arriveAt = s.tick + Math.round((process.env.TOW ? Number(process.env.TOW) : arrivalSeconds(s.tractorLevel)) * TICK_HZ);
+       for (const d of drills(s)) if (d.slot === i) d.cell = -1;
+       if (s.laser?.slot === i) s.laser.cell = -1;
+     }
