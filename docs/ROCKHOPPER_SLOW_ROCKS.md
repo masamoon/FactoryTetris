@@ -1,6 +1,8 @@
 # Rockhopper slow-burn rocks (proposal, 2026-10-01)
 
-**Status:** revision 5. **PASS for a prototype behind a new-game switch** after five review rounds (rounds 1–3 REVISE, round 4 PASS with conditions, round 5 confirmed them met; see
+**Status:** revision 5. **The rocks half (S1, S2, S3, S8 for rocks, S9) is prototyped** behind the
+menu switch "Rocks: slow-burn / classic", on by default for new games; Stow, pads, pad docks and group
+moves (S4–S6) are not built yet (see "Prototype" below). **PASS for a prototype behind a new-game switch** after five review rounds (rounds 1–3 REVISE, round 4 PASS with conditions, round 5 confirmed them met; see
 [the review record](reviews/2026-10-01-rockhopper-slow-rocks-adversary.md)). The user chose the full
 review process. Nothing here is implemented. A PASS would authorise only a prototype behind a new-game
 switch.
@@ -179,3 +181,38 @@ a rock, so the clip never shows a base standing on an asteroid. Pads have no upk
 1. Does a rock that takes minutes still look alive with four shade bands, or does it look stalled?
 2. Will players keep a pad at all, and which berth?
 3. Is the empty space a resource in the way the user meant, or only a fix for a knotted hub?
+
+## Prototype (rocks only, 2026-10-01)
+
+Built: deep rocks with the depth-1 starter rock, layers and the four shade bands, the nearest-cell laser,
+the value arc, the 5 % crumble in flights of at most 4, the 3 s auto-tow with no tractor, the slow-burn
+slot prices, the new-game switch (`?slow=0|1` overrides it), and the optional save fields (`slowRocks`,
+per-rock `depth`, `layers`, `layersTotal`). Not built: Stow, pads, pad docks, group moves.
+
+Bot (`npx tsx tools/rockhopper-slow-rocks.ts --seeds 1-8`, 40 min; raw output in
+`docs/reviews/evidence/2026-10-01-slow-rocks-prototype-bot.txt`; the bot is an upper bound on pace, not a
+playtest):
+
+| Over 8 seeds           | Classic today | Classic slow-burn | Sectors today | Sectors slow-burn             |
+| ---------------------- | ------------- | ----------------- | ------------- | ----------------------------- |
+| First berth empty < T2 | 64–67 %       | 3–4 %             | 64–70 %       | 2–4 %                         |
+| Drill time idle < T2   | 71–74 %       | 3 %               | 70–75 %       | 2–3 %                         |
+| T2                     | 10:36–11:41   | 7:26–8:15         | 9:36–11:56    | 7:04–11:51 (6 of 8 in 7–11)   |
+| T3                     | 27:55–32:15   | 23:36–28:38       | 25:25–33:39   | 25:36–37:21, one not by 40:00 |
+| T2 → T3 gap vs today   |               | 0.81–1.08×        |               | 0.94–1.95× (6 of 8 ≤ 1.5×)    |
+| Earned at 30 min       | 417k–537k     | 850k–1.12M        | 349k–651k     | 502k–960k                     |
+| Crumble share, largest | 19.5 %, 30    | 4.4–4.7 %, 48     | 19.4 %, 30    | 4.2–4.7 %, 48                 |
+
+S9's bound holds: on classic every gap is within 1.08× and every T3 within 1:24 of the window; on
+sectors 6 of 8 gaps are within 1.5× and the worst is 1.95×. Sector seeds 1, 2, 3, 5, 6 and 8 reach T3
+later than today (seed 2 by 8:29), so the sector shortfall is still open.
+
+Screens at 390 px from bot saves (the bot played, the page renders its save):
+`docs/reviews/evidence/2026-10-01-slow-rocks-0130-390.png`, `-0600-390.png` and `-1500-sector-390.png`.
+They show the value arcs reading clearly. They also show what round 2 predicted: drills finish one cell
+before the next, so few cells sit in the middle bands and rocks read as carved rather than shaded.
+
+Tests: `tests/rockhopper-slow-rocks.test.ts` (starter rock, depths, prices, no tractor, one chunk per
+layer and scratched within 2 s, the 5 % crumble delivers every layer once in flights of at most 4, the
+3 s auto-tow, save round-trip and refusal of bad layers, classic saves without the fields) and a 390 px
+browser test of the switch.

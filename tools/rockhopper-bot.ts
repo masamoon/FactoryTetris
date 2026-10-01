@@ -3,7 +3,7 @@
  * the real simulation and legal commands. Scripted input is faster than a human: treat the
  * output as an upper bound on pace, not as a playtest.
  *
- *   npm run bot:rockhopper [-- --minutes 20 --no-laser]
+ *   npm run bot:rockhopper [-- --minutes 20 --no-laser --sector --slow]
  */
 import { BAR_VALUE, COPPER, CRYSTAL, SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
@@ -60,6 +60,8 @@ export interface BotOptions {
   seed: number;
   /** Play the seed's generated sector instead of the classic field. */
   sector?: boolean;
+  /** Slow-burn rocks (deep rocks, auto-tow, own slot prices). */
+  slowRocks?: boolean;
   /** The crossings experiment (plates and clear lanes); on unless set false. */
   crossings?: boolean;
   /** A careless player: every 10 s one dock-bound machine is re-routed to a random free dock. */
@@ -70,6 +72,8 @@ export interface BotOptions {
    */
   factories?: boolean;
   log?: (line: string) => void;
+  /** Called after every tick, before the tick's events are cleared (measurement tools). */
+  onTick?: (s: State) => void;
 }
 
 /** A spot on a drill's dock-bound belt where a smelter can be spliced in, nearest the drill. */
@@ -164,7 +168,7 @@ export function runBot(opts: BotOptions): {
   beats: Beat[];
   income: [number, number][];
 } {
-  const s = freshState(opts.seed, opts.sector ?? false);
+  const s = freshState(opts.seed, opts.sector ?? false, opts.slowRocks ?? false);
   s.crossings = opts.crossings ?? true;
   if (opts.factories) setFactories(s, true);
   for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
@@ -208,6 +212,7 @@ export function runBot(opts: BotOptions): {
       }
     }
     step(s);
+    opts.onTick?.(s);
     for (const e of s.events) {
       if (e.type !== 'deliver' || e.ore !== COPPER) continue;
       if (e.alloy === CRYSTAL) factoryStats.cuCr++;
@@ -417,6 +422,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     crossings: !process.argv.includes('--no-crossings'),
     factories: process.argv.includes('--factories'),
     sector: process.argv.includes('--sector'),
+    slowRocks: process.argv.includes('--slow'),
   });
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);

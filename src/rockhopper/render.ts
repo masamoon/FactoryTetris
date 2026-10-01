@@ -10,6 +10,7 @@ import {
   SLOTS,
   TICK_HZ,
   TOW_SECONDS,
+  AUTO_TOW_SECONDS,
 } from './config';
 import {
   beltPath,
@@ -22,6 +23,8 @@ import {
   firstCells,
   dockPos,
   generateRock,
+  rockDepth,
+  shadeBand,
   machinePos,
   type Point,
   type Rock,
@@ -692,7 +695,7 @@ export class Renderer {
         c.stroke();
         c.restore();
         if (wait > TOW_SECONDS) {
-          const total = 8;
+          const total = s.slowRocks ? AUTO_TOW_SECONDS - TOW_SECONDS : 8;
           const p = Math.max(0, Math.min(1, 1 - (wait - TOW_SECONDS) / total));
           c.lineWidth = 5 / z;
           c.strokeStyle = MINT;
@@ -701,6 +704,25 @@ export class Renderer {
           c.arc(def.x, def.y, R, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
           c.stroke();
         }
+        return;
+      }
+      const rock = slot.rock;
+      if (rock.layers && !slot.crumble) {
+        // Slow-burn rocks: a thin ring shows the share of layers left, the cue to plan ahead.
+        const f = Math.max(0, rock.layersLeft! / rock.layersTotal!);
+        c.save();
+        c.lineCap = 'round';
+        c.lineWidth = 3 / z;
+        c.strokeStyle = 'rgba(255,244,224,0.16)';
+        c.beginPath();
+        c.arc(def.x, def.y, R, 0, Math.PI * 2);
+        c.stroke();
+        c.strokeStyle = f < 0.2 ? YELLOW : MINT;
+        c.globalAlpha = 0.85;
+        c.beginPath();
+        c.arc(def.x, def.y, R, -Math.PI / 2, -Math.PI / 2 + f * Math.PI * 2);
+        c.stroke();
+        c.restore();
       }
     });
   }
@@ -709,7 +731,7 @@ export class Renderer {
     const scale = Math.max(0.5, Math.round(this.cam.z * this.dpr * 4) / 4);
     let id = this.rockIds.get(rock);
     if (id === undefined) this.rockIds.set(rock, (id = this.nextRockId++));
-    const full = `${key}:${gen}:${id}:${rock.remaining}:${scale}`;
+    const full = `${key}:${gen}:${id}:${rock.remaining}:${rock.bands ?? 0}:${scale}`;
     const cached = this.rockCache.get(i);
     if (cached && cached.key === full) return cached;
     const pad = 4;
@@ -746,6 +768,24 @@ export class Renderer {
       c.fillStyle = 'rgba(22,16,46,0.26)';
       c.fillRect(x, y + CELL - 1.5, CELL, 1.5);
       c.fillRect(x + CELL - 1.5, y, 1.5, CELL);
+      // Slow-burn rocks: a worked cell is scratched, then darkens at half and a quarter left.
+      const band = rock.layers ? shadeBand(rock.layers[k], rock.depth!) : 0;
+      if (band > 0) {
+        if (band > 1) {
+          c.fillStyle = `rgba(22,16,46,${band === 2 ? 0.24 : 0.44})`;
+          c.fillRect(x, y, CELL + 0.3, CELL + 0.3);
+        }
+        c.strokeStyle = 'rgba(255,244,224,0.7)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(x + 2, y + 3);
+        c.lineTo(x + 8, y + 7);
+        if (band === 3) {
+          c.moveTo(x + 2, y + 8);
+          c.lineTo(x + 6, y + 2);
+        }
+        c.stroke();
+      }
       if (ore > 1) {
         c.save();
         c.translate(x + CELL / 2, y + CELL / 2);
@@ -817,7 +857,7 @@ export class Renderer {
       const key = `${s.sector ? 'sector' : 'classic'}:${s.seed}:${i}:${slot.gen}`;
       let next = this.previewCache.get(key);
       if (!next) {
-        next = generateRock(i, slot.gen, s.seed);
+        next = generateRock(i, slot.gen, s.seed, rockDepth(s, i, slot.gen));
         this.previewCache.clear();
         this.previewCache.set(key, next);
       }
