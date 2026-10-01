@@ -1,7 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import {
+  beltsNear,
+  bend,
   buildDrill,
+  buildSmelter,
   dockPos,
   drills,
   freshState,
@@ -10,7 +13,7 @@ import {
   swapPartner,
   type State,
 } from '../src/rockhopper/sim';
-import { serialize } from '../src/rockhopper/save';
+import { deserialize, serialize } from '../src/rockhopper/save';
 import { SLOTS } from '../src/rockhopper/config';
 
 const T1Y = SLOTS[0].y;
@@ -590,4 +593,50 @@ test('a link with a post pinned mid-drag lands on a busy dock, and that dock’s
   );
   expect(outs[2]).toEqual(dock);
   expect(outs[1]).toEqual({ kind: 'drill', id: a.id });
+});
+
+test('a smelter dragged near a bend post snaps into the knee', async ({ page }) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  buildDrill(s, 0, Math.PI * 0.6);
+  // Three drills show the smelter in the tray.
+  buildDrill(s, 0, Math.PI * 0.1);
+  buildDrill(s, 0, Math.PI * 0.9);
+  const [a] = drills(s);
+  // A post on a's belt with room for a smelter on it.
+  let post: { x: number; y: number } | null = null;
+  for (let y = -240; y <= 0 && !post; y += 10)
+    for (let x = -200; x <= 200 && !post; x += 10) {
+      const t = deserialize(serialize(s))!;
+      if (bend(t, a.id, [{ x, y }]) !== true) continue;
+      // Clear of every other belt, so the drop isn't on a crossing.
+      if (beltsNear(t, { x, y }, 30).some((b) => b.id !== a.id)) continue;
+      if (buildSmelter(t, { x, y }, a.id) === true) post = { x, y };
+    }
+  expect(post).not.toBeNull();
+  bend(s, a.id, [post!]);
+  const save = serialize(s);
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, save);
+  await open(page, '');
+  const P = await screen(page, post!.x, post!.y);
+  const btn = (await page.locator('.rh-tool[data-kind=smelter]').boundingBox())!;
+  await page.mouse.move(btn.x + btn.width / 2, btn.y + btn.height / 2);
+  await page.mouse.down();
+  // Aim a little off the post (the ghost sits 56 px above the finger): it snaps onto it.
+  await page.mouse.move(P.x + 8, P.y + 56 + 6, { steps: 12 });
+  await page.waitForTimeout(200);
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const after = await hook(page);
+  const sm = after.machines.find((m) => m.kind === 'smelter')!;
+  expect(sm).toBeTruthy();
+  expect({ x: (sm as { x: number }).x, y: (sm as { y: number }).y }).toEqual(post);
+  const owner = after.machines.find((m) => m.id === a.id)!;
+  expect(owner.out?.to).toEqual({ kind: 'smelter', id: sm.id });
+  expect(owner.out?.via).toBeUndefined();
 });

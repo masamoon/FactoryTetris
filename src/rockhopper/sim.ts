@@ -1363,8 +1363,10 @@ export function canSplice(
     if (inputsOf(s, sm.id).length >= inputCap(sm)) return false;
     if (reaches(s, old, sm.id)) return false;
   }
-  // A smelter never lands on one of the belt's own bend posts.
+  // A smelter may sit exactly on one of the belt's bend posts (its knee), never half on one.
+  const knee = kneeAt(owner, p);
   if (
+    knee < 0 &&
     (owner.out.via ?? []).some(
       (v) => Math.hypot(v.x - p.x, v.y - p.y) < SMELTER_RADIUS + POST_RADIUS
     )
@@ -1392,10 +1394,37 @@ export function spliceLanesBlocked(s: State, owner: Machine, sm: Placed | null, 
   return false;
 }
 
-/** A splice at `p` splits `owner`'s bend posts: those before it stay, the rest go onward. */
+/** How close to a bend post a splice snaps onto it (the knee). */
+export const KNEE_SNAP = SMELTER_RADIUS + POST_RADIUS;
+
+/** The index of the bend post of `owner`'s belt that `p` sits on, or -1. */
+export function kneeAt(owner: Machine, p: Point): number {
+  return (owner.out?.via ?? []).findIndex((v) => Math.hypot(v.x - p.x, v.y - p.y) < 0.5);
+}
+
+/** The bend post of `owner`'s belt within `reach` of `p` (nearest first), or null. */
+export function kneeNear(owner: Machine, p: Point, reach = KNEE_SNAP): Point | null {
+  let best: Point | null = null,
+    bd = reach;
+  for (const v of owner.out?.via ?? []) {
+    const d = Math.hypot(v.x - p.x, v.y - p.y);
+    if (d < bd) {
+      bd = d;
+      best = { x: v.x, y: v.y };
+    }
+  }
+  return best;
+}
+
+/**
+ * A splice at `p` splits `owner`'s bend posts: those before it stay, the rest go onward. A
+ * splice on a post (its knee) uses that post up: the smelter stands where the belt turned.
+ */
 function splitVia(s: State, owner: Machine, p: Point): [Point[], Point[]] {
   const via = owner.out?.via ?? [];
   if (!via.length) return [[], []];
+  const j = kneeAt(owner, p);
+  if (j >= 0) return [via.slice(0, j), via.slice(j + 1)];
   const k = beltDistance(s, owner, p)?.piece ?? 0;
   return [via.slice(0, k), via.slice(k)];
 }

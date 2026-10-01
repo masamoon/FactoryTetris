@@ -19,6 +19,8 @@ import {
   pointAlong,
   byId,
   canSplice,
+  kneeNear,
+  KNEE_SNAP,
   canTarget,
   crossingsOf,
   sameTarget,
@@ -1065,6 +1067,21 @@ export class RockhopperApp {
     let why = '';
     for (const hit of near) {
       const owner = byId(this.state, hit.id)!;
+      // Near a bend post, it snaps onto the post: the smelter stands in the belt's knee.
+      const knee = kneeNear(owner, w, Math.max(KNEE_SNAP, 20 / z));
+      if (knee) {
+        const spot = smelterSpotWhy(this.state, knee, moving, hit.id);
+        const crossing = beltsNear(this.state, knee, Math.max(3, 4 / z)).some(
+          (b) => b.id !== hit.id && b.id !== moving
+        );
+        if (!spot && !crossing && canSplice(this.state, owner, mover, knee, false, kind)) {
+          const warn =
+            kind === 'factory' && !mover && owner.tier > 1 ? 'belt will be tier 1' : undefined;
+          return { at: { ...knee, ok: true, splice: hit.id, warn }, sock: null };
+        }
+        why ||=
+          spot || (crossing ? 'crossing' : spliceRefusal(this.state, owner, mover, knee, kind));
+      }
       if (!canSplice(this.state, owner, mover, hit.q, true, kind)) {
         why ||= spliceRefusal(this.state, owner, mover, hit.q, kind);
         continue;
