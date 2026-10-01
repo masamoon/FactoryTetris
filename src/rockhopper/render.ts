@@ -220,6 +220,9 @@ export class Renderer {
   private pops: Pop[] = [];
   private rockCache = new Map<number, { key: string; canvas: HTMLCanvasElement; scale: number }>();
   private previewCache = new Map<string, Rock>();
+  /** A rock object's identity: a restart can bring a different rock at the same generation. */
+  private rockIds = new WeakMap<Rock, number>();
+  private nextRockId = 1;
   private smeltGlow = new Map<number, number>();
   private placedAt = new Map<number, number>();
   /** Build or move time per machine: drives the landing drop, squash and dust. */
@@ -704,7 +707,9 @@ export class Renderer {
 
   private rockBitmap(i: number, rock: Rock, gen: number, key: string) {
     const scale = Math.max(0.5, Math.round(this.cam.z * this.dpr * 4) / 4);
-    const full = `${key}:${gen}:${rock.remaining}:${scale}`;
+    let id = this.rockIds.get(rock);
+    if (id === undefined) this.rockIds.set(rock, (id = this.nextRockId++));
+    const full = `${key}:${gen}:${id}:${rock.remaining}:${scale}`;
     const cached = this.rockCache.get(i);
     if (cached && cached.key === full) return cached;
     const pad = 4;
@@ -809,7 +814,7 @@ export class Renderer {
       const left = slot.arriveAt - tickF;
       const towTicks = TOW_SECONDS * TICK_HZ;
       if (left > towTicks) return;
-      const key = `${s.seed}:${i}:${slot.gen}`;
+      const key = `${s.sector ? 'sector' : 'classic'}:${s.seed}:${i}:${slot.gen}`;
       let next = this.previewCache.get(key);
       if (!next) {
         next = generateRock(i, slot.gen, s.seed);

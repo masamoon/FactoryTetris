@@ -73,6 +73,7 @@ import {
   serialize,
   type Settings,
 } from './save';
+import { newSectorSeed, sectorName } from './sector';
 import { Sfx } from './audio';
 import { COIN_SVG, drawChunk, drawDrill, drawFactory, drawSmelter } from './sprites';
 
@@ -221,7 +222,9 @@ export class RockhopperApp {
     this.overlay.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     // Capture mode (disclosed in clips): shows real touch points, hides the tutorial hands.
     this.clipMode = params.has('clip');
-    const seed = Number(params.get('seed') ?? 1) || 1;
+    // `?seed=N` picks a sector (or the classic field's veins); `?sector=0|1` overrides the setting.
+    const urlSeed = Number(params.get('seed')) || 0;
+    if (params.has('sector')) this.settings.sectors = params.get('sector') !== '0';
     let loaded: State | null = null;
     if (!params.has('fresh')) {
       try {
@@ -245,7 +248,7 @@ export class RockhopperApp {
         loaded = null;
       }
     }
-    this.state = loaded ?? freshState(seed);
+    this.state = loaded ?? this.newGame(urlSeed);
     this.shown = this.state.credits;
 
     this.root = el('div', 'rh');
@@ -383,10 +386,24 @@ export class RockhopperApp {
       this.save();
       setFact();
     });
+    // The sectors prototype: a setting for the next new game, since a field can't change mid-game.
+    const where = el('div', 'rh-menu-foot');
+    const sectors = el('button', 'rh-pill');
+    const setSectors = () => {
+      sectors.textContent = this.settings.sectors ? 'Next game: sector' : 'Next game: classic';
+      where.textContent = `${this.state.sector ? sectorName(this.state.seed) : 'Classic field'} · restart to change`;
+    };
+    setSectors();
+    sectors.addEventListener('click', () => {
+      this.settings.sectors = !this.settings.sectors;
+      saveSettings(this.settings);
+      setSectors();
+    });
     this.syncCrossingsButton = () => {
       setCross();
       setPrices();
       setFact();
+      setSectors();
     };
     const restart = el('button', 'rh-pill rh-danger rh-hold', '<span>Hold to restart</span>');
     this.holdButton(restart, 1000, () => {
@@ -395,7 +412,7 @@ export class RockhopperApp {
       } catch {
         /* ignore */
       }
-      this.state = freshState(this.state.seed);
+      this.state = this.newGame();
       this.commandLog.length = 0;
       this.shown = 0;
       this.renderer.resetView();
@@ -410,7 +427,7 @@ export class RockhopperApp {
       'rh-menu-foot',
       'Older prototypes: <a href="?mode=works">Asteroid Works</a> · <a href="?mode=tiles">Tile workshop</a>'
     );
-    card.append(title, resume, sound, cross, prices, fact, restart, classic);
+    card.append(title, resume, sound, cross, prices, fact, sectors, restart, where, classic);
     menu.append(card);
     menu.addEventListener('pointerdown', (e) => {
       if (e.target === menu) this.toggleMenu(false);
@@ -419,6 +436,12 @@ export class RockhopperApp {
   }
 
   private syncCrossingsButton: () => void = () => {};
+
+  /** A new game: a random sector when the setting is on (or `seed`'s), else the classic field. */
+  private newGame(seed = 0): State {
+    if (this.settings.sectors) return freshState(seed || newSectorSeed(), true);
+    return freshState(seed || 1, false);
+  }
 
   private toggleMenu(open = this.menuEl.hidden) {
     this.menuEl.hidden = !open;

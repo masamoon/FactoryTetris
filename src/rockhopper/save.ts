@@ -100,7 +100,7 @@ export function deserialize(text: string): State | null {
     const legacy = raw.version === 1;
     if (!isNum(raw.credits) || !isNum(raw.tick) || !isNum(raw.seed) || !Array.isArray(raw.machines))
       return null;
-    const base = freshState(raw.seed);
+    const base = freshState(raw.seed, raw.sector === true);
     const slots = (raw.slots as Record<string, unknown>[]).map((slot, i) => {
       const r = slot.rock as SavedRock | null;
       let rock: Rock | null = null;
@@ -142,6 +142,8 @@ export function deserialize(text: string): State | null {
       rockPrices: typeof raw.rockPrices === 'boolean' ? raw.rockPrices : true,
       // The factories experiment is off by default while it is a prototype.
       factories: typeof raw.factories === 'boolean' ? raw.factories : false,
+      // Saves from before sectors were played on the classic field.
+      sector: raw.sector === true,
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
@@ -345,14 +347,16 @@ function nearestLegal(s: State, x: number, y: number, except: number) {
 
 export interface Settings {
   muted: boolean;
+  /** The sectors prototype: new games get a random seed and its generated field (default on). */
+  sectors: boolean;
 }
 
 export function loadSettings(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>;
-    return { muted: !!raw.muted };
+    return { muted: !!raw.muted, sectors: raw.sectors !== false };
   } catch {
-    return { muted: false };
+    return { muted: false, sectors: true };
   }
 }
 

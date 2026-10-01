@@ -42,9 +42,32 @@ export interface SlotDef {
   signature: Ore;
   /** Credits to unlock; 0 = unlocked in a fresh save. */
   price: number;
+  /** Sectors only: the outline's overall form. Absent = the classic round rock. */
+  shape?: RockShape;
+  /** Sectors only: where the slot's ore sits. Absent = the classic scattered veins. */
+  veins?: VeinPlan;
 }
 
-export const SLOTS: readonly SlotDef[] = [
+/** `angle` (radians) turns the form; the outline still wobbles with every respawn. */
+export interface RockShape {
+  kind: 'round' | 'oval' | 'peanut' | 'bitten';
+  angle: number;
+}
+
+/**
+ * Which cells are ore, as a richness field that belongs to the slot (so it survives respawns):
+ * core (deep), crust (outer layer), side (one flank), seam (a band across) or pockets (2–3 lumps).
+ */
+export interface VeinPlan {
+  kind: 'scattered' | 'core' | 'crust' | 'side' | 'seam' | 'pockets';
+  angle: number;
+  /** seam: offset of the band from the centre, in radii. pockets: centres, in radii. */
+  offset?: number;
+  pockets?: { x: number; y: number }[];
+}
+
+/** The hand-placed field every game used before sectors; `?seed` only moved its veins. */
+export const CLASSIC_SLOTS: readonly SlotDef[] = [
   { tier: 1, x: 0, y: -270, r: 6, signature: COPPER, price: 0 },
   { tier: 1, x: -170, y: -270, r: 6, signature: COPPER, price: 700 },
   { tier: 1, x: 170, y: -270, r: 6, signature: ICE, price: 3000 },
@@ -54,6 +77,13 @@ export const SLOTS: readonly SlotDef[] = [
   { tier: 3, x: 170, y: -750, r: 10, signature: CRYSTAL, price: 360000 },
   { tier: 4, x: 0, y: -1010, r: 11, signature: CRYSTAL, price: 1800000 },
 ];
+
+/**
+ * The field in play: the classic one, or the sector a seeded game generated (`sector.ts`). The
+ * array is replaced in place when a state with a different layout is loaded or stepped, so the
+ * many stateless geometry helpers keep reading `SLOTS[i]`. Tiers, radii and prices never change.
+ */
+export const SLOTS: readonly SlotDef[] = CLASSIC_SLOTS.map((d) => ({ ...d }));
 
 /** Share of cells that are ore (not rock) and which ores a tier can contain. */
 export const TIER_ORE: Record<number, { share: number; ores: Ore[] }> = {

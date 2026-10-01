@@ -58,6 +58,8 @@ export interface BotOptions {
   minutes: number;
   laser: boolean;
   seed: number;
+  /** Play the seed's generated sector instead of the classic field. */
+  sector?: boolean;
   /** The crossings experiment (plates and clear lanes); on unless set false. */
   crossings?: boolean;
   /** A careless player: every 10 s one dock-bound machine is re-routed to a random free dock. */
@@ -162,7 +164,7 @@ export function runBot(opts: BotOptions): {
   beats: Beat[];
   income: [number, number][];
 } {
-  const s = freshState(opts.seed);
+  const s = freshState(opts.seed, opts.sector ?? false);
   s.crossings = opts.crossings ?? true;
   if (opts.factories) setFactories(s, true);
   for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
@@ -414,6 +416,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     seed: arg('--seed', 1),
     crossings: !process.argv.includes('--no-crossings'),
     factories: process.argv.includes('--factories'),
+    sector: process.argv.includes('--sector'),
   });
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);
