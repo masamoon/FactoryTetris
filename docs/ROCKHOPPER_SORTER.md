@@ -112,7 +112,7 @@ The round-3 measurements that promised +31 to +95 /s assumed copper and crystal 
 
 The user chose "reserve and refuse": copper and crystal wait for each other, and a factory refuses rock.
 
-**Refusing rock jams every factory.** Rock is 58–74 % of every rock's cells, so a rock bar reaches the front of almost every line within seconds and stops it. With the same bot, 3 seeds, 60 min: income was 444 / 416 / 442 /s against 681 / 832 / 488 without factories (−35 %, −50 %, −9 %). T3 came 6–9 min later, and the factories delivered 1 alloy in total. Refusal needs a way to take rock off a line first, which is the deferred sorter's job, so `FACTORY_REFUSE_ROCK` is off.
+**Refusing rock jams every factory.** Rock is 50–74 % of every rock's cells, so a rock bar reaches the front of almost every line within seconds and stops it. With the same bot, 3 seeds, 60 min: income was 444 / 416 / 442 /s against 681 / 832 / 488 without factories (−35 %, −50 %, −9 %). T3 came 6–9 min later, and the factories delivered 1 alloy in total. Refusal needs a way to take rock off a line first, which is the deferred sorter's job, so `FACTORY_REFUSE_ROCK` is off.
 
 **Reserving copper and crystal, rock passing through:**
 
