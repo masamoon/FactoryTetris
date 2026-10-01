@@ -39,7 +39,7 @@ import {
   bendRefusalWhy,
   MAX_POSTS,
   targetPos,
-  swapPartner,
+  swapWhy,
   targetWhy,
   priceOf,
   drillPriceOn,
@@ -892,7 +892,8 @@ export class RockhopperApp {
       this.overlay.finger = null;
     } else if (g.type === 'machine') {
       if (g.dragging) {
-        const { target, refused } = this.snapOrRefuse(g.id, p);
+        // The gesture is already cleared, so pass the pinned posts along.
+        const { target, refused } = this.snapOrRefuse(g.id, p, g.via.length ? g.via : undefined);
         if (target) {
           const r = g.via.length
             ? this.cmd('route', g.id, target, g.via)
@@ -949,11 +950,12 @@ export class RockhopperApp {
   /**
    * The nearest target within reach of the finger, or, when the nearest one is refused because
    * its belt would run under a machine, that refusal (so a drop there says why, instead of
-   * silently snapping elsewhere or doing nothing).
+   * silently snapping elsewhere or doing nothing). `via` is the posts pinned in the link.
    */
   private snapOrRefuse(
     id: number,
-    screen: Point
+    screen: Point,
+    via = this.pinned()
   ): { target: Target | null; refused: (Point & { why: string }) | null } {
     const m = byId(this.state, id);
     if (!m) return { target: null, refused: null };
@@ -964,14 +966,17 @@ export class RockhopperApp {
       refused: (Point & { why: string }) | null = null,
       refusedD = reach;
     const consider = (t: Target, q: Point, extra = 0) => {
-      const via = this.pinned();
       const same = m.out && sameTarget(m.out.to, t) && !via;
       const d = Math.hypot(q.x - w.x, q.y - w.y) - extra;
-      const swap = !via && swapPartner(this.state, m, t);
-      if (!same && !canTarget(this.state, m, t, via) && !swap) {
-        const why = targetWhy(this.state, m, t, via);
+      const busy = t.kind === 'dock' && !same && !canTarget(this.state, m, t, via);
+      const swap = busy ? swapWhy(this.state, m, t, via) : null;
+      if (!same && !canTarget(this.state, m, t, via) && !swap?.partner) {
+        // A busy dock says why the two belts can't trade places.
+        const why = swap && swap.why !== 'invalid' ? swap.why : targetWhy(this.state, m, t, via);
         const shown =
           why === 'belt blocked' ||
+          why === 'swap blocked' ||
+          why === 'dock busy' ||
           why === 'smelt it first' ||
           (via && matrixOnlyOk(this.state, m, t));
         if (d < refusedD && shown) {
@@ -983,9 +988,11 @@ export class RockhopperApp {
             why:
               why === 'belt blocked'
                 ? 'belt blocked: pause to bend'
-                : why === 'smelt it first'
-                  ? why
-                  : 'can’t bend that way',
+                : why === 'swap blocked'
+                  ? 'its belt would be blocked'
+                  : why === 'dock busy' || why === 'smelt it first'
+                    ? why
+                    : 'can’t bend that way',
           };
         }
         return;
@@ -1004,7 +1011,7 @@ export class RockhopperApp {
       let bd = Infinity;
       for (let i = 0; i < this.state.docks; i++) {
         const t: Target = { kind: 'dock', index: i };
-        if (!canTarget(this.state, m, t)) continue;
+        if (!canTarget(this.state, m, t, via)) continue;
         const q = dockPos(i);
         const d = Math.hypot(q.x - w.x, q.y - w.y);
         if (d < bd) {

@@ -19,6 +19,7 @@ import {
   route,
   smelters,
   step,
+  swapWhy,
   type Drill,
   type Point,
   type State,
@@ -198,4 +199,32 @@ test('a belt bent across another twice gets two plates and keeps flowing', () =>
   const keys = new Set(crossingsOf(s).plates.map((q) => q.key));
   assert.equal(keys.size, crossingsOf(s).plates.length, 'distinct plate keys');
   for (const r of rates(s, [a, b])) assert.ok(r > 0.5, `flows: ${r}`);
+});
+
+test('a link bent mid-drag can still take a busy dock: that dock’s belt takes its old place', () => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  buildDrill(s, 0, Math.PI * 0.6);
+  buildDrill(s, 0, Math.PI * 0.4);
+  buildDrill(s, 0, Math.PI * 1.5);
+  const [a, b, c] = drills(s);
+  // c, on the far side of the rock, feeds a as a junction; b holds dock 2.
+  assert.equal(route(s, c.id, { kind: 'drill', id: a.id }), true);
+  const t = { kind: 'dock', index: 2 } as const;
+  assert.deepEqual(b.out!.to, t);
+  // Straight, c's belt to dock 2 would run under b; refused with that reason, not silently.
+  assert.equal(swapWhy(s, c, t).why, 'belt blocked');
+  // A drill can't hand its dock to the drill it feeds.
+  assert.equal(swapWhy(s, c, a.out!.to).why, 'dock busy');
+  let post: Point | null = null;
+  for (let y = -340; y <= 40 && !post; y += 10)
+    for (let x = -300; x <= 300 && !post; x += 10)
+      if (swapWhy(s, c, t, [{ x, y }]).partner) post = { x, y };
+  assert.ok(post, 'a post takes the belt round');
+  assert.equal(route(s, c.id, t, [post]), true);
+  assert.deepEqual(c.out!.to, t);
+  assert.deepEqual(c.out!.via, [post]);
+  assert.deepEqual(b.out!.to, { kind: 'drill', id: a.id }, 'b took c’s place in the junction');
+  for (const m of [a, b, c]) assert.ok(canTarget(s, m, m.out!.to, m.out!.via ?? []));
 });

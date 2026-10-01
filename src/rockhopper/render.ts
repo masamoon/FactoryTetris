@@ -1706,7 +1706,8 @@ export class Renderer {
         for (let i = 0; i < s.docks; i++) {
           const t: Target = { kind: 'dock', index: i };
           // A busy dock pulses too when the two belts can trade docks.
-          if (!canTarget(s, m, t) && !swapPartner(s, m, t)) continue;
+          const via = o.reroute.via?.length ? o.reroute.via : undefined;
+          if (!canTarget(s, m, t, via) && !swapPartner(s, m, t, via)) continue;
           const p = dockPos(i);
           this.targetRing(c, p.x, p.y, 11);
         }
@@ -1729,8 +1730,13 @@ export class Renderer {
         c.restore();
         for (const v of o.reroute.via ?? []) this.post(c, v, false, true);
         const t = o.reroute.target;
-        if (t?.kind === 'dock' && !canTarget(s, m, t) && swapPartner(s, m, t))
-          this.refusals.push({ x: b.x, y: b.y + (36 * Math.max(1, z)) / z, why: 'swap docks' });
+        const pinned = o.reroute.via?.length ? o.reroute.via : undefined;
+        if (t?.kind === 'dock' && !canTarget(s, m, t, pinned) && swapPartner(s, m, t, pinned))
+          this.refusals.push({
+            x: b.x,
+            y: b.y + (36 * Math.max(1, z)) / z,
+            why: m.out?.to.kind === 'dock' ? 'swap docks' : 'take this dock',
+          });
         const r = o.reroute.refused;
         if (r) this.refusals.push({ x: r.x, y: r.y + (36 * Math.max(1, z)) / z, why: r.why });
       }

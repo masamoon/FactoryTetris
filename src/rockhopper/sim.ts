@@ -1523,25 +1523,44 @@ export function buildFactory(s: State, p: Point, splice?: number | null): Result
 }
 
 /**
- * The machine on dock `t` that `m` (itself on a dock) can trade docks with, or null. A dock takes
- * one belt, so without this a full hub leaves no dock to move a belt to. Both new belts must
- * keep clear lanes.
+ * Dropping `m`'s belt on busy dock `t`: the dock's belt takes `m`'s old place (its dock, or the
+ * machine it fed), so a full hub never leaves a belt with nowhere to go. `via` is the posts `m`'s
+ * new belt bends through (pinned while dragging), else the ones it keeps. Returns the machine
+ * that moves and why not, in a few words, when it can't: 'belt blocked' (the dragged belt would
+ * run under a machine), 'swap blocked' (the other belt would), or 'dock busy'.
  */
-export function swapPartner(s: State, m: Machine, t: Target): Machine | null {
+export function swapWhy(
+  s: State,
+  m: Machine,
+  t: Target,
+  via?: Point[]
+): { partner: Machine | null; why: string } {
+  const none = (why: string) => ({ partner: null, why });
   const from = m.out?.to;
-  if (t.kind !== 'dock' || from?.kind !== 'dock' || from.index === t.index) return null;
-  if (t.index < 0 || t.index >= s.docks) return null;
+  if (t.kind !== 'dock' || !from || sameTarget(from, t)) return none('invalid');
+  if (t.index < 0 || t.index >= s.docks) return none('invalid');
   const o = s.machines.find(
     (x) => x !== m && x.out?.to.kind === 'dock' && x.out.to.index === t.index
   );
-  if (!o) return null;
-  if (
-    s.crossings &&
-    (laneBlocker(s, m, t, undefined, viaFor(s, m, t)) ||
-      laneBlocker(s, o, from, undefined, viaFor(s, o, from)))
-  )
-    return null;
-  return o;
+  if (!o) return none('invalid');
+  if (from.kind !== 'dock' && from.id === o.id) return none('dock busy');
+  const vm = via ?? viaFor(s, m, t);
+  if (via?.length && withTarget(m, t, via, () => bendWhy(s, m, via))) return none('invalid');
+  // As if `m` had moved: then `o` may take `m`'s old target if the matrix allows it.
+  const ok = withTarget(m, t, vm, () => matrixOk(s, o, from));
+  if (!ok) return none('dock busy');
+  if (s.crossings) {
+    if (laneBlocker(s, m, t, undefined, vm)) return none('belt blocked');
+    const vo = withTarget(m, t, vm, () => viaFor(s, o, from));
+    if (withTarget(m, t, vm, () => laneBlocker(s, o, from, undefined, vo)))
+      return none('swap blocked');
+  }
+  return { partner: o, why: '' };
+}
+
+/** The machine `m` trades places with when dropped on busy dock `t`, or null (`swapWhy`). */
+export function swapPartner(s: State, m: Machine, t: Target, via?: Point[]): Machine | null {
+  return swapWhy(s, m, t, via).partner;
 }
 
 /**
@@ -1558,11 +1577,13 @@ export function route(s: State, id: number, to: Target, via?: Point[]): Result {
   if (m.out && sameTarget(m.out.to, to)) return pinned ? bend(s, id, pinned) : true;
   const keep = pinned ?? viaFor(s, m, to);
   if (!canTarget(s, m, to, keep)) {
-    // Dropped on a busy dock: the two belts trade docks, each keeping posts that still fit.
-    const o = pinned?.length ? null : swapPartner(s, m, to);
+    // Dropped on a busy dock: that dock's belt takes this one's old place, each keeping posts
+    // that still fit (the dragged belt takes its pinned posts).
+    const o = swapPartner(s, m, to, pinned);
     if (!o) return pinned?.length ? targetWhy(s, m, to, keep) || 'invalid' : 'invalid';
     const from = m.out!.to;
-    const [vm, vo] = [viaFor(s, m, to), viaFor(s, o, from)];
+    const vm = keep;
+    const vo = withTarget(m, to, vm, () => viaFor(s, o, from));
     o.out!.to = from;
     m.out!.to = to;
     setVia(o.out!, vo);

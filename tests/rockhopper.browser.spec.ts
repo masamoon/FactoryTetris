@@ -1,6 +1,16 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import type { State } from '../src/rockhopper/sim';
+import {
+  buildDrill,
+  dockPos,
+  drills,
+  freshState,
+  machinePos,
+  route,
+  swapPartner,
+  type State,
+} from '../src/rockhopper/sim';
+import { serialize } from '../src/rockhopper/save';
 import { SLOTS } from '../src/rockhopper/config';
 
 const T1Y = SLOTS[0].y;
@@ -535,4 +545,49 @@ test('holding a belt drops a bend post; it can be dragged off, re-placed and sur
   await page.reload();
   await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
   expect((await via())?.length).toBe(1);
+});
+
+test('a link with a post pinned mid-drag lands on a busy dock, and that dock’s belt takes its old place', async ({
+  page,
+}) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  buildDrill(s, 0, Math.PI * 0.6);
+  buildDrill(s, 0, Math.PI * 0.4);
+  buildDrill(s, 0, Math.PI * 1.5);
+  const [a, , c] = drills(s);
+  route(s, c.id, { kind: 'drill', id: a.id });
+  const dock = { kind: 'dock', index: 2 } as const;
+  const save = serialize(s);
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, save);
+  await open(page, '');
+  // A post spot on screen that takes c's belt round drill b to dock 2.
+  let post: { x: number; y: number } | null = null;
+  for (let y = -340; y <= 0 && !post; y += 10)
+    for (let x = -200; x <= 200 && !post; x += 10) {
+      if (!swapPartner(s, c, dock, [{ x, y }])) continue;
+      const q = await screen(page, x, y);
+      if (q.x > 30 && q.x < 360 && q.y > 150 && q.y < 700) post = { x, y };
+    }
+  expect(post).not.toBeNull();
+  const C = await screen(page, machinePos(c).x, machinePos(c).y);
+  const P = await screen(page, post!.x, post!.y);
+  const D = await screen(page, dockPos(2).x, dockPos(2).y);
+  await page.mouse.move(C.x, C.y);
+  await page.mouse.down();
+  await page.mouse.move(P.x, P.y, { steps: 12 });
+  await page.waitForTimeout(600);
+  await page.mouse.move(D.x, D.y, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const outs = await page.evaluate(() =>
+    (window as unknown as { __rockhopper: Hook }).__rockhopper.state.machines.map((m) => m.out?.to)
+  );
+  expect(outs[2]).toEqual(dock);
+  expect(outs[1]).toEqual({ kind: 'drill', id: a.id });
 });
