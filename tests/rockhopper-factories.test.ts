@@ -134,6 +134,36 @@ test('other pairs make 1.25x alloys; same-ore bars wait and then pass on as bars
   );
 });
 
+test('copper and crystal are reserved for each other until LONE_WAIT, then take any partner', () => {
+  const { s, a, b, f } = line();
+  arrive(a, COPPER);
+  arrive(b, ICE);
+  runFor(s, LONE_WAIT * 0.5);
+  assert.equal(f.stock.length, 2, 'copper does not pair with ice on arrival');
+  assert.equal(f.pairs.length + (f.job ? 1 : 0), 0);
+  // A crystal bar arriving now still finds its copper.
+  arrive(b, CRYSTAL);
+  let got = runFor(s, LONE_WAIT * 0.25);
+  assert.ok(f.stock.some((x) => x.ore === ICE) && !f.stock.some((x) => x.ore === COPPER));
+  got = got.concat(runFor(s, 30));
+  assert.ok(
+    got.some((e) => e.value === 495),
+    'copper paired with crystal'
+  );
+  assert.ok(
+    got.some((e) => e.value === 30 && e.alloy === undefined),
+    'ice passed on alone'
+  );
+  // With no crystal coming, a waiting copper bar pairs with ice after LONE_WAIT.
+  arrive(a, COPPER);
+  arrive(b, ICE);
+  got = runFor(s, 30);
+  assert.deepEqual(
+    got.map((e) => e.value),
+    [Math.floor(1.25 * BAR_VALUE * (3 + 5))]
+  );
+});
+
 test('an arriving copper bar picks crystal over an older partner', () => {
   const { s, a, f } = line();
   f.stock.push(

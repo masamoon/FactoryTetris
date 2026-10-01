@@ -12,7 +12,8 @@ export const FACTORY_PUZZLE_TEMPLATES = {
   'split-lanes': {
     id: 'split-lane-fork',
     name: 'Gate Fork',
-    instruction: 'Share production before the gate; send exact and refined goods into separate lanes.',
+    instruction:
+      'Share production before the gate; send exact and refined goods into separate lanes.',
     baseCycles: 30,
     baseCost: 22,
     costPerOrder: 9,
@@ -74,10 +75,7 @@ export function createFactoryPuzzle({
   const safeRound = Math.max(1, Math.floor(round || 1));
   const safeOrderCount = Math.max(1, Math.min(3, Math.floor(orderCount || 1)));
   const highestUniqueBaseTier = Math.max(2, 7 - safeOrderCount);
-  const baseTier = Math.min(
-    highestUniqueBaseTier,
-    2 + Math.floor(Math.max(0, safeRound - 1) / 3)
-  );
+  const baseTier = Math.min(highestUniqueBaseTier, 2 + Math.floor(Math.max(0, safeRound - 1) / 3));
   const baseCount = safeRound === 1 ? 1 : Math.min(4, 2 + Math.floor((safeRound - 1) / 4));
   const color =
     safeRound >= colorDemandRound

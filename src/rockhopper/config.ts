@@ -150,6 +150,8 @@ export const factoryUpgradeCost = (level: number) => Math.round(600 * Math.pow(2
 export const factoryInputs = (level: number) => (level >= 3 ? 3 : 2);
 export const factoryPrice = (owned: number) => Math.round(2400 * Math.pow(2, owned));
 /** Unpaired bars a factory holds, pairs waiting for its worker, and items waiting to leave. */
+/** Factories refuse rock (bars and chunks): it waits on the belt instead of passing through. */
+export const FACTORY_REFUSE_ROCK = false;
 export const FACTORY_STOCK = 6;
 export const FACTORY_PAIRS = 3;
 export const FACTORY_READY = 4;

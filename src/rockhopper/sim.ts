@@ -30,6 +30,7 @@ import {
   FACTORY_MAX_LEVEL,
   FACTORY_PAIRS,
   FACTORY_READY,
+  FACTORY_REFUSE_ROCK,
   FACTORY_STOCK,
   factoryInputs,
   factoryPrice,
@@ -2114,14 +2115,16 @@ export function alloyOf([a, b]: [Bar, Bar]): Bar {
   };
 }
 
-/** The waiting bar `bar` pairs with on arrival: copper and crystal find each other first. */
-function partnerIndex(stock: Bar[], bar: Bar): number {
-  const want = bar.ore === COPPER ? CRYSTAL : bar.ore === CRYSTAL ? COPPER : null;
-  if (want !== null) {
-    const k = stock.findIndex((x) => x.ore === want);
-    if (k >= 0) return k;
-  }
-  return stock.findIndex((x) => x.ore !== bar.ore);
+const reserved = (o: Ore) => o === COPPER || o === CRYSTAL;
+
+/**
+ * The waiting bar `bar` pairs with. Copper and crystal are reserved for each other; the other
+ * ores pair among themselves. `any` (a bar that has waited out `LONE_WAIT`) takes any other ore.
+ */
+function partnerIndex(stock: Bar[], bar: Bar, any = false): number {
+  if (any) return stock.findIndex((x) => x.ore !== bar.ore);
+  if (reserved(bar.ore)) return stock.findIndex((x) => reserved(x.ore) && x.ore !== bar.ore);
+  return stock.findIndex((x) => !reserved(x.ore) && x.ore !== bar.ore);
 }
 
 /** Take stock bar `k` out, without its arrival tick. */
@@ -2132,6 +2135,8 @@ function unstock(f: Factory, k: number): Bar {
 
 /** Where an arriving item would go: 'pair', 'stock', 'pass', or null when there is no room. */
 function factoryFit(f: Factory, item: Bar): 'pair' | 'stock' | 'pass' | null {
+  // Rock never enters: it waits on the belt, so a line carrying rock needs it kept off.
+  if (FACTORY_REFUSE_ROCK && item.ore === ROCK && item.alloy === undefined) return null;
   if (pairable(item)) {
     if (f.pairs.length < FACTORY_PAIRS && partnerIndex(f.stock, item) >= 0) return 'pair';
     if (f.stock.length < FACTORY_STOCK) return 'stock';
@@ -2182,14 +2187,15 @@ function factoriesTick(s: State) {
       const b = unstock(f, i + 1 + j);
       f.pairs.push([unstock(f, i), b]);
     }
-    // A bar left without a partner passes on, oldest first, so nothing waits for ever.
-    while (
-      f.stock.length &&
-      s.tick - f.stock[0].t >= LONE_WAIT * TICK_HZ &&
-      f.ready.length < FACTORY_READY
-    ) {
-      const { t: _t, ...left } = f.stock.shift()!;
-      f.ready.push(left);
+    // A bar that waited out LONE_WAIT takes any partner; with none it passes on, oldest first,
+    // so nothing waits for ever.
+    while (f.stock.length && s.tick - f.stock[0].t >= LONE_WAIT * TICK_HZ) {
+      const j = partnerIndex(f.stock.slice(1), f.stock[0], true);
+      if (j >= 0 && f.pairs.length < FACTORY_PAIRS) {
+        const b = unstock(f, 1 + j);
+        f.pairs.push([unstock(f, 0), b]);
+      } else if (f.ready.length < FACTORY_READY) f.ready.push(unstock(f, 0));
+      else break;
     }
     // The worker: one alloy at a time; leftover time carries into the next.
     let budget = DT;
