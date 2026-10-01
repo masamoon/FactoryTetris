@@ -545,3 +545,8 @@ button:focus-visible {
     animation: none;
   }
 }
+
+/* A tray item that is switched on but not open yet says what opens it, with no coin. */
+.rh-price.rh-locked svg {
+  display: none;
+}

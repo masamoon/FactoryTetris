@@ -2171,6 +2171,11 @@ function moveBelts(s: State) {
 
 /** Seconds a smelter holds an unpaired chunk with nothing arriving before smelting it alone. */
 export const LONE_WAIT = 2;
+/**
+ * Seconds a factory holds a bar for its reserved partner before it takes any other ore, or passes
+ * on alone. Bars trickle in on early lines, so a short wait let them pass unpaired.
+ */
+export const FACTORY_WAIT = 8;
 
 function smeltersTick(s: State) {
   for (const sm of smelters(s)) {
@@ -2340,7 +2345,7 @@ function factoriesTick(s: State) {
     }
     // A bar that waited out LONE_WAIT takes any partner; with none it passes on, oldest first,
     // so nothing waits for ever.
-    while (f.stock.length && s.tick - f.stock[0].t >= LONE_WAIT * TICK_HZ) {
+    while (f.stock.length && s.tick - f.stock[0].t >= FACTORY_WAIT * TICK_HZ) {
       const j = partnerIndex(f.stock.slice(1), f.stock[0], true);
       if (j >= 0 && f.pairs.length < FACTORY_PAIRS) {
         const b = unstock(f, 1 + j);
