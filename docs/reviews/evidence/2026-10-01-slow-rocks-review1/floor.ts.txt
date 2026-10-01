@@ -1,0 +1,15 @@
+import { SLOTS, CELL, SMELTER_RADIUS } from '../src/rockhopper/config';
+import { freshState, smelterSpotWhy, step } from '../src/rockhopper/sim';
+for (const [seed, sec] of [[1, false], [1, true], [2, true]] as const) {
+  const s = freshState(seed, sec); step(s);
+  let free = 0, freeNear = 0, padAll = 0, padT1 = 0, near = 0; const g = 5;
+  for (let x = -330; x <= 330; x += g) for (let y = -1150; y <= 110; y += g) {
+    const ok = smelterSpotWhy(s, { x, y }, undefined, null, false) === '';
+    const d = Math.hypot(x, y);
+    if (ok) { free++; if (d < 600) freeNear++; }
+    if (d < 600) near++;
+    for (let i = 0; i < SLOTS.length; i++) { const q = SLOTS[i]; if (Math.hypot(x - q.x, y - q.y) < q.r * CELL - SMELTER_RADIUS - 4) { padAll++; if (q.tier === 1) padT1++; } }
+  }
+  const A = g * g;
+  console.log(`seed ${seed} ${sec ? 'sector' : 'classic'}: free floor ${(free * A / 1000).toFixed(0)}k u2, within 600 of hub ${(freeNear * A / 1000).toFixed(0)}k of ${(near*A/1000).toFixed(0)}k; one smelter needs ~${(Math.PI * (SMELTER_RADIUS*2+8) ** 2 / 4 / 1000).toFixed(1)}k; factory-centre area on all pads ${(padAll * A / 1000).toFixed(1)}k, on 3 T1 pads ${(padT1 * A / 1000).toFixed(1)}k`);
+}

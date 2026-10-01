@@ -225,6 +225,8 @@ export class RockhopperApp {
     // `?seed=N` picks a sector (or the classic field's veins); `?sector=0|1` overrides the setting.
     const urlSeed = Number(params.get('seed')) || 0;
     if (params.has('sector')) this.settings.sectors = params.get('sector') !== '0';
+    // `?slow=0|1` overrides the slow-burn rocks setting for a new game.
+    if (params.has('slow')) this.settings.slowRocks = params.get('slow') !== '0';
     let loaded: State | null = null;
     if (!params.has('fresh')) {
       try {
@@ -399,11 +401,24 @@ export class RockhopperApp {
       saveSettings(this.settings);
       setSectors();
     });
+    // Slow-burn rocks: also a setting for the next new game.
+    const slow = el('button', 'rh-pill');
+    const setSlow = () => {
+      slow.textContent = this.settings.slowRocks ? 'Rocks: slow-burn' : 'Rocks: classic';
+      setSectors();
+      if (this.state.slowRocks) where.textContent += ' · slow-burn rocks';
+    };
+    setSlow();
+    slow.addEventListener('click', () => {
+      this.settings.slowRocks = !this.settings.slowRocks;
+      saveSettings(this.settings);
+      setSlow();
+    });
     this.syncCrossingsButton = () => {
       setCross();
       setPrices();
       setFact();
-      setSectors();
+      setSlow();
     };
     const restart = el('button', 'rh-pill rh-danger rh-hold', '<span>Hold to restart</span>');
     this.holdButton(restart, 1000, () => {
@@ -427,7 +442,7 @@ export class RockhopperApp {
       'rh-menu-foot',
       'Older prototypes: <a href="?mode=works">Asteroid Works</a> · <a href="?mode=tiles">Tile workshop</a>'
     );
-    card.append(title, resume, sound, cross, prices, fact, sectors, restart, where, classic);
+    card.append(title, resume, sound, cross, prices, fact, sectors, slow, restart, where, classic);
     menu.append(card);
     menu.addEventListener('pointerdown', (e) => {
       if (e.target === menu) this.toggleMenu(false);
@@ -439,8 +454,9 @@ export class RockhopperApp {
 
   /** A new game: a random sector when the setting is on (or `seed`'s), else the classic field. */
   private newGame(seed = 0): State {
-    if (this.settings.sectors) return freshState(seed || newSectorSeed(), true);
-    return freshState(seed || 1, false);
+    const slow = this.settings.slowRocks;
+    if (this.settings.sectors) return freshState(seed || newSectorSeed(), true, slow);
+    return freshState(seed || 1, false, slow);
   }
 
   private toggleMenu(open = this.menuEl.hidden) {
@@ -1274,7 +1290,16 @@ export class RockhopperApp {
       const items: [HubUpgrade, string, string][] = [
         ['laser', 'Laser', `${s.laserLevel}/${LASER_POWER.length}`],
         ['docks', 'Docks', `${s.docks}/${DOCKS_MAX}`],
-        ['tractor', 'Tractor', `${s.tractorLevel}/${TRACTOR_MAX}`],
+        // Slow-burn rocks tow themselves in: there is no tractor to upgrade.
+        ...(s.slowRocks
+          ? []
+          : [
+              ['tractor', 'Tractor', `${s.tractorLevel}/${TRACTOR_MAX}`] as [
+                HubUpgrade,
+                string,
+                string,
+              ],
+            ]),
       ];
       key = `hub:${items.map(([w]) => hubCost(s, w)).join(',')}`;
       build = () => {

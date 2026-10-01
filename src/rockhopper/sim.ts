@@ -9,6 +9,11 @@ import {
   COPPER,
   CRYSTAL,
   CRUMBLE_AT,
+  CRUMBLE_FLIGHT_MAX,
+  DEEP_CRUMBLE_AT,
+  DEPTH,
+  AUTO_TOW_SECONDS,
+  SLOW_PRICE,
   CRUMBLE_SECONDS,
   dockCost,
   DOCK_ANGLES,
@@ -84,7 +89,21 @@ export interface Rock {
   work: number[];
   total: number;
   remaining: number;
+  /**
+   * Slow-burn rocks only: layers a fresh cell holds, each cell's layers left (0 = empty), their
+   * sum when the rock arrived and now, and a counter that moves whenever a cell's shade band
+   * changes (the renderer's cache key). Absent on a depth-1 rock, which plays as before.
+   */
+  depth?: number;
+  layers?: number[];
+  layersTotal?: number;
+  layersLeft?: number;
+  bands?: number;
 }
+
+/** A cell's shade band from its layers left: 0 intact, 1 scratched, 2 half, 3 a quarter or less. */
+export const shadeBand = (left: number, depth: number) =>
+  left >= depth ? 0 : left > depth / 2 ? 1 : left > depth / 4 ? 2 : 3;
 
 export interface Slot {
   unlocked: boolean;
@@ -232,6 +251,8 @@ export type SimEvent =
       x: number;
       y: number;
       by: 'laser' | 'drill' | 'crumble';
+      /** Chunks this break yields, when more than one (a crumbling slow-burn cell). */
+      chunks?: number;
     }
   | {
       type: 'deliver';
@@ -279,6 +300,8 @@ export interface State {
   factories: boolean;
   /** The sectors prototype: this game's field was generated from its seed, else the classic one. */
   sector: boolean;
+  /** Slow-burn rocks (docs/ROCKHOPPER_SLOW_ROCKS.md): deep rocks, auto-tow, no tractor. */
+  slowRocks?: boolean;
   tick: number;
   credits: number;
   earned: number;
@@ -320,7 +343,17 @@ function vnoise(x: number, y: number, s: number, sc: number): number {
 
 // ---------------------------------------------------------------- rocks
 
-export function generateRock(slotIndex: number, gen: number, worldSeed: number): Rock {
+/**
+ * Layers per cell for the rock slot `slotIndex` gets as its `gen`th: 1 on a classic game and for
+ * the starter rock (the first berth's first rock), else the slot tier's depth.
+ */
+export function rockDepth(s: { slowRocks?: boolean }, slotIndex: number, gen: number): number {
+  if (!s.slowRocks) return 1;
+  if (gen === 0 && SLOTS[slotIndex].price === 0) return 1;
+  return DEPTH[SLOTS[slotIndex].tier];
+}
+
+export function generateRock(slotIndex: number, gen: number, worldSeed: number, depth = 1): Rock {
   const def = SLOTS[slotIndex];
   const r = def.r;
   const w = 2 * r + 3;
@@ -362,7 +395,7 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
       ? ores[Math.min(ores.length - 1, Math.floor(c.t * ores.length))]
       : 1;
   }
-  return {
+  const rock: Rock = {
     r,
     w,
     cells,
@@ -370,6 +403,13 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
     total: inside.length,
     remaining: inside.length,
   };
+  if (depth > 1) {
+    rock.depth = depth;
+    rock.layers = cells.map((c) => (c ? depth : 0));
+    rock.layersTotal = rock.layersLeft = inside.length * depth;
+    rock.bands = 0;
+  }
+  return rock;
 }
 
 /** A sector rock's outline, as a radius factor by angle, and the bite taken out of a bitten one. */
@@ -611,7 +651,7 @@ export const slotVisible = (s: State, i: number) =>
 
 // ---------------------------------------------------------------- state
 
-export function freshState(seed = 1, sector = false): State {
+export function freshState(seed = 1, sector = false, slowRocks = false): State {
   useSector(seed, sector);
   const slots: Slot[] = SLOTS.map((d) => ({
     unlocked: d.price === 0,
@@ -622,7 +662,7 @@ export function freshState(seed = 1, sector = false): State {
   }));
   slots.forEach((slot, i) => {
     if (slot.unlocked) {
-      slot.rock = generateRock(i, 0, seed);
+      slot.rock = generateRock(i, 0, seed, rockDepth({ slowRocks }, i, 0));
       slot.gen = 1;
     }
   });
@@ -633,6 +673,7 @@ export function freshState(seed = 1, sector = false): State {
     rockPrices: true,
     factories: false,
     sector,
+    ...(slowRocks ? { slowRocks: true } : {}),
     tick: 0,
     credits: 0,
     earned: 0,
@@ -708,6 +749,8 @@ export function hubCost(s: State, what: HubUpgrade): number | null {
   if (what === 'laser')
     return s.laserLevel >= LASER_POWER.length ? null : LASER_COST[s.laserLevel - 1];
   if (what === 'docks') return s.docks >= DOCKS_MAX ? null : dockCost(s.docks);
+  // Slow-burn rocks have no tow wait to shorten.
+  if (s.slowRocks) return null;
   return s.tractorLevel >= TRACTOR_MAX ? null : tractorCost(s.tractorLevel);
 }
 
@@ -1654,7 +1697,8 @@ export function moveSmelter(s: State, id: number, p: Point, splice?: number | nu
 
 export function unlockCost(s: State, slot: number): number | null {
   if (!SLOTS[slot] || s.slots[slot].unlocked || !slotVisible(s, slot)) return null;
-  return SLOTS[slot].price;
+  const def = SLOTS[slot];
+  return s.slowRocks ? Math.round(def.price * SLOW_PRICE[def.tier]) : def.price;
 }
 
 export function unlock(s: State, slot: number): Result {
@@ -1720,26 +1764,53 @@ function breakCell(
   const rock = slot.rock!;
   const ore = rock.cells[index] as Ore;
   const p = cellPos(slotIndex, rock, index);
-  rock.cells[index] = 0;
+  // A deep cell gives up one layer per break (a crumble takes all it has left) and stays until
+  // its last layer goes.
+  let chunks = 1;
+  if (rock.layers) {
+    const before = rock.layers[index];
+    chunks = by === 'crumble' ? before : 1;
+    rock.layers[index] = before - chunks;
+    rock.layersLeft! -= chunks;
+    if (shadeBand(before, rock.depth!) !== shadeBand(rock.layers[index], rock.depth!))
+      rock.bands!++;
+  }
   rock.work[index] = 0;
-  rock.remaining--;
-  s.events.push({ type: 'break', slot: slotIndex, cell: index, ore, x: p.x, y: p.y, by });
+  if (!rock.layers || rock.layers[index] === 0) {
+    rock.cells[index] = 0;
+    rock.remaining--;
+  }
+  s.events.push({
+    type: 'break',
+    slot: slotIndex,
+    cell: index,
+    ore,
+    x: p.x,
+    y: p.y,
+    by,
+    ...(chunks > 1 ? { chunks } : {}),
+  });
   if (by === 'laser') s.stats.laserBroken++;
   else if (by === 'drill') s.stats.drillBroken++;
   else s.stats.crumbleBroken++;
   if (by !== 'drill') {
     const dist = Math.hypot(p.x, p.y);
     const secs = Math.min(FLIGHT_MAX, Math.max(FLIGHT_MIN, dist / FLIGHT_SPEED));
-    s.flights.push({
-      ore,
-      value: ORES[ore].value,
-      x: p.x,
-      y: p.y,
-      t0: s.tick,
-      t1: s.tick + Math.round(secs * TICK_HZ),
-    });
+    // A crumbling deep cell flies home in flights of at most CRUMBLE_FLIGHT_MAX chunks.
+    for (let left = chunks; left > 0; left -= CRUMBLE_FLIGHT_MAX)
+      s.flights.push({
+        ore,
+        value: ORES[ore].value * Math.min(left, CRUMBLE_FLIGHT_MAX),
+        x: p.x,
+        y: p.y,
+        t0: s.tick,
+        t1: s.tick + Math.round(secs * TICK_HZ),
+      });
   }
-  if (!slot.crumble && rock.remaining > 0 && rock.remaining < rock.total * CRUMBLE_AT) {
+  const low = rock.layers
+    ? rock.layersLeft! < rock.layersTotal! * DEEP_CRUMBLE_AT
+    : rock.remaining < rock.total * CRUMBLE_AT;
+  if (!slot.crumble && rock.remaining > 0 && low) {
     slot.crumble = Math.max(1, Math.ceil(rock.remaining / (CRUMBLE_SECONDS * TICK_HZ)));
     s.events.push({ type: 'crumble', slot: slotIndex });
   }
@@ -1751,7 +1822,7 @@ function slotsTick(s: State) {
     if (!slot.unlocked) return;
     if (!slot.rock) {
       if (s.tick >= slot.arriveAt) {
-        slot.rock = generateRock(i, slot.gen, s.seed);
+        slot.rock = generateRock(i, slot.gen, s.seed, rockDepth(s, i, slot.gen));
         slot.gen++;
         s.events.push({ type: 'arrive', slot: i });
       }
@@ -1773,7 +1844,8 @@ function slotsTick(s: State) {
     if (rock.remaining <= 0) {
       slot.rock = null;
       slot.crumble = 0;
-      slot.arriveAt = s.tick + Math.round(arrivalSeconds(s.tractorLevel) * TICK_HZ);
+      const wait = s.slowRocks ? AUTO_TOW_SECONDS : arrivalSeconds(s.tractorLevel);
+      slot.arriveAt = s.tick + Math.round(wait * TICK_HZ);
       for (const d of drills(s)) if (d.slot === i) d.cell = -1;
       if (s.laser?.slot === i) s.laser.cell = -1;
     }

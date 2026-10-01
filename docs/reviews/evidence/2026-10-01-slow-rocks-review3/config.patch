@@ -1,0 +1,20 @@
+--- src/rockhopper/config.ts	2026-10-01 14:25:38.185736300 +0000
++++ /tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/review3/src/rockhopper/config.ts	2026-10-01 16:23:50.965733565 +0000
+@@ -28,6 +28,7 @@
+ };
+ 
+ /** A bar is two chunks of one ore, worth this many chunks (so ×3 per chunk). */
++if (process.env.OREV) for (const k of Object.keys(ORES)) (ORES as any)[k].value *= Number(process.env.OREV);
+ export const BAR_VALUE = 6;
+ /** A lone chunk smelted because the queue held no pair: ×3, like the legacy bar. */
+ export const LONE_BAR_VALUE = 3;
+@@ -83,6 +84,9 @@
+  * array is replaced in place when a state with a different layout is loaded or stepped, so the
+  * many stateless geometry helpers keep reading `SLOTS[i]`. Tiers, radii and prices never change.
+  */
++const PF_ = (process.env.PF ?? '1,1,1,1').split(',').map(Number);
++for (const d of CLASSIC_SLOTS as any[]) d.price = Math.round(d.price * PF_[d.tier - 1]);
++if (process.env.PSLOT) for (const kv of process.env.PSLOT.split(';')) { const [i, v] = kv.split('=').map(Number); (CLASSIC_SLOTS as any[])[i].price = v; }
+ export const SLOTS: readonly SlotDef[] = CLASSIC_SLOTS.map((d) => ({ ...d }));
+ 
+ /** Share of cells that are ore (not rock) and which ores a tier can contain. */

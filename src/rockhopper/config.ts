@@ -192,6 +192,21 @@ export const arrivalSeconds = (level: number) => 8 * Math.pow(0.8, level);
 /** The final part of the arrival during which the rock is visibly towed in. */
 export const TOW_SECONDS = 1.4;
 
+/**
+ * Slow-burn rocks (docs/ROCKHOPPER_SLOW_ROCKS.md, a new-game switch): every cell of a rock holds
+ * this many layers by tier, each a full cell's work for one chunk, so a rock lasts that many times
+ * longer at the same income. The first berth's first rock is the depth-1 starter rock.
+ */
+export const DEPTH: Record<1 | 2 | 3 | 4, number> = { 1: 40, 2: 60, 3: 80, 4: 100 };
+/** A deep rock crumbles when this share of its layers remains. */
+export const DEEP_CRUMBLE_AT = 0.05;
+/** Most chunks one crumble flight carries, so no single pop is huge. */
+export const CRUMBLE_FLIGHT_MAX = 4;
+/** Seconds from a deep rock running dry to the next one in place (no tractor in this mode). */
+export const AUTO_TOW_SECONDS = 3;
+/** Slow-burn slot prices, as multiples of the slot's own price, by tier (S9). */
+export const SLOW_PRICE: Record<1 | 2 | 3 | 4, number> = { 1: 2.5, 2: 4, 3: 1.4, 4: 1 };
+
 /** Crumble when fewer than this share of the original cells remain. */
 export const CRUMBLE_AT = 0.2;
 export const CRUMBLE_SECONDS = 1.5;

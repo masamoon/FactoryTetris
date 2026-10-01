@@ -1,0 +1,15 @@
+import { runBot } from './bot';
+import { SLOTS, TICK_HZ } from './src/rockhopper/config';
+const sector = !!process.env.SECTOR;
+for (const seed of (process.env.SEEDS ?? '2').split(',').map(Number)) {
+  const row: string[] = [];
+  runBot({ minutes: 30, laser: true, seed, sector, onTick: (s) => {
+    if (s.tick % (300 * TICK_HZ) === 0 && s.tick > 0) {
+      const dr = s.machines.filter((m) => m.kind === 'drill').length;
+      const sl = s.slots.map((x, i) => x.unlocked ? SLOTS[i].tier : '').join('');
+      const docks = s.docks;
+      row.push(`${s.tick / TICK_HZ / 60}m e${Math.round(s.earned / 1000)}k d${dr} k${docks} sl${sl}`);
+    }
+  } });
+  console.log(`s${seed}${sector ? 'S' : 'C'} ` + row.join(' | '));
+}

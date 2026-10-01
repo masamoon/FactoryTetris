@@ -1,0 +1,25 @@
+import { SLOTS, ORES, TIER_ORE } from './src/rockhopper/config';
+import { useSector } from './src/rockhopper/sector';
+import { generateRock } from './src/rockhopper/sim';
+for (const sector of [false, true]) {
+  const acc: Record<string, { v: number[]; w: number[] }> = {};
+  for (let seed = 1; seed <= 200; seed++) {
+    useSector(seed, sector);
+    for (let i = 0; i < 8; i++) {
+      const def = SLOTS[i] as any; const orig = def.signature;
+      for (const sig of [...new Set(TIER_ORE[def.tier].ores)]) {
+        def.signature = sig;
+        for (let g = 0; g < 3; g++) {
+          const r = generateRock(i, g, seed); let v = 0, w = 0;
+          for (const c of r.cells) if (c) { v += (ORES as any)[c].value; w += (ORES as any)[c].hardness; }
+          const k = `T${def.tier} sig ${(ORES as any)[sig].name}`; (acc[k] ??= { v: [], w: [] }); acc[k].v.push(v); acc[k].w.push(w);
+        }
+      }
+      def.signature = orig;
+    }
+    if (!sector) break;
+  }
+  const m = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+  console.log(sector ? 'sector (200 seeds)' : 'classic');
+  for (const k of Object.keys(acc).sort()) console.log(`  ${k.padEnd(18)} value ${m(acc[k].v).toFixed(0)}  work ${m(acc[k].w).toFixed(0)}  value/work ${(m(acc[k].v) / m(acc[k].w)).toFixed(2)}`);
+}

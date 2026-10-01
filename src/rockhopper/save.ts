@@ -38,9 +38,11 @@ export const PREV_SAVE_KEY = 'rockhopper.save.v2';
 export const LEGACY_SAVE_KEY = 'rockhopper.save.v1';
 export const SETTINGS_KEY = 'rockhopper.settings.v1';
 
-interface SavedRock extends Omit<Rock, 'cells' | 'work'> {
+interface SavedRock extends Omit<Rock, 'cells' | 'work' | 'layers' | 'layersLeft' | 'bands'> {
   cells: string;
   work: [number, number][];
+  /** Slow-burn rocks: each cell's layers left, comma-separated. */
+  layers?: string;
 }
 
 export function serialize(s: State): string {
@@ -54,6 +56,13 @@ export function serialize(s: State): string {
           remaining: slot.rock.remaining,
           cells: slot.rock.cells.join(''),
           work: slot.rock.work.map((w, i) => [i, w] as [number, number]).filter(([, w]) => w > 0),
+          ...(slot.rock.layers
+            ? {
+                depth: slot.rock.depth,
+                layersTotal: slot.rock.layersTotal,
+                layers: slot.rock.layers.join(','),
+              }
+            : {}),
         } satisfies SavedRock)
       : null,
   }));
@@ -120,6 +129,26 @@ export function deserialize(text: string): State | null {
           total: r.total,
           remaining: cells.filter((c) => c > 0).length,
         };
+        if (r.layers !== undefined) {
+          // A slow-burn rock: every live cell keeps 1..depth layers, every empty one none.
+          const depth = r.depth;
+          const layers = r.layers.split(',').map(Number);
+          if (
+            !Number.isInteger(depth) ||
+            (depth as number) < 2 ||
+            layers.length !== w * w ||
+            layers.some((l, k) =>
+              cells[k] ? !(Number.isInteger(l) && l >= 1 && l <= depth!) : l !== 0
+            )
+          )
+            throw new Error('layers');
+          const left = layers.reduce((a, b) => a + b, 0);
+          rock.depth = depth;
+          rock.layers = layers;
+          rock.layersLeft = left;
+          rock.layersTotal = isNum(r.layersTotal) ? Math.max(r.layersTotal, left) : left;
+          rock.bands = 0;
+        }
       }
       return {
         unlocked: !!slot.unlocked,
@@ -144,6 +173,8 @@ export function deserialize(text: string): State | null {
       factories: typeof raw.factories === 'boolean' ? raw.factories : false,
       // Saves from before sectors were played on the classic field.
       sector: raw.sector === true,
+      // Saves from before slow-burn rocks play classic rocks.
+      slowRocks: raw.slowRocks === true ? true : undefined,
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
@@ -349,14 +380,20 @@ export interface Settings {
   muted: boolean;
   /** The sectors prototype: new games get a random seed and its generated field (default on). */
   sectors: boolean;
+  /** Slow-burn rocks: new games get deep rocks and auto-tow (default on). */
+  slowRocks: boolean;
 }
 
 export function loadSettings(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<Settings>;
-    return { muted: !!raw.muted, sectors: raw.sectors !== false };
+    return {
+      muted: !!raw.muted,
+      sectors: raw.sectors !== false,
+      slowRocks: raw.slowRocks !== false,
+    };
   } catch {
-    return { muted: false, sectors: true };
+    return { muted: false, sectors: true, slowRocks: true };
   }
 }
 

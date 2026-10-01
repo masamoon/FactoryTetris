@@ -1,0 +1,27 @@
+#!/bin/bash
+cd /tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/review3
+. ./base.sh
+mkdir -p out/search
+for a in 2 2.5; do for b in 3 3.5 4; do for c in 1.4 1.6 1.8 2; do
+ PF="$a,$b,$c,1"; f=out/search/$PF.txt; [ -s $f ] && continue
+ ( for S in "" 1; do for SE in 1,2,3,4 5,6,7,8; do (SECTOR=$S SEEDS=$SE PF=$PF npx --prefix /home/user/FactoryTetris tsx s9.ts | grep -v ^PF) & done; done; wait ) > $f
+done; done; done
+echo SEARCHDONE
+import re,glob,os
+base={'1C':'5:49','2C':'5:31','3C':'6:59','4C':'6:17','5C':'4:53','6C':'5:40','7C':'5:18','8C':'5:38','1S':'6:17','2S':'5:12','3S':'4:44','4S':'6:24','5S':'9:59','6S':'5:40','7S':'4:08','8S':'7:13'}
+sec=lambda t: None if t=='-' else int(t.split(':')[0])*60+int(t.split(':')[1])
+rows=[]
+for f in glob.glob('out/search/*.txt'):
+  pf=os.path.basename(f)[:-4]; L=[l for l in open(f) if l.startswith('s')]
+  if len(L)<16: continue
+  m={'C':[0,0,0,0],'S':[0,0,0,0]}; worst={'C':0,'S':0}
+  for l in L:
+    k,t2,t3,g=re.match(r's(\d+[CS]): T2 (\S+) T3 (\S+) gapT2-T3 (\S+)',l).groups()
+    fld=k[-1]; t2,t3,g=sec(t2),sec(t3),sec(g); b=sec(base[k])
+    m[fld][0]+= t2 is not None and 420<=t2<=660
+    m[fld][1]+= t3 is not None and 1500<=t3<=1980
+    m[fld][2]+= g<=1.5*b
+    m[fld][3]+= g<=b
+    worst[fld]=max(worst[fld],g/b)
+  rows.append((sum(m['C'][:3])+sum(m['S'][:3]),pf,m,worst))
+for r in sorted(rows,reverse=True)[:8]: print(r[0],r[1],'C T2/T3/gap1.5/gap1',r[2]['C'],'S',r[2]['S'],'worst ratio C %.2f S %.2f'%(r[3]['C'],r[3]['S']))

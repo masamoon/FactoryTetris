@@ -1,0 +1,12 @@
+import { runBot } from './bot';
+import { TICK_HZ } from './src/rockhopper/config';
+const G = globalThis as any;
+for (const seed of [1, 3]) {
+  G.laserChunks = 0; G.drillChunks = 0; G.crumbleChunks = 0; G.chunks = 0;
+  const marks = [60, 180, 300, 600, 1200].map((x) => x * TICK_HZ); const out: string[] = []; let pl = 0, pd = 0, firstGone = -1;
+  runBot({ minutes: 20, laser: true, seed, onTick: (s) => {
+    if (firstGone < 0 && s.slots[0].gen >= 2) firstGone = s.tick;
+    if (marks.includes(s.tick)) { const l = G.laserChunks - pl, d = G.drillChunks - pd; out.push(`to ${s.tick / TICK_HZ / 60}m laser ${(100 * l / Math.max(1, l + d)).toFixed(0)}%`); pl = G.laserChunks; pd = G.drillChunks; }
+  } });
+  console.log(`seed ${seed} DEPTHS=${process.env.DEPTHS ?? 1} starter rock gone ${(firstGone / TICK_HZ).toFixed(0)}s: ${out.join(', ')}`);
+}

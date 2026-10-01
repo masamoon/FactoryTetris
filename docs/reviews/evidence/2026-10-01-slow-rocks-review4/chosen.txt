@@ -1,0 +1,16 @@
+s5S T2 11:52 T3 - gap 8:12 open 10:41 emptyPreT2 1.6% e30 487k
+s1C T2 8:05 T3 29:31 gap 7:08 open 0:00 emptyPreT2 2.6% e30 849k
+s1S T2 9:05 T3 28:39 gap 7:06 open 0:00 emptyPreT2 2.0% e30 868k
+s5C T2 8:14 T3 24:14 gap 5:30 open 0:00 emptyPreT2 2.8% e30 1108k
+s2C T2 7:35 T3 26:46 gap 6:31 open 0:00 emptyPreT2 2.7% e30 960k
+s6S T2 8:02 T3 29:30 gap 8:43 open 0:00 emptyPreT2 2.3% e30 790k
+s2S T2 9:56 T3 35:57 gap 11:19 open 0:00 emptyPreT2 2.0% e30 609k
+s6C T2 7:37 T3 26:13 gap 6:20 open 0:00 emptyPreT2 2.8% e30 1074k
+s3C T2 7:32 T3 26:31 gap 6:44 open 0:00 emptyPreT2 2.5% e30 985k
+s3S T2 8:31 T3 35:03 gap 10:02 open 0:00 emptyPreT2 2.1% e30 685k
+s7S T2 7:05 T3 26:02 gap 6:11 open 0:00 emptyPreT2 2.6% e30 967k
+s7C T2 7:27 T3 26:14 gap 6:38 open 0:00 emptyPreT2 2.8% e30 989k
+s4C T2 7:31 T3 25:38 gap 6:38 open 0:00 emptyPreT2 2.7% e30 1012k
+s4S T2 7:24 T3 26:28 gap 6:55 open 0:00 emptyPreT2 2.8% e30 958k
+s8S T2 11:44 T3 38:12 gap 8:38 open 0:00 emptyPreT2 1.8% e30 536k
+s8C T2 7:38 T3 27:27 gap 6:48 open 0:00 emptyPreT2 2.5% e30 979k

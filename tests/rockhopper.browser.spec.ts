@@ -34,7 +34,10 @@ async function open(page: Page, query = '?fresh') {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     if (!localStorage.getItem('rockhopper.settings.v1'))
-      localStorage.setItem('rockhopper.settings.v1', JSON.stringify({ sectors: false }));
+      localStorage.setItem(
+        'rockhopper.settings.v1',
+        JSON.stringify({ sectors: false, slowRocks: false })
+      );
   });
 });
 
@@ -48,6 +51,19 @@ test('a new game on the sectors setting starts a seeded sector and names it in t
   await page.locator('.rh-menu-btn').click();
   await expect(page.getByText('Sector 4242 · restart to change')).toBeVisible();
   await expect(page.getByText('Next game: sector')).toBeVisible();
+});
+
+test('a new game on the slow-burn setting has deep rocks and says so in the menu', async ({
+  page,
+}) => {
+  await open(page, '?fresh&slow=1');
+  const s = await hook(page);
+  expect(s.slowRocks).toBe(true);
+  // The starter rock plays as before; the menu names the mode and the switch.
+  expect(s.slots[0].rock!.layers).toBeUndefined();
+  await page.locator('.rh-menu-btn').click();
+  await expect(page.getByText('Rocks: slow-burn')).toBeVisible();
+  await expect(page.getByText(/slow-burn rocks/)).toBeVisible();
 });
 
 test('opening frame is the rock, the hub and one counter', async ({ page }) => {

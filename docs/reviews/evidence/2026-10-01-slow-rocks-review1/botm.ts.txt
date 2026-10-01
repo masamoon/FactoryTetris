@@ -1,0 +1,15 @@
+import { runBot } from './bot';
+import { TICK_HZ } from '../src/rockhopper/config';
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const sector = process.argv.includes('--sector');
+for (const seed of (process.env.SEEDS ?? '1,2,3,4').split(',').map(Number)) {
+  (globalThis as any).__lay = { laser: 0, drill: 0, crumble: 0 };
+  let arrives = 0, maxFlight = 0, lastT = 0; const arrT: number[] = [];
+  const { beats, state, income } = runBot({ minutes: Number(process.env.MIN ?? 30), laser: true, seed, sector,
+    onTick: (s) => { for (const e of s.events) if (e.type === 'arrive') { arrives++; arrT.push(s.tick); }
+      for (const f of s.flights) if (f.value > maxFlight) maxFlight = f.value; lastT = s.tick; } });
+  const G = (globalThis as any).__lay; const tot = G.drill + G.crumble + G.laser;
+  const b = (re: RegExp) => { const x = beats.find((q) => re.test(q.label)); return x ? fmt(x.seconds) : '-'; };
+  const after10 = arrT.filter((t) => t > 600 * TICK_HZ).length;
+  console.log(`seed ${seed}${sector ? 's' : ''}: T2 ${b(/unlock T2/)} T3 ${b(/unlock T3/)} earned ${Math.round(state.earned / 1000)}k  crumble ${(100 * G.crumble / tot).toFixed(0)}% laser ${(100 * G.laser / tot).toFixed(0)}% of chunks; rock arrivals ${arrives} (${(after10 / ((lastT / TICK_HZ - 600) / 60)).toFixed(1)}/min after 10:00); biggest flight ${maxFlight}`);
+}

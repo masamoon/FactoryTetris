@@ -1,0 +1,14 @@
+import { runBot } from './bot';
+import { SLOTS, TICK_HZ } from './src/rockhopper/config';
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const sector = !!process.env.SECTOR;
+for (const seed of (process.env.SEEDS ?? '1').split(',').map(Number)) {
+  let t3 = -1, t4 = -1, last = 0, lc = 0, g34 = 0, slotsAt = '';
+  runBot({ minutes: 60, laser: true, seed, sector, onTick: (s) => {
+    if (t3 < 0 && s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 3)) { t3 = s.tick; last = s.tick; }
+    if (t4 < 0 && s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 4)) t4 = s.tick;
+    if (s.credits < lc - 0.5 && t3 >= 0 && t4 < 0) { g34 = Math.max(g34, s.tick - last); last = s.tick; }
+    lc = s.credits;
+  } });
+  console.log(`s${seed}${sector ? 'S' : 'C'} T3 ${t3 < 0 ? '-' : fmt(t3 / TICK_HZ)} T4 ${t4 < 0 ? '-' : fmt(t4 / TICK_HZ)} gapT3-T4 ${fmt(g34 / TICK_HZ)}`);
+}

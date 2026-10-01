@@ -1,0 +1,37 @@
+import { runBot } from './bot';
+import { SLOTS, TICK_HZ } from '/tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/src/rockhopper/config';
+import { drills } from '/tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/src/rockhopper/sim';
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const sector = process.argv.includes('--sector');
+const instant = process.argv.includes('--instant');
+for (const seed of (process.env.SEEDS ?? "1,2,3,4").split(",").map(Number)) {
+  // per phase: until slot1 unlocked (2nd T1 rock), and until T2
+  let phaseEnd: Record<string, number> = {};
+  const acc: Record<string, { t: number; empty: number; crumble: number; drillIdle: number; drillT: number; cycles: number; earned0: number; lastBuy: number; maxGap: number; buys: number }> = {};
+  let phase = 'A:first rock only';
+  let lastMachines = 0, lastCredits = 0;
+  const { beats, state } = runBot({
+    minutes: Number(process.env.MIN ?? 20), laser: true, seed, sector, instantTow: instant,
+    onTick: (s) => {
+      const unlockedCount = s.slots.filter((x) => x.unlocked).length;
+      const t2 = s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 2);
+      const p = t2 ? 'C:after T2' : unlockedCount >= 2 ? 'B:2+ T1 rocks' : 'A:first rock only';
+      if (p !== phase) { phaseEnd[phase] = s.tick / TICK_HZ; phase = p; }
+      const a = (acc[p] ??= { t: 0, empty: 0, crumble: 0, drillIdle: 0, drillT: 0, cycles: 0, earned0: 0, lastBuy: s.tick, maxGap: 0, buys: 0 });
+      a.t++;
+      const sl = s.slots[0];
+      if (!sl.rock) a.empty++;
+      else if (sl.crumble) a.crumble++;
+      for (const e of s.events) if (e.type === 'arrive' && e.slot === 0) a.cycles++;
+      for (const d of drills(s)) { a.drillT++; const r = s.slots[d.slot]; if (!r.rock || r.crumble) a.drillIdle++; }
+      // spend detection: credits dropped
+      if (s.credits < lastCredits - 0.5) { const gap = s.tick - a.lastBuy; if (gap > a.maxGap) a.maxGap = gap; a.lastBuy = s.tick; a.buys++; }
+      lastCredits = s.credits;
+    },
+  });
+  console.log(`seed ${seed}${sector ? ' sector' : ''}${instant ? ' instantTow' : ''}: ` + beats.filter(b => /unlock T|T1 fully/.test(b.label)).map(b => `${b.label}@${fmt(b.seconds)}`).join(', '));
+  for (const [k, a] of Object.entries(acc)) {
+    console.log(`  ${k.padEnd(18)} ${fmt(a.t / TICK_HZ).padStart(6)}  rock0 empty ${(100 * a.empty / a.t).toFixed(0)}% crumbling ${(100 * a.crumble / a.t).toFixed(0)}%  respawns ${a.cycles} (every ${(a.t / TICK_HZ / Math.max(1, a.cycles)).toFixed(0)}s)  drill-time idle ${(100 * a.drillIdle / Math.max(1, a.drillT)).toFixed(0)}%  buys ${a.buys} longest gap ${fmt(a.maxGap / TICK_HZ)}`);
+  }
+  { const G = globalThis as any; console.log(`  earned ${Math.round(state.earned/1000)}k drills ${drills(state).length} crumble share ${(100*G.crumbleChunks/G.chunks).toFixed(1)}% maxFlight ${G.maxFlight}`); G.chunks=0; G.crumbleChunks=0; G.maxFlight=0; }
+}

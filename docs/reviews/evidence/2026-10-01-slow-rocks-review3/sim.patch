@@ -1,0 +1,118 @@
+--- src/rockhopper/sim.ts	2026-10-01 14:25:38.189736300 +0000
++++ /tmp/claude-0/-home-user-FactoryTetris/feecea20-25fd-5626-8baa-f38598ce607d/scratchpad/review3/src/rockhopper/sim.ts	2026-10-01 16:11:02.252792114 +0000
+@@ -425,6 +425,21 @@
+   return { x: def.x + (i - (rock.r + 1)) * CELL, y: def.y + (j - (rock.r + 1)) * CELL };
+ }
+ 
++function sweepCell(slotIndex: number, rock: Rock, p: Point): number {
++  const def = SLOTS[slotIndex];
++  const lx = (p.x - def.x) / CELL + rock.r + 1, ly = (p.y - def.y) / CELL + rock.r + 1;
++  const LL = (rock as any).layers as number[] | undefined;
++  let best = -1, bl = -1, bd = Infinity;
++  for (let k = 0; k < rock.cells.length; k++) {
++    if (!rock.cells[k]) continue;
++    const d = Math.hypot((k % rock.w) - lx, Math.floor(k / rock.w) - ly);
++    if (d > 2.5) continue;
++    const l = LL?.[k] || (rock as any).D || 1;
++    if (l > bl || (l === bl && d < bd)) { bl = l; bd = d; best = k; }
++  }
++  return best >= 0 ? best : nearestCell(slotIndex, rock, p);
++}
++
+ function nearestCell(slotIndex: number, rock: Rock, p: Point): number {
+   const def = SLOTS[slotIndex];
+   const lx = (p.x - def.x) / CELL + rock.r + 1,
+@@ -487,6 +502,7 @@
+ export const normAngle = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+ 
+ export function dockPos(index: number): Point {
++  if (index >= 20) { const P = (globalThis as any).PAD; const d = SLOTS[P.slot]; return { x: d.x + (index - 21) * 14, y: d.y }; }
+   const a = (DOCK_ANGLES[index] * Math.PI) / 180;
+   return { x: Math.cos(a) * DOCK_RADIUS, y: Math.sin(a) * DOCK_RADIUS };
+ }
+@@ -795,6 +811,7 @@
+ export const matrixOnlyOk = (s: State, m: Machine, t: Target) => matrixOk(s, m, t);
+ 
+ function matrixOk(s: State, m: Machine, t: Target): boolean {
++  if (t.kind === 'dock' && t.index >= 20) { const P = (globalThis as any).PAD; return !!P && t.index < 20 + P.n && !dockUsed(s, t.index, m); }
+   if (t.kind === 'dock') return t.index >= 0 && t.index < s.docks && !dockUsed(s, t.index, m);
+   const tm = byId(s, t.id);
+   if (!tm || tm.kind !== t.kind || tm.id === m.id) return false;
+@@ -811,7 +828,8 @@
+   const p = machinePos(m);
+   let best: Target | null = null,
+     bestD = Infinity;
+-  for (let i = 0; i < s.docks; i++) {
++  const PP = (globalThis as any).PAD; const idx = [...Array(s.docks).keys()]; if (PP && process.env.PADAUTO) for (let k = 0; k < PP.n; k++) idx.push(20 + k);
++  for (const i of idx) {
+     const t: Target = { kind: 'dock', index: i };
+     if (!canTarget(s, m, t)) continue;
+     const q = dockPos(i);
+@@ -1720,8 +1738,30 @@
+   const rock = slot.rock!;
+   const ore = rock.cells[index] as Ore;
+   const p = cellPos(slotIndex, rock, index);
+-  rock.cells[index] = 0;
++  const DT_ = (process.env.DEPTHS ?? '').split(',').map(Number);
++  let DEPTH = process.env.DEPTHS ? DT_[SLOTS[slotIndex].tier - 1] : Number(process.env.DEPTH ?? 1);
++  if (process.env.STARTER && slotIndex === 0 && slot.gen === 1) DEPTH = 1;
++  (rock as any).D ??= DEPTH;
++  const L = ((rock as any).layers ??= new Array(rock.cells.length).fill(0));
++  if (!L[index]) {
++    const gx = (index % rock.w) - (rock.r + 1), gy = Math.floor(index / rock.w) - (rock.r + 1);
++    const rho = Math.min(1, Math.hypot(gx, gy) / rock.r);
++    L[index] = process.env.CORE ? 1 + Math.round((DEPTH - 1) * Math.max(0, (1 - rho) / (1 - 1.5 / rock.r))) * (Math.hypot(gx, gy) > rock.r - 1.5 ? 0 : 1) : DEPTH;
++  }
++  let mult = 1;
++  if (by === 'crumble') { mult = L[index]; L[index] = 0; const SPL = Number(process.env.SPLIT ?? 0); if (SPL && mult > SPL) { const pp = p; let left = mult; while (left > SPL) { s.flights.push({ ore, value: ORES[ore].value * SPL, x: pp.x, y: pp.y, t0: s.tick, t1: s.tick + Math.round(Math.min(FLIGHT_MAX, Math.max(FLIGHT_MIN, Math.hypot(pp.x, pp.y) / FLIGHT_SPEED)) * TICK_HZ) }); left -= SPL; } const G0 = globalThis as any; G0.chunks = (G0.chunks ?? 0) + (mult - left); G0.crumbleChunks = (G0.crumbleChunks ?? 0) + (mult - left); mult = left; } }
++  else L[index]--;
++  const G = globalThis as any; G.chunks = (G.chunks ?? 0) + mult; if (by === 'crumble') { G.crumbleChunks = (G.crumbleChunks ?? 0) + mult; G.maxFlight = Math.max(G.maxFlight ?? 0, mult * ORES[ore].value); }
++  if (by === 'drill') G.drillChunks = (G.drillChunks ?? 0) + 1; else if (by === 'laser') G.laserChunks = (G.laserChunks ?? 0) + 1;
++  (rock as any).lr = ((rock as any).lr ?? rock.total * (process.env.CORE ? 1 : (rock as any).D)) - mult;
+   rock.work[index] = 0;
++  if (L[index] > 0) {
++    s.events.push({ type: 'break', slot: slotIndex, cell: index, ore, x: p.x, y: p.y, by });
++    if (by === 'laser') s.stats.laserBroken++; else s.stats.drillBroken++;
++    if (by !== 'drill') s.flights.push({ ore, value: ORES[ore].value, x: p.x, y: p.y, t0: s.tick, t1: s.tick + Math.round(Math.min(FLIGHT_MAX, Math.max(FLIGHT_MIN, Math.hypot(p.x, p.y) / FLIGHT_SPEED)) * TICK_HZ) });
++    return ore;
++  }
++  rock.cells[index] = 0;
+   rock.remaining--;
+   s.events.push({ type: 'break', slot: slotIndex, cell: index, ore, x: p.x, y: p.y, by });
+   if (by === 'laser') s.stats.laserBroken++;
+@@ -1732,14 +1772,14 @@
+     const secs = Math.min(FLIGHT_MAX, Math.max(FLIGHT_MIN, dist / FLIGHT_SPEED));
+     s.flights.push({
+       ore,
+-      value: ORES[ore].value,
++      value: ORES[ore].value * mult,
+       x: p.x,
+       y: p.y,
+       t0: s.tick,
+       t1: s.tick + Math.round(secs * TICK_HZ),
+     });
+   }
+-  if (!slot.crumble && rock.remaining > 0 && rock.remaining < rock.total * CRUMBLE_AT) {
++  if (!slot.crumble && rock.remaining > 0 && (process.env.LCRUMBLE && (rock as any).D > 1 ? (rock as any).lr < rock.total * (rock as any).D * Number(process.env.LCRUMBLE) : rock.remaining < rock.total * CRUMBLE_AT)) {
+     slot.crumble = Math.max(1, Math.ceil(rock.remaining / (CRUMBLE_SECONDS * TICK_HZ)));
+     s.events.push({ type: 'crumble', slot: slotIndex });
+   }
+@@ -1773,7 +1813,8 @@
+     if (rock.remaining <= 0) {
+       slot.rock = null;
+       slot.crumble = 0;
+-      slot.arriveAt = s.tick + Math.round(arrivalSeconds(s.tractorLevel) * TICK_HZ);
++      slot.arriveAt = s.tick + Math.round((process.env.TOW ? Number(process.env.TOW) : arrivalSeconds(s.tractorLevel)) * TICK_HZ);
++      (globalThis as any).onSpent?.(s, i);
+       for (const d of drills(s)) if (d.slot === i) d.cell = -1;
+       if (s.laser?.slot === i) s.laser.cell = -1;
+     }
+@@ -1789,7 +1830,7 @@
+     L.cell = -1;
+     return;
+   }
+-  L.cell = nearestCell(L.slot, rock, L);
++  L.cell = process.env.SWEEP ? sweepCell(L.slot, rock, L) : nearestCell(L.slot, rock, L);
+   if (L.cell < 0) return;
+   rock.work[L.cell] += LASER_POWER[s.laserLevel - 1] * DT;
+   if (rock.work[L.cell] >= ORES[rock.cells[L.cell] as Ore].hardness - 1e-9) {
