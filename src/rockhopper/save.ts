@@ -1,6 +1,10 @@
 import {
   BELT_TIER_MAX,
   DRILL_MAX_LEVEL,
+  FACTORY_MAX_LEVEL,
+  FACTORY_PAIRS,
+  FACTORY_READY,
+  FACTORY_STOCK,
   LONE_BAR_VALUE,
   type Ore,
   SLOTS,
@@ -16,17 +20,21 @@ import {
   relayout,
   smelterSpotOk,
   MAX_POSTS,
+  type Bar,
   type Point,
   type Rock,
   type State,
 } from './sim';
 
 /**
- * The logistics experiment saves under its own key and never writes or deletes the v1 key, so
- * rolling the build back finds the untouched pre-logistics save. `?restore=pre-logistics`
- * deletes this key, and the v1 save is migrated again.
+ * Each experiment that changes the save format saves under its own key and never writes or
+ * deletes the older keys, so rolling the build back finds the older save untouched. The
+ * logistics experiment moved v1 to v2; the factories experiment moves v2 to v3.
+ * `?restore=pre-factories` deletes v3, so v2 is migrated again; `?restore=pre-logistics` deletes
+ * v3 and migrates v1, leaving v2 alone.
  */
-export const SAVE_KEY = 'rockhopper.save.v2';
+export const SAVE_KEY = 'rockhopper.save.v3';
+export const PREV_SAVE_KEY = 'rockhopper.save.v2';
 export const LEGACY_SAVE_KEY = 'rockhopper.save.v1';
 export const SETTINGS_KEY = 'rockhopper.settings.v1';
 
@@ -68,12 +76,22 @@ function isNum(v: unknown): v is number {
 const isOre = (v: unknown): v is Ore =>
   Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 
+/** An alloy's pair is canonical (the higher ore in `alloy`) and its value a whole credit. */
+function alloyOk(ore: Ore, c: { alloy?: unknown; v?: unknown }): boolean {
+  if (c.alloy === undefined && c.v === undefined) return true;
+  return (
+    isOre(c.alloy) && (c.alloy as number) > ore && Number.isInteger(c.v) && (c.v as number) >= 0
+  );
+}
+
+const barOk = (b: Bar) => !!b && isOre(b.ore) && isNum(b.mult) && b.mult >= 1 && alloyOk(b.ore, b);
+
 /** Parse a save; any structural problem returns null so the caller can start fresh. */
 export function deserialize(text: string): State | null {
   try {
     const raw = JSON.parse(text) as Record<string, unknown>;
     if (
-      (raw.version !== 1 && raw.version !== 2) ||
+      (raw.version !== 1 && raw.version !== 2 && raw.version !== 3) ||
       !Array.isArray(raw.slots) ||
       raw.slots.length !== SLOTS.length
     )
@@ -114,7 +132,7 @@ export function deserialize(text: string): State | null {
     const state: State = {
       ...base,
       ...(raw as unknown as State),
-      version: 2,
+      version: 3,
       slots,
       events: [],
       // Saves from before the crossings experiment turn it on, and the game says so once.
@@ -122,13 +140,20 @@ export function deserialize(text: string): State | null {
       crossingsNotice: typeof raw.crossings !== 'boolean' ? true : undefined,
       // Saves from before the drill-prices experiment load with it on.
       rockPrices: typeof raw.rockPrices === 'boolean' ? raw.rockPrices : true,
+      // The factories experiment is off by default while it is a prototype.
+      factories: typeof raw.factories === 'boolean' ? raw.factories : false,
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
     const ids = new Set<number>();
     for (const m of state.machines) {
-      if (!isNum(m.id) || ids.has(m.id) || (m.kind !== 'drill' && m.kind !== 'smelter'))
+      if (
+        !isNum(m.id) ||
+        ids.has(m.id) ||
+        (m.kind !== 'drill' && m.kind !== 'smelter' && m.kind !== 'factory')
+      )
         return null;
+      if (m.kind === 'factory' && raw.version !== 3) return null;
       if (!isNum(m.level) || m.level < 1) return null;
       const old = m as unknown as Record<string, unknown>;
       if (legacy) {
@@ -164,6 +189,33 @@ export function deserialize(text: string): State | null {
         if (isNum(m.angle)) m.angle = normAngle(m.angle);
         if (!Array.isArray(m.buffer) || !m.buffer.every(isOre)) return null;
         m.level = Math.min(m.level, DRILL_MAX_LEVEL);
+      } else if (m.kind === 'factory') {
+        if (!isNum(m.x) || !isNum(m.y)) return null;
+        m.level = Math.min(m.level, FACTORY_MAX_LEVEL);
+        if (
+          !Array.isArray(m.stock) ||
+          m.stock.length > FACTORY_STOCK ||
+          !m.stock.every((b) => barOk(b) && isNum(b.t))
+        )
+          return null;
+        if (
+          !Array.isArray(m.pairs) ||
+          m.pairs.length > FACTORY_PAIRS ||
+          !m.pairs.every((p) => Array.isArray(p) && p.length === 2 && p.every(barOk))
+        )
+          return null;
+        if (!Array.isArray(m.ready) || m.ready.length > FACTORY_READY + 1 || !m.ready.every(barOk))
+          return null;
+        if (
+          m.job &&
+          (!Array.isArray(m.job.pair) ||
+            m.job.pair.length !== 2 ||
+            !m.job.pair.every(barOk) ||
+            !isNum(m.job.left))
+        )
+          return null;
+        m.job = m.job ?? null;
+        m.rawT = isNum(m.rawT) ? Math.max(0, Math.min(1, m.rawT)) : 0;
       } else {
         if (!isNum(m.x) || !isNum(m.y) || !Array.isArray(m.queue)) return null;
         m.level = Math.min(m.level, SMELTER_MAX_LEVEL);
@@ -178,11 +230,7 @@ export function deserialize(text: string): State | null {
           if (job && isOre(job.ore)) m.queue.unshift(job.ore);
           m.job = null;
         }
-        if (
-          !Array.isArray(m.ready) ||
-          !m.ready.every((b) => b && isOre(b.ore) && isNum(b.mult) && b.mult >= 1)
-        )
-          return null;
+        if (!Array.isArray(m.ready) || !m.ready.every(barOk)) return null;
         if (m.queue.length > SMELTER_QUEUE) return null;
         if (m.job && (!isOre(m.job.ore) || !isNum(m.job.left))) return null;
         if (m.job) m.job.pair = !!m.job.pair;
@@ -207,7 +255,8 @@ export function deserialize(text: string): State | null {
           it.ores.length > BELT_TIER_MAX ||
           !it.ores.every(isOre) ||
           !isNum(it.pos) ||
-          !(it.mult >= 1)
+          !(it.mult >= 1) ||
+          !it.ores.every((o) => alloyOk(o, it))
         )
           return null;
       }
@@ -216,7 +265,7 @@ export function deserialize(text: string): State | null {
         const ok =
           t.kind === 'dock'
             ? Number.isInteger(t.index)
-            : (t.kind === 'smelter' || t.kind === 'drill') && isNum(t.id);
+            : (t.kind === 'smelter' || t.kind === 'drill' || t.kind === 'factory') && isNum(t.id);
         if (!ok) return null;
         // Bend posts are optional: a malformed list straightens the belt rather than losing the save.
         const via = (m.out as { via?: unknown }).via;

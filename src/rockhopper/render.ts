@@ -27,6 +27,8 @@ import {
   type Rock,
   type SimEvent,
   type Smelter,
+  type Factory,
+  factoryNeedsBars,
   type Drill,
   slotVisible,
   drillSpotWhy,
@@ -51,6 +53,8 @@ import {
   drawHop,
   drawHub,
   drawSmelter,
+  drawFactory,
+  drawAlloy,
   INK,
   LILAC,
   MINT,
@@ -68,7 +72,7 @@ export interface Overlay {
   /** World point under the mining finger. */
   finger: Point | null;
   placing: {
-    kind: 'drill' | 'smelter';
+    kind: 'drill' | 'smelter' | 'factory';
     /** The snapped spot; `splice` is the belt (owner id) it would go into. */
     at:
       | (Point & {
@@ -79,6 +83,8 @@ export interface Overlay {
           slot?: number;
           /** What dropping here costs (a drill's price by rock tier, or an upward move). */
           price?: number;
+          /** A placement that works but changes something the player should see first. */
+          warn?: string;
         })
       | null;
     moving?: number;
@@ -190,7 +196,7 @@ const LAND_HEIGHT = 26;
 const PAD_RIM = '#8C82C4';
 
 /** ● working, ‖ output backed up (or unlinked with bars waiting), ○ idle. */
-function smelterStatus(m: Smelter): 'work' | 'blocked' | 'idle' {
+function smelterStatus(m: Smelter | Factory): 'work' | 'blocked' | 'idle' {
   if (m.full || (!m.out && m.ready.length >= 4)) return 'blocked';
   if (m.job) return 'work';
   return 'idle';
@@ -303,7 +309,7 @@ export class Renderer {
       }
       // Locked slots are not framed: their price tags clamp to the screen edge instead.
     });
-    for (const m of s.machines) if (m.kind === 'smelter') add(m.x + (m.x > 0 ? 36 : -36), m.y - 30);
+    for (const m of s.machines) if (m.kind !== 'drill') add(m.x + (m.x > 0 ? 36 : -36), m.y - 30);
     const usableW = this.w - 24,
       usableH = this.h - this.insetTop - this.insetBottom;
     const floor = reveal ? 0.38 : 0.55;
@@ -548,7 +554,7 @@ export class Renderer {
     this.dust = this.dust.filter((d) => {
       if (this.time < d.at) return true;
       const m = byId(s, d.id);
-      if (m) this.touchdown(machinePos(m), m.kind === 'smelter' ? SMELTER_W * 0.6 : 18);
+      if (m) this.touchdown(machinePos(m), m.kind !== 'drill' ? SMELTER_W * 0.6 : 18);
       return false;
     });
 
@@ -901,7 +907,7 @@ export class Renderer {
   }
 
   private drawBelts(c: Ctx, s: State, alpha: number, o: Overlay) {
-    const placing = o.placing?.kind === 'smelter';
+    const placing = !!o.placing && o.placing.kind !== 'drill';
     const spliceId = o.placing?.at?.splice;
     for (const m of s.machines) {
       const path = beltPath(s, m);
@@ -991,7 +997,11 @@ export class Renderer {
         c.save();
         c.translate(at.x, at.y);
         const n = it.ores.length;
-        if (it.mult > 1) {
+        if (it.alloy !== undefined) {
+          // An alloy is one item: a chunk split in its two ores' colours.
+          c.globalAlpha = dim ? 0.35 : 1;
+          drawAlloy(c, it.alloy, it.ores[0], 4.6);
+        } else if (it.mult > 1) {
           // Bars stack into a small ingot pile across the belt.
           c.rotate(Math.atan2(at.uy, at.ux));
           c.globalAlpha = dim ? 0.12 : 0.35;
@@ -1051,7 +1061,7 @@ export class Renderer {
   private drawPlates(c: Ctx, s: State, o: Overlay) {
     const x = crossingsOf(s);
     if (!x.plates.length) return;
-    const dim = o.placing?.kind === 'smelter';
+    const dim = !!o.placing && o.placing.kind !== 'drill';
     for (const p of x.plates) {
       const heat = x.heat.get(p.key) ?? 0;
       c.save();
@@ -1084,7 +1094,7 @@ export class Renderer {
    * stack on each other, and every hot plate is still drawn cream.
    */
   private drawTurnChips(c: Ctx, s: State, o: Overlay) {
-    if (o.placing?.kind === 'smelter') return;
+    if (o.placing && o.placing.kind !== 'drill') return;
     const x = crossingsOf(s);
     const z = this.cam.z;
     const size = (18 * z) / Math.max(0.75, z);
@@ -1350,9 +1360,14 @@ export class Renderer {
           c.arc(0, 4, SMELTER_W * 0.62, 0, Math.PI * 2);
           c.fill();
         }
-        const bmp = sprite(busy ? 'smelter-hot' : 'smelter', 140, 140, SMELTER_W * zp * pop, (x) =>
-          drawSmelter(x, busy)
-        );
+        const bmp =
+          m.kind === 'factory'
+            ? sprite(busy ? 'factory-hot' : 'factory', 140, 140, SMELTER_W * zp * pop, (x) =>
+                drawFactory(x, !!busy)
+              )
+            : sprite(busy ? 'smelter-hot' : 'smelter', 140, 140, SMELTER_W * zp * pop, (x) =>
+                drawSmelter(x, busy)
+              );
         c.drawImage(bmp, -SMELTER_W / 2, -SMELTER_W / 2, SMELTER_W, SMELTER_W);
         // Input capacity pips.
         const used = inputsOf(s, m.id).length,
@@ -1368,6 +1383,8 @@ export class Renderer {
         this.statusLight(c, -SMELTER_W * 0.34, -SMELTER_W * 0.3, smelterStatus(m));
       }
       c.restore();
+      if (m.kind === 'factory' && factoryNeedsBars(m))
+        this.refusals.push({ x: p.x, y: p.y + 30, why: 'smelt it first' });
       if (m.kind === 'drill') {
         // A held-back drill shows its waiting chunks; the pile lingers briefly so it never flickers.
         if (m.stalled) this.stalledAt.set(m.id, this.time);
@@ -1631,6 +1648,7 @@ export class Renderer {
       if (at) {
         this.hologram(c, o.placing.kind, at);
         if (at.ok === false) this.refusals.push({ x: at.x, y: at.y, why: at.why ?? 'no room' });
+        else if (at.warn) this.refusals.push({ x: at.x, y: at.y + 26 / z, why: at.warn });
         else if (at.price !== undefined)
           this.priceTag = { x: at.x, y: at.y, price: at.price, can: s.credits >= at.price };
       }
@@ -1650,7 +1668,7 @@ export class Renderer {
         for (const x of s.machines) {
           if (!canTarget(s, m, { kind: x.kind, id: x.id } as Target)) continue;
           const q = machinePos(x);
-          this.targetRing(c, q.x, q.y, x.kind === 'smelter' ? 32 : 20);
+          this.targetRing(c, q.x, q.y, x.kind !== 'drill' ? 32 : 20);
         }
         const b = o.reroute.target ? this.targetPoint(s, o.reroute.target) : o.reroute.at;
         c.save();
@@ -1723,7 +1741,7 @@ export class Renderer {
    */
   private hologram(
     c: Ctx,
-    kind: 'drill' | 'smelter',
+    kind: 'drill' | 'smelter' | 'factory',
     at: Point & { ok?: boolean; angle?: number; splice?: number }
   ) {
     const z = this.cam.z;
@@ -1779,9 +1797,13 @@ export class Renderer {
     const bmp =
       kind === 'drill'
         ? sprite('holo-drill', 100, 120, DRILL_W * z * this.dpr, (x) => holo(x, drawDrill))
-        : sprite('holo-smelter', 140, 140, SMELTER_W * z * this.dpr, (x) =>
-            holo(x, (y) => drawSmelter(y))
-          );
+        : kind === 'factory'
+          ? sprite('holo-factory', 140, 140, SMELTER_W * z * this.dpr, (x) =>
+              holo(x, (y) => drawFactory(y))
+            )
+          : sprite('holo-smelter', 140, 140, SMELTER_W * z * this.dpr, (x) =>
+              holo(x, (y) => drawSmelter(y))
+            );
     c.globalAlpha = 0.55 + 0.15 * Math.sin(this.time * 8);
     if (kind === 'drill') c.drawImage(bmp, -DRILL_W / 2, -DRILL_W * 0.6, DRILL_W, DRILL_W * 1.2);
     else c.drawImage(bmp, -SMELTER_W / 2, -SMELTER_W / 2, SMELTER_W, SMELTER_W);

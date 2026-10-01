@@ -6,7 +6,9 @@
  * bundle may sit still for 20 s unless it is in a queue backed up from the machine at its belt's
  * end (a bundle held for room has its wait cleared, so a lock on one belt would pass the others).
  *
- *   npx tsx tools/rockhopper-crossings-stress.ts [seeds] [seconds]
+ *   npx tsx tools/rockhopper-crossings-stress.ts [seeds] [seconds] [--factories]
+ *
+ * With --factories, each run also places up to two factories (docs/ROCKHOPPER_SORTER.md, C6).
  */
 import { BELT_SPACING, SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
@@ -15,6 +17,9 @@ import {
   buildDrill,
   crossingsOf,
   buildSmelter,
+  buildFactory,
+  setFactories,
+  smelters,
   drills,
   freshState,
   moveDrill,
@@ -53,13 +58,21 @@ export interface StressResult {
   stalledWindows: number;
   /** Belts that ended the run with bend posts. */
   bent: number;
+  /** Factories standing at the end of the run. */
+  factories: number;
   /** Bundles that sat still 20 s outside a machine backlog. */
   locked: number;
   /** What each lock looked like when found, for debugging. */
   locks: string[];
 }
 
-export function stress(seed: number, seconds: number, moves: boolean, posts = false): StressResult {
+export function stress(
+  seed: number,
+  seconds: number,
+  moves: boolean,
+  posts = false,
+  factories = false
+): StressResult {
   const s: State = freshState(seed);
   s.credits = 1e12;
   s.docks = 9;
@@ -84,6 +97,20 @@ export function stress(seed: number, seconds: number, moves: boolean, posts = fa
       const f = 0.3 + rnd() * 0.5;
       buildSmelter(s, { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f }, d.id);
     } else buildSmelter(s, { x: (rnd() - 0.5) * 400, y: -60 - rnd() * 140 });
+  }
+  if (factories) {
+    setFactories(s, true);
+    const nf = 1 + Math.floor(rnd() * 2);
+    for (let i = 0; i < nf; i++) {
+      // Spliced after a smelter, or standing alone.
+      const hosts = smelters(s).filter((m) => m.out);
+      const h = hosts[Math.floor(rnd() * hosts.length)];
+      const e = h && beltEnds(s, h);
+      if (e && rnd() < 0.6) {
+        const f = 0.3 + rnd() * 0.5;
+        buildFactory(s, { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f }, h.id);
+      } else buildFactory(s, { x: (rnd() - 0.5) * 400, y: -60 - rnd() * 140 });
+    }
   }
   const ms = s.machines;
   for (let k = 0; k < ms.length * 2; k++) {
@@ -159,6 +186,7 @@ export function stress(seed: number, seconds: number, moves: boolean, posts = fa
     worstWait: worst,
     stalledWindows: stalled,
     bent: s.machines.filter((m) => m.out?.via?.length).length,
+    factories: s.machines.filter((m) => m.kind === 'factory').length,
     locked,
     locks,
   };
@@ -167,6 +195,8 @@ export function stress(seed: number, seconds: number, moves: boolean, posts = fa
 if (process.argv[1]?.includes('rockhopper-crossings-stress')) {
   const seeds = Number(process.argv[2] ?? 500);
   const seconds = Number(process.argv[3] ?? 150);
+  const withFactories = process.argv.includes('--factories');
+  let factoryRuns = 0;
   let bad = 0,
     worst = 0,
     crossed = 0;
@@ -178,7 +208,8 @@ if (process.argv[1]?.includes('rockhopper-crossings-stress')) {
     [true, true],
   ]) {
     for (let seed = 1; seed <= seeds; seed++) {
-      const r = stress(seed, seconds, moves, posts);
+      const r = stress(seed, seconds, moves, posts, withFactories);
+      if (r.factories) factoryRuns++;
       if (posts && r.bent) bent++;
       worst = Math.max(worst, r.worstWait);
       if (r.plates) crossed++;
@@ -189,6 +220,6 @@ if (process.argv[1]?.includes('rockhopper-crossings-stress')) {
     }
   }
   console.log(
-    `${seeds} seeds × {no moves, moves} × {straight, random posts}, ${seconds} s each: ${crossed} runs had plates, ${bent} had bent belts, ${bad} failures; worst wait ${(worst / TICK_HZ).toFixed(2)} s`
+    `${seeds} seeds × {no moves, moves} × {straight, random posts}, ${seconds} s each: ${crossed} runs had plates, ${bent} had bent belts, ${withFactories ? `${factoryRuns} had factories, ` : ''}${bad} failures; worst wait ${(worst / TICK_HZ).toFixed(2)} s`
   );
 }

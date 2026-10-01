@@ -495,7 +495,7 @@ test('pre-logistics (v1) saves migrate: belt capacity kept, tiers unbought, bar 
   (drill.out as { items: Record<string, unknown>[] }).items = [{ pos: 5, ore: 4, bar: true }];
   const loaded = deserialize(JSON.stringify(v1))!;
   assert.ok(loaded, 'v1 save loads');
-  assert.equal(loaded.version, 2);
+  assert.equal(loaded.version, 3);
   for (const m of loaded.machines) {
     assert.equal(m.tier, 3, 'level 5 shipped bundles of 3');
     assert.equal(m.tierBought, 0, 'migrated tiers are not bought');
@@ -513,7 +513,7 @@ test('pre-logistics (v1) saves migrate: belt capacity kept, tiers unbought, bar 
   const it = drills(loaded)[0].out!.items[0];
   assert.deepEqual([it.ores, it.mult], [[4], 3], 'an old x3 bar keeps x3');
   run(loaded, 5 * TICK_HZ);
-  assert.equal(deserialize(serialize(loaded))!.version, 2);
+  assert.equal(deserialize(serialize(loaded))!.version, 3);
 });
 
 test('selling heals the line only where the target matrix allows it', () => {

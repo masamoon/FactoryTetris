@@ -5,10 +5,16 @@
  *
  *   npm run bot:rockhopper [-- --minutes 20 --no-laser]
  */
-import { SLOTS, TICK_HZ } from '../src/rockhopper/config';
+import { BAR_VALUE, COPPER, CRYSTAL, SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
   beltEnds,
   buildDrill,
+  buildFactory,
+  byId,
+  factories,
+  factoryUnlocked,
+  setFactories,
+  tiersBought,
   buildSmelter,
   canSplice,
   canTarget,
@@ -56,6 +62,11 @@ export interface BotOptions {
   crossings?: boolean;
   /** A careless player: every 10 s one dock-bound machine is re-routed to a random free dock. */
   messy?: boolean;
+  /**
+   * The factories experiment: switch on, and teach the bot the long copper route (every copper
+   * smelter's belt goes to a crystal factory when one has a free input).
+   */
+  factories?: boolean;
   log?: (line: string) => void;
 }
 
@@ -66,6 +77,55 @@ function spliceSpot(s: State, owner: Machine): { x: number; y: number } | null {
   for (let f = 0.25; f <= 0.9; f += 0.05) {
     const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
     if (smelterSpotOk(s, p, undefined, owner.id) && canSplice(s, owner, null, p)) return p;
+  }
+  return null;
+}
+
+/** The factories experiment's measurements (docs/ROCKHOPPER_SORTER.md, C6). */
+export const factoryStats = {
+  /** Factory-ticks, ticks with a job, and ticks with the output belt flagged full. */
+  ticks: 0,
+  busy: 0,
+  full: 0,
+  /** Paired copper bars delivered as bars, inside copper + crystal alloys, inside other alloys. */
+  cuBars: 0,
+  cuCr: 0,
+  cuOther: 0,
+  alloys: 0,
+  /** Factories placed: on a crystal line, elsewhere (local); copper belts routed to crystal. */
+  crystal: 0,
+  local: 0,
+  copperRoutes: 0,
+  copperRouteRefused: 0,
+};
+
+/** The ores a machine's line carries, from the tiers of the drills that feed it (recursively). */
+function lineTiers(s: State, m: Machine, seen = new Set<number>()): Set<number> {
+  const out = new Set<number>();
+  if (seen.has(m.id)) return out;
+  seen.add(m.id);
+  if (m.kind === 'drill') out.add(SLOTS[m.slot].tier);
+  for (const x of inputsOf(s, m.id)) for (const k of lineTiers(s, x, seen)) out.add(k);
+  return out;
+}
+const carriesCrystal = (s: State, m: Machine) => {
+  const t = lineTiers(s, m);
+  return t.has(3) || t.has(4);
+};
+/** A copper line: fed only by T1 drills, so its bars are copper and ice (no gold to steal crystal). */
+const carriesCopperOnly = (s: State, m: Machine) => {
+  const t = lineTiers(s, m);
+  return t.size === 1 && t.has(1);
+};
+
+/** A spot on a smelter's belt where a factory can be spliced in. */
+function spliceSpotFor(s: State, owner: Machine): { x: number; y: number } | null {
+  const e = beltEnds(s, owner);
+  if (!e) return null;
+  for (let f = 0.3; f <= 0.9; f += 0.05) {
+    const p = { x: e.a.x + (e.b.x - e.a.x) * f, y: e.a.y + (e.b.y - e.a.y) * f };
+    if (smelterSpotOk(s, p, undefined, owner.id) && canSplice(s, owner, null, p, false, 'factory'))
+      return p;
   }
   return null;
 }
@@ -104,7 +164,9 @@ export function runBot(opts: BotOptions): {
 } {
   const s = freshState(opts.seed);
   s.crossings = opts.crossings ?? true;
+  if (opts.factories) setFactories(s, true);
   for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
+  for (const k of Object.keys(factoryStats) as (keyof typeof factoryStats)[]) factoryStats[k] = 0;
   let mess = opts.seed * 7919 + 1;
   const beats: Beat[] = [];
   const mark = (label: string) => {
@@ -144,6 +206,19 @@ export function runBot(opts: BotOptions): {
       }
     }
     step(s);
+    for (const e of s.events) {
+      if (e.type !== 'deliver' || e.ore !== COPPER) continue;
+      if (e.alloy === CRYSTAL) factoryStats.cuCr++;
+      else if (e.alloy !== undefined) factoryStats.cuOther++;
+      else if (e.value === BAR_VALUE * 3) factoryStats.cuBars++;
+    }
+    for (const e of s.events)
+      if (e.type === 'deliver' && e.alloy !== undefined) factoryStats.alloys++;
+    for (const f of factories(s)) {
+      factoryStats.ticks++;
+      if (f.job) factoryStats.busy++;
+      if (f.full) factoryStats.full++;
+    }
     s.events.length = 0;
     if (s.tick % (30 * TICK_HZ) === 0) {
       income.push([s.tick / TICK_HZ / 60, (s.earned - lastEarned) / 30]);
@@ -256,7 +331,7 @@ function act(s: State, mark: (l: string) => void) {
     const c = upgradeCost(m);
     if (c === null) continue;
     // Upgrading a belt-limited drill is a dead purchase; a jammed smelter is worth it.
-    const w = m.kind === 'drill' ? (m.full ? 0.1 : 0.7) : m.jam ? 2 : 0.6;
+    const w = m.kind === 'drill' ? (m.full ? 0.1 : 0.7) : m.kind === 'smelter' && m.jam ? 2 : 0.6;
     options.push({
       cost: c,
       score: w / c,
@@ -265,6 +340,44 @@ function act(s: State, mark: (l: string) => void) {
     });
   }
   void jammed;
+  if (factoryUnlocked(s)) {
+    // Free move: a copper smelter's belt goes to a crystal factory with a free input.
+    for (const f of factories(s)) {
+      if (!carriesCrystal(s, f)) continue;
+      const cu = sms.find(
+        (m) =>
+          m.out?.to.kind === 'dock' && carriesCopperOnly(s, m) && !inputsOf(s, m.id).includes(f)
+      );
+      if (!cu) continue;
+      const r = route(s, cu.id, { kind: 'factory', id: f.id });
+      if (r === true) {
+        factoryStats.copperRoutes++;
+        mark('copper to crystal');
+      } else factoryStats.copperRouteRefused++;
+    }
+    // A factory spliced after a smelter: on a crystal line it is the copper sink; elsewhere a
+    // local factory at 1.25x.
+    const hosts = sms.filter(
+      (m) => m.out && (m.out.to.kind === 'dock' || m.out.to.kind === 'drill') && spliceSpotFor(s, m)
+    );
+    const crystalHost = hosts.find((m) => carriesCrystal(s, m));
+    const host =
+      crystalHost && !factories(s).some((f) => carriesCrystal(s, f)) ? crystalHost : hosts[0];
+    if (host) {
+      const cost = priceOf(s, 'factory');
+      const crystal = carriesCrystal(s, host);
+      options.push({
+        cost,
+        score: (crystal ? 6 : 1.2) / cost,
+        label: crystal ? 'crystal factory' : 'local factory',
+        run: () => {
+          const r = buildFactory(s, spliceSpotFor(s, host)!, host.id);
+          if (r === true) factoryStats[crystal ? 'crystal' : 'local']++;
+          return r;
+        },
+      });
+    }
+  }
   const tc = hubCost(s, 'tractor');
   if (tc !== null)
     options.push({
@@ -300,6 +413,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     laser: !process.argv.includes('--no-laser'),
     seed: arg('--seed', 1),
     crossings: !process.argv.includes('--no-crossings'),
+    factories: process.argv.includes('--factories'),
   });
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);
@@ -314,4 +428,22 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     `\nend: credits ${state.credits}, earned ${state.earned}, drills ${drills(state).length}, raw chains ${rawChains(state)}, smelters ${smelters(state).length}, docks ${state.docks}, tiers ${state.machines.map((m) => m.tier).join('')}, laser ${state.laserLevel}, stats`,
     state.stats
   );
+  if (factories(state).length || process.argv.includes('--factories')) {
+    const f = factoryStats;
+    const cu = f.cuBars + f.cuCr + f.cuOther;
+    console.log(
+      `factories: ${factories(state).length} (crystal ${f.crystal}, local ${f.local}), levels ${factories(
+        state
+      )
+        .map((x) => x.level)
+        .join(
+          ''
+        )}, busy ${((100 * f.busy) / Math.max(1, f.ticks)).toFixed(0)}%, output full ${((100 * f.full) / Math.max(1, f.ticks)).toFixed(0)}%, copper routes ${f.copperRoutes} (refused ${f.copperRouteRefused}), alloys delivered ${f.alloys}`
+    );
+    console.log(
+      `paired copper bars reaching a crystal factory: ${((100 * f.cuCr) / Math.max(1, cu)).toFixed(0)}% (${f.cuCr} of ${cu}; ${f.cuOther} in other alloys)`
+    );
+  }
+  console.log(`tiersBought ${tiersBought(state)}`);
+  void byId;
 }

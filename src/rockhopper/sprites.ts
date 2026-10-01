@@ -170,6 +170,40 @@ export function drawSmelter(c: Ctx, heat = 0) {
   circle(c, 110, 100, 4, INK);
 }
 
+/** A factory: two hoppers feeding one press, in the 140×140 design box. */
+export function drawFactory(c: Ctx, busy = false) {
+  path(c, 'M24 128 L116 128 L116 62 L24 62 Z', DEEP, 6);
+  path(c, 'M24 116 L116 116 L116 128 L24 128 Z', NIGHT);
+  path(c, 'M24 128 L116 128 L116 62 L24 62 Z', undefined, 6);
+  // Two hoppers: the two bars that go in.
+  path(c, 'M18 22 L60 22 L50 58 L28 58 Z', ORANGE, 5);
+  path(c, 'M80 22 L122 22 L112 58 L90 58 Z', MAGENTA, 5);
+  box(c, 46, 74, 48, 34, 10, busy ? '#FFB23F' : YELLOW, 5);
+  box(c, 56, 82, 28, 14, 7, busy ? '#FFFFFF' : CREAM, 0);
+  circle(c, 34, 104, 4, INK);
+  circle(c, 106, 104, 4, INK);
+}
+
+/** An alloy: one chunk split diagonally in the colours of its two ores. */
+export function drawAlloy(c: Ctx, a: Ore, b: Ore, r: number) {
+  const o = Math.max(0.9, r * 0.28);
+  const k = r * 1.15;
+  c.save();
+  c.rotate(Math.PI / 4);
+  rrect(c, -k - o, -k - o, 2 * (k + o), 2 * (k + o), (k + o) * 0.35);
+  c.fillStyle = INK;
+  c.fill();
+  rrect(c, -k, -k, 2 * k, 2 * k, k * 0.3);
+  c.clip();
+  c.fillStyle = ORES[a].color;
+  c.fillRect(-k, -k, 2 * k, k);
+  c.fillStyle = ORES[b].color;
+  c.fillRect(-k, 0, 2 * k, k);
+  c.fillStyle = INK;
+  c.fillRect(-k, -o * 0.35, 2 * k, o * 0.7);
+  c.restore();
+}
+
 const cache = new Map<string, HTMLCanvasElement>();
 
 /** A cached bitmap of a sprite drawn into a `w`×`h` design box at `px` pixels wide. */
