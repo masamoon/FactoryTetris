@@ -256,7 +256,7 @@ function act(s: State, mark: (l: string) => void) {
     const c = upgradeCost(m);
     if (c === null) continue;
     // Upgrading a belt-limited drill is a dead purchase; a jammed smelter is worth it.
-    const w = m.kind === 'drill' ? (m.full ? 0.1 : 0.7) : m.jam ? 2 : 0.6;
+    const w = m.kind === 'drill' ? (m.full ? 0.1 : 0.7) : m.kind === 'smelter' && m.jam ? 2 : 0.6;
     options.push({
       cost: c,
       score: w / c,

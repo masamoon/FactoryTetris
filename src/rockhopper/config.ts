@@ -135,6 +135,24 @@ export const drillPrice = (tier: 1 | 2 | 3 | 4, onRock: number) =>
 /** The classic price (the menu switch turns it back on): 14, then ×1.55 per drill owned. */
 export const classicDrillPrice = (owned: number) => Math.round(14 * Math.pow(1.55, owned));
 export const smelterPrice = (owned: number) => Math.round(520 * Math.pow(2, owned));
+
+/**
+ * Factories (docs/ROCKHOPPER_SORTER.md, the factories experiment): a factory pairs two paired bars
+ * of different ores into one alloy worth ALLOY_MULT times both bars, or PREMIUM_MULT for copper
+ * with crystal, the only pair no rock carries together.
+ */
+export const ALLOY_MULT = 1.25;
+export const PREMIUM_MULT = 2.5;
+export const FACTORY_MAX_LEVEL = 3;
+/** Seconds per alloy: 0.4 s at level 1, 1.35× faster per level. */
+export const factoryTime = (level: number) => 0.4 / Math.pow(1.35, level - 1);
+export const factoryUpgradeCost = (level: number) => Math.round(600 * Math.pow(2.2, level - 1));
+export const factoryInputs = (level: number) => (level >= 3 ? 3 : 2);
+export const factoryPrice = (owned: number) => Math.round(2400 * Math.pow(2, owned));
+/** Unpaired bars a factory holds, pairs waiting for its worker, and items waiting to leave. */
+export const FACTORY_STOCK = 6;
+export const FACTORY_PAIRS = 3;
+export const FACTORY_READY = 4;
 export const dockCost = (docks: number) => Math.round(300 * Math.pow(2.6, docks - DOCKS_START));
 export const TRACTOR_MAX = 5;
 export const tractorCost = (level: number) => Math.round(150 * Math.pow(3, level));

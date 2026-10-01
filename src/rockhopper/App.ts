@@ -24,6 +24,9 @@ import {
   sameTarget,
   dockPos,
   drills,
+  factories,
+  factoryNeedsBars,
+  factoryUnlocked,
   inputsOf,
   inputCap,
   freshState,
@@ -55,6 +58,7 @@ import {
   type CommandName,
   type LoggedCommand,
   type Machine,
+  type Placed,
   type Point,
   type State,
   type Target,
@@ -63,13 +67,17 @@ import {
   deserialize,
   LEGACY_SAVE_KEY,
   loadSettings,
+  PREV_SAVE_KEY,
   SAVE_KEY,
   saveSettings,
   serialize,
   type Settings,
 } from './save';
 import { Sfx } from './audio';
-import { COIN_SVG, drawChunk, drawDrill, drawSmelter } from './sprites';
+import { COIN_SVG, drawChunk, drawDrill, drawFactory, drawSmelter } from './sprites';
+
+type Tool = 'drill' | 'smelter' | 'factory';
+const TOOLS: readonly Tool[] = ['drill', 'smelter', 'factory'];
 
 type Hit =
   | { kind: 'rock'; slot: number }
@@ -107,7 +115,7 @@ type Gesture =
   | { type: 'place'; x0: number; y0: number; t0: number }
   | {
       type: 'tray';
-      kind: 'drill' | 'smelter';
+      kind: Tool;
       x0: number;
       y0: number;
       dragging: boolean;
@@ -120,13 +128,24 @@ const pt = (p: Point) => ({ x: p.x, y: p.y });
 const feedsId = (m: Machine, id: number) =>
   !!m.out && m.out.to.kind !== 'dock' && m.out.to.id === id;
 
-/** Why a smelter can't go into this belt, in a few words for the drop label. */
-function spliceRefusal(s: State, owner: Machine, mover: Machine | null, q: Point): string {
+/** Why a smelter or factory can't go into this belt, in a few words for the drop label. */
+function spliceRefusal(
+  s: State,
+  owner: Machine,
+  mover: Placed | null,
+  q: Point,
+  kind: Placed['kind']
+): string {
   if (mover?.out) return 'already linked';
-  if (owner.kind === 'smelter' || owner.out?.to.kind === 'smelter') return 'already smelted';
+  if (kind === 'smelter' && (owner.kind !== 'drill' || owner.out?.to.kind === 'smelter'))
+    return 'already smelted';
+  if (kind === 'factory') {
+    if (owner.kind === 'drill' && !inputsOf(s, owner.id).length) return 'smelt it first';
+    if (owner.kind === 'factory' || owner.out?.to.kind === 'smelter') return 'already smelted';
+    if (owner.out?.to.kind === 'factory') return 'already a factory';
+  }
   if (mover && inputsOf(s, mover.id).length >= inputCap(mover)) return 'inputs full';
-  if (s.crossings && spliceLanesBlocked(s, owner, mover?.kind === 'smelter' ? mover : null, q))
-    return 'belt blocked';
+  if (s.crossings && spliceLanesBlocked(s, owner, mover, q)) return 'belt blocked';
   return 'no room here';
 }
 const splice = (p: object) => ('splice' in p ? (p.splice as number) : null);
@@ -150,7 +169,7 @@ export class RockhopperApp {
   private creditsEl: HTMLElement;
   private counterEl: HTMLElement;
   private tray: HTMLElement;
-  private tools: Record<'drill' | 'smelter', { button: HTMLButtonElement; price: HTMLElement }>;
+  private tools: Record<Tool, { button: HTMLButtonElement; price: HTMLElement }>;
   private bubbleEl: HTMLElement;
   private menuEl: HTMLElement;
   private bubble: Bubble | null = null;
@@ -182,7 +201,7 @@ export class RockhopperApp {
   private noticeLeft = 0;
   /** Seconds the splice hand has been shown; it gives up after a while. */
   private spliceHintShown = 0;
-  private armed: { kind: 'drill' | 'smelter'; moving?: number } | null = null;
+  private armed: { kind: Tool; moving?: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private gesture: Gesture = { type: 'none' };
   private acc = 0;
@@ -206,15 +225,21 @@ export class RockhopperApp {
     let loaded: State | null = null;
     if (!params.has('fresh')) {
       try {
-        // Undo the logistics experiment's save: the untouched v1 save is migrated again.
-        if (params.get('restore') === 'pre-logistics') {
+        // Undo an experiment's save. pre-factories: the untouched v2 save is migrated again.
+        // pre-logistics: the untouched v1 save is, leaving v2 alone.
+        const restore = params.get('restore');
+        if (restore === 'pre-logistics' || restore === 'pre-factories') {
           localStorage.removeItem(SAVE_KEY);
+          if (restore === 'pre-logistics') this.skipPrev = true;
           // Once only: a refresh must not throw away the progress made since.
           params.delete('restore');
           const q = params.toString();
           history.replaceState(null, '', `${location.pathname}${q ? `?${q}` : ''}${location.hash}`);
         }
-        const text = localStorage.getItem(SAVE_KEY) ?? localStorage.getItem(LEGACY_SAVE_KEY);
+        const text =
+          localStorage.getItem(SAVE_KEY) ??
+          (this.skipPrev ? null : localStorage.getItem(PREV_SAVE_KEY)) ??
+          localStorage.getItem(LEGACY_SAVE_KEY);
         if (text) loaded = deserialize(text);
       } catch {
         loaded = null;
@@ -246,11 +271,9 @@ export class RockhopperApp {
     this.tools = {
       drill: this.makeTool('drill', 'Drill: drag onto an asteroid'),
       smelter: this.makeTool('smelter', 'Smelter: drag into open space'),
+      factory: this.makeTool('factory', 'Factory: drag onto a smelter belt'),
     };
-    this.tray.append(
-      this.tools.drill.button.parentElement!,
-      this.tools.smelter.button.parentElement!
-    );
+    this.tray.append(...TOOLS.map((k) => this.tools[k].button.parentElement!));
 
     this.bubbleEl = el('div', 'rh-bubble');
     this.bubbleEl.hidden = true;
@@ -282,7 +305,7 @@ export class RockhopperApp {
 
   // ------------------------------------------------------------ DOM
 
-  private makeTool(kind: 'drill' | 'smelter', label: string) {
+  private makeTool(kind: Tool, label: string) {
     const wrap = el('div', 'rh-tool-wrap');
     const button = el('button', 'rh-tool');
     button.setAttribute('aria-label', label);
@@ -297,6 +320,10 @@ export class RockhopperApp {
       c.translate(-30, -36);
       c.scale(0.6, 0.6);
       drawDrill(c);
+    } else if (kind === 'factory') {
+      c.translate(10, 8);
+      c.scale(0.62, 0.62);
+      drawFactory(c);
     } else {
       c.translate(10, 8);
       c.scale(0.62, 0.62);
@@ -346,9 +373,20 @@ export class RockhopperApp {
       this.save();
       setPrices();
     });
+    // The factories experiment: off by default while it is a prototype.
+    const fact = el('button', 'rh-pill');
+    const setFact = () =>
+      (fact.textContent = this.state.factories ? 'Factories: on' : 'Factories: off');
+    setFact();
+    fact.addEventListener('click', () => {
+      this.cmd('setFactories', !this.state.factories);
+      this.save();
+      setFact();
+    });
     this.syncCrossingsButton = () => {
       setCross();
       setPrices();
+      setFact();
     };
     const restart = el('button', 'rh-pill rh-danger rh-hold', '<span>Hold to restart</span>');
     this.holdButton(restart, 1000, () => {
@@ -372,7 +410,7 @@ export class RockhopperApp {
       'rh-menu-foot',
       'Older prototypes: <a href="?mode=works">Asteroid Works</a> · <a href="?mode=tiles">Tile workshop</a>'
     );
-    card.append(title, resume, sound, cross, prices, restart, classic);
+    card.append(title, resume, sound, cross, prices, fact, restart, classic);
     menu.append(card);
     menu.addEventListener('pointerdown', (e) => {
       if (e.target === menu) this.toggleMenu(false);
@@ -507,7 +545,7 @@ export class RockhopperApp {
       },
       { passive: false }
     );
-    for (const kind of ['drill', 'smelter'] as const) {
+    for (const kind of TOOLS) {
       const b = this.tools[kind].button;
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
@@ -893,13 +931,22 @@ export class RockhopperApp {
       const swap = !via && swapPartner(this.state, m, t);
       if (!same && !canTarget(this.state, m, t, via) && !swap) {
         const why = targetWhy(this.state, m, t, via);
-        if (d < refusedD && (why === 'belt blocked' || (via && matrixOnlyOk(this.state, m, t)))) {
+        const shown =
+          why === 'belt blocked' ||
+          why === 'smelt it first' ||
+          (via && matrixOnlyOk(this.state, m, t));
+        if (d < refusedD && shown) {
           refusedD = d;
           // Blocked by a machine in the way: pausing mid-drag pins a bend around it.
           refused = {
             x: q.x,
             y: q.y,
-            why: why === 'belt blocked' ? 'belt blocked: pause to bend' : 'can’t bend that way',
+            why:
+              why === 'belt blocked'
+                ? 'belt blocked: pause to bend'
+                : why === 'smelt it first'
+                  ? why
+                  : 'can’t bend that way',
           };
         }
         return;
@@ -912,7 +959,7 @@ export class RockhopperApp {
     for (let i = 0; i < this.state.docks; i++) consider({ kind: 'dock', index: i }, dockPos(i));
     // Machines are big targets: a smelter, or a drill acting as a junction.
     for (const x of this.state.machines)
-      consider({ kind: x.kind, id: x.id } as Target, machinePos(x), x.kind === 'smelter' ? 12 : 4);
+      consider({ kind: x.kind, id: x.id } as Target, machinePos(x), x.kind !== 'drill' ? 12 : 4);
     if (!best && Math.hypot(w.x, w.y) < HUB_RADIUS + 20) {
       // Dropped on the hub body: take the nearest free dock.
       let bd = Infinity;
@@ -931,7 +978,7 @@ export class RockhopperApp {
     return { target: best, refused: null };
   }
 
-  private placeSpot(kind: 'drill' | 'smelter', screen: Point, moving?: number) {
+  private placeSpot(kind: Tool, screen: Point, moving?: number) {
     const z = this.renderer.cam.z;
     if (kind === 'drill') {
       const w = this.renderer.toWorld(screen.x, screen.y - 30);
@@ -959,7 +1006,7 @@ export class RockhopperApp {
     // Dropped on a belt, a smelter goes into that line: the crosshair snaps onto the belt when
     // within 12 px. A second belt right at the snap point (a crossing) refuses the drop.
     const sm = moving === undefined ? null : byId(this.state, moving);
-    const mover = sm?.kind === 'smelter' ? sm : null;
+    const mover = sm && sm.kind !== 'drill' ? sm : null;
     const near = beltsNear(this.state, w, Math.max(8, 12 / z)).filter(
       (b) =>
         b.id !== moving &&
@@ -972,8 +1019,8 @@ export class RockhopperApp {
     let why = '';
     for (const hit of near) {
       const owner = byId(this.state, hit.id)!;
-      if (!canSplice(this.state, owner, mover, hit.q, true)) {
-        why ||= spliceRefusal(this.state, owner, mover, hit.q);
+      if (!canSplice(this.state, owner, mover, hit.q, true, kind)) {
+        why ||= spliceRefusal(this.state, owner, mover, hit.q, kind);
         continue;
       }
       const path = beltPath(this.state, owner)!;
@@ -984,8 +1031,8 @@ export class RockhopperApp {
           if (t < 0 || t > 1) continue;
           const q = pt(pointAlong(path, t * len));
           const spot = smelterSpotWhy(this.state, q, moving, hit.id);
-          if (spot || !canSplice(this.state, owner, mover, q)) {
-            why ||= spot || spliceRefusal(this.state, owner, mover, q);
+          if (spot || !canSplice(this.state, owner, mover, q, false, kind)) {
+            why ||= spot || spliceRefusal(this.state, owner, mover, q, kind);
             continue;
           }
           const crossing = beltsNear(this.state, q, Math.max(3, 4 / z)).some(
@@ -995,7 +1042,10 @@ export class RockhopperApp {
             why = 'crossing';
             continue;
           }
-          return { at: { ...q, ok: true, splice: hit.id }, sock: null };
+          // A factory's output starts at tier 1: say so when the belt it goes into is wider.
+          const warn =
+            kind === 'factory' && !mover && owner.tier > 1 ? 'belt will be tier 1' : undefined;
+          return { at: { ...q, ok: true, splice: hit.id, warn }, sock: null };
         }
       }
     }
@@ -1005,22 +1055,24 @@ export class RockhopperApp {
     return { at: { ...w, ok: !lone, why: lone || undefined }, sock: null };
   }
 
-  private preview(kind: 'drill' | 'smelter', screen: Point, moving?: number) {
+  private preview(kind: Tool, screen: Point, moving?: number) {
     this.overlay.placing = { kind, at: this.placeSpot(kind, screen, moving).at, moving };
   }
 
-  private place(kind: 'drill' | 'smelter', screen: Point, moving?: number): boolean {
+  private place(kind: Tool, screen: Point, moving?: number): boolean {
     const spot = this.placeSpot(kind, screen, moving);
     let r: true | string = 'blocked';
     if (moving !== undefined) {
       if (kind === 'drill' && spot.sock)
         r = this.cmd('moveDrill', moving, spot.sock.slot, spot.sock.angle);
-      else if (kind === 'smelter' && spot.at.ok)
+      else if (kind !== 'drill' && spot.at.ok)
         r = this.cmd('moveSmelter', moving, pt(spot.at), splice(spot.at));
     } else if (kind === 'drill' && spot.sock)
       r = this.cmd('buildDrill', spot.sock.slot, spot.sock.angle);
     else if (kind === 'smelter' && spot.at.ok)
       r = this.cmd('buildSmelter', pt(spot.at), splice(spot.at));
+    else if (kind === 'factory' && spot.at.ok)
+      r = this.cmd('buildFactory', pt(spot.at), splice(spot.at));
     if (r !== true) {
       this.sfx.deny();
       if (r === 'credits') this.flashCounter();
@@ -1090,7 +1142,8 @@ export class RockhopperApp {
       const limited = m.full && !!m.out;
       const crossing = m.cross && !!m.out;
       const bent = m.out?.via?.length ?? 0;
-      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}:${bent}`;
+      const rawOnly = m.kind === 'factory' && factoryNeedsBars(m);
+      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}:${bent}:${rawOnly}`;
       build = () => {
         const up = el(
           'button',
@@ -1178,14 +1231,18 @@ export class RockhopperApp {
           'div',
           'rh-note',
           !m.out
-            ? 'No link: drag from it onto a drill, smelter or dock'
-            : crossing
-              ? '<b>Waits at a crossing</b>: untangle it, or widen'
-              : limited
-                ? '<b>Belt-limited</b>: widen the belt'
-                : m.kind === 'smelter' && m.jam
-                  ? '<b>Smelter-limited</b>: upgrade the smelter'
-                  : ''
+            ? m.kind === 'factory'
+              ? 'No link: drag from it onto a drill or dock'
+              : 'No link: drag from it onto a drill, smelter or dock'
+            : rawOnly
+              ? '<b>Smelt it first</b>: a factory pairs bars, not raw chunks'
+              : crossing
+                ? '<b>Waits at a crossing</b>: untangle it, or widen'
+                : limited
+                  ? '<b>Belt-limited</b>: widen the belt'
+                  : m.kind === 'smelter' && m.jam
+                    ? '<b>Smelter-limited</b>: upgrade the smelter'
+                    : ''
         );
         note.hidden = !note.innerHTML;
         this.bubbleEl.replaceChildren(note, row);
@@ -1364,6 +1421,7 @@ export class RockhopperApp {
   }
 
   private clipMode = false;
+  private skipPrev = false;
   private lastBuzz = 0;
 
   /** Light haptics on Android-class devices for the big beats only. */
@@ -1404,7 +1462,9 @@ export class RockhopperApp {
     this.tray.classList.toggle('rh-hidden', !showTray);
     const showSmelter = nDrills >= 3 || smelters(s).length > 0 || s.machines.some((m) => !m.out);
     this.tools.smelter.button.parentElement!.classList.toggle('rh-hidden', !showSmelter);
-    for (const kind of ['drill', 'smelter'] as const) {
+    const showFactory = factoryUnlocked(s) || factories(s).some(() => s.factories);
+    this.tools.factory.button.parentElement!.classList.toggle('rh-hidden', !showFactory);
+    for (const kind of TOOLS) {
       const price = priceOf(s, kind);
       const t = this.tools[kind];
       const span = t.price.querySelector('span')!;
@@ -1416,13 +1476,18 @@ export class RockhopperApp {
       const firstTime =
         can &&
         !this.seenAffordable.has(kind) &&
-        (kind === 'drill' ? nDrills === 0 : smelters(s).length === 0 && showSmelter);
+        (kind === 'drill'
+          ? nDrills === 0
+          : kind === 'smelter'
+            ? smelters(s).length === 0 && showSmelter
+            : factories(s).length === 0 && showFactory);
       t.button.classList.toggle(
         'rh-pulse',
         firstTime || (kind === 'smelter' && can && s.machines.some((m) => !m.out))
       );
       if (can && kind === 'drill' && nDrills > 0) this.seenAffordable.add(kind);
       if (can && kind === 'smelter' && smelters(s).length > 0) this.seenAffordable.add(kind);
+      if (can && kind === 'factory' && factories(s).length > 0) this.seenAffordable.add(kind);
     }
     const r = this.tools.drill.button.getBoundingClientRect();
     const cr = this.canvas.getBoundingClientRect();

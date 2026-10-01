@@ -1,10 +1,13 @@
 import {
+  ALLOY_MULT,
   arrivalSeconds,
   BAR_VALUE,
   BELT_SPACING,
   BELT_SPEED,
   BELT_TIER_MAX,
   CELL,
+  COPPER,
+  CRYSTAL,
   CRUMBLE_AT,
   CRUMBLE_SECONDS,
   dockCost,
@@ -24,6 +27,14 @@ import {
   drillRate,
   drillUpgradeCost,
   DT,
+  FACTORY_MAX_LEVEL,
+  FACTORY_PAIRS,
+  FACTORY_READY,
+  FACTORY_STOCK,
+  factoryInputs,
+  factoryPrice,
+  factoryTime,
+  factoryUpgradeCost,
   FLIGHT_MAX,
   FLIGHT_MIN,
   FLIGHT_SPEED,
@@ -32,6 +43,7 @@ import {
   LONE_BAR_VALUE,
   type Ore,
   ORES,
+  PREMIUM_MULT,
   SELL_REFUND,
   SLOTS,
   SMELTER_MAX_LEVEL,
@@ -43,6 +55,7 @@ import {
   smelterTime,
   smelterUpgradeCost,
   RIM_GAP,
+  ROCK,
   TICK_HZ,
   TIER_ORE,
   TOW_SECONDS,
@@ -80,10 +93,11 @@ export interface Slot {
   crumble: number;
 }
 
-/** A belt ends at a hub dock or at another machine (a smelter, or a drill acting as a junction). */
+/** A belt ends at a hub dock or at another machine (a smelter, a factory, or a drill junction). */
 export type Target =
   | { kind: 'dock'; index: number }
   | { kind: 'smelter'; id: number }
+  | { kind: 'factory'; id: number }
   | { kind: 'drill'; id: number };
 
 /**
@@ -95,6 +109,9 @@ export interface BeltItem {
   pos: number;
   ores: Ore[];
   mult: number;
+  /** An alloy bundle: the pair's higher ore (`ores` holds the lower one) and each alloy's value. */
+  alloy?: Ore;
+  v?: number;
   /** Ticks this bundle has waited its turn at a crossing (absent or 0 when it isn't waiting). */
   w?: number;
 }
@@ -112,6 +129,9 @@ export interface Belt {
 export interface Bar {
   ore: Ore;
   mult: number;
+  /** An alloy (or one passing through): its pair's higher ore and its value in credits. */
+  alloy?: Ore;
+  v?: number;
 }
 
 interface MachineBase {
@@ -165,7 +185,23 @@ export interface Smelter extends MachineBase {
   jam: boolean;
 }
 
-export type Machine = Drill | Smelter;
+/** A factory pairs two paired bars of different ores into an alloy (the factories experiment). */
+export interface Factory extends MachineBase {
+  kind: 'factory';
+  x: number;
+  y: number;
+  /** Paired bars waiting for a partner, with the tick each arrived. */
+  stock: (Bar & { t: number })[];
+  /** Pairs waiting for the worker. */
+  pairs: [Bar, Bar][];
+  job: { pair: [Bar, Bar]; left: number } | null;
+  /** Alloys and passing items waiting for the output belt. */
+  ready: Bar[];
+  /** Smoothed share of intakes that were raw chunks only (the "smelt it first" hint). */
+  rawT: number;
+}
+
+export type Machine = Drill | Smelter | Factory;
 
 export interface Flight {
   ore: Ore;
@@ -193,7 +229,17 @@ export type SimEvent =
       y: number;
       by: 'laser' | 'drill' | 'crumble';
     }
-  | { type: 'deliver'; x: number; y: number; value: number; ore: Ore; bar: boolean; dock: number }
+  | {
+      type: 'deliver';
+      x: number;
+      y: number;
+      value: number;
+      ore: Ore;
+      bar: boolean;
+      dock: number;
+      alloy?: Ore;
+    }
+  | { type: 'alloy'; id: number; ore: Ore; alloy: Ore }
   | { type: 'smelt'; id: number; ore: Ore }
   | { type: 'crumble'; slot: number }
   | { type: 'arrive'; slot: number }
@@ -217,7 +263,7 @@ export interface Stats {
 }
 
 export interface State {
-  version: 2;
+  version: 3;
   seed: number;
   /** Belts that touch share a plate and take turns (the crossings experiment). */
   crossings: boolean;
@@ -225,6 +271,8 @@ export interface State {
   crossingsNotice?: boolean;
   /** Drills priced by the rock tier they stand on (the drill-prices experiment), else classic. */
   rockPrices: boolean;
+  /** The factories experiment: the tray offers factories (off by default during the prototype). */
+  factories: boolean;
   tick: number;
   credits: number;
   earned: number;
@@ -470,7 +518,7 @@ function endsBetween(m: Machine, p: Point, q: Point, t: Target['kind']) {
   const ux = dx / len,
     uy = dy / len;
   const start = m.kind === 'drill' ? DRILL_RADIUS * 0.6 : SMELTER_RADIUS * 0.8;
-  const end = t === 'dock' ? 0 : t === 'smelter' ? SMELTER_RADIUS * 0.8 : DRILL_RADIUS * 0.75;
+  const end = t === 'dock' ? 0 : t === 'drill' ? DRILL_RADIUS * 0.75 : SMELTER_RADIUS * 0.8;
   return {
     a: { x: p.x + ux * start, y: p.y + uy * start },
     b: { x: q.x - ux * end, y: q.y - uy * end },
@@ -521,10 +569,11 @@ export function freshState(seed = 1): State {
     }
   });
   return {
-    version: 2,
+    version: 3,
     seed,
     crossings: true,
     rockPrices: true,
+    factories: false,
     tick: 0,
     credits: 0,
     earned: 0,
@@ -544,6 +593,10 @@ export function freshState(seed = 1): State {
 export const byId = (s: State, id: number) => s.machines.find((m) => m.id === id);
 export const drills = (s: State) => s.machines.filter((m): m is Drill => m.kind === 'drill');
 export const smelters = (s: State) => s.machines.filter((m): m is Smelter => m.kind === 'smelter');
+export const factories = (s: State) => s.machines.filter((m): m is Factory => m.kind === 'factory');
+
+/** The tray offers factories once the player owns 2 smelters (one seam for a tech tree). */
+export const factoryUnlocked = (s: State) => s.factories && smelters(s).length >= 2;
 
 /** Drills standing on slot `slot`'s rock, leaving out drill `except`. */
 export const drillsOnRock = (s: State, slot: number, except?: number) =>
@@ -563,6 +616,7 @@ export const drillPriceOn = (s: State, slot: number) =>
  */
 export function priceOf(s: State, kind: Machine['kind']): number {
   if (kind === 'smelter') return smelterPrice(smelters(s).length);
+  if (kind === 'factory') return factoryPrice(factories(s).length);
   if (!s.rockPrices) return classicDrillPrice(drills(s).length);
   return Math.min(...SLOTS.flatMap((_, i) => (s.slots[i].unlocked ? [rockPrice(s, i)] : [])));
 }
@@ -579,6 +633,8 @@ export function moveDrillCost(s: State, id: number, slot: number): number {
 
 export function upgradeCost(m: Machine): number | null {
   if (m.kind === 'drill') return m.level >= DRILL_MAX_LEVEL ? null : drillUpgradeCost(m.level);
+  if (m.kind === 'factory')
+    return m.level >= FACTORY_MAX_LEVEL ? null : factoryUpgradeCost(m.level);
   return m.level >= SMELTER_MAX_LEVEL ? null : smelterUpgradeCost(m.level);
 }
 
@@ -610,9 +666,17 @@ export const inputsOf = (s: State, id: number) =>
   s.machines.filter((m) => feeds(m, id)).sort((a, b) => a.id - b.id);
 export const smelterInputsOf = inputsOf;
 
-/** Input belts a machine can take: 2 for a drill junction, 2/3/4 for a smelter by level. */
+/** Input belts a machine can take: 2 for a drill junction, 2/3/4 for a smelter, 2/3 for a factory. */
 export const inputCap = (m: Machine) =>
-  m.kind === 'drill' ? DRILL_INPUTS : smelterInputs(m.level);
+  m.kind === 'drill'
+    ? DRILL_INPUTS
+    : m.kind === 'factory'
+      ? factoryInputs(m.level)
+      : smelterInputs(m.level);
+
+/** A drill junction: a drill that already takes at least one belt. */
+export const isJunction = (s: State, m: Machine) =>
+  m.kind === 'drill' && inputsOf(s, m.id).length > 0;
 
 export const sameTarget = (a: Target, b: Target) =>
   a.kind === b.kind &&
@@ -642,6 +706,7 @@ export function canTarget(s: State, m: Machine, t: Target, via?: Point[]): boole
  * if they still suit the new target (`viaFor`), else straight.
  */
 export function targetWhy(s: State, m: Machine, t: Target, via?: Point[]): string {
+  if (t.kind === 'factory' && m.kind === 'drill' && !isJunction(s, m)) return 'smelt it first';
   if (!matrixOk(s, m, t)) return 'invalid';
   const v = via ?? viaFor(s, m, t);
   if (via?.length && withTarget(m, t, via, () => bendWhy(s, m, via))) return 'invalid';
@@ -675,6 +740,10 @@ function matrixOk(s: State, m: Machine, t: Target): boolean {
   const tm = byId(s, t.id);
   if (!tm || tm.kind !== t.kind || tm.id === m.id) return false;
   if (m.kind === 'smelter' && tm.kind === 'smelter') return false;
+  // Factories take smelters and drill junctions, and feed only docks and drills.
+  if (tm.kind === 'factory' && (m.kind === 'factory' || (m.kind === 'drill' && !isJunction(s, m))))
+    return false;
+  if (m.kind === 'factory' && tm.kind !== 'drill') return false;
   if (inputsOf(s, tm.id).filter((x) => x !== m).length >= inputCap(tm)) return false;
   return !reaches(s, t, m.id);
 }
@@ -701,11 +770,13 @@ function autoLink(s: State, m: Machine): boolean {
   return true;
 }
 
-/** Unlinked machines retry a free dock (never a machine): smelters first, then placement order. */
+const RELINK_ORDER: Record<Machine['kind'], number> = { smelter: 0, factory: 1, drill: 2 };
+
+/** Unlinked machines retry a free dock (never a machine): smelters, factories, then drills. */
 function relinkAll(s: State) {
   const waiting = s.machines
     .filter((m) => !m.out)
-    .sort((a, b) => (a.kind === b.kind ? a.id - b.id : a.kind === 'smelter' ? -1 : 1));
+    .sort((a, b) => RELINK_ORDER[a.kind] - RELINK_ORDER[b.kind] || a.id - b.id);
   for (const m of waiting) autoLink(s, m);
 }
 
@@ -1028,7 +1099,7 @@ export function smelterSpotWhy(
   for (const m of s.machines) {
     if (m.id === except) continue;
     const q = machinePos(m);
-    const min = m.kind === 'smelter' ? SMELTER_RADIUS * 2 + 8 : DRILL_SMELTER_GAP;
+    const min = m.kind !== 'drill' ? SMELTER_RADIUS * 2 + 8 : DRILL_SMELTER_GAP;
     if (Math.hypot(p.x - q.x, p.y - q.y) < min) return no;
   }
   if (lanes && s.crossings) {
@@ -1156,20 +1227,30 @@ export const SPLICE_REACH = 40;
 /** Shortest belt a splice may leave between the owner and the smelter. */
 export const MIN_FEED = BELT_SPACING + 4;
 
+/** Machines that are placed freely and can be dropped into a line. */
+export type Placed = Smelter | Factory;
+
 /**
- * Can smelter `sm` (or a new one, `null`) be put into `owner`'s belt near `p`? The owner must be
- * a drill (a smelter never feeds a smelter), its target must accept a smelter, and no loop.
+ * Can `sm` (or a new machine of `kind`, `sm` null) be put into `owner`'s belt near `p`? A smelter
+ * goes after a drill and before anything but a smelter; a factory goes after a smelter or a drill
+ * junction and before a dock or a drill. No loop.
  */
 export function canSplice(
   s: State,
   owner: Machine | undefined,
-  sm: Smelter | null,
+  sm: Placed | null,
   p: Point,
-  anywhere = false
+  anywhere = false,
+  kind: Placed['kind'] = sm?.kind ?? 'smelter'
 ) {
-  if (!owner?.out || owner.kind !== 'drill') return false;
+  if (!owner?.out) return false;
   const old = owner.out.to;
-  if (old.kind === 'smelter') return false;
+  if (kind === 'smelter') {
+    if (owner.kind !== 'drill' || old.kind === 'smelter') return false;
+  } else {
+    if (owner.kind === 'factory' || (owner.kind === 'drill' && !isJunction(s, owner))) return false;
+    if (old.kind !== 'dock' && old.kind !== 'drill') return false;
+  }
   const b = beltDistance(s, owner, p);
   if (!b || b.d > SPLICE_REACH) return false;
   // The owner's shortened belt must still hold a bundle and its spacing.
@@ -1192,7 +1273,7 @@ export function canSplice(
 }
 
 /** Would either belt a splice at `p` leaves (owner → smelter, smelter → old target) pass under a machine? */
-export function spliceLanesBlocked(s: State, owner: Machine, sm: Smelter | null, p: Point) {
+export function spliceLanesBlocked(s: State, owner: Machine, sm: Placed | null, p: Point) {
   const old = owner.out!.to;
   const q = targetPos(s, old);
   if (!q) return false;
@@ -1259,13 +1340,13 @@ export function buildDrill(s: State, slot: number, angle: number): Result {
   return true;
 }
 
-/** Put smelter `sm` into `owner`'s line: owner → smelter → owner's old target. */
-function spliceInto(s: State, sm: Smelter, owner: Machine) {
+/** Put `sm` into `owner`'s line: owner → it → owner's old target. Its belt starts at tier 1. */
+function spliceInto(s: State, sm: Placed, owner: Machine) {
   const old = owner.out!.to;
   const [feedVia, onVia] = splitVia(s, owner, machinePos(sm));
   sm.out = { to: old, length: 1, items: [] };
   if (onVia.length) sm.out.via = onVia;
-  owner.out!.to = { kind: 'smelter', id: sm.id };
+  owner.out!.to = { kind: sm.kind, id: sm.id } as Target;
   if (feedVia.length) owner.out!.via = feedVia;
   else delete owner.out!.via;
   relayout(s);
@@ -1297,6 +1378,40 @@ export function buildSmelter(s: State, p: Point, splice?: number | null): Result
     idle: 0,
     jamT: 0,
     jam: false,
+  };
+  s.machines.push(m);
+  if (owner) spliceInto(s, m, owner);
+  else autoLink(s, m);
+  s.events.push({ type: 'build', id: m.id });
+  return true;
+}
+
+/**
+ * Place a factory. With `splice` (a smelter's or drill junction's id), it is dropped on that belt
+ * and goes into that line; otherwise it stands alone and takes a free dock if there is one. Its
+ * output starts at tier 1 whatever the belt it went into: tiers are only ever bought.
+ */
+export function buildFactory(s: State, p: Point, splice?: number | null): Result {
+  if (!s.factories) return 'unavailable';
+  if (!smelterSpotOk(s, p, undefined, splice)) return 'blocked';
+  const owner = splice == null ? undefined : byId(s, splice);
+  if (splice != null && !canSplice(s, owner, null, p, false, 'factory')) return 'invalid';
+  const cost = priceOf(s, 'factory');
+  if (!pay(s, cost)) return 'credits';
+  const m: Factory = {
+    id: s.nextId++,
+    kind: 'factory',
+    level: 1,
+    spent: cost,
+    out: null,
+    ...base(),
+    x: p.x,
+    y: p.y,
+    stock: [],
+    pairs: [],
+    job: null,
+    ready: [],
+    rawT: 0,
   };
   s.machines.push(m);
   if (owner) spliceInto(s, m, owner);
@@ -1409,7 +1524,9 @@ export function sell(s: State, id: number): Result {
     onBelt(m.out) +
     (m.kind === 'drill'
       ? m.buffer.length
-      : m.queue.length + (m.job ? (m.job.pair ? 2 : 1) : 0) + m.ready.length);
+      : m.kind === 'factory'
+        ? m.stock.length + 2 * m.pairs.length + (m.job ? 2 : 0) + m.ready.length
+        : m.queue.length + (m.job ? (m.job.pair ? 2 : 1) : 0) + m.ready.length);
   const inputs = inputsOf(s, m.id);
   const target = m.out?.to ?? null;
   s.machines = s.machines.filter((x) => x !== m);
@@ -1458,10 +1575,13 @@ export function moveDrill(s: State, id: number, slot: number, angle: number): Re
   return true;
 }
 
-/** Move a smelter; its links stretch along. A smelter with no output may be dropped on a belt. */
+/**
+ * Move a smelter or a factory; its links stretch along. One with no output may be dropped on a
+ * belt.
+ */
 export function moveSmelter(s: State, id: number, p: Point, splice?: number | null): Result {
   const m = byId(s, id);
-  if (!m || m.kind !== 'smelter') return 'missing';
+  if (!m || m.kind === 'drill') return 'missing';
   if (!smelterSpotOk(s, p, id, splice)) return 'blocked';
   const owner = splice == null ? undefined : byId(s, splice);
   if (splice != null && !canSplice(s, owner, m, p)) return 'invalid';
@@ -1499,6 +1619,12 @@ export function upgradeHub(s: State, what: HubUpgrade): Result {
   else s.tractorLevel++;
   relinkAll(s);
   s.events.push({ type: 'hub', what });
+  return true;
+}
+
+/** Switch the factories experiment. Off hides the tray item; existing factories keep working. */
+export function setFactories(s: State, on: boolean): Result {
+  s.factories = !!on;
   return true;
 }
 
@@ -1651,12 +1777,30 @@ function waiting(b: Belt | null): BeltItem | null {
   return f && f.pos >= b!.length - 1e-6 ? f : null;
 }
 
-function takeFront(b: Belt): Ore {
+/** Take the front item off a belt, keeping its value class (multiplier, and alloy pair). */
+function takeFront(b: Belt): Bar {
   const f = b.items[0];
   const ore = f.ores.shift()!;
   if (!f.ores.length) b.items.shift();
-  return ore;
+  return classOf(ore, f);
 }
+
+function classOf(ore: Ore, c: { mult: number; alloy?: Ore; v?: number }): Bar {
+  const bar: Bar = { ore, mult: c.mult };
+  if (c.alloy !== undefined) bar.alloy = c.alloy;
+  if (c.v !== undefined) bar.v = c.v;
+  return bar;
+}
+
+/** Items share a bundle only with the same value class: multiplier, alloy pair and value. */
+export const sameClass = (
+  a: { mult: number; alloy?: Ore; v?: number },
+  b: { mult: number; alloy?: Ore; v?: number }
+) => a.mult === b.mult && a.alloy === b.alloy && a.v === b.v;
+
+/** The credits one item of a bundle (or a bar) is worth. */
+export const itemValue = (ore: Ore, c: { mult: number; v?: number }) =>
+  c.v ?? ORES[ore].value * c.mult;
 
 /**
  * Load each belt that has room at its start. A drill loads as a fair zipper: one chunk at a
@@ -1678,11 +1822,11 @@ function loadBelts(s: State) {
     const last = b.items[b.items.length - 1];
     if (last && last.pos < BELT_SPACING) continue;
     const ores: Ore[] = [];
-    let mult = 0;
-    if (m.kind === 'smelter') {
-      while (m.ready.length && ores.length < m.tier && (!mult || m.ready[0].mult === mult)) {
+    let cls: Bar | null = null;
+    if (m.kind !== 'drill') {
+      while (m.ready.length && ores.length < m.tier && (!cls || sameClass(m.ready[0], cls))) {
         const bar = m.ready.shift()!;
-        mult = bar.mult;
+        cls = bar;
         ores.push(bar.ore);
       }
     } else {
@@ -1693,15 +1837,16 @@ function loadBelts(s: State) {
         for (let k = 0; k < n; k++) {
           const idx = (m.rr + k) % n;
           if (idx === 0) {
-            if (!m.buffer.length || (mult && mult !== 1)) continue;
+            if (!m.buffer.length || (cls && !sameClass(cls, { mult: 1 }))) continue;
             ores.push(m.buffer.shift()!);
-            mult = 1;
+            cls = { ore: ores[0], mult: 1 };
           } else {
             const belt = inputs[idx - 1].out!;
             const f = waiting(belt);
-            if (!f || (mult && f.mult !== mult)) continue;
-            mult = f.mult;
-            ores.push(takeFront(belt));
+            if (!f || (cls && !sameClass(f, cls))) continue;
+            const item = takeFront(belt);
+            cls = item;
+            ores.push(item.ore);
           }
           m.rr = (idx + 1) % n;
           took = true;
@@ -1710,13 +1855,16 @@ function loadBelts(s: State) {
         if (!took) break;
       }
     }
-    if (ores.length) {
-      b.items.push({ pos: 0, ores, mult });
+    if (ores.length && cls) {
+      const it: BeltItem = { pos: 0, ores, mult: cls.mult };
+      if (cls.alloy !== undefined) it.alloy = cls.alloy;
+      if (cls.v !== undefined) it.v = cls.v;
+      b.items.push(it);
       m.cd = LOAD_TICKS - 1;
     }
     // Saturation sample at each load chance: the bundle left full and items still wait.
     const left =
-      m.kind === 'smelter'
+      m.kind !== 'drill'
         ? m.ready.length > 0
         : m.buffer.length > 0 || inputsOf(s, m.id).some((x) => waiting(x.out));
     // A belt whose front keeps waiting at a downstream machine is limited further down.
@@ -1850,10 +1998,10 @@ function moveBelts(s: State) {
       b.items.shift();
       const p = dockPos(b.to.index);
       for (const ore of front.ores) {
-        const value = ORES[ore].value * front.mult;
+        const value = itemValue(ore, front);
         earn(s, value);
         s.stats.delivered++;
-        s.events.push({
+        const e: SimEvent = {
           type: 'deliver',
           x: p.x,
           y: p.y,
@@ -1861,14 +2009,16 @@ function moveBelts(s: State) {
           ore,
           bar: front.mult > 1,
           dock: b.to.index,
-        });
+        };
+        if (front.alloy !== undefined) e.alloy = front.alloy;
+        s.events.push(e);
       }
     }
   }
 }
 
 /** Seconds a smelter holds an unpaired chunk with nothing arriving before smelting it alone. */
-const LONE_WAIT = 2;
+export const LONE_WAIT = 2;
 
 function smeltersTick(s: State) {
   for (const sm of smelters(s)) {
@@ -1891,14 +2041,13 @@ function smeltersTick(s: State) {
             refused = true;
             continue;
           }
-          const mult = f.mult;
-          sm.ready.push({ ore: takeFront(belt), mult });
+          sm.ready.push(takeFront(belt));
         } else {
           if (sm.queue.length >= SMELTER_QUEUE) {
             refused = true;
             continue;
           }
-          sm.queue.push(takeFront(belt));
+          sm.queue.push(takeFront(belt).ore);
         }
         sm.rr = (idx + 1) % n;
         took = any = true;
@@ -1944,6 +2093,127 @@ function smeltersTick(s: State) {
  * How long each belt's front has waited at a downstream machine. A machine whose belt is held
  * up downstream is not itself "full": the limit is further down the line, so it decays.
  */
+// ---------------------------------------------------------------- factories
+
+/** A bar a factory pairs: a paired bar (×6) of an ore other than rock, not an alloy. */
+export const pairable = (b: Bar) =>
+  b.mult === BAR_VALUE && b.alloy === undefined && b.v === undefined && b.ore !== ROCK;
+
+const premium = (a: Ore, b: Ore) =>
+  (a === COPPER && b === CRYSTAL) || (a === CRYSTAL && b === COPPER);
+
+/** The alloy two bars make: the lower ore and the higher one, worth 1.25× (or 2.5×) both bars. */
+export function alloyOf([a, b]: [Bar, Bar]): Bar {
+  const mult = premium(a.ore, b.ore) ? PREMIUM_MULT : ALLOY_MULT;
+  const v = Math.floor(mult * (itemValue(a.ore, a) + itemValue(b.ore, b)));
+  return {
+    ore: Math.min(a.ore, b.ore) as Ore,
+    mult: BAR_VALUE,
+    alloy: Math.max(a.ore, b.ore) as Ore,
+    v,
+  };
+}
+
+/** The waiting bar `bar` pairs with on arrival: copper and crystal find each other first. */
+function partnerIndex(stock: Bar[], bar: Bar): number {
+  const want = bar.ore === COPPER ? CRYSTAL : bar.ore === CRYSTAL ? COPPER : null;
+  if (want !== null) {
+    const k = stock.findIndex((x) => x.ore === want);
+    if (k >= 0) return k;
+  }
+  return stock.findIndex((x) => x.ore !== bar.ore);
+}
+
+/** Take stock bar `k` out, without its arrival tick. */
+function unstock(f: Factory, k: number): Bar {
+  const { t: _t, ...bar } = f.stock.splice(k, 1)[0];
+  return bar;
+}
+
+/** Where an arriving item would go: 'pair', 'stock', 'pass', or null when there is no room. */
+function factoryFit(f: Factory, item: Bar): 'pair' | 'stock' | 'pass' | null {
+  if (pairable(item)) {
+    if (f.pairs.length < FACTORY_PAIRS && partnerIndex(f.stock, item) >= 0) return 'pair';
+    if (f.stock.length < FACTORY_STOCK) return 'stock';
+  }
+  return f.ready.length < FACTORY_READY ? 'pass' : null;
+}
+
+/** Smoothing per intake for the "smelt it first" hint (a few seconds of raw-only intake). */
+const RAW_ALPHA = DT / 2;
+
+function factoriesTick(s: State) {
+  for (const f of factories(s)) {
+    // Intake: as many items per tick as there is room for, one per input belt in turn. Paired
+    // bars pair on arrival or wait in the stock; everything else passes straight through.
+    const inputs = inputsOf(s, f.id);
+    const n = inputs.length;
+    let took = true;
+    let raw = false,
+      bar = false;
+    while (took && n) {
+      took = false;
+      for (let k = 0; k < n; k++) {
+        const idx = (f.rr + k) % n;
+        const belt = inputs[idx].out!;
+        const front = waiting(belt);
+        if (!front) continue;
+        const fit = factoryFit(f, classOf(front.ores[0], front));
+        if (!fit) continue;
+        const item = takeFront(belt);
+        if (fit === 'pair') f.pairs.push([unstock(f, partnerIndex(f.stock, item)), item]);
+        else if (fit === 'stock') f.stock.push({ ...item, t: s.tick });
+        else f.ready.push(item);
+        if (item.mult === 1) raw = true;
+        else bar = true;
+        f.rr = (idx + 1) % n;
+        took = true;
+        break;
+      }
+    }
+    if (raw || bar) f.rawT += ((raw && !bar ? 1 : 0) - f.rawT) * RAW_ALPHA;
+    // Bars that waited while the pairs were full pair up as soon as there is room.
+    for (let i = 0; i < f.stock.length && f.pairs.length < FACTORY_PAIRS; ) {
+      const j = partnerIndex(f.stock.slice(i + 1), f.stock[i]);
+      if (j < 0) {
+        i++;
+        continue;
+      }
+      const b = unstock(f, i + 1 + j);
+      f.pairs.push([unstock(f, i), b]);
+    }
+    // A bar left without a partner passes on, oldest first, so nothing waits for ever.
+    while (
+      f.stock.length &&
+      s.tick - f.stock[0].t >= LONE_WAIT * TICK_HZ &&
+      f.ready.length < FACTORY_READY
+    ) {
+      const { t: _t, ...left } = f.stock.shift()!;
+      f.ready.push(left);
+    }
+    // The worker: one alloy at a time; leftover time carries into the next.
+    let budget = DT;
+    while (budget > 1e-9) {
+      if (!f.job) {
+        if (!f.pairs.length || f.ready.length >= FACTORY_READY) break;
+        f.job = { pair: f.pairs.shift()!, left: factoryTime(f.level) };
+      }
+      const use = Math.min(budget, f.job.left);
+      f.job.left -= use;
+      budget -= use;
+      if (f.job.left > 1e-9) continue;
+      if (f.ready.length >= FACTORY_READY) break;
+      const alloy = alloyOf(f.job.pair);
+      f.ready.push(alloy);
+      s.events.push({ type: 'alloy', id: f.id, ore: alloy.ore, alloy: alloy.alloy! });
+      f.job = null;
+    }
+  }
+}
+
+/** Is the factory taking in only raw chunks (it needs bars: "smelt it first")? */
+export const factoryNeedsBars = (f: Factory) => f.rawT > 0.6;
+
 function pressureTick(s: State) {
   for (const m of s.machines) {
     const held = !!m.out && m.out.to.kind !== 'dock' && !!waiting(m.out);
@@ -1990,6 +2260,7 @@ export function step(s: State) {
   moveBelts(s);
   crossTick(s);
   smeltersTick(s);
+  factoriesTick(s);
   pressureTick(s);
   flightsTick(s);
 }
@@ -2002,12 +2273,16 @@ export function run(s: State, ticks: number) {
 export function inTransitValue(s: State): number {
   let v = s.flights.reduce((a, f) => a + f.value, 0);
   for (const m of s.machines) {
-    for (const it of m.out?.items ?? []) for (const ore of it.ores) v += ORES[ore].value * it.mult;
+    for (const it of m.out?.items ?? []) for (const ore of it.ores) v += itemValue(ore, it);
     if (m.kind === 'drill') v += m.buffer.reduce((a, o) => a + ORES[o].value, 0);
-    else {
+    else if (m.kind === 'factory') {
+      // Bars waiting count as bars; pairs already made count as the alloy they become.
+      for (const b of [...m.stock, ...m.ready]) v += itemValue(b.ore, b);
+      for (const pair of m.job ? [...m.pairs, m.job.pair] : m.pairs) v += alloyOf(pair).v!;
+    } else {
       v += m.queue.reduce((a, o) => a + ORES[o].value, 0) * (BAR_VALUE / 2);
       if (m.job) v += ORES[m.job.ore].value * (m.job.pair ? BAR_VALUE : LONE_BAR_VALUE);
-      for (const b of m.ready) v += ORES[b.ore].value * b.mult;
+      for (const b of m.ready) v += itemValue(b.ore, b);
     }
   }
   return v;
@@ -2021,6 +2296,7 @@ export const COMMANDS = {
   clearLaser,
   buildDrill,
   buildSmelter,
+  buildFactory,
   route,
   upgrade,
   widen,
@@ -2031,6 +2307,7 @@ export const COMMANDS = {
   upgradeHub,
   setCrossings,
   setRockPrices,
+  setFactories,
   bend,
 } as const;
 

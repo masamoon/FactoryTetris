@@ -347,17 +347,19 @@ test('a pre-logistics save is migrated, and the v1 save is never touched', async
   await page.goto('/');
   await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
   const s = await hook(page);
-  expect(s.version).toBe(2);
+  expect(s.version).toBe(3);
   expect(s.credits).toBeGreaterThanOrEqual(777);
   expect(s.machines[0].tier).toBe(2);
   await page.evaluate(() => (window as unknown as { __rockhopper: Hook }).__rockhopper.save());
   const keys = await page.evaluate(() => ({
     v1: localStorage.getItem('rockhopper.save.v1'),
-    v2: !!localStorage.getItem('rockhopper.save.v2'),
+    v2: localStorage.getItem('rockhopper.save.v2'),
+    v3: !!localStorage.getItem('rockhopper.save.v3'),
   }));
   expect(keys.v1).toBe(text);
-  expect(keys.v2).toBe(true);
-  // Restore: the v2 save is dropped and the untouched v1 save is migrated again.
+  expect(keys.v2).toBeNull();
+  expect(keys.v3).toBe(true);
+  // Restore: the v3 save is dropped and the untouched v1 save is migrated again.
   await page.evaluate(() => {
     const a = (window as unknown as { __rockhopper: Hook }).__rockhopper;
     a.state.credits = 5;
@@ -366,6 +368,45 @@ test('a pre-logistics save is migrated, and the v1 save is never touched', async
   await page.goto('/?restore=pre-logistics');
   await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
   expect((await hook(page)).credits).toBeGreaterThanOrEqual(777);
+});
+
+test('a pre-factories (v2) save is migrated, never touched, and can be restored', async ({
+  page,
+}) => {
+  await page.goto('/?fresh');
+  const text = await page.evaluate(() => {
+    const a = (
+      window as unknown as { __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown } }
+    ).__rockhopper;
+    a.state.credits = 100;
+    a.cmd('buildDrill', 0, Math.PI / 2);
+    a.save();
+    const raw = JSON.parse(localStorage.getItem('rockhopper.save.v3')!);
+    raw.version = 2;
+    delete raw.factories;
+    raw.credits = 888;
+    return JSON.stringify(raw);
+  });
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.clear();
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, text);
+  await page.goto('/');
+  await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
+  const s = await hook(page);
+  expect(s.version).toBe(3);
+  expect(s.credits).toBeGreaterThanOrEqual(888);
+  await page.evaluate(() => {
+    const a = (window as unknown as { __rockhopper: Hook }).__rockhopper;
+    a.state.credits = 5;
+    a.save();
+  });
+  expect(await page.evaluate(() => localStorage.getItem('rockhopper.save.v2'))).toBe(text);
+  await page.goto('/?restore=pre-factories');
+  await page.waitForFunction(() => !!(window as unknown as { __rockhopper?: Hook }).__rockhopper);
+  expect((await hook(page)).credits).toBeGreaterThanOrEqual(888);
 });
 
 test('a smelter is never dropped onto a belt it cannot join (already smelted)', async ({
