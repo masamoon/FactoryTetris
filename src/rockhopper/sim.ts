@@ -44,8 +44,10 @@ import {
   LONE_BAR_VALUE,
   type Ore,
   ORES,
+  type VeinPlan,
   PREMIUM_MULT,
   SELL_REFUND,
+  type RockShape,
   SLOTS,
   SMELTER_MAX_LEVEL,
   SMELTER_QUEUE,
@@ -64,6 +66,7 @@ import {
   tractorCost,
   widenCost,
 } from './config';
+import { useSector } from './sector';
 import { findPlates, type Plate, type PlateSide, type Segment } from './crossings';
 
 export interface Point {
@@ -274,6 +277,8 @@ export interface State {
   rockPrices: boolean;
   /** The factories experiment: the tray offers factories (off by default during the prototype). */
   factories: boolean;
+  /** The sectors prototype: this game's field was generated from its seed, else the classic one. */
+  sector: boolean;
   tick: number;
   credits: number;
   earned: number;
@@ -323,6 +328,7 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
   // Veins stay put for the slot: the outline changes between rocks, the richness field doesn't,
   // so a drill aimed at a vein keeps paying off after every respawn. (Generation 0 is unchanged.)
   const veins = Math.floor(hash(slotIndex * 977, worldSeed, 13) * 1e9);
+  const form = def.shape ? shapeForm(def.shape, r) : null;
   const cells = new Array<number>(w * w).fill(0);
   const inside: { i: number; n: number; t: number }[] = [];
   for (let j = 0; j < w; j++) {
@@ -330,12 +336,16 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
       const x = i - (r + 1),
         y = j - (r + 1);
       const ang = Math.atan2(y, x);
-      const edge =
-        r * (0.84 + 0.2 * vnoise(Math.cos(ang) * 2.2 + 9, Math.sin(ang) * 2.2 + 9, seed, 1));
-      if (Math.hypot(x, y) > edge) continue;
+      const wobble = 0.84 + 0.2 * vnoise(Math.cos(ang) * 2.2 + 9, Math.sin(ang) * 2.2 + 9, seed, 1);
+      if (form) {
+        // Sector forms stay inside the classic grid, so drills on the rim never sit on a cell.
+        if (Math.hypot(x, y) > Math.min(r + 0.75, r * form.edge(ang) * wobble)) continue;
+        if (form.bite && Math.hypot(x - form.bite.x, y - form.bite.y) < form.bite.r) continue;
+      } else if (Math.hypot(x, y) > r * wobble) continue;
+      const noise = vnoise(x + 40, y + 40, veins + 5, 2.6);
       inside.push({
         i: j * w + i,
-        n: vnoise(x + 40, y + 40, veins + 5, 2.6),
+        n: def.veins ? richness(def.veins, x, y, r, noise) : noise,
         t: vnoise(x + 70, y + 70, veins + 17, 3.4),
       });
     }
@@ -360,6 +370,52 @@ export function generateRock(slotIndex: number, gen: number, worldSeed: number):
     total: inside.length,
     remaining: inside.length,
   };
+}
+
+/** A sector rock's outline, as a radius factor by angle, and the bite taken out of a bitten one. */
+function shapeForm(shape: RockShape, r: number) {
+  const turn = (a: number) => a - shape.angle;
+  switch (shape.kind) {
+    case 'oval':
+      return {
+        edge: (a: number) => 1 / Math.hypot(Math.cos(turn(a)) / 1.15, Math.sin(turn(a)) / 0.8),
+      };
+    case 'peanut':
+      return { edge: (a: number) => 0.74 + 0.4 * Math.pow(Math.abs(Math.cos(turn(a))), 1.4) };
+    case 'bitten':
+      return {
+        edge: () => 1.08,
+        bite: { x: Math.cos(shape.angle) * r, y: Math.sin(shape.angle) * r, r: r * 0.55 },
+      };
+    default:
+      return { edge: () => 1 };
+  }
+}
+
+/** Richness by cell for a sector's vein plan: the richest share of cells becomes ore. */
+function richness(plan: VeinPlan, x: number, y: number, r: number, noise: number): number {
+  const c = Math.cos(plan.angle),
+    s = Math.sin(plan.angle),
+    d = Math.hypot(x, y) / r;
+  switch (plan.kind) {
+    case 'core':
+      return -d + 0.45 * noise;
+    case 'crust':
+      return d + 0.45 * noise;
+    case 'side':
+      return (x * c + y * s) / r + 0.5 * noise;
+    case 'seam':
+      return -Math.abs((-x * s + y * c) / r - (plan.offset ?? 0)) + 0.3 * noise;
+    case 'pockets': {
+      const sd = 2 * 0.3 * 0.3;
+      let best = 0;
+      for (const p of plan.pockets ?? [])
+        best = Math.max(best, Math.exp(-((x / r - p.x) ** 2 + (y / r - p.y) ** 2) / sd));
+      return best + 0.25 * noise;
+    }
+    default:
+      return noise;
+  }
 }
 
 export function cellPos(slotIndex: number, rock: Rock, index: number): Point {
@@ -555,7 +611,8 @@ export const slotVisible = (s: State, i: number) =>
 
 // ---------------------------------------------------------------- state
 
-export function freshState(seed = 1): State {
+export function freshState(seed = 1, sector = false): State {
+  useSector(seed, sector);
   const slots: Slot[] = SLOTS.map((d) => ({
     unlocked: d.price === 0,
     gen: 0,
@@ -575,6 +632,7 @@ export function freshState(seed = 1): State {
     crossings: true,
     rockPrices: true,
     factories: false,
+    sector,
     tick: 0,
     credits: 0,
     earned: 0,
@@ -2258,6 +2316,7 @@ function flightsTick(s: State) {
 }
 
 export function step(s: State) {
+  useSector(s.seed, s.sector);
   s.tick++;
   slotsTick(s);
   laserTick(s);
@@ -2325,9 +2384,14 @@ export function applyCommand(s: State, name: CommandName, args: unknown[]): unkn
   return (COMMANDS[name] as (s: State, ...a: unknown[]) => unknown)(s, ...args);
 }
 
-/** Re-run a command log from a fresh seed up to `untilTick`. */
-export function replay(seed: number, log: LoggedCommand[], untilTick: number): State {
-  const s = freshState(seed);
+/** Re-run a command log from a fresh seed (and its sector, if any) up to `untilTick`. */
+export function replay(
+  seed: number,
+  log: LoggedCommand[],
+  untilTick: number,
+  sector = false
+): State {
+  const s = freshState(seed, sector);
   for (const [tick, name, args] of log) {
     while (s.tick < tick) {
       step(s);

@@ -30,6 +30,26 @@ async function open(page: Page, query = '?fresh') {
   await page.waitForTimeout(400);
 }
 
+// These tests aim at the classic field's coordinates: new games start there unless a test asks.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('rockhopper.settings.v1'))
+      localStorage.setItem('rockhopper.settings.v1', JSON.stringify({ sectors: false }));
+  });
+});
+
+test('a new game on the sectors setting starts a seeded sector and names it in the menu', async ({
+  page,
+}) => {
+  await open(page, '?fresh&sector=1&seed=4242');
+  const s = await hook(page);
+  expect(s.sector).toBe(true);
+  expect(s.seed).toBe(4242);
+  await page.locator('.rh-menu-btn').click();
+  await expect(page.getByText('Sector 4242 · restart to change')).toBeVisible();
+  await expect(page.getByText('Next game: sector')).toBeVisible();
+});
+
 test('opening frame is the rock, the hub and one counter', async ({ page }) => {
   await open(page);
   await expect(page.locator('.rh-credits')).toHaveText('0');
