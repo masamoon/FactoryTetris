@@ -155,3 +155,16 @@ corrects the sector explanation, and moves other prices and T3 → T4 into the p
 stale "no worse" lines are gone. Scrap is renamed **Stow**, drawn as a parked rock, with the edge cases
 written in. Group moves are priced one drill at a time. The starter rock is "the first rock the first
 berth ever gets".
+
+## Round 5: confirmation of revision 5
+
+A fresh reviewer checked revision 5 against round 4's must-fix list and re-derived every count and ratio
+in the S9 table from the raw runs. All four items were resolved in substance; it found seven small text
+errors (a +9:00 that is +8:59, seed 5's open gap is at most 1.16× so 6 of 8 sectors are within 1.5×,
+seed 2's figure taken from the ×1.6 run, the group-move order, "scrapped" left in S8, the section header,
+and evidence item 1 not split by field), all fixed without changing a decision.
+
+**Verdict: PASS with conditions, for a prototype behind the new-game switch only.** The conditions are
+evidence the prototype owes: the clip conditions from rounds 3 and 4, the pad-policy runs (evidence item
+4), other prices and the T3 → T4 gap, seed 5's open gap, and an explanation of the sector shortfall
+before any further tuning. This PASS is not evidence that slow-burn rocks are fun or balanced.
