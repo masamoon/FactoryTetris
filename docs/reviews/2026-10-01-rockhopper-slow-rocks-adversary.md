@@ -52,4 +52,42 @@ T3 16:59–19:24 over seeds 1–4). Its own scripts are in
 
 ### How revision 2 answers it
 
-See the "Revision 2" section of the proposal.
+Uniform depth with a depth-1 starter rock (1, 7), crumble at 5 % of layers in flights of at most 4
+chunks (2), an honest case and a separate price item S9 (3, 8), pad docks instead of factories-only
+pads (4), equal-value candidates differing by signature and vein angle (5), auto-tow and a group move
+(6), and a new clip (9).
+
+## Round 2: revision 2
+
+The reviewer patched revision 2's rules into a scratch copy (depth T1 40 / T2 60 / T3 80 / T4 100,
+starter rock depth 1, crumble at 5 % in flights of at most 4, 3 s auto-tow, no tractor purchases, a pad
+dock of 2 ports at the next hub dock's price) and a pad policy (from 15:00 the chosen berth becomes a pad
+when it next runs dry, drills group-moved, the longest dock belts that can reach re-routed into the pad
+dock). Greedy bot, 8 seeds, classic and sectors, 40 min. Scripts and the sim patch are in
+`evidence/2026-10-01-slow-rocks-review2/`. Perturbing the bot moves it ±5–20 %.
+
+| #       | Verdict              | Main finding                                                                                                                                                                                                                                                                                                      |
+| ------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1      | PASS with conditions | Slot empty 3–5 %; starter rock spent at 14–16 s; laser share 9–18 % (today 13–29 %). A still finger stops carving outward on a deep rock; the starter rock crumbled at 5 %, not 20 %.                                                                                                                             |
+| S2      | PASS                 | Crumble 3.9 % of chunks; largest flight 48 measured, 120 at most.                                                                                                                                                                                                                                                 |
+| S3      | PASS                 | Slot empty about 3 %; no chore.                                                                                                                                                                                                                                                                                   |
+| S4      | **REVISE**           | Value per unit of work differs by signature (T1 +5 %, T2 +14 %, T3 +18 %); raw signature totals differ 30–55 %. With factories off nothing wants an ore, so "take the richer" is the answer; the angle only changes when value arrives.                                                                           |
+| S5      | PASS with conditions | Situational: earned at 40 min vs never a pad, sectors +2.6 to +8.0 % (wins 3–5 of 8), classic −5.4 to +2.2 %. Plates within 150 u of the hub on sectors 7.2 → 3.6–4.5; classic ~2 either way, and field plates rise. Hub docks never bind before 40 min. Level 2 doesn't pay. A T2 pad took 19:42–38:36 to clear. |
+| S6      | PASS with conditions | All 3–4 drills moved in every run; refused moves need reasons; a 12-drill pad leaves some dry.                                                                                                                                                                                                                    |
+| S7      | PASS with conditions | Late T1 berths are worth about 0, so hopping is mostly T1 berths becoming pads.                                                                                                                                                                                                                                   |
+| S8      | PASS with conditions | Round-1 conditions, a per-mode price table, tractor level in the save.                                                                                                                                                                                                                                            |
+| S9      | **REVISE**           | Today's longest T2→T3 no-buy gap over 40 min is 4:53–6:59 (classic) and 4:08–9:59 (sectors), not ~2 min. Prices alone: T1 ×2, T2 ×3, T3 ×2.5 gives T2 6:06–9:49, T3 28:33–32:56 (4 sectors miss), gap 4:54–11:55.                                                                                                 |
+| Clip    | **REVISE**           | T1 rocks carry no gold; a T2 rock lives 5–20 min, so the beat needs a disclosed prepared save; hub docks never ran out in the bot.                                                                                                                                                                                |
+| Overall | **REVISE**           |                                                                                                                                                                                                                                                                                                                   |
+
+Must-fix for revision 3: (1) S4 equalise or drop candidates; (2) S9 restate the baseline and add
+purchases or accept a stated gap; (3) S5 prices for level 2 and past 9 docks, scrapping a rock early, a
+plate preview, a smarter routing policy and the time to a pad; (4) S1 laser behaviour on deep rocks and
+the starter rock's crumble; (5) the clip on a T2 berth, disclosed, with chunk-flight throw art.
+
+### How revision 3 answers it
+
+Candidates are dropped (1). The baseline is restated and the target is "no worse than today" (2). Pad
+dock prices, Scrap, a plate preview and pad art are specified, level 2 is cut (3). The laser sweeps the
+deepest nearby cell and the starter rock crumbles at 20 % of cells (4). The clip is rebuilt around
+Scrap → pad → pad dock untangling the hub on a disclosed prepared sector save (5).

@@ -1,0 +1,16 @@
+import { runBot } from './bot';
+import { SLOTS, TICK_HZ } from './src/rockhopper/config';
+const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const sector = !!process.env.SECTOR, MIN = Number(process.env.MIN ?? 40);
+const out: string[] = [];
+for (const seed of (process.env.SEEDS ?? '1,2,3,4').split(',').map(Number)) {
+  let t2 = -1, t3 = -1, last = -1, lc = 0, gapAll = 0, gap23 = 0, gapAt = 0, e30 = 0;
+  const { state } = runBot({ minutes: MIN, laser: true, seed, sector, onTick: (s) => {
+    if (t2 < 0 && s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 2)) { t2 = s.tick; last = s.tick; }
+    if (t3 < 0 && s.slots.some((x, i) => x.unlocked && SLOTS[i].tier === 3)) t3 = s.tick;
+    if (s.credits < lc - 0.5 && t2 >= 0) { const g = s.tick - last; if (g > gapAll) { gapAll = g; gapAt = last; } if (t3 < 0 || s.tick <= t3) gap23 = Math.max(gap23, g); last = s.tick; }
+    lc = s.credits; if (s.tick === 1800 * TICK_HZ) e30 = s.earned;
+  } });
+  out.push(`s${seed}${sector ? 'S' : 'C'}: T2 ${t2 < 0 ? '-' : fmt(t2 / TICK_HZ)} T3 ${t3 < 0 ? '-' : fmt(t3 / TICK_HZ)} gapT2-T3 ${fmt(gap23 / TICK_HZ)} gap-after-T2 ${fmt(gapAll / TICK_HZ)}@${fmt(gapAt / TICK_HZ)} earned30 ${Math.round(e30 / 1000)}k`);
+}
+console.log(`PF=${process.env.PF ?? '-'} PSLOT=${process.env.PSLOT ?? '-'} DEPTHS=${process.env.DEPTHS ?? '1'} TOW=${process.env.TOW ?? 'tractor'}\n` + out.join('\n'));

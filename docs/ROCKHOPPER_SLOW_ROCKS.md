@@ -1,6 +1,6 @@
 # Rockhopper slow-burn rocks (proposal, 2026-10-01)
 
-**Status:** revision 2, after review round 1 (REVISE; see
+**Status:** revision 3, after review rounds 1 and 2 (both REVISE; see
 [the review record](reviews/2026-10-01-rockhopper-slow-rocks-adversary.md)). The user chose the full
 review process. Nothing here is implemented. A PASS would authorise only a prototype behind a new-game
 switch.
@@ -51,8 +51,8 @@ so even at depth 60 its rocks last about a minute, while a human with fewer dril
 instant tow T2 4:05, T3 17:15–17:26; dense core T2 4:22, T3 16:59–19:13). The case for slow-burn rocks is
 not speed. It is what the user asked for: a rock you work for minutes instead of a rock that vanishes
 every few seconds, no timer to stare at, and a field whose rocks run dry at different times so attention
-moves between them. The post-T2 wall (the longest no-buy gap grows from about 2 min today to 4:30–5:35
-with any fix that removes the wait) is a price problem and is handled separately (S9).
+moves between them. The post-T2 wall is not new: today the longest no-buy gap between T2 and T3 over 40
+min is already 4:53–6:59 on the classic field and 4:08–9:59 on sectors (round 2). S9 keeps it no worse.
 
 ### Revision 2 measurements (scratch patch, seeds 1 and 3, 30 min, tow 3 s)
 
@@ -65,68 +65,85 @@ with any fix that removes the wait) is a price problem and is handled separately
 Uniform depth keeps every vein plan's value where it is today (round 1: flat value is 97–102 % of the
 tier mean for every plan), because every cell, ore or rock, crust or core, is multiplied alike.
 
-## Decisions (revision 2)
+### Round 2 measurements of pad docks (scratch, 8 seeds, 40 min)
 
-| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S1  | **Deep rocks, uniform depth.** Every cell of a rock holds `DEPTH[tier]` layers (prototype start: T1 40, T2 60, T3 80, T4 100). A layer costs the cell's full hardness in work and yields one chunk, so income per second is unchanged and a rock lasts `DEPTH` times longer; vein-plan values stay within today's ±3 %. **The starter rock** (generation 0 of the first berth) has depth 1, so the opening (laser carving, first drill, first crumble) plays exactly as today. A cell shows its remaining layers in **four shade bands** (100–75–50–25 %), not per layer.                                                                                                                                                                                                       |
-| S2  | **Value arc and a small crumble.** One thin ring around each live rock shows the share of layers left. A rock crumbles when **5 % of its layers** remain (measured 3.9 % of chunks); each crumbling cell's layers fly home split into flights of at most 4 chunks, so no single pop exceeds 4 × the ore's value (120 for crystal). The pop marks them raw (no bar icon), as today.                                                                                                                                                                                                                                                                                                                                                                                              |
-| S3  | **No timer; auto-tow.** A spent berth tows its next rock in by itself after 3 s (1.4 s of visible tow), unless the player marked it **Keep as pad**. Nobody has to tap to keep mining, so a player who looks away loses at most 3 s per rock (one per 1.5–2 min per berth in the bot). The tractor upgrade is gone in this mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| S4  | **Pick the next rock.** Tapping a live or empty berth opens a bubble with the **two candidates** for its next rock. They have the same total value (within ±5 %, the tier's normal spread), and differ in **signature** (which of the tier's ores it favours) and in the **angle of the slot's vein plan** (a seam or side turned to face a different part of the rim). The default is the first. So the choice is fit, not size: the ore your smelter lines or factories want, against veins facing the drills you already have. On the classic field (scattered veins) only the signature differs. Candidates are a seeded sequence per berth and generation, independent of any upgrade. **Invariant amendment:** a slot keeps its vein-plan kind; a towed rock may turn it. |
-| S5  | **Pads host pad docks.** A berth marked Keep as pad becomes a **pad** once it is empty. Any machine may stand on a pad, and one machine stands **only** on pads: the **pad dock**, which takes up to 2 belts (3 at level 2) and throws each bundle to the hub in a visible arc (a flight, 0.6–1.1 s, like crumble chunks; delivered at full value, bars stay bars). It is not a hub dock, so it does not count toward the 9-dock cap and its belts never reach the crowded ring of belts around the hub. Price: the next hub dock's price. A pad can also be un-marked: if it has no machine on it, it tows a rock in again. Factories are not gated.                                                                                                                           |
-| S6  | **Group move.** When a berth becomes a pad, its drills show "dry". The pad bubble has **Move drills**: tap a live rock and they take its nearest free rim spots (as many as fit), each paying what that rock is pricier by, as a single move does today. The rest stay dry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| S7  | **Hopping, as it really is.** In a field of fixed berths the rocks rotate under the player rather than the player travelling: each berth runs dry at its own time, the player picks what comes next, and now and then gives a berth up as a pad and hops its drills to a live rock. Drill prices on a berth count every drill on its rim, dry or not.                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| S8  | **Switch and saves.** A new-game menu switch, "Rocks: slow-burn / classic", next to "Next game: sector / classic"; all four combinations play (slow-burn on the classic field has scattered veins, so only signatures differ). A running game never changes. The v3 save gains optional `slowRocks`, per-rock `layers`, per-berth `next` (candidate index), `keepPad` and `gen`; a save without them is classic, bit-for-bit. The rock render cache key includes the shade bands. Factories stay a live switch and have no link to pads. AGENTS.md invariants are amended for this mode only.                                                                                                                                                                                   |
-| S9  | **Prices.** Slot unlock prices and dock prices are retuned in this mode so the bot reaches T2 at 7–11 min and T3 within today's band (25–33 min), with the longest no-buy gap after T2 no worse than today's (about 2 min with tractor upgrades). The prototype reports every price it changed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+Earned at 40 min, keeping one berth as a pad with a pad dock fed by re-routed dock belts, against never
+keeping a pad (mean, seeds the pad won):
+
+| Pad berth | Classic     | Sectors     |
+| --------- | ----------- | ----------- |
+| 0 (T1)    | −5.4 %, 0/8 | +4.8 %, 4/8 |
+| 1 (T1)    | −3.8 %, 2/8 | +4.0 %, 5/8 |
+| 2 (T1)    | +2.2 %, 4/8 | +8.0 %, 5/8 |
+| 3 (T2)    | −3.2 %, 1/8 | +6.0 %, 5/8 |
+| 4 (T2)    | −2.0 %, 0/8 | +2.6 %, 3/8 |
+
+The gain is untangling: crossing plates within 150 u of the hub fall from 7.2 to 3.6–4.5 on sectors,
+where belts knot round the hub, and stay about 2 on the classic field, where the re-routed belts add
+plates in the field instead. So a pad dock is a situational answer to a knotted hub, not a must-have.
+Hub docks never ran out before 40 min. The bot routed the longest belts, not the ones that cross most.
+
+## Decisions (revision 3)
+
+| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | **Deep rocks, uniform depth.** Every cell of a rock holds `DEPTH[tier]` layers (prototype start: T1 40, T2 60, T3 80, T4 100). A layer costs the cell's full hardness in work and yields one chunk, so income per second is unchanged, a rock lasts `DEPTH` times longer, and every vein plan keeps today's value. **The starter rock** (generation 0 of the first berth) has depth 1 and today's rules, including the crumble at 20 % of cells, so the opening plays exactly as today. A cell shows its remaining layers in **four shade bands**. **The laser on a deep rock** works the cell with the most layers left within 2.5 cells of the finger (ties: nearest), one layer at a time, so a still finger sweeps the patch under it down band by band and then breaks through, instead of sitting on one cell. |
+| S2  | **Value arc and a small crumble.** One thin ring around each live rock shows the share of layers left. A deep rock crumbles when 5 % of its layers remain (3.9 % of chunks in the bot); each crumbling cell's layers fly home in flights of at most 4 chunks (largest pop 120, for crystal). The pop marks them raw, as today.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| S3  | **No timer; auto-tow.** A spent berth tows the slot's next rock in by itself after 3 s (1.4 s of it visible), unless it is marked **Keep as pad**. The next rock is generated as today (same signature and vein plan, new outline), so "veins belong to the slot" still holds. The tractor upgrade is gone in this mode, and there is no candidate choice.                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| S4  | **Scrap.** A live rock's bubble has **Scrap** (a 0.6 s hold, like Sell). The rock is towed away whole and **delivers nothing**; the berth is empty 1.4 s later. With Keep as pad set, that makes a pad on demand instead of up to 20 min later; without it, the berth simply tows a fresh rock (a reset of a badly worked rock, never income).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| S5  | **Pads and pad docks.** A berth marked Keep as pad becomes a **pad** once empty, drawn as a hole in the rock field (a dashed rim and a dark floor, never rock). Any machine may stand on a pad, and the **pad dock** stands only there: one level, 2 belts, each bundle thrown to the hub along a visible arc in the chunk-flight art (0.6–1.1 s, full value, bars stay bars). It is not a hub dock. Price: the next hub dock's price, or `dockCost(10)` once the hub has 9. While a belt is dragged toward a pad dock, the plates it would create or remove are previewed. Unmarking an empty pad with no machine on it tows a rock in again. Factories are not gated.                                                                                                                                              |
+| S6  | **Group move.** When a berth becomes a pad its drills show "dry". The pad bubble has **Move drills**: tap a live rock and they take its free rim spots nearest the tap, each paying what that rock is pricier by. A drill that can't be placed stays dry and its spot flashes the reason ("no room here", "belt blocked").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| S7  | **Hopping, as it really is.** In a field of fixed berths the rocks rotate under the player rather than the player travelling: each berth runs dry at its own time and refills itself, and hopping in the literal sense happens when the player gives a berth up as a pad (usually a late T1 berth, worth little by then) and moves its drills to a live rock. Drill prices on a berth count every drill on its rim, dry or not.                                                                                                                                                                                                                                                                                                                                                                                      |
+| S8  | **Switch and saves.** A new-game menu switch, "Rocks: slow-burn / classic", next to "Next game: sector / classic"; all four combinations play. A running game never changes. The v3 save gains optional `slowRocks`, per-rock `layers`, per-berth `keepPad`, and pad docks as a new machine kind; a save without them is classic, bit-for-bit (the tractor level stays saved for classic). The rock render cache key includes the shade bands. Each mode has its own price table (S9). AGENTS.md invariants are amended for this mode only.                                                                                                                                                                                                                                                                          |
+| S9  | **Prices.** This mode has its own slot-unlock and dock prices, starting from T1 ×2, T2 ×3, T3 ×2.5 (round 2: T2 6:06–9:49, T3 28:33–32:56). Targets for the bot: T2 at 7–11 min; T3 at 25–33 min; the longest no-buy gap between T2 and T3 no worse than today's on the same field (classic 4:53–6:59, sectors 4:08–9:59). Filling that gap with new purchases is out of scope; it is the job of the factories and research experiments.                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Deferred
 
-- **Live rocks block belts.** Round 1 measured 0–2 foreign belts over a T1 berth, so lanes opened by a pad
-  would matter little today.
+- **Choosing the next rock** (round 2: with factories off, equal-value candidates reduce to "take the
+  richer one"). It may return when something downstream wants a particular ore.
+- **Live rocks block belts.** Round 1 measured 0–2 foreign belts over a T1 berth.
 - **Factories or the Lab only on pads** (round 1: floor is not scarce, so this only gates them).
-- **Candidates of different sizes or tiers** in one berth.
+- **A pad dock level 2** (round 2: −9.5 % classic, +6.6 % sectors against +8.0 % at level 1).
 
 ## Positioning (Star Birds)
 
 Star Birds builds on living asteroids and links them with trade rockets; its puzzle is pipes that may
 not cross. Here a rock is still consumed, and only the hole a consumed rock leaves becomes floor. All
-output still reaches one hub. The pad dock throws to that hub only, over a short arc, with no routes,
-schedules or destinations to choose, so it is a dock in the field rather than a trade network. The
-drift risk is pads turning into bases with upkeep or needs; pads have none.
+output still reaches one hub. The pad dock throws to that hub only, in the same art as chunks flying
+home from the laser, with no routes, schedules or destinations to choose. A pad is drawn as a hole, not
+a rock, so the clip never shows a base standing on an asteroid. Pads have no upkeep or needs.
 
 ## Clip scenario (30 s, portrait, silent)
 
 - **0–10 s** _(fresh save, real time, disclosed scripted input)_: as today. The finger holds the starter
-  rock (depth 1) and it carves; "+1 +3" on arrival; a drill is dragged onto the rim and its belt fills.
-- **10–20 s** _(disclosed cut to a developed save)_: a T1 rock's arc is nearly empty and it crumbles. The
-  player taps the berth: two candidates, an ice rock and a gold rock whose seam faces the drills already
-  on that side. Tap gold: it is towed in, the drills on the seam side light up, and gold rides their
-  belts.
-- **20–30 s**: a second spent berth is marked as a pad. A pad dock is dragged onto it (only the pad
-  glows), two long T2 belts are dragged into it, bundles arc to the hub, and two freed hub docks are
-  picked up by drills that showed "no link". Each beat is a real sim event; the bot replay of the
-  developed save is kept as the uncut witness.
+  rock and it carves; "+1 +3" on arrival; a drill is dragged onto the rim and its belt fills.
+- **10–20 s** _(disclosed cut to a prepared sector save in which belts knot round the hub)_: a T2 rock's
+  arc is nearly empty and it crumbles; 3 s later the next rock is towed in and its drills bite again.
+  Next to it, the player holds Scrap on a worn T1 rock that is marked Keep as pad: it is towed away and
+  a dark hole opens.
+- **20–30 s**: a pad dock is dragged onto the hole (only the hole glows). Two long belts are dragged
+  into it; the preview shows the plates by the hub going out; bundles arc to the hub, and the belts that
+  were taking turns at those plates run full. Every beat is a real sim event, and the prepared save's
+  bot replay is kept as the uncut witness.
 
 ## Evidence the prototype must bring
 
 1. Bot over 8 seeds × {classic, sectors} × {today, slow-burn}, 40 min: slot-empty share before T2 under
-   10 %; T2 at 7–11 min; T3 in 25–33 min; longest no-buy gap after T2 no worse than today; the price
-   table.
-2. Crumble share and the largest single flight, reported.
-3. Vein-plan values over 400 sector seeds: every plan within ±10 % of the tier mean.
-4. Pad policies: never a pad, against keeping one pad (each of the three T1 berths, and a T2 berth) for
-   a pad dock fed by the longest belts; income at 40 min, docks bought and plates near the hub, both
-   directions reported. The pad must win in at least one realistic situation or S5 goes back to review.
-5. Candidate policies: always the first, against "match the drills" (the angle that faces the most rim
-   drills) and "match the line" (signature wanted downstream); both reported.
-6. Tests: layers, starter rock, crumble split, auto-tow and Keep as pad, candidate determinism, pad
-   placement, pad dock delivery, group move, save round-trip with and without the fields, classic
-   unchanged to the credit on seed 1.
-7. 390 px screenshots: the four shade bands, the value arc, the candidate bubble, a pad dock ghost
-   glowing only on a pad, and the clip's three beats.
+   10 %; T2 at 7–11 min; T3 at 25–33 min; the T2 → T3 gap no worse than today on the same field; the
+   price table.
+2. Crumble share and the largest single flight.
+3. Vein-plan values over 400 sector seeds within ±10 % of the tier mean.
+4. Pad policies on 16 seeds: never a pad, against a pad dock fed by the belts that cross most near the
+   hub (not the longest); earned at 40 min and plates near the hub and in the field, both directions
+   reported; the time from deciding on a pad to having one, with and without Scrap.
+5. Tests: layers, starter rock, laser sweep, crumble split, auto-tow, Keep as pad, Scrap delivers
+   nothing, pad placement, pad dock delivery, group move and its refusals, save round-trip with and
+   without the fields, classic unchanged to the credit on seed 1.
+6. 390 px screenshots: shade bands under drills between 0:15 and 1:00, the value arc, a pad drawn as a
+   hole, a pad dock ghost glowing only on a pad, the plate preview, and the clip's beats.
 
-## Open questions (for review and the playtest)
+## Open questions (for the playtest)
 
 1. Does a rock that takes minutes still look alive with four shade bands, or does it look stalled?
-2. Will players keep a pad at all, and which berth?
-3. Do candidates' signature and angle change where players put drills?
+2. Will players keep a pad at all, and does Scrap feel wasteful or freeing?
+3. Is the empty space a resource in the way the user meant, or only a fix for a knotted hub?
