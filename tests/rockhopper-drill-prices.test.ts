@@ -23,6 +23,7 @@ const T2 = SLOTS.findIndex((d) => d.tier === 2);
 /** A factory with every slot open and deep pockets. */
 function rich(): State {
   const s = freshState(3);
+  s.fixedCosts = false;
   s.slots.forEach((x) => (x.unlocked = true));
   s.credits = 1e12;
   return s;
@@ -62,6 +63,7 @@ test('a drill is priced by its rock: the tier base, grown per drill on that rock
 
 test('the tray ignores rocks that are still locked', () => {
   const s = freshState(3);
+  s.fixedCosts = false;
   assert.equal(priceOf(s, 'drill'), drillPrice(1, 0));
   s.slots.forEach((x, i) => (x.unlocked = SLOTS[i].tier === 2));
   assert.equal(priceOf(s, 'drill'), drillPrice(2, 0));
