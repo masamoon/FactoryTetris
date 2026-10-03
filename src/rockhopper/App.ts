@@ -10,6 +10,7 @@ import {
   SLOTS,
   TRACTOR_MAX,
   DOCKS_MAX,
+  DOCK_RADIUS,
 } from './config';
 import { Renderer, formatNumber, type Overlay } from './render';
 import {
@@ -562,6 +563,17 @@ export class RockhopperApp {
         best = { kind: 'machine', id: m.id };
       }
     }
+    // A belt's end on a busy dock grabs that belt: dragging it re-routes it, as from its machine.
+    const endReach = Math.max(12, 16 / z);
+    for (let i = 0; i < s.docks; i++) {
+      const q = dockPos(i);
+      const dist = Math.hypot(p.x - q.x, p.y - q.y);
+      if (dist >= endReach || dist >= bestD) continue;
+      const owner = s.machines.find((m) => m.out?.to.kind === 'dock' && m.out.to.index === i);
+      if (!owner) continue;
+      bestD = dist;
+      best = { kind: 'machine', id: owner.id };
+    }
     if (best) return best;
     if (Math.hypot(p.x, p.y) < HUB_RADIUS + 10) return { kind: 'hub' };
     for (let i = 0; i < SLOTS.length; i++) {
@@ -783,6 +795,8 @@ export class RockhopperApp {
     const w = this.renderer.toWorld(p.x, p.y);
     const snap = this.snapOrRefuse(g.id, p);
     if (snap.target || postSpotWhy(this.state, w)) return;
+    // Never by the docks: a finger slowing down onto a dock is aiming, not bending.
+    if (Math.hypot(w.x, w.y) < DOCK_RADIUS + Math.max(30, 40 / this.renderer.cam.z)) return;
     const f = (performance.now() - g.still.t) / RockhopperApp.HOLD_MS;
     if (f < 1) {
       if (f > 0.3) this.overlay.hold = { at: w, f: (f - 0.3) / 0.7 };

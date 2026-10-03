@@ -663,3 +663,47 @@ test('a smelter dragged near a bend post snaps into the knee', async ({ page }) 
   expect(owner.out?.to).toEqual({ kind: 'smelter', id: sm.id });
   expect(owner.out?.via).toBeUndefined();
 });
+
+test('a belt’s end can be dragged from its dock to another dock', async ({ page }) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  buildDrill(s, 0, Math.PI * 0.6);
+  buildDrill(s, 0, Math.PI * 0.4);
+  const [a, b] = drills(s);
+  const from = (a.out!.to as { index: number }).index;
+  const busy = (b.out!.to as { index: number }).index;
+  const free = [...Array(9).keys()].find(
+    (i) =>
+      i !== from &&
+      i !== busy &&
+      route(deserialize(serialize(s))!, a.id, { kind: 'dock', index: i }) === true
+  )!;
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, serialize(s));
+  await open(page, '');
+  const docks = () =>
+    page.evaluate(() =>
+      (window as unknown as { __rockhopper: Hook }).__rockhopper.state.machines.map(
+        (m) => (m.out?.to as { index?: number } | undefined)?.index
+      )
+    );
+  async function drag(i: number, j: number) {
+    const A = await screen(page, dockPos(i).x, dockPos(i).y);
+    const D = await screen(page, dockPos(j).x, dockPos(j).y);
+    await page.mouse.move(A.x, A.y);
+    await page.mouse.down();
+    await page.mouse.move(D.x, D.y, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+  // Grabbed by its end on the dock, a's belt moves to a free dock...
+  await drag(from, free);
+  expect((await docks())[0]).toBe(free);
+  // ...and onto b's dock, the two trade.
+  await drag(free, busy);
+  expect(await docks()).toEqual([busy, free]);
+});
