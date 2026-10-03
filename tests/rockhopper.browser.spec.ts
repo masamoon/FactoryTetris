@@ -8,8 +8,13 @@ import {
   dockPos,
   drills,
   freshState,
+  joinLinkWhy,
   machinePos,
+  pathLength,
+  pointAlong,
+  beltPath,
   route,
+  setJoins,
   swapPartner,
   type State,
 } from '../src/rockhopper/sim';
@@ -706,4 +711,102 @@ test('a belt’s end can be dragged from its dock to another dock', async ({ pag
   // ...and onto b's dock, the two trade.
   await drag(free, busy);
   expect(await docks()).toEqual([busy, free]);
+});
+
+test('with joins on, a link dropped on a belt joins it, and one on open space makes a hinge', async ({
+  page,
+}) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  setJoins(s, true);
+  buildDrill(s, 0, Math.PI * 0.6);
+  buildDrill(s, 0, Math.PI * 0.4);
+  buildDrill(s, 0, Math.PI * 1.5);
+  const [a, b, c] = drills(s);
+  // A spot on b's belt that takes a join from a, clear of other belts and targets.
+  const path = beltPath(s, b)!;
+  const L = pathLength(path);
+  let onB: { x: number; y: number } | null = null;
+  for (let f = 0.35; f < 0.9 && !onB; f += 0.03) {
+    const q = pointAlong(path, L * f);
+    const p = { x: q.x, y: q.y };
+    const far = [a, c].every((m) => Math.hypot(machinePos(m).x - p.x, machinePos(m).y - p.y) > 60);
+    if (far && Math.hypot(p.x, p.y) > 110 && !joinLinkWhy(s, a.id, p, b.id)) onB = p;
+  }
+  expect(onB).not.toBeNull();
+  // Open space for c's hinge: away from belts, docks and machines.
+  let open_: { x: number; y: number } | null = null;
+  for (let y = T1Y + 200; y > T1Y - 200 && !open_; y -= 20)
+    for (let x = 220; x > 60 && !open_; x -= 20) {
+      const p = { x, y };
+      const clear =
+        beltsNear(s, p, 40).length === 0 &&
+        s.machines.every((m) => Math.hypot(machinePos(m).x - x, machinePos(m).y - y) > 70) &&
+        Math.hypot(x, y) > 130;
+      if (clear && !joinLinkWhy(s, c.id, p)) open_ = p;
+    }
+  expect(open_).not.toBeNull();
+  await page.addInitScript((t) => {
+    localStorage.setItem(
+      'rockhopper.settings.v1',
+      JSON.stringify({ sectors: false, slowRocks: false, joins: true })
+    );
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v3', t);
+  }, serialize(s));
+  await open(page, '');
+  async function drag(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const A = await screen(page, from.x, from.y);
+    const D = await screen(page, to.x, to.y);
+    await page.mouse.move(A.x, A.y);
+    await page.mouse.down();
+    await page.mouse.move(D.x, D.y, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+  const outs = () =>
+    page.evaluate(() =>
+      (window as unknown as { __rockhopper: Hook }).__rockhopper.state.machines.map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        to: m.out?.to ?? null,
+      }))
+    );
+  // a's link dropped on b's belt: a join goes in there, and both belts feed it.
+  await drag(machinePos(a), onB!);
+  let ms = await outs();
+  const j = ms.find((m) => m.kind === 'join')!;
+  expect(j).toBeTruthy();
+  expect(ms.find((m) => m.id === a.id)!.to).toEqual({ kind: 'join', id: j.id });
+  expect(ms.find((m) => m.id === b.id)!.to).toEqual({ kind: 'join', id: j.id });
+  expect(j.to).toEqual(b.out!.to);
+  // c's link dropped on open space: a hinge, with nowhere to go yet.
+  await drag(machinePos(c), open_!);
+  ms = await outs();
+  const h = ms.find((m) => m.kind === 'join' && m.id !== j.id)!;
+  expect(h).toBeTruthy();
+  expect(h.to).toBeNull();
+  expect(ms.find((m) => m.id === c.id)!.to).toEqual({ kind: 'join', id: h.id });
+  // Dragging on from the hinge to a free dock finishes the line.
+  const t = await page.evaluate(() => {
+    const st = (window as unknown as { __rockhopper: Hook }).__rockhopper.state;
+    const used = new Set(st.machines.map((m) => (m.out?.to as { index?: number })?.index));
+    return [...Array(st.docks).keys()].filter((i) => !used.has(i));
+  });
+  let linked = false;
+  for (const i of t) {
+    await drag(open_!, dockPos(i));
+    ms = await outs();
+    if (ms.find((m) => m.id === h.id)!.to) {
+      expect(ms.find((m) => m.id === h.id)!.to).toEqual({ kind: 'dock', index: i });
+      linked = true;
+      break;
+    }
+  }
+  expect(linked).toBe(true);
+  // The switch is in the menu.
+  await page.locator('.rh-menu-btn, [aria-label="Menu"]').first().click();
+  await expect(page.getByRole('button', { name: 'Joins: on' })).toBeVisible();
 });
