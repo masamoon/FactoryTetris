@@ -10,6 +10,7 @@ import {
   SLOTS,
   TRACTOR_MAX,
   DOCKS_MAX,
+  DOCK_RADIUS,
 } from './config';
 import { Renderer, formatNumber, type Overlay } from './render';
 import {
@@ -19,6 +20,8 @@ import {
   pointAlong,
   byId,
   canSplice,
+  kneeNear,
+  KNEE_SNAP,
   canTarget,
   crossingsOf,
   sameTarget,
@@ -560,6 +563,17 @@ export class RockhopperApp {
         best = { kind: 'machine', id: m.id };
       }
     }
+    // A belt's end on a busy dock grabs that belt: dragging it re-routes it, as from its machine.
+    const endReach = Math.max(12, 16 / z);
+    for (let i = 0; i < s.docks; i++) {
+      const q = dockPos(i);
+      const dist = Math.hypot(p.x - q.x, p.y - q.y);
+      if (dist >= endReach || dist >= bestD) continue;
+      const owner = s.machines.find((m) => m.out?.to.kind === 'dock' && m.out.to.index === i);
+      if (!owner) continue;
+      bestD = dist;
+      best = { kind: 'machine', id: owner.id };
+    }
     if (best) return best;
     if (Math.hypot(p.x, p.y) < HUB_RADIUS + 10) return { kind: 'hub' };
     for (let i = 0; i < SLOTS.length; i++) {
@@ -781,6 +795,8 @@ export class RockhopperApp {
     const w = this.renderer.toWorld(p.x, p.y);
     const snap = this.snapOrRefuse(g.id, p);
     if (snap.target || postSpotWhy(this.state, w)) return;
+    // Never by the docks: a finger slowing down onto a dock is aiming, not bending.
+    if (Math.hypot(w.x, w.y) < DOCK_RADIUS + Math.max(30, 40 / this.renderer.cam.z)) return;
     const f = (performance.now() - g.still.t) / RockhopperApp.HOLD_MS;
     if (f < 1) {
       if (f > 0.3) this.overlay.hold = { at: w, f: (f - 0.3) / 0.7 };
@@ -1084,6 +1100,21 @@ export class RockhopperApp {
     let why = '';
     for (const hit of near) {
       const owner = byId(this.state, hit.id)!;
+      // Near a bend post, it snaps onto the post: the smelter stands in the belt's knee.
+      const knee = kneeNear(owner, w, Math.max(KNEE_SNAP, 20 / z));
+      if (knee) {
+        const spot = smelterSpotWhy(this.state, knee, moving, hit.id);
+        const crossing = beltsNear(this.state, knee, Math.max(3, 4 / z)).some(
+          (b) => b.id !== hit.id && b.id !== moving
+        );
+        if (!spot && !crossing && canSplice(this.state, owner, mover, knee, false, kind)) {
+          const warn =
+            kind === 'factory' && !mover && owner.tier > 1 ? 'belt will be tier 1' : undefined;
+          return { at: { ...knee, ok: true, splice: hit.id, warn }, sock: null };
+        }
+        why ||=
+          spot || (crossing ? 'crossing' : spliceRefusal(this.state, owner, mover, knee, kind));
+      }
       if (!canSplice(this.state, owner, mover, hit.q, true, kind)) {
         why ||= spliceRefusal(this.state, owner, mover, hit.q, kind);
         continue;
