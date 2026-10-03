@@ -104,7 +104,7 @@ export interface Overlay {
      * With no target in reach (the joins experiment): a join the link would make here, on the
      * belt owned by `splice` or as a hinge on open space, and why not if refused.
      */
-    join?: (Point & { splice?: number; why?: string }) | null;
+    join?: (Point & { splice?: number; why?: string; hint?: boolean }) | null;
   } | null;
   selected: number | 'hub' | null;
   /** Screen point of the drill tray button (for the drag hint). */
@@ -1760,7 +1760,8 @@ export class Renderer {
           const q = machinePos(x);
           this.targetRing(c, q.x, q.y, x.kind !== 'drill' ? 32 : 20);
         }
-        const j = !o.reroute.target ? o.reroute.join : null;
+        const hint = !o.reroute.target && o.reroute.join?.hint ? o.reroute.join : null;
+        const j = !o.reroute.target && !hint ? o.reroute.join : null;
         const b = o.reroute.target ? this.targetPoint(s, o.reroute.target) : (j ?? o.reroute.at);
         c.save();
         c.setLineDash([7, 6]);
@@ -1774,6 +1775,8 @@ export class Renderer {
         c.stroke();
         c.restore();
         for (const v of o.reroute.via ?? []) this.post(c, v, false, true);
+        if (hint)
+          this.refusals.push({ x: hint.x, y: hint.y + (36 * Math.max(1, z)) / z, why: hint.why! });
         if (j) {
           // The join the link would make: a ghost hinge, labelled with what it does.
           c.save();

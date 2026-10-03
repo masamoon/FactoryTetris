@@ -1674,6 +1674,7 @@ export function route(s: State, id: number, to: Target, via?: Point[]): Result {
     setVia(m.out!, vm);
     relayout(s);
     s.events.push({ type: 'route', id: o.id }, { type: 'route', id });
+    dropEmptyJoins(s);
     return true;
   }
   if (m.out) {
@@ -1687,7 +1688,23 @@ export function route(s: State, id: number, to: Target, via?: Point[]): Result {
   if (m.out.length === 1) m.out.length = beltLength(s, m);
   relinkAll(s);
   s.events.push({ type: 'route', id });
+  dropEmptyJoins(s);
   return true;
+}
+
+/**
+ * A join whose last input has left goes away (it is free), so no empty hinge lingers or holds a
+ * dock. Items still on its belt are lost, as when a machine is sold.
+ */
+function dropEmptyJoins(s: State) {
+  // Repeat: a join that fed only another join empties that one too.
+  const empty = () => joins(s).find((x) => !inputsOf(s, x.id).length);
+  for (let j = empty(); j; j = empty()) {
+    s.machines = s.machines.filter((x) => x !== j);
+    relayout(s);
+    relinkAll(s);
+    s.events.push({ type: 'sell', id: j.id, x: j.x, y: j.y, lost: onBelt(j.out) });
+  }
 }
 
 export function upgrade(s: State, id: number): Result {
@@ -1763,6 +1780,7 @@ export function sell(s: State, id: number): Result {
   relayout(s);
   relinkAll(s);
   s.events.push({ type: 'sell', id, x: p.x, y: p.y, lost });
+  dropEmptyJoins(s);
   return true;
 }
 

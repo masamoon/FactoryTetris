@@ -757,12 +757,13 @@ test('with joins on, a link dropped on a belt joins it, and one on open space ma
     localStorage.setItem('rockhopper.save.v3', t);
   }, serialize(s));
   await open(page, '');
-  async function drag(from: { x: number; y: number }, to: { x: number; y: number }) {
+  async function drag(from: { x: number; y: number }, to: { x: number; y: number }, pause = 0) {
     const A = await screen(page, from.x, from.y);
     const D = await screen(page, to.x, to.y);
     await page.mouse.move(A.x, A.y);
     await page.mouse.down();
     await page.mouse.move(D.x, D.y, { steps: 12 });
+    if (pause) await page.waitForTimeout(pause);
     await page.mouse.up();
     await page.waitForTimeout(200);
   }
@@ -782,8 +783,14 @@ test('with joins on, a link dropped on a belt joins it, and one on open space ma
   expect(ms.find((m) => m.id === a.id)!.to).toEqual({ kind: 'join', id: j.id });
   expect(ms.find((m) => m.id === b.id)!.to).toEqual({ kind: 'join', id: j.id });
   expect(j.to).toEqual(b.out!.to);
-  // c's link dropped on open space: a hinge, with nowhere to go yet.
+  // A quick release on open space cancels, as before: c keeps its dock.
+  const before = ms.find((m) => m.id === c.id)!.to;
   await drag(machinePos(c), open_!);
+  ms = await outs();
+  expect(ms.find((m) => m.id === c.id)!.to).toEqual(before);
+  expect(ms.filter((m) => m.kind === 'join')).toHaveLength(1);
+  // A pause there, then release: a hinge, with nowhere to go yet.
+  await drag(machinePos(c), open_!, 700);
   ms = await outs();
   const h = ms.find((m) => m.kind === 'join' && m.id !== j.id)!;
   expect(h).toBeTruthy();

@@ -148,3 +148,16 @@ test('joins and hinges survive a save round-trip', () => {
     s.machines.map((m) => [m.kind, m.out?.to ?? null])
   );
 });
+
+test('a join whose last input leaves goes away, freeing its dock', () => {
+  const { s, a } = pair();
+  assert.equal(linkToJoin(s, a.id, { x: -150, y: -120 }), true);
+  const [j] = joins(s);
+  const t = { kind: 'dock', index: 3 } as const;
+  assert.equal(route(s, j.id, t), true);
+  // a goes straight to a dock again: the hinge has nothing left to carry.
+  assert.equal(route(s, a.id, { kind: 'dock', index: 5 }), true);
+  assert.equal(joins(s).length, 0);
+  assert.ok(canTarget(s, a, t) || a.out!.to.kind === 'dock', 'dock 3 is free again');
+  assert.ok(!s.machines.some((m) => m.out?.to.kind === 'dock' && m.out.to.index === 3));
+});

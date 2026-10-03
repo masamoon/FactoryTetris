@@ -87,7 +87,14 @@ type Tool = 'drill' | 'smelter' | 'factory';
 /** What can be placed or moved: a tray tool, or a join (moved only; it is made by linking). */
 type Placing = Tool | 'join';
 /** Where a dragged link would make a join: on the belt `splice` owns, or a hinge. */
-type JoinSpot = Point & { splice?: number; why?: string };
+type JoinSpot = Point & {
+  splice?: number;
+  why?: string;
+  /** The link's posts once the last one becomes the hinge. */
+  via?: Point[];
+  /** Only a hint ("pause for a hinge"): releasing here cancels, as without joins. */
+  hint?: boolean;
+};
 const TOOLS: readonly Tool[] = ['drill', 'smelter', 'factory'];
 
 type Hit =
@@ -929,7 +936,7 @@ export class RockhopperApp {
           at: w,
           target: snap.target,
           refused: snap.refused,
-          via: g.via.map(pt),
+          via: (snap.join?.via ?? g.via).map(pt),
           join: snap.join,
         };
       }
@@ -953,6 +960,7 @@ export class RockhopperApp {
       return;
     }
     this.gesture = { type: 'none' };
+    this.joinCache = null;
     if (cancel) {
       this.endGesture(g);
       return;
@@ -965,11 +973,11 @@ export class RockhopperApp {
         // The gesture is already cleared, so pass the pinned posts along.
         const via = g.via.length ? g.via : undefined;
         const { target, refused, join } = this.snapOrRefuse(g.id, p, via);
-        if (!target && join) {
+        if (!target && join && !join.hint) {
           // The joins experiment: the link ends in a join on a belt, or a hinge on open space.
           const r = join.why
             ? join.why
-            : this.cmd('linkToJoin', g.id, pt(join), join.splice ?? null, via ?? []);
+            : this.cmd('linkToJoin', g.id, pt(join), join.splice ?? null, join.via ?? via ?? []);
           if (r !== true) {
             this.sfx.deny();
             this.renderer.flash(join, String(r));
@@ -1120,6 +1128,15 @@ export class RockhopperApp {
    * so the belts meet in its knee), else a hinge on open space. Refused spots carry the reason.
    */
   private joinSpot(m: Machine, w: Point, via?: Point[]): JoinSpot | null {
+    // The move handler and the pause check ask for the same spot each frame: compute it once.
+    const key = `${m.id}:${Math.round(w.x)}:${Math.round(w.y)}:${JSON.stringify(via ?? [])}:${this.state.machines.length}`;
+    if (this.joinCache?.key !== key) this.joinCache = { key, spot: this.findJoinSpot(m, w, via) };
+    return this.joinCache.spot;
+  }
+
+  private joinCache: { key: string; spot: JoinSpot | null } | null = null;
+
+  private findJoinSpot(m: Machine, w: Point, via?: Point[]): JoinSpot | null {
     const s = this.state;
     const z = this.renderer.cam.z;
     if (Math.hypot(w.x, w.y) < HUB_RADIUS + 20) return null;
@@ -1138,7 +1155,7 @@ export class RockhopperApp {
       const path = beltPath(s, owner);
       if (path) {
         const len = pathLength(path) || 1;
-        for (let d = 0; d <= JOIN_RADIUS * 3; d += 2)
+        for (let d = 0; d <= JOIN_RADIUS * 3; d += 4)
           for (const dir of d ? [1, -1] : [1]) {
             const t = hit.t + (dir * d) / len;
             if (t >= 0 && t <= 1) tries.push(pt(pointAlong(path, t * len)));
@@ -1151,8 +1168,16 @@ export class RockhopperApp {
       }
     }
     if (near.length) return { ...pt(near[0].q), splice: near[0].id, why: label(why || 'invalid') };
-    const r = joinLinkWhy(s, m.id, w, null, via);
-    return { ...pt(w), why: r ? label(r) : undefined };
+    // Open space: a hinge only where the finger paused. The post that pause pinned becomes the
+    // hinge; a quick release still cancels the drag, so a slip never cuts a working line.
+    const last = via?.at(-1);
+    if (!last || Math.hypot(last.x - w.x, last.y - w.y) > Math.max(16, 24 / z)) {
+      if (joinSpotWhy(s, w)) return null;
+      return { ...pt(w), hint: true, why: 'pause for a hinge' };
+    }
+    const rest = via!.slice(0, -1);
+    const r = joinLinkWhy(s, m.id, last, null, rest);
+    return { ...pt(last), via: rest.map(pt), why: r ? label(r) : undefined };
   }
 
   private placeSpot(kind: Placing, screen: Point, moving?: number) {
@@ -1440,7 +1465,9 @@ export class RockhopperApp {
                 ? '<b>Waits at a crossing</b>: untangle it, or widen'
                 : limited
                   ? m.kind === 'join'
-                    ? '<b>Belt-limited</b>: widen a belt into it'
+                    ? m.tier >= BELT_TIER_MAX
+                      ? '<b>Belt-limited</b>: send a line elsewhere'
+                      : '<b>Belt-limited</b>: widen a belt into it'
                     : '<b>Belt-limited</b>: widen the belt'
                   : m.kind === 'smelter' && m.jam
                     ? '<b>Smelter-limited</b>: upgrade the smelter'
