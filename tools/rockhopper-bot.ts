@@ -3,7 +3,7 @@
  * the real simulation and legal commands. Scripted input is faster than a human: treat the
  * output as an upper bound on pace, not as a playtest.
  *
- *   npm run bot:rockhopper [-- --minutes 20 --no-laser --sector --slow]
+ *   npm run bot:rockhopper [-- --minutes 20 --no-laser --sector --slow --rising]
  */
 import { BAR_VALUE, COPPER, CRYSTAL, SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
@@ -62,6 +62,8 @@ export interface BotOptions {
   sector?: boolean;
   /** Slow-burn rocks (deep rocks, auto-tow, own slot prices). */
   slowRocks?: boolean;
+  /** Rising prices (drills by rock, the rest geometric) instead of fixed costs. */
+  rising?: boolean;
   /** The crossings experiment (plates and clear lanes); on unless set false. */
   crossings?: boolean;
   /** A careless player: every 10 s one dock-bound machine is re-routed to a random free dock. */
@@ -170,8 +172,11 @@ export function runBot(opts: BotOptions): {
 } {
   const s = freshState(opts.seed, opts.sector ?? false, opts.slowRocks ?? false);
   s.crossings = opts.crossings ?? true;
+  if (opts.rising) s.fixedCosts = false;
   if (opts.factories) setFactories(s, true);
   for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
+  buyTicks.length = 0;
+  waitLog.length = 0;
   for (const k of Object.keys(factoryStats) as (keyof typeof factoryStats)[]) factoryStats[k] = 0;
   let mess = opts.seed * 7919 + 1;
   const beats: Beat[] = [];
@@ -259,6 +264,41 @@ function freeRim(s: State, i: number): number | null {
     if (why === 'belt blocked') refusals.spotBlocked++;
   }
   return tries.find((a) => !drillSpotWhy(s, i, a)) ?? null;
+}
+
+/** Ticks at which the bot bought something, and what its best option was each time it looked. */
+export const buyTicks: number[] = [];
+export const waitLog: [number, string, boolean][] = [];
+
+/**
+ * Dead time: stretches with no purchase. A gap over 30 s counts as dead; `savingFor` is what the
+ * bot's best option was while it couldn't afford it, by share of those looks.
+ */
+export function deadTime(endTick: number) {
+  const t = [0, ...buyTicks, endTick].map((x) => x / TICK_HZ);
+  let longest = 0,
+    dead = 0;
+  for (let i = 1; i < t.length; i++) {
+    const gap = t[i] - t[i - 1];
+    longest = Math.max(longest, gap);
+    if (gap > 30) dead += gap;
+  }
+  const waits = waitLog.filter(([, , can]) => !can);
+  const by = new Map<string, number>();
+  for (const [, label] of waits) by.set(label, (by.get(label) ?? 0) + 1);
+  const savingFor = [...by]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([l, n]) => `${l} ${Math.round((100 * n) / Math.max(1, waits.length))}%`)
+    .join(', ');
+  const total = endTick / TICK_HZ;
+  return {
+    buys: buyTicks.length,
+    longest,
+    dead,
+    share: Math.round((100 * dead) / total),
+    savingFor,
+  };
 }
 
 function act(s: State, mark: (l: string) => void) {
@@ -398,7 +438,9 @@ function act(s: State, mark: (l: string) => void) {
     options.push({ cost: lc, score: 0.8 / lc, label: 'laser', run: () => upgradeHub(s, 'laser') });
   options.sort((a, b) => b.score - a.score);
   const pick = options[0];
+  if (pick) waitLog.push([s.tick, pick.label.replace(/ #\d+$/, ''), s.credits >= pick.cost]);
   if (pick && s.credits >= pick.cost && pick.run() === true) {
+    buyTicks.push(s.tick);
     const n = (l: string) => s.machines.filter((m) => m.kind === l).length;
     if (pick.label === 'drill') mark(`drill #${n('drill')}`);
     else if (pick.label === 'smelter') mark(`smelter #${n('smelter')}`);
@@ -423,6 +465,7 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     factories: process.argv.includes('--factories'),
     sector: process.argv.includes('--sector'),
     slowRocks: process.argv.includes('--slow'),
+    rising: process.argv.includes('--rising'),
   });
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   for (const b of beats) console.log(`${fmt(b.seconds).padStart(6)}  ${b.label}`);
@@ -454,5 +497,9 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     );
   }
   console.log(`tiersBought ${tiersBought(state)}`);
+  const g = deadTime(state.tick);
+  console.log(
+    `dead time: ${g.buys} buys, longest gap ${fmt(g.longest)}, ${fmt(g.dead)} in gaps over 30 s (${g.share}%), saving for: ${g.savingFor}`
+  );
   void byId;
 }
