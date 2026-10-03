@@ -253,6 +253,7 @@ export class RockhopperApp {
       }
     }
     this.state = loaded ?? this.newGame(urlSeed);
+    if (this.settings.factories) this.state.factories = true;
     this.shown = this.state.credits;
 
     this.root = el('div', 'rh');
@@ -387,6 +388,9 @@ export class RockhopperApp {
     setFact();
     fact.addEventListener('click', () => {
       this.cmd('setFactories', !this.state.factories);
+      // A restart keeps the switch: it is a setting, not part of one game.
+      this.settings.factories = this.state.factories;
+      saveSettings(this.settings);
       this.save();
       setFact();
     });
@@ -457,8 +461,11 @@ export class RockhopperApp {
   /** A new game: a random sector when the setting is on (or `seed`'s), else the classic field. */
   private newGame(seed = 0): State {
     const slow = this.settings.slowRocks;
-    if (this.settings.sectors) return freshState(seed || newSectorSeed(), true, slow);
-    return freshState(seed || 1, false, slow);
+    const s = this.settings.sectors
+      ? freshState(seed || newSectorSeed(), true, slow)
+      : freshState(seed || 1, false, slow);
+    s.factories = this.settings.factories;
+    return s;
   }
 
   private toggleMenu(open = this.menuEl.hidden) {
@@ -591,6 +598,17 @@ export class RockhopperApp {
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         this.sfx.unlock();
+        if (kind === 'factory' && !factoryUnlocked(this.state)) {
+          // Shown once switched on, so the player can find it; it opens with the second smelter.
+          const r = b.getBoundingClientRect();
+          const cr = this.canvas.getBoundingClientRect();
+          this.renderer.flash(
+            this.renderer.toWorld(r.left + r.width / 2 - cr.left, r.top - cr.top - 40),
+            'needs 2 smelters'
+          );
+          this.sfx.deny();
+          return;
+        }
         b.setPointerCapture(e.pointerId);
         const p = this.local(e);
         this.gesture = { type: 'tray', kind, x0: p.x, y0: p.y, dragging: false, button: b };
@@ -631,6 +649,7 @@ export class RockhopperApp {
       b.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
+          if (kind === 'factory' && !factoryUnlocked(this.state)) return;
           this.armed = this.armed?.kind === kind ? null : { kind };
           this.overlay.placing = this.armed ? { kind, at: null } : null;
         }
@@ -1534,15 +1553,18 @@ export class RockhopperApp {
     this.tray.classList.toggle('rh-hidden', !showTray);
     const showSmelter = nDrills >= 3 || smelters(s).length > 0 || s.machines.some((m) => !m.out);
     this.tools.smelter.button.parentElement!.classList.toggle('rh-hidden', !showSmelter);
-    const showFactory = factoryUnlocked(s) || factories(s).some(() => s.factories);
+    const showFactory = s.factories || factories(s).length > 0;
+    const factoryLocked = !factoryUnlocked(s);
     this.tools.factory.button.parentElement!.classList.toggle('rh-hidden', !showFactory);
     for (const kind of TOOLS) {
       const price = priceOf(s, kind);
       const t = this.tools[kind];
       const span = t.price.querySelector('span')!;
-      const text = formatNumber(price);
+      const locked = kind === 'factory' && factoryLocked;
+      const text = locked ? '2 smelters' : formatNumber(price);
       if (span.textContent !== text) span.textContent = text;
-      const can = s.credits >= price;
+      t.price.classList.toggle('rh-locked', locked);
+      const can = !locked && s.credits >= price;
       t.button.classList.toggle('rh-poor', !can);
       t.button.classList.toggle('rh-armed', this.armed?.kind === kind);
       const firstTime =

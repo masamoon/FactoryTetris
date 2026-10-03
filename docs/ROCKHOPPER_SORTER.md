@@ -48,7 +48,7 @@ Whether routing one long belt to a fixed destination is satisfying is a playtest
 
 ## Switch and saves (C5)
 
-- **Switch.** The menu item "Factories: on/off" is **off by default** during the prototype. Off hides the tray item; existing factories keep working.
+- **Switch.** The menu item "Factories: on/off" is **off by default** during the prototype. Off hides the tray item; existing factories keep working. Since 2026-10-01 the switch is a setting kept across new games (a restart used to turn it off), and while it is on the tray shows the factory locked, priced "2 smelters", until the second smelter opens it. A factory holds a bar for `FACTORY_WAIT` (8 s, was the smelter's 2 s) before taking any partner, because bars trickle in on early and slow-burn lines.
 - **Save key.** Saves move to **`rockhopper.save.v3`**. On first load, the build migrates `rockhopper.save.v2` (or v1 if there is no v2), and never writes or deletes v2 or v1, so a rolled-back build finds the player's v2 save untouched.
 - **Loader.** `deserialize` reads the v1, v2 and v3 formats. The v3 validator admits `factory` machines and alloy items.
 - **Restore paths.**

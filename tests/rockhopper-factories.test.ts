@@ -9,7 +9,7 @@ import {
   byId,
   factoryUnlocked,
   freshState,
-  LONE_WAIT,
+  FACTORY_WAIT,
   moveSmelter,
   route,
   sell,
@@ -119,10 +119,10 @@ test('other pairs make 1.25x alloys; same-ore bars wait and then pass on as bars
     got.map((e) => e.value),
     [Math.floor(1.25 * BAR_VALUE * (5 + 12))]
   );
-  // Two copper bars never pair: each waits LONE_WAIT and then goes on at bar value.
+  // Two copper bars never pair: each waits FACTORY_WAIT and then goes on at bar value.
   arrive(a, COPPER);
   arrive(b, COPPER);
-  runFor(s, LONE_WAIT * 0.5);
+  runFor(s, FACTORY_WAIT * 0.5);
   assert.equal(f.stock.length, 2, 'lone bars wait for a partner');
   got = runFor(s, 30);
   assert.deepEqual(
@@ -134,16 +134,16 @@ test('other pairs make 1.25x alloys; same-ore bars wait and then pass on as bars
   );
 });
 
-test('copper and crystal are reserved for each other until LONE_WAIT, then take any partner', () => {
+test('copper and crystal are reserved for each other until FACTORY_WAIT, then take any partner', () => {
   const { s, a, b, f } = line();
   arrive(a, COPPER);
   arrive(b, ICE);
-  runFor(s, LONE_WAIT * 0.5);
+  runFor(s, FACTORY_WAIT * 0.5);
   assert.equal(f.stock.length, 2, 'copper does not pair with ice on arrival');
   assert.equal(f.pairs.length + (f.job ? 1 : 0), 0);
   // A crystal bar arriving now still finds its copper.
   arrive(b, CRYSTAL);
-  let got = runFor(s, LONE_WAIT * 0.25);
+  let got = runFor(s, FACTORY_WAIT * 0.25);
   assert.ok(f.stock.some((x) => x.ore === ICE) && !f.stock.some((x) => x.ore === COPPER));
   got = got.concat(runFor(s, 30));
   assert.ok(
@@ -154,7 +154,7 @@ test('copper and crystal are reserved for each other until LONE_WAIT, then take 
     got.some((e) => e.value === 30 && e.alloy === undefined),
     'ice passed on alone'
   );
-  // With no crystal coming, a waiting copper bar pairs with ice after LONE_WAIT.
+  // With no crystal coming, a waiting copper bar pairs with ice after FACTORY_WAIT.
   arrive(a, COPPER);
   arrive(b, ICE);
   got = runFor(s, 30);
