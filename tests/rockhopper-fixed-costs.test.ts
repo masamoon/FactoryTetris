@@ -4,9 +4,8 @@ import {
   FIXED_DRILL,
   FIXED_FACTORY,
   FIXED_SMELTER,
-  FIXED_DOCK,
-  FIXED_LASER,
   FIXED_LEVEL,
+  LASER_COST,
   FIXED_WIDEN,
   SLOTS,
   classicDrillPrice,
@@ -78,7 +77,7 @@ test('every drill on a tier costs the same, however many are owned', () => {
   assert.equal(priceOf(s, 'drill'), FIXED_DRILL[1]);
 });
 
-test('smelters, factories, docks and laser levels keep one price', () => {
+test('smelters and factories keep one price; docks and laser levels still rise', () => {
   const s = rich();
   for (let k = 0; k < 4; k++) {
     const before = s.credits;
@@ -87,9 +86,9 @@ test('smelters, factories, docks and laser levels keep one price', () => {
   }
   assert.equal(priceOf(s, 'factory'), FIXED_FACTORY);
   for (let k = 0; k < 3; k++) {
-    assert.equal(hubCost(s, 'docks'), FIXED_DOCK);
+    assert.equal(hubCost(s, 'docks'), dockCost(s.docks));
     upgradeHub(s, 'docks');
-    assert.equal(hubCost(s, 'laser'), FIXED_LASER);
+    assert.equal(hubCost(s, 'laser'), LASER_COST[s.laserLevel - 1]);
     upgradeHub(s, 'laser');
   }
 });

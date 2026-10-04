@@ -43,8 +43,6 @@ import {
   FIXED_FACTORY,
   FIXED_SMELTER,
   FIXED_WIDEN,
-  FIXED_DOCK,
-  FIXED_LASER,
   FIXED_LEVEL,
   FIXED_TRACTOR,
   factoryTime,
@@ -813,16 +811,14 @@ export function widenPrice(s: State, m: Machine): number | null {
 }
 
 export function hubCost(s: State, what: HubUpgrade): number | null {
-  const fixed = !!s.fixedCosts;
-  if (what === 'laser') {
-    if (s.laserLevel >= LASER_POWER.length) return null;
-    return fixed ? FIXED_LASER : LASER_COST[s.laserLevel - 1];
-  }
-  if (what === 'docks') return s.docks >= DOCKS_MAX ? null : fixed ? FIXED_DOCK : dockCost(s.docks);
+  // Laser levels and docks get dearer each time, even under fixed costs (the user's exception).
+  if (what === 'laser')
+    return s.laserLevel >= LASER_POWER.length ? null : LASER_COST[s.laserLevel - 1];
+  if (what === 'docks') return s.docks >= DOCKS_MAX ? null : dockCost(s.docks);
   // Slow-burn rocks have no tow wait to shorten.
   if (s.slowRocks) return null;
   if (s.tractorLevel >= TRACTOR_MAX) return null;
-  return fixed ? FIXED_TRACTOR : tractorCost(s.tractorLevel);
+  return s.fixedCosts ? FIXED_TRACTOR : tractorCost(s.tractorLevel);
 }
 
 export const sellValue = (m: Machine) => Math.floor(m.spent * SELL_REFUND);

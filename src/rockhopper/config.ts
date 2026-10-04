@@ -167,16 +167,14 @@ export const classicDrillPrice = (owned: number) => Math.round(14 * Math.pow(1.5
 /**
  * Fixed costs (docs/ROCKHOPPER_FIXED_COSTS.md, a menu switch): every purchase of a kind costs the
  * same every time, like a Factorio recipe: placing a machine, each level of a machine, each belt
- * widening step, each laser level, dock and tractor level. Drills are priced by their rock's
- * tier; slot unlocks keep one price per slot.
+ * widening step and tractor level. Drills are priced by their rock's tier; slot unlocks keep one
+ * price per slot. Laser levels and docks are the exception: each costs more than the last.
  */
 export const FIXED_DRILL: Record<1 | 2 | 3 | 4, number> = { 1: 20, 2: 500, 3: 5000, 4: 50000 };
 export const FIXED_SMELTER = 600;
 export const FIXED_FACTORY = 2400;
 export const FIXED_WIDEN = 250;
 export const FIXED_LEVEL = { drill: 120, smelter: 500, factory: 2500 } as const;
-export const FIXED_LASER = 300;
-export const FIXED_DOCK = 1000;
 export const FIXED_TRACTOR = 1000;
 export const smelterPrice = (owned: number) => Math.round(520 * Math.pow(2, owned));
 
