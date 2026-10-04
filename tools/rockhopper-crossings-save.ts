@@ -33,7 +33,7 @@ function shuffled(s0: State, seed: number) {
   const sources = [...ms].sort((a, b) => ang(machinePos(a)) - ang(machinePos(b)));
   const docks = ms
     .map((m) => (m.out!.to as { index: number }).index)
-    .sort((a, b) => ang(dockPos(a)) - ang(dockPos(b)));
+    .sort((a, b) => ang(dockPos(s, a)) - ang(dockPos(s, b)));
   let r = seed * 9301 + 49297;
   for (let i = docks.length - 1; i > 0; i--) {
     r = (r * 9301 + 49297) % 233280;

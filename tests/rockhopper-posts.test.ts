@@ -101,7 +101,7 @@ test('a bend post can take a belt round a crossing, and both belts run at full r
 test('bends are refused with a reason: too many, too sharp, on a rock or the hub', () => {
   const { s, a } = crossed();
   const from = machinePos(a),
-    to = dockPos(2);
+    to = dockPos(s, 2);
   const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
   const side = { x: mid.x + 60, y: mid.y };
   assert.equal(bend(s, a.id, [side, side, side].slice(0, MAX_POSTS + 1)), 'invalid');

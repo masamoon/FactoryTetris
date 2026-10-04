@@ -123,6 +123,16 @@ export interface Overlay {
   hold: { at: Point; f: number; id?: number } | null;
   /** A one-line notice shown under the counter (screen space), or null. */
   notice: string | null;
+  /**
+   * Choosing where a new dock goes: the free sites, and the one the finger aims at with its
+   * price, the belts that would link there and a warning (crossings added, a belt over the hub).
+   */
+  dock: {
+    sites: (Point & { site: number })[];
+    at:
+      | (Point & { site: number; finger: Point; price: number; belts: Point[][]; warn?: string })
+      | null;
+  } | null;
   reducedMotion: boolean;
 }
 
@@ -1277,7 +1287,7 @@ export class Renderer {
     c.restore();
     if (o.selected === 'hub') this.selectRing(c, 0, 0, HUB_RADIUS + 16);
     for (let i = 0; i < s.docks; i++) {
-      const p = dockPos(i);
+      const p = dockPos(s, i);
       const used = s.machines.some((m) => m.out?.to.kind === 'dock' && m.out.to.index === i);
       c.save();
       c.translate(p.x, p.y);
@@ -1692,6 +1702,7 @@ export class Renderer {
 
   private drawOverlay(c: Ctx, s: State, o: Overlay) {
     const z = this.cam.z;
+    if (o.dock) this.drawDockPick(c, s, o.dock);
     if (o.placing) {
       if (o.placing.kind === 'drill') {
         // Every rock's rim glows where a drill fits: it goes anywhere there. The ghost follows.
@@ -1752,7 +1763,7 @@ export class Renderer {
           // A busy dock pulses too when the two belts can trade docks.
           const via = o.reroute.via?.length ? o.reroute.via : undefined;
           if (!canTarget(s, m, t, via) && !swapPartner(s, m, t, via)) continue;
-          const p = dockPos(i);
+          const p = dockPos(s, i);
           this.targetRing(c, p.x, p.y, 11);
         }
         for (const x of s.machines) {
@@ -1927,9 +1938,63 @@ export class Renderer {
   }
 
   private targetPoint(s: State, t: Target): Point {
-    if (t.kind === 'dock') return dockPos(t.index);
+    if (t.kind === 'dock') return dockPos(s, t.index);
     const m = byId(s, t.id);
     return m ? machinePos(m) : { x: 0, y: 0 };
+  }
+
+  /** Free dock sites pulse as ghosts; the aimed one shows its ray, its belts and its price. */
+  private drawDockPick(c: Ctx, s: State, d: NonNullable<Overlay['dock']>) {
+    const z = this.cam.z;
+    const ghost = (p: Point, fill: string | null, alpha: number) => {
+      c.save();
+      c.globalAlpha = alpha;
+      c.translate(p.x, p.y);
+      c.rotate(Math.atan2(p.y, p.x));
+      rrect(c, -6, -6, 12, 12, 3);
+      if (fill) {
+        c.fillStyle = fill;
+        c.fill();
+      }
+      c.lineWidth = 2.2;
+      c.strokeStyle = fill ? INK : CREAM;
+      if (!fill) c.setLineDash([3, 3]);
+      c.stroke();
+      c.restore();
+    };
+    for (const p of d.sites)
+      if (p.site !== d.at?.site) ghost(p, null, 0.55 + 0.3 * Math.sin(this.time * 6));
+    const at = d.at;
+    if (!at) return;
+    // A ray from the hub through the site, out past the finger, so the finger never hides the aim.
+    const a = Math.atan2(at.y, at.x);
+    const len = Math.max(150, Math.hypot(at.finger.x, at.finger.y) + 30);
+    c.save();
+    c.strokeStyle = MINT;
+    c.lineWidth = 3 / z;
+    c.setLineDash([7 / z, 7 / z]);
+    c.lineDashOffset = -this.time * 14;
+    c.globalAlpha = 0.8;
+    c.beginPath();
+    c.moveTo(Math.cos(a) * (HUB_RADIUS + 14), Math.sin(a) * (HUB_RADIUS + 14));
+    c.lineTo(Math.cos(a) * len, Math.sin(a) * len);
+    c.stroke();
+    // The belts that would take this dock, drawn where they would run.
+    c.strokeStyle = CREAM;
+    c.lineWidth = 2.5 / z;
+    c.setLineDash([4 / z, 6 / z]);
+    for (const path of at.belts) {
+      c.beginPath();
+      path.forEach((q, i) => (i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y)));
+      c.stroke();
+    }
+    c.restore();
+    ghost(at, MINT, 1);
+    this.targetRing(c, at.x, at.y, 11);
+    // Labels sit at the far end of the ray, clear of the hub and the finger.
+    const tip = { x: Math.cos(a) * len, y: Math.sin(a) * len };
+    this.priceTag = { x: tip.x, y: tip.y, price: at.price, can: s.credits >= at.price };
+    if (at.warn) this.refusals.push({ x: tip.x, y: tip.y + 26 / z, why: at.warn });
   }
 
   private targetRing(c: Ctx, x: number, y: number, r: number) {

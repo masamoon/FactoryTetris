@@ -1,5 +1,6 @@
 import {
   BELT_TIER_MAX,
+  DOCK_ANGLES,
   DRILL_MAX_LEVEL,
   FACTORY_MAX_LEVEL,
   FACTORY_PAIRS,
@@ -182,6 +183,16 @@ export function deserialize(text: string): State | null {
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
+    // Dock sites must be distinct, one per dock: anything else puts the docks back in the
+    // classic order rather than refusing the save (links still name docks by index).
+    const sites = raw.dockSites;
+    if (
+      !Array.isArray(sites) ||
+      sites.length !== state.docks ||
+      new Set(sites).size !== sites.length ||
+      sites.some((k) => !Number.isInteger(k) || k < 0 || k >= DOCK_ANGLES.length)
+    )
+      delete state.dockSites;
     const ids = new Set<number>();
     for (const m of state.machines) {
       if (
