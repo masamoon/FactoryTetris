@@ -21,6 +21,7 @@ import {
   crossingsOf,
   cellPos,
   firstCells,
+  pickInReach,
   dockPos,
   generateRock,
   rockDepth,
@@ -1490,9 +1491,51 @@ export class Renderer {
       if (!m.out && m.kind !== 'join') this.badge(c, p.x + 10, p.y - 18);
       else if (m.full)
         this.chip(c, p.x + 12, p.y - (m.kind === 'drill' || m.kind === 'join' ? 16 : 26), 'full');
-      if (o.selected === m.id)
+      if (m.kind === 'drill' && m.pick !== undefined && s.orePicks) {
+        // The ore picks experiment: a picked drill wears its ore, so a line's purpose reads. The
+        // dot is hollow while none of that ore is within its reach (it digs anything meanwhile).
+        const rock = s.slots[m.slot].rock;
+        const live = !!rock && pickInReach(m.slot, rock, rimPos(m.slot, m.angle), m.pick);
+        c.save();
+        c.translate(p.x, p.y);
+        if (live) drawChunk(c, m.pick, 5);
+        else {
+          c.strokeStyle = ORES[m.pick].color;
+          c.lineWidth = 2;
+          c.beginPath();
+          c.arc(0, 0, 4.5, 0, Math.PI * 2);
+          c.stroke();
+        }
+        c.restore();
+      }
+      if (o.selected === m.id) {
         this.selectRing(c, p.x, p.y, m.kind === 'drill' ? 24 : m.kind === 'join' ? 16 : 34);
+        const rock = m.kind === 'drill' ? s.slots[m.slot].rock : null;
+        if (m.kind === 'drill' && rock && m.pick !== undefined && s.orePicks)
+          this.digPreview(c, m.slot, rock, rimPos(m.slot, m.angle), m.pick, this.cam.z);
+      }
     }
+  }
+
+  /** Position (and the ore pick) decide what a drill mines: outline the first cells it would dig. */
+  private digPreview(
+    c: Ctx,
+    slot: number,
+    rock: Rock,
+    at: Point,
+    pick: Ore | undefined,
+    z: number
+  ) {
+    firstCells(slot, rock, at, 6, pick).forEach((k, n) => {
+      const p = cellPos(slot, rock, k);
+      c.globalAlpha = 1 - n * 0.12;
+      c.fillStyle = 'rgba(60,240,168,0.22)';
+      c.fillRect(p.x - CELL / 2, p.y - CELL / 2, CELL, CELL);
+      c.strokeStyle = MINT;
+      c.lineWidth = 2 / z;
+      c.strokeRect(p.x - CELL / 2 + 0.5, p.y - CELL / 2 + 0.5, CELL - 1, CELL - 1);
+    });
+    c.globalAlpha = 1;
   }
 
   /** A stopped drill's waiting chunks, piled beside it: backpressure you can see. */
@@ -1732,16 +1775,9 @@ export class Renderer {
         const at = o.placing.at;
         const rock = at?.ok && at.slot !== undefined ? s.slots[at.slot].rock : null;
         if (at && rock) {
-          firstCells(at.slot!, rock, at, 6).forEach((k, n) => {
-            const p = cellPos(at.slot!, rock, k);
-            c.globalAlpha = 1 - n * 0.12;
-            c.fillStyle = 'rgba(60,240,168,0.22)';
-            c.fillRect(p.x - CELL / 2, p.y - CELL / 2, CELL, CELL);
-            c.strokeStyle = MINT;
-            c.lineWidth = 2 / z;
-            c.strokeRect(p.x - CELL / 2 + 0.5, p.y - CELL / 2 + 0.5, CELL - 1, CELL - 1);
-          });
-          c.globalAlpha = 1;
+          const mv = o.placing.moving === undefined ? undefined : byId(s, o.placing.moving);
+          const pick = mv?.kind === 'drill' && s.orePicks ? mv.pick : undefined;
+          this.digPreview(c, at.slot!, rock, at, pick, z);
         }
       }
       const at = o.placing.at;

@@ -5,7 +5,7 @@
  *
  *   npm run bot:rockhopper [-- --minutes 20 --no-laser --sector --slow --rising]
  */
-import { BAR_VALUE, COPPER, CRYSTAL, SLOTS, TICK_HZ } from '../src/rockhopper/config';
+import { BAR_VALUE, COPPER, CRYSTAL, PICK_REACH, SLOTS, TICK_HZ } from '../src/rockhopper/config';
 import {
   beltEnds,
   buildDrill,
@@ -32,6 +32,9 @@ import {
   drillPriceOn,
   route,
   setLaser,
+  setPick,
+  setOrePicks,
+  setPickReach,
   slotVisible,
   smelterSpotOk,
   targetWhy,
@@ -44,6 +47,7 @@ import {
   upgradeHub,
   widen,
   widenPrice,
+  type Drill,
   type Machine,
   type State,
   type Target,
@@ -73,6 +77,13 @@ export interface BotOptions {
    * smelter's belt goes to a crystal factory when one has a free input).
    */
   factories?: boolean;
+  /**
+   * The ore picks experiment (with factories): every T3/T4 drill picks crystal, and T1 drills
+   * feeding a crystal factory pick copper.
+   */
+  picks?: boolean;
+  /** With picks: the reach cap in rock radii (default `PICK_REACH`). */
+  pickReach?: number;
   log?: (line: string) => void;
   /** Called after every tick, before the tick's events are cleared (measurement tools). */
   onTick?: (s: State) => void;
@@ -114,6 +125,17 @@ function lineTiers(s: State, m: Machine, seen = new Set<number>()): Set<number> 
   seen.add(m.id);
   if (m.kind === 'drill') out.add(SLOTS[m.slot].tier);
   for (const x of inputsOf(s, m.id)) for (const k of lineTiers(s, x, seen)) out.add(k);
+  return out;
+}
+/** The ore picks experiment is on for this run (`BotOptions.picks`). */
+let picksOn = false;
+
+/** Every drill whose chunks reach `m`. */
+function upstreamDrills(s: State, m: Machine, seen = new Set<number>()): Drill[] {
+  if (seen.has(m.id)) return [];
+  seen.add(m.id);
+  const out: Drill[] = m.kind === 'drill' ? [m] : [];
+  for (const x of inputsOf(s, m.id)) out.push(...upstreamDrills(s, x, seen));
   return out;
 }
 const carriesCrystal = (s: State, m: Machine) => {
@@ -174,6 +196,9 @@ export function runBot(opts: BotOptions): {
   s.crossings = opts.crossings ?? true;
   if (opts.rising) s.fixedCosts = false;
   if (opts.factories) setFactories(s, true);
+  picksOn = !!opts.picks;
+  if (picksOn) setOrePicks(s, true);
+  setPickReach(opts.pickReach ?? PICK_REACH);
   for (const k of Object.keys(refusals) as (keyof typeof refusals)[]) refusals[k] = 0;
   buyTicks.length = 0;
   waitLog.length = 0;
@@ -387,6 +412,17 @@ function act(s: State, mark: (l: string) => void) {
     });
   }
   void jammed;
+  if (picksOn) {
+    // Every T3/T4 drill digs crystal first; T1 drills feeding a crystal factory dig copper first.
+    const cu = new Set<number>();
+    for (const f of factories(s))
+      if (carriesCrystal(s, f)) for (const d of upstreamDrills(s, f)) cu.add(d.id);
+    for (const d of drills(s)) {
+      const tier = SLOTS[d.slot].tier;
+      const want = tier >= 3 ? CRYSTAL : tier === 1 && cu.has(d.id) ? COPPER : undefined;
+      if (d.pick !== want && setPick(s, d.id, want ?? null) === true) mark('ore picks');
+    }
+  }
   if (factoryUnlocked(s)) {
     // Free move: a copper smelter's belt goes to a crystal factory with a free input.
     for (const f of factories(s)) {
@@ -462,7 +498,9 @@ if (process.argv[1]?.includes('rockhopper-bot')) {
     laser: !process.argv.includes('--no-laser'),
     seed: arg('--seed', 1),
     crossings: !process.argv.includes('--no-crossings'),
-    factories: process.argv.includes('--factories'),
+    factories: process.argv.includes('--factories') || process.argv.includes('--picks'),
+    picks: process.argv.includes('--picks'),
+    pickReach: arg('--reach', PICK_REACH),
     sector: process.argv.includes('--sector'),
     slowRocks: process.argv.includes('--slow'),
     rising: process.argv.includes('--rising'),

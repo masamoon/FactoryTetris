@@ -322,6 +322,42 @@ test('the machine bubble fits a small phone and offers Widen', async ({ page }) 
   await page.screenshot({ path: 'test-results/rockhopper-bubble-360.png' });
 });
 
+test('with ore picks on, a drill bubble picks the ore it digs first, at 360 px', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await open(page);
+  await threeDrills(page);
+  const drill = await screen(page, 0, T1Y + 78);
+  await page.touchscreen.tap(drill.x, drill.y);
+  const bubble = page.locator('.rh-bubble');
+  await expect(bubble).toBeVisible();
+  // Off by default: no chips.
+  await expect(bubble.locator('.rh-picks')).toHaveCount(0);
+  await page.locator('.rh-menu-btn').click();
+  await page.getByText('Ore picks: off').click();
+  await expect(page.getByText('Ore picks: on')).toBeVisible();
+  await page.getByText('Resume').click();
+  await page.touchscreen.tap(drill.x, drill.y);
+  await expect(bubble).toBeVisible();
+  const copper = bubble.getByRole('button', { name: 'Dig copper first' });
+  await expect(copper).toHaveAttribute('aria-pressed', 'false');
+  await copper.tap();
+  await expect(copper).toHaveAttribute('aria-pressed', 'true');
+  expect((await hook(page)).machines[0]).toMatchObject({ kind: 'drill', pick: 2 });
+  const box = (await bubble.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(360);
+  for (const chip of await bubble.locator('.rh-pick').all())
+    expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: 'test-results/rockhopper-ore-picks-360.png' });
+  // Tapping it again clears the pick, and a new game keeps the switch.
+  await copper.tap();
+  expect((await hook(page)).machines[0]).not.toHaveProperty('pick');
+  await open(page);
+  expect((await hook(page)).orePicks).toBe(true);
+});
+
 test('a smelter dragged onto a belt snaps to it, floats as a hologram, and splices in', async ({
   page,
 }) => {

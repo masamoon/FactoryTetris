@@ -8,6 +8,7 @@ import {
   CELL,
   COPPER,
   CRYSTAL,
+  PICK_REACH,
   CRUMBLE_AT,
   CRUMBLE_FLIGHT_MAX,
   DEEP_CRUMBLE_AT,
@@ -195,6 +196,11 @@ export interface Drill extends MachineBase {
   angle: number;
   buffer: Ore[];
   cell: number;
+  /**
+   * The ore picks experiment (docs/ROCKHOPPER_ORE_PICKS.md): while the rock holds any cell of this
+   * ore, the drill digs the nearest one, else the nearest cell of anything. Absent = no pick.
+   */
+  pick?: Ore;
   /** Transient: this tick the drill had to stop because its buffer was full. */
   stalled?: boolean;
 }
@@ -327,6 +333,8 @@ export interface State {
   factories: boolean;
   /** The joins experiment: links may end in open space or on another belt (off by default). */
   joins?: boolean;
+  /** The ore picks experiment: drills dig their picked ore first (off by default; picks are kept). */
+  orePicks?: boolean;
   /** The sectors prototype: this game's field was generated from its seed, else the classic one. */
   sector: boolean;
   /** Slow-burn rocks (docs/ROCKHOPPER_SLOW_ROCKS.md): deep rocks, auto-tow, no tractor. */
@@ -499,12 +507,26 @@ export function cellPos(slotIndex: number, rock: Rock, index: number): Point {
   return { x: def.x + (i - (rock.r + 1)) * CELL, y: def.y + (j - (rock.r + 1)) * CELL };
 }
 
-function nearestCell(slotIndex: number, rock: Rock, p: Point): number {
+let pickReach = PICK_REACH;
+/** Tuning hook for measurement tools (the bot): change the reach cap from `PICK_REACH`. */
+export function setPickReach(r: number) {
+  pickReach = r;
+}
+/** The reach cap in force, in rock radii. */
+export const PICK_REACH_NOW = () => pickReach;
+
+/** Squared reach, in cells, of a pick on this rock. */
+const reach2 = (rock: Rock) => (pickReach * rock.r) ** 2;
+
+function nearestCell(slotIndex: number, rock: Rock, p: Point, pick?: Ore): number {
   const def = SLOTS[slotIndex];
   const lx = (p.x - def.x) / CELL + rock.r + 1,
     ly = (p.y - def.y) / CELL + rock.r + 1;
+  const far = reach2(rock);
   let best = -1,
-    bestD = Infinity;
+    bestD = Infinity,
+    picked = -1,
+    pickedD = Infinity;
   for (let k = 0; k < rock.cells.length; k++) {
     if (!rock.cells[k]) continue;
     const dx = (k % rock.w) - lx,
@@ -514,29 +536,50 @@ function nearestCell(slotIndex: number, rock: Rock, p: Point): number {
       bestD = d;
       best = k;
     }
+    if (rock.cells[k] === pick && d <= far && d < pickedD) {
+      pickedD = d;
+      picked = k;
+    }
   }
-  return best;
+  return picked >= 0 ? picked : best;
 }
 
 /**
  * The first `n` cells a drill at `p` would dig, nearest first: drills always take the nearest
- * remaining cell, so this is the order it eats into the rock (other drills aside).
+ * remaining cell (of their picked ore within reach while there is any), so this is the order it
+ * eats into the rock (other drills aside).
  */
-export function firstCells(slotIndex: number, rock: Rock, p: Point, n: number): number[] {
+export function firstCells(
+  slotIndex: number,
+  rock: Rock,
+  p: Point,
+  n: number,
+  pick?: Ore
+): number[] {
   const def = SLOTS[slotIndex];
   const lx = (p.x - def.x) / CELL + rock.r + 1,
     ly = (p.y - def.y) / CELL + rock.r + 1;
+  const far = reach2(rock);
   const out: { k: number; d: number }[] = [];
   for (let k = 0; k < rock.cells.length; k++) {
     if (!rock.cells[k]) continue;
     const dx = (k % rock.w) - lx,
       dy = Math.floor(k / rock.w) - ly;
-    out.push({ k, d: dx * dx + dy * dy });
+    const d = dx * dx + dy * dy;
+    // Picked cells in reach come first; the rest follow once they run out.
+    const late = pick !== undefined && (rock.cells[k] !== pick || d > far) ? 1e9 : 0;
+    out.push({ k, d: d + late });
   }
   return out
     .sort((a, b) => a.d - b.d || a.k - b.k)
     .slice(0, n)
     .map((c) => c.k);
+}
+
+/** The ore picks experiment: whether `rock` has a cell of `pick` within reach of `p`. */
+export function pickInReach(slotIndex: number, rock: Rock, p: Point, pick: Ore): boolean {
+  const k = nearestCell(slotIndex, rock, p, pick);
+  return k >= 0 && rock.cells[k] === pick;
 }
 
 // ---------------------------------------------------------------- geometry
@@ -1985,6 +2028,27 @@ export function linkToJoin(
   return true;
 }
 
+/**
+ * The ore picks experiment: drill `id` digs ore `pick` first (copper to crystal), or anything when
+ * `pick` is null. Free; it takes effect at the next cell, and a half-dug cell keeps its work.
+ */
+export function setPick(s: State, id: number, pick: Ore | null): Result {
+  const d = byId(s, id);
+  if (!d || d.kind !== 'drill') return 'invalid';
+  if (pick !== null && !(Number.isInteger(pick) && pick >= COPPER && pick <= CRYSTAL))
+    return 'invalid';
+  if (pick === null) delete d.pick;
+  else d.pick = pick;
+  d.cell = -1;
+  return true;
+}
+
+/** Switch the ore picks experiment. Off, drills dig as before but keep their picks for later. */
+export function setOrePicks(s: State, on: boolean): Result {
+  s.orePicks = !!on || undefined;
+  return true;
+}
+
 /** Switch the joins experiment. Turning it off keeps every join already built. */
 export function setJoins(s: State, on: boolean): Result {
   s.joins = !!on;
@@ -2203,7 +2267,12 @@ function drillsTick(s: State) {
     let budget = drillRate(d.level) * DT;
     while (budget > 1e-9 && d.buffer.length < DRILL_BUFFER && !slot.crumble) {
       if (d.cell < 0 || !rock.cells[d.cell])
-        d.cell = nearestCell(d.slot, rock, rimPos(d.slot, d.angle));
+        d.cell = nearestCell(
+          d.slot,
+          rock,
+          rimPos(d.slot, d.angle),
+          s.orePicks ? d.pick : undefined
+        );
       if (d.cell < 0) break;
       const need = ORES[rock.cells[d.cell] as Ore].hardness - rock.work[d.cell];
       const use = Math.min(budget, need);
@@ -2776,6 +2845,8 @@ export const COMMANDS = {
   bend,
   linkToJoin,
   setJoins,
+  setPick,
+  setOrePicks,
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;

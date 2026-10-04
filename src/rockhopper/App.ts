@@ -11,6 +11,8 @@ import {
   TRACTOR_MAX,
   DOCKS_MAX,
   DOCK_RADIUS,
+  TIER_ORE,
+  type Ore,
 } from './config';
 import { Renderer, formatNumber, type Overlay } from './render';
 import {
@@ -284,6 +286,7 @@ export class RockhopperApp {
     this.state = loaded ?? this.newGame(urlSeed);
     if (this.settings.factories) this.state.factories = true;
     if (this.settings.joins) this.state.joins = true;
+    if (this.settings.orePicks) this.state.orePicks = true;
     this.shown = this.state.credits;
 
     this.root = el('div', 'rh');
@@ -442,6 +445,20 @@ export class RockhopperApp {
       this.save();
       setJoin();
     });
+    // The ore picks experiment: chips in a drill's bubble pick the ore it digs first.
+    const picks = el('button', 'rh-pill');
+    const setPicks = () =>
+      (picks.textContent = this.state.orePicks ? 'Ore picks: on' : 'Ore picks: off');
+    setPicks();
+    picks.addEventListener('click', () => {
+      this.cmd('setOrePicks', !this.state.orePicks);
+      // A restart keeps the switch: it is a setting, not part of one game.
+      this.settings.orePicks = !!this.state.orePicks;
+      saveSettings(this.settings);
+      this.save();
+      this.bubbleKey = '';
+      setPicks();
+    });
     // The sectors prototype: a setting for the next new game, since a field can't change mid-game.
     const where = el('div', 'rh-menu-foot');
     const sectors = el('button', 'rh-pill');
@@ -504,6 +521,7 @@ export class RockhopperApp {
       prices,
       fact,
       join,
+      picks,
       sectors,
       slow,
       restart,
@@ -527,6 +545,7 @@ export class RockhopperApp {
       : freshState(seed || 1, false, slow);
     s.factories = this.settings.factories;
     s.joins = this.settings.joins || undefined;
+    s.orePicks = this.settings.orePicks || undefined;
     return s;
   }
 
@@ -1516,6 +1535,52 @@ export class RockhopperApp {
     return m ? machinePos(m) : null;
   }
 
+  /**
+   * The ore picks experiment: one chip per ore this slot's rocks can carry, and "any". The ringed
+   * chip is the drill's pick; tapping another changes it (free), tapping it again clears it.
+   */
+  /** Ores (copper to crystal) the rock in `slot` still holds, as a key like "235". */
+  private oresLeft(slot: number): string {
+    const cells = this.state.slots[slot].rock?.cells ?? [];
+    return [2, 3, 4, 5].filter((o) => cells.includes(o)).join('');
+  }
+
+  private pickRow(id: number, slot: number, pick: Ore | undefined): HTMLElement {
+    const def = SLOTS[slot];
+    const ores = [...new Set([...TIER_ORE[def.tier].ores, def.signature])].sort((a, b) => a - b);
+    const row = el('div', 'rh-row rh-picks');
+    row.append(el('span', 'rh-picks-label', 'Dig first'));
+    const set = (to: Ore | null) => {
+      if (this.cmd('setPick', id, to) === true) this.save();
+      else this.sfx.deny();
+    };
+    const any = el('button', 'rh-pick rh-pick-any', 'Any');
+    any.setAttribute('aria-label', 'Dig whatever is nearest');
+    any.setAttribute('aria-pressed', String(pick === undefined));
+    any.addEventListener('click', () => set(null));
+    row.append(any);
+    for (const ore of ores) {
+      const b = el('button', 'rh-pick');
+      const chip = el('canvas', 'rh-chip');
+      chip.width = 36;
+      chip.height = 36;
+      const cc = chip.getContext('2d')!;
+      cc.translate(18, 18);
+      drawChunk(cc, ore, 9);
+      // The name as well as the colour, so the chips read without telling pink from gold.
+      b.append(chip, el('span', 'rh-pick-name', ORES[ore].name));
+      const left = this.oresLeft(slot).includes(String(ore));
+      b.classList.toggle('rh-absent', !left);
+      const name = ORES[ore].name.toLowerCase();
+      b.setAttribute('aria-label', `Dig ${name} first`);
+      b.setAttribute('aria-pressed', String(pick === ore));
+      b.title = left ? `Dig ${name} first` : `Dig ${name} first (none on this rock now)`;
+      b.addEventListener('click', () => set(pick === ore ? null : ore));
+      row.append(b);
+    }
+    return row;
+  }
+
   private renderBubble() {
     const b = this.bubble;
     const s = this.state;
@@ -1533,7 +1598,8 @@ export class RockhopperApp {
       const crossing = m.cross && !!m.out;
       const bent = m.out?.via?.length ?? 0;
       const rawOnly = m.kind === 'factory' && factoryNeedsBars(m);
-      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}:${bent}:${rawOnly}`;
+      const pickRow = m.kind === 'drill' && !!s.orePicks;
+      key = `m${m.id}:${m.level}:${c}:${m.tier}:${wc}:${limited}:${crossing}:${!!m.out}:${m.kind === 'smelter' && m.jam}:${bent}:${rawOnly}:${pickRow && m.kind === 'drill' ? `${m.pick ?? 0}${this.oresLeft(m.slot)}` : '-'}`;
       build = () => {
         const up = el(
           'button',
@@ -1644,6 +1710,7 @@ export class RockhopperApp {
         );
         note.hidden = !note.innerHTML;
         this.bubbleEl.replaceChildren(note, row);
+        if (pickRow && m.kind === 'drill') this.bubbleEl.append(this.pickRow(m.id, m.slot, m.pick));
       };
     } else if (b.kind === 'hub') {
       const items: [HubUpgrade, string, string][] = [
