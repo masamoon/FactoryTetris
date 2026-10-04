@@ -171,6 +171,8 @@ export function deserialize(text: string): State | null {
       rockPrices: typeof raw.rockPrices === 'boolean' ? raw.rockPrices : true,
       // The factories experiment is off by default while it is a prototype.
       factories: typeof raw.factories === 'boolean' ? raw.factories : false,
+      // The joins experiment is off by default while it is a prototype.
+      joins: raw.joins === true ? true : undefined,
       // Saves from before sectors were played on the classic field.
       sector: raw.sector === true,
       // Saves from before slow-burn rocks play classic rocks.
@@ -183,7 +185,7 @@ export function deserialize(text: string): State | null {
       if (
         !isNum(m.id) ||
         ids.has(m.id) ||
-        (m.kind !== 'drill' && m.kind !== 'smelter' && m.kind !== 'factory')
+        (m.kind !== 'drill' && m.kind !== 'smelter' && m.kind !== 'factory' && m.kind !== 'join')
       )
         return null;
       if (m.kind === 'factory' && raw.version !== 3) return null;
@@ -222,6 +224,9 @@ export function deserialize(text: string): State | null {
         if (isNum(m.angle)) m.angle = normAngle(m.angle);
         if (!Array.isArray(m.buffer) || !m.buffer.every(isOre)) return null;
         m.level = Math.min(m.level, DRILL_MAX_LEVEL);
+      } else if (m.kind === 'join') {
+        if (!isNum(m.x) || !isNum(m.y)) return null;
+        m.level = 1;
       } else if (m.kind === 'factory') {
         if (!isNum(m.x) || !isNum(m.y)) return null;
         m.level = Math.min(m.level, FACTORY_MAX_LEVEL);
@@ -298,7 +303,11 @@ export function deserialize(text: string): State | null {
         const ok =
           t.kind === 'dock'
             ? Number.isInteger(t.index)
-            : (t.kind === 'smelter' || t.kind === 'drill' || t.kind === 'factory') && isNum(t.id);
+            : (t.kind === 'smelter' ||
+                t.kind === 'drill' ||
+                t.kind === 'factory' ||
+                t.kind === 'join') &&
+              isNum(t.id);
         if (!ok) return null;
         // Bend posts are optional: a malformed list straightens the belt rather than losing the save.
         const via = (m.out as { via?: unknown }).via;
@@ -384,6 +393,8 @@ export interface Settings {
   slowRocks: boolean;
   /** The factories experiment, kept across restarts (default off). */
   factories: boolean;
+  /** The joins experiment (links into empty space and onto belts), kept across restarts (default off). */
+  joins: boolean;
 }
 
 export function loadSettings(): Settings {
@@ -394,9 +405,10 @@ export function loadSettings(): Settings {
       sectors: raw.sectors !== false,
       slowRocks: raw.slowRocks !== false,
       factories: raw.factories === true,
+      joins: raw.joins === true,
     };
   } catch {
-    return { muted: false, sectors: true, slowRocks: true, factories: false };
+    return { muted: false, sectors: true, slowRocks: true, factories: false, joins: false };
   }
 }
 
