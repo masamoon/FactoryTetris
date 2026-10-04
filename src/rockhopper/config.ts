@@ -217,6 +217,13 @@ export const AUTO_TOW_SECONDS = 3;
 /** Slow-burn slot prices, as multiples of the slot's own price, by tier (S9). */
 export const SLOW_PRICE: Record<1 | 2 | 3 | 4, number> = { 1: 2.5, 2: 4, 3: 1.4, 4: 1 };
 
+/**
+ * The ore picks experiment (docs/ROCKHOPPER_ORE_PICKS.md): a picked drill digs the nearest cell of
+ * its ore within this many rock radii of its rim point while there is one, else the nearest cell
+ * of anything. The cap keeps where a drill stands a decision; Infinity reaches the whole rock.
+ */
+export const PICK_REACH = Infinity;
+
 /** Crumble when fewer than this share of the original cells remain. */
 export const CRUMBLE_AT = 0.2;
 export const CRUMBLE_SECONDS = 1.5;

@@ -176,6 +176,8 @@ export function deserialize(text: string): State | null {
       factories: typeof raw.factories === 'boolean' ? raw.factories : false,
       // The joins experiment is off by default while it is a prototype.
       joins: raw.joins === true ? true : undefined,
+      // The ore picks experiment is off by default while it is a prototype.
+      orePicks: raw.orePicks === true ? true : undefined,
       // Saves from before sectors were played on the classic field.
       sector: raw.sector === true,
       // Saves from before slow-burn rocks play classic rocks.
@@ -237,6 +239,8 @@ export function deserialize(text: string): State | null {
         if (isNum(m.angle)) m.angle = normAngle(m.angle);
         if (!Array.isArray(m.buffer) || !m.buffer.every(isOre)) return null;
         m.level = Math.min(m.level, DRILL_MAX_LEVEL);
+        // An ore pick is copper to crystal; anything else loads as no pick, not a refused save.
+        if (m.pick !== undefined && !(isOre(m.pick) && m.pick !== 1)) delete m.pick;
       } else if (m.kind === 'join') {
         if (!isNum(m.x) || !isNum(m.y)) return null;
         m.level = 1;
@@ -408,6 +412,8 @@ export interface Settings {
   factories: boolean;
   /** The joins experiment (links into empty space and onto belts), kept across restarts (default off). */
   joins: boolean;
+  /** The ore picks experiment: drills dig their picked ore first, kept across restarts (default off). */
+  orePicks: boolean;
 }
 
 export function loadSettings(): Settings {
@@ -419,9 +425,17 @@ export function loadSettings(): Settings {
       slowRocks: raw.slowRocks !== false,
       factories: raw.factories === true,
       joins: raw.joins === true,
+      orePicks: raw.orePicks === true,
     };
   } catch {
-    return { muted: false, sectors: true, slowRocks: true, factories: false, joins: false };
+    return {
+      muted: false,
+      sectors: true,
+      slowRocks: true,
+      factories: false,
+      joins: false,
+      orePicks: false,
+    };
   }
 }
 
