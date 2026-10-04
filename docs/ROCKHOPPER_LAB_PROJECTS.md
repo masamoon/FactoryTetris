@@ -1,6 +1,6 @@
 # Rockhopper: Lab projects (late-game proposal, revision 2, 2026-10-04)
 
-Status: **revision 2, pending round 2.** Round 1 gave revision 1 (bills of bars unlocking pad docks, belt tiers 5–6 and drill levels 8–9) an overall REVISE ([review](reviews/2026-10-04-rockhopper-lab-projects-adversary.md)); how this revision answers it is at the end. Nothing here is implemented. It extends the research Lab ([ROCKHOPPER_RESEARCH.md](ROCKHOPPER_RESEARCH.md), scoped PASS for a prototype, not built) and would ship behind the same off-by-default "Research" switch. A PASS would authorise only that prototype; it is not evidence of fun or balance.
+Status: **revision 2, round 2 REVISE** (LB4 count and LB5 plate choice; the rest PASS or PASS with conditions). Round 1 gave revision 1 (bills of bars unlocking pad docks, belt tiers 5–6 and drill levels 8–9) an overall REVISE ([review](reviews/2026-10-04-rockhopper-lab-projects-adversary.md)); how this revision answers it is at the end. Nothing here is implemented. It extends the research Lab ([ROCKHOPPER_RESEARCH.md](ROCKHOPPER_RESEARCH.md), scoped PASS for a prototype, not built) and would ship behind the same off-by-default "Research" switch. A PASS would authorise only that prototype; it is not evidence of fun or balance.
 
 ## Why
 
