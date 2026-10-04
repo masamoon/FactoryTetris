@@ -26,6 +26,10 @@ import {
   crossingsOf,
   sameTarget,
   dockPos,
+  freeDockSites,
+  sitePos,
+  upgradeHub,
+  segDist,
   drills,
   factories,
   factoryNeedsBars,
@@ -84,6 +88,8 @@ import { Sfx } from './audio';
 import { COIN_SVG, drawChunk, drawDrill, drawFactory, drawSmelter } from './sprites';
 
 type Tool = 'drill' | 'smelter' | 'factory';
+/** What building a dock on one site would do: the belts that would link there, and crossings added. */
+type DockPreview = { belts: Point[][]; plates: number; hub: boolean };
 /** What can be placed or moved: a tray tool, or a join (moved only; it is made by linking). */
 type Placing = Tool | 'join';
 /** Where a dragged link would make a join: on the belt `splice` owns, or a hinge. */
@@ -131,6 +137,8 @@ type Gesture =
   /** Dragging bend post `k` of machine `id`'s belt (`via` is the candidate list). */
   | { type: 'post'; id: number; k: number; via: Point[]; grab: Point }
   | { type: 'place'; x0: number; y0: number; t0: number }
+  /** Choosing where a bought dock goes: press, slide around the hub, release on a site. */
+  | { type: 'dock' }
   | {
       type: 'tray';
       kind: Tool;
@@ -207,8 +215,14 @@ export class RockhopperApp {
     post: null,
     hold: null,
     notice: null,
+    dock: null,
     reducedMotion: false,
   };
+  /**
+   * Choosing where the next dock goes (after tapping Docks in the hub bubble), and what each
+   * site would do: which waiting belts would link there, as computed on a copy of the state.
+   */
+  private dockPick: { previews: Map<number, DockPreview>; key: string } | null = null;
   /** Tutorial state for the logistics hands (splice, join, recovery) and the crossing label. */
   private taught = { splice: false, join: false, cross: false, bend: false };
   /** Seconds a crossing has kept bundles waiting, and the crossing label has been shown. */
@@ -613,7 +627,7 @@ export class RockhopperApp {
     // A belt's end on a busy dock grabs that belt: dragging it re-routes it, as from its machine.
     const endReach = Math.max(12, 16 / z);
     for (let i = 0; i < s.docks; i++) {
-      const q = dockPos(i);
+      const q = dockPos(s, i);
       const dist = Math.hypot(p.x - q.x, p.y - q.y);
       if (dist >= endReach || dist >= bestD) continue;
       const owner = s.machines.find((m) => m.out?.to.kind === 'dock' && m.out.to.index === i);
@@ -657,6 +671,7 @@ export class RockhopperApp {
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         this.sfx.unlock();
+        this.endDockPick();
         if (kind === 'factory' && !factoryUnlocked(this.state)) {
           // Shown once switched on, so the player can find it; it opens with the second smelter.
           const r = b.getBoundingClientRect();
@@ -716,6 +731,7 @@ export class RockhopperApp {
     }
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        this.endDockPick();
         this.closeBubble();
         this.armed = null;
         this.overlay.placing = null;
@@ -744,6 +760,12 @@ export class RockhopperApp {
     }
     if (this.pointers.size > 2) return;
     const w = this.renderer.toWorld(p.x, p.y);
+    if (this.dockPick) {
+      // While choosing a dock site nothing else answers: no belt grabs, hub taps or panning.
+      this.gesture = { type: 'dock' };
+      this.aimDock(w);
+      return;
+    }
     if (this.armed) {
       this.gesture = { type: 'place', x0: p.x, y0: p.y, t0: performance.now() };
       this.preview(this.armed.kind, p, this.armed.moving);
@@ -954,6 +976,8 @@ export class RockhopperApp {
       if (g.panning) this.renderer.panBy(p.x - prev.x, p.y - prev.y);
     } else if (g.type === 'place' && this.armed) {
       this.preview(this.armed.kind, p, this.armed.moving);
+    } else if (g.type === 'dock') {
+      this.aimDock(w);
     }
   }
 
@@ -970,6 +994,10 @@ export class RockhopperApp {
     this.joinCache = null;
     if (cancel) {
       this.endGesture(g);
+      return;
+    }
+    if (g.type === 'dock') {
+      this.dropDock(this.renderer.toWorld(p.x, p.y));
       return;
     }
     if (g.type === 'mine') {
@@ -1028,6 +1056,7 @@ export class RockhopperApp {
   private endGesture(g: Gesture = this.gesture) {
     if (g.type === 'mine') this.cmd('clearLaser');
     if (g.type === 'tray') this.overlay.placing = null;
+    if (g.type === 'dock' && this.overlay.dock) this.overlay.dock.at = null;
     this.overlay.finger = null;
     this.overlay.reroute = null;
     this.overlay.post = null;
@@ -1105,7 +1134,8 @@ export class RockhopperApp {
         best = t;
       }
     };
-    for (let i = 0; i < this.state.docks; i++) consider({ kind: 'dock', index: i }, dockPos(i));
+    for (let i = 0; i < this.state.docks; i++)
+      consider({ kind: 'dock', index: i }, dockPos(this.state, i));
     // Machines are big targets: a smelter, or a drill acting as a junction.
     for (const x of this.state.machines)
       consider({ kind: x.kind, id: x.id } as Target, machinePos(x), x.kind !== 'drill' ? 12 : 4);
@@ -1115,7 +1145,7 @@ export class RockhopperApp {
       for (let i = 0; i < this.state.docks; i++) {
         const t: Target = { kind: 'dock', index: i };
         if (!canTarget(this.state, m, t, via)) continue;
-        const q = dockPos(i);
+        const q = dockPos(this.state, i);
         const d = Math.hypot(q.x - w.x, q.y - w.y);
         if (d < bd) {
           bd = d;
@@ -1325,6 +1355,135 @@ export class RockhopperApp {
   private recoverFor: number | null = null;
   private recovered = false;
 
+  // ------------------------------------------------------------ dock sites
+
+  /** From the hub bubble's Docks button: buy at once when one site is left, else aim it. */
+  private startDockPick() {
+    const s = this.state;
+    const c = hubCost(s, 'docks');
+    if (c === null) return;
+    if (s.credits < c) {
+      this.sfx.deny();
+      this.flashCounter();
+      return;
+    }
+    const free = freeDockSites(s);
+    if (free.length === 1) {
+      if (this.cmd('upgradeHub', 'docks', free[0]) === true) this.save();
+      return;
+    }
+    this.closeBubble();
+    this.armed = null;
+    this.overlay.placing = null;
+    this.dockPick = { previews: new Map(), key: this.dockPickKey() };
+    this.overlay.dock = { sites: free.map((k) => ({ site: k, ...sitePos(k) })), at: null };
+    this.sfx.tap();
+  }
+
+  private endDockPick() {
+    this.dockPick = null;
+    this.overlay.dock = null;
+    if (this.gesture.type === 'dock') this.gesture = { type: 'none' };
+  }
+
+  /** Previews go stale when belts or docks change while the player is aiming. */
+  private dockPickKey() {
+    const s = this.state;
+    return `${s.docks}:${s.machines.map((m) => `${m.id}>${m.out ? JSON.stringify(m.out) : ''}`).join(',')}`;
+  }
+
+  /**
+   * The free site the finger points at: the nearest by angle around the hub, anywhere within a
+   * generous reach of it (sites sit about 20 units apart, too close to tap one by one on a phone).
+   */
+  private dockSiteAt(w: Point): number | null {
+    const z = this.renderer.cam.z;
+    if (Math.hypot(w.x, w.y) > DOCK_RADIUS + Math.max(60, 110 / z)) return null;
+    const a = Math.atan2(w.y, w.x);
+    let best: number | null = null,
+      bestD = Infinity;
+    for (const k of freeDockSites(this.state)) {
+      const q = sitePos(k);
+      let d = Math.abs(Math.atan2(q.y, q.x) - a);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    }
+    return best;
+  }
+
+  private dockPreview(site: number): DockPreview {
+    const pick = this.dockPick!;
+    const key = this.dockPickKey();
+    if (key !== pick.key) {
+      pick.previews.clear();
+      pick.key = key;
+    }
+    const hit = pick.previews.get(site);
+    if (hit) return hit;
+    // Build it on a copy: the belts that would take the new dock are the ones auto-link sends.
+    const copy = structuredClone({ ...this.state, events: [] }) as State;
+    copy.credits = Number.MAX_SAFE_INTEGER;
+    const before = this.state.crossings ? crossingsOf(this.state).plates.length : 0;
+    upgradeHub(copy, 'docks', site);
+    const idx = this.state.docks;
+    const belts = copy.machines
+      .filter((m) => m.out?.to.kind === 'dock' && m.out.to.index === idx)
+      .map((m) => beltPath(copy, m) ?? [])
+      .filter((path) => path.length > 1);
+    const plates = this.state.crossings ? Math.max(0, crossingsOf(copy).plates.length - before) : 0;
+    // A straight belt may pass over the hub body to reach a side site: say so.
+    const hub = belts.some((path) =>
+      path.slice(1).some((b, i) => segDist({ x: 0, y: 0 }, path[i], b) < HUB_RADIUS)
+    );
+    const r = { belts, plates, hub };
+    pick.previews.set(site, r);
+    return r;
+  }
+
+  private aimDock(w: Point) {
+    const o = this.overlay.dock;
+    if (!o) return;
+    o.sites = freeDockSites(this.state).map((k) => ({ site: k, ...sitePos(k) }));
+    const site = this.dockSiteAt(w);
+    if (site === null) {
+      o.at = null;
+      return;
+    }
+    const pv = this.dockPreview(site);
+    const c = hubCost(this.state, 'docks') ?? 0;
+    o.at = {
+      site,
+      ...sitePos(site),
+      finger: w,
+      price: c,
+      belts: pv.belts,
+      warn: pv.hub
+        ? 'belt runs over the hub'
+        : pv.plates
+          ? `+${pv.plates} crossing${pv.plates > 1 ? 's' : ''}`
+          : undefined,
+    };
+  }
+
+  private dropDock(w: Point) {
+    const site = this.dockSiteAt(w);
+    if (site === null) {
+      this.renderer.flash(w, 'cancelled');
+      this.endDockPick();
+      return;
+    }
+    const r = this.cmd('upgradeHub', 'docks', site);
+    this.endDockPick();
+    if (r === true) this.save();
+    else {
+      this.sfx.deny();
+      if (r === 'credits') this.flashCounter();
+    }
+  }
+
   private flashCounter() {
     this.counterEl.classList.remove('rh-deny');
     void this.counterEl.offsetWidth;
@@ -1512,6 +1671,15 @@ export class RockhopperApp {
           );
           btn.dataset.cost = String(c ?? Infinity);
           btn.setAttribute('aria-label', c === null ? `${name} maxed` : `Upgrade ${name} for ${c}`);
+          if (what === 'docks') {
+            // A new dock is placed, not just counted: the player picks the site around the hub.
+            if (c !== null) btn.setAttribute('aria-label', `Choose where to build a dock for ${c}`);
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.startDockPick();
+            });
+            return btn;
+          }
           this.repeatButton(btn, () => {
             const r = this.cmd('upgradeHub', what);
             if (r === 'credits') this.flashCounter();
@@ -1856,8 +2024,9 @@ export class RockhopperApp {
       s.crossingsNotice = undefined;
     }
     this.noticeLeft = Math.max(0, this.noticeLeft - dt);
-    o.notice =
-      this.noticeLeft > 0 && s.crossings
+    o.notice = this.dockPick
+      ? 'Aim the new dock · tap away to cancel'
+      : this.noticeLeft > 0 && s.crossings
         ? 'New: crossed belts take turns (menu to switch off)'
         : null;
     o.hintCross = null;

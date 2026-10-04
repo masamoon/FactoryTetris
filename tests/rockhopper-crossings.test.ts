@@ -7,7 +7,7 @@ import {
   buildSmelter,
   canTarget,
   crossingsOf,
-  dockPos,
+  sitePos,
   drills,
   drillSpotWhy,
   freshState,
@@ -197,7 +197,7 @@ test('belts never run under machines: links and moves that would are refused', (
     assert.equal(buildDrill(s, 0, a), true);
     const x = drills(s)[drills(s).length - 1];
     for (let k = 3; k < 9; k++) {
-      const q = dockPos(k),
+      const q = sitePos(k),
         r = rimPos(0, a),
         dx = q.x - r.x,
         dy = q.y - r.y;

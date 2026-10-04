@@ -5,7 +5,7 @@ import {
   bend,
   buildDrill,
   buildSmelter,
-  dockPos,
+  sitePos,
   drills,
   freshState,
   joinLinkWhy,
@@ -608,7 +608,7 @@ test('a link with a post pinned mid-drag lands on a busy dock, and that dock’s
   expect(post).not.toBeNull();
   const C = await screen(page, machinePos(c).x, machinePos(c).y);
   const P = await screen(page, post!.x, post!.y);
-  const D = await screen(page, dockPos(2).x, dockPos(2).y);
+  const D = await screen(page, sitePos(2).x, sitePos(2).y);
   await page.mouse.move(C.x, C.y);
   await page.mouse.down();
   await page.mouse.move(P.x, P.y, { steps: 12 });
@@ -697,8 +697,8 @@ test('a belt’s end can be dragged from its dock to another dock', async ({ pag
       )
     );
   async function drag(i: number, j: number) {
-    const A = await screen(page, dockPos(i).x, dockPos(i).y);
-    const D = await screen(page, dockPos(j).x, dockPos(j).y);
+    const A = await screen(page, sitePos(i).x, sitePos(i).y);
+    const D = await screen(page, sitePos(j).x, sitePos(j).y);
     await page.mouse.move(A.x, A.y);
     await page.mouse.down();
     await page.mouse.move(D.x, D.y, { steps: 12 });
@@ -804,7 +804,7 @@ test('with joins on, a link dropped on a belt joins it, and one on open space ma
   });
   let linked = false;
   for (const i of t) {
-    await drag(open_!, dockPos(i));
+    await drag(open_!, sitePos(i));
     ms = await outs();
     if (ms.find((m) => m.id === h.id)!.to) {
       expect(ms.find((m) => m.id === h.id)!.to).toEqual({ kind: 'dock', index: i });
@@ -816,4 +816,46 @@ test('with joins on, a link dropped on a belt joins it, and one on open space ma
   // The switch is in the menu.
   await page.locator('.rh-menu-btn, [aria-label="Menu"]').first().click();
   await expect(page.getByRole('button', { name: 'Joins: on' })).toBeVisible();
+});
+
+test('Docks in the hub bubble lets the player aim the new dock, and a waiting belt takes it', async ({
+  page,
+}) => {
+  await open(page);
+  await threeDrills(page);
+  // A fourth drill waits: the three starting docks are taken.
+  await page.evaluate(() => {
+    const a = (
+      window as unknown as { __rockhopper: Hook & { cmd(n: string, ...x: unknown[]): unknown } }
+    ).__rockhopper;
+    for (let d = 0; d < 360 && a.state.machines.length < 4; d += 5)
+      a.cmd('buildDrill', 0, (d * Math.PI) / 180);
+  });
+  expect((await hook(page)).machines.filter((m) => !m.out)).toHaveLength(1);
+  const hub = await screen(page, 0, 0);
+  await page.mouse.click(hub.x, hub.y);
+  await page.getByRole('button', { name: /Choose where to build a dock/ }).click();
+  const before = (await hook(page)).credits;
+  // Tapping away cancels: nothing is bought.
+  const far = await screen(page, SLOTS[0].x, T1Y);
+  await page.mouse.click(far.x, far.y);
+  expect((await hook(page)).docks).toBe(3);
+  expect((await hook(page)).credits).toBe(before);
+  // Aim right of the hub, toward site 4 (-44°), and release there.
+  await page.mouse.click(hub.x, hub.y);
+  await page.getByRole('button', { name: /Choose where to build a dock/ }).click();
+  const a = (-44 * Math.PI) / 180;
+  const aim = await screen(page, Math.cos(a) * 110, Math.sin(a) * 110);
+  await page.mouse.move(hub.x, hub.y - 70);
+  await page.mouse.down();
+  await page.mouse.move(aim.x, aim.y, { steps: 10 });
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: 'test-results/rockhopper-dock-aim.png' });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const s = await hook(page);
+  expect(s.docks).toBe(4);
+  expect(s.dockSites).toEqual([0, 1, 2, 4]);
+  expect(s.machines.some((m) => m.out?.to.kind === 'dock' && m.out.to.index === 3)).toBe(true);
+  await page.screenshot({ path: 'test-results/rockhopper-dock-built.png' });
 });

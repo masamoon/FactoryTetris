@@ -338,6 +338,11 @@ export interface State {
   machines: Machine[];
   nextId: number;
   docks: number;
+  /**
+   * The site (index into `DOCK_ANGLES`) each dock stands on, one per dock, when the player chose
+   * where a dock goes. Absent in older saves: dock i stands on site i, the classic order.
+   */
+  dockSites?: number[];
   laserLevel: number;
   tractorLevel: number;
   flights: Flight[];
@@ -555,9 +560,22 @@ export function rimPos(slotIndex: number, angle: number): Point {
 /** An angle in [0, 2π). */
 export const normAngle = (a: number) => ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 
-export function dockPos(index: number): Point {
-  const a = (DOCK_ANGLES[index] * Math.PI) / 180;
+/** Where dock site `site` (an index into `DOCK_ANGLES`) stands on the hub. */
+export function sitePos(site: number): Point {
+  const a = (DOCK_ANGLES[site] * Math.PI) / 180;
   return { x: Math.cos(a) * DOCK_RADIUS, y: Math.sin(a) * DOCK_RADIUS };
+}
+
+/** The site dock `index` was built on: the player's pick, else the classic unlock order. */
+export const dockSite = (s: State, index: number) => s.dockSites?.[index] ?? index;
+
+export const dockPos = (s: State, index: number): Point => sitePos(dockSite(s, index));
+
+/** Sites a new dock could be built on, in the classic unlock order. */
+export function freeDockSites(s: State): number[] {
+  if (s.docks >= DOCKS_MAX) return [];
+  const taken = new Set(Array.from({ length: s.docks }, (_, i) => dockSite(s, i)));
+  return DOCK_ANGLES.map((_, k) => k).filter((k) => !taken.has(k));
 }
 
 export function machinePos(m: Machine): Point {
@@ -565,7 +583,7 @@ export function machinePos(m: Machine): Point {
 }
 
 export function targetPos(s: State, t: Target): Point | null {
-  if (t.kind === 'dock') return dockPos(t.index);
+  if (t.kind === 'dock') return dockPos(s, t.index);
   const m = byId(s, t.id);
   return m ? machinePos(m) : null;
 }
@@ -916,7 +934,7 @@ function autoLink(s: State, m: Machine): boolean {
   for (let i = 0; i < s.docks; i++) {
     const t: Target = { kind: 'dock', index: i };
     if (!canTarget(s, m, t)) continue;
-    const q = dockPos(i);
+    const q = dockPos(s, i);
     // With crossings on, a dock the belt reaches without touching another belt comes first.
     const d = Math.hypot(q.x - p.x, q.y - p.y) + (s.crossings ? platesIf(s, m, t) * 1e4 : 0);
     if (d < bestD - 1e-6) {
@@ -965,7 +983,7 @@ export function relayout(s: State) {
 /** Belts run beside machines, never under them: a belt's centre line keeps this far away. */
 export const laneClear = (kind: Machine['kind']) => bodyRadius(kind);
 
-function segDist(p: Point, a: Point, b: Point) {
+export function segDist(p: Point, a: Point, b: Point) {
   const dx = b.x - a.x,
     dy = b.y - a.y;
   const L2 = dx * dx + dy * dy || 1;
@@ -1991,13 +2009,27 @@ export function unlock(s: State, slot: number): Result {
   return true;
 }
 
-export function upgradeHub(s: State, what: HubUpgrade): Result {
+/**
+ * Buy a hub level. A new dock goes on the free `site` the player picked (an index into
+ * `DOCK_ANGLES`), or on the first free one in the classic order when none is given.
+ */
+export function upgradeHub(s: State, what: HubUpgrade, site?: number): Result {
   const cost = hubCost(s, what);
   if (cost === null) return 'max';
+  let at = -1;
+  if (what === 'docks') {
+    const free = freeDockSites(s);
+    at = site === undefined || site === null ? free[0] : site;
+    if (!free.includes(at)) return 'invalid';
+  }
   if (!pay(s, cost)) return 'credits';
   if (what === 'laser') s.laserLevel++;
-  else if (what === 'docks') s.docks++;
-  else s.tractorLevel++;
+  else if (what === 'docks') {
+    // Only a pick off the classic order is recorded, so classic games stay as they were.
+    if (s.dockSites || at !== s.docks)
+      s.dockSites = [...Array.from({ length: s.docks }, (_, i) => dockSite(s, i)), at];
+    s.docks++;
+  } else s.tractorLevel++;
   relinkAll(s);
   s.events.push({ type: 'hub', what });
   return true;
@@ -2416,7 +2448,7 @@ function moveBelts(s: State) {
     const front = b.items[0];
     if (front && b.to.kind === 'dock' && front.pos >= b.length - 1e-6) {
       b.items.shift();
-      const p = dockPos(b.to.index);
+      const p = dockPos(s, b.to.index);
       for (const ore of front.ores) {
         const value = itemValue(ore, front);
         earn(s, value);
