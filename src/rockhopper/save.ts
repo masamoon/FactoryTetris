@@ -169,6 +169,8 @@ export function deserialize(text: string): State | null {
       crossingsNotice: typeof raw.crossings !== 'boolean' ? true : undefined,
       // Saves from before the drill-prices experiment load with it on.
       rockPrices: typeof raw.rockPrices === 'boolean' ? raw.rockPrices : true,
+      // Saves from before the fixed-costs experiment load with it on.
+      fixedCosts: typeof raw.fixedCosts === 'boolean' ? raw.fixedCosts : true,
       // The factories experiment is off by default while it is a prototype.
       factories: typeof raw.factories === 'boolean' ? raw.factories : false,
       // The joins experiment is off by default while it is a prototype.

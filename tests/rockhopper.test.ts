@@ -500,10 +500,10 @@ test('pre-logistics (v1) saves migrate: belt capacity kept, tiers unbought, bar 
     assert.equal(m.tier, 3, 'level 5 shipped bundles of 3');
     assert.equal(m.tierBought, 0, 'migrated tiers are not bought');
   }
-  assert.equal(
-    widenPrice(loaded, loaded.machines[0]),
-    widenPrice(freshState(1), { tier: 1 } as never)
-  );
+  // Rising prices count tier steps bought: migrated tiers must not raise them.
+  const rising = freshState(1);
+  loaded.fixedCosts = rising.fixedCosts = false;
+  assert.equal(widenPrice(loaded, loaded.machines[0]), widenPrice(rising, { tier: 1 } as never));
   const sm = smelters(loaded)[0];
   assert.deepEqual(sm.ready, [
     { ore: 3, mult: 3 },

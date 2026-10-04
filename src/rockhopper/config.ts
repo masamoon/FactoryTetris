@@ -164,6 +164,16 @@ export const drillPrice = (tier: 1 | 2 | 3 | 4, onRock: number) =>
   Math.round(DRILL_BASE[tier] * Math.pow(DRILL_GROWTH, onRock));
 /** The classic price (the menu switch turns it back on): 14, then ×1.55 per drill owned. */
 export const classicDrillPrice = (owned: number) => Math.round(14 * Math.pow(1.55, owned));
+/**
+ * Fixed costs (docs/ROCKHOPPER_FIXED_COSTS.md, a menu switch): every purchase of a kind costs the
+ * same however many are owned, like a Factorio recipe. Drills by rock tier, belt widening by the
+ * step bought (tier 1→2, 2→3, 3→4). Machine levels, hub levels (laser, docks) and slot unlocks
+ * keep their own prices.
+ */
+export const FIXED_DRILL: Record<1 | 2 | 3 | 4, number> = { 1: 20, 2: 500, 3: 5000, 4: 50000 };
+export const FIXED_SMELTER = 600;
+export const FIXED_FACTORY = 2400;
+export const FIXED_WIDEN = [100, 400, 1600];
 export const smelterPrice = (owned: number) => Math.round(520 * Math.pow(2, owned));
 
 /**

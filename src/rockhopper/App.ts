@@ -385,15 +385,22 @@ export class RockhopperApp {
       this.save();
       setCross();
     });
-    // The drill-prices experiment: by rock, or the classic price for comparison.
+    // The price experiments, cycled: fixed costs, rising drill prices by rock, or classic.
     const prices = el('button', 'rh-pill');
     const setPrices = () =>
-      (prices.textContent = this.state.rockPrices
-        ? 'Drill prices: by rock'
-        : 'Drill prices: classic');
+      (prices.textContent = this.state.fixedCosts
+        ? 'Prices: fixed'
+        : this.state.rockPrices
+          ? 'Prices: rising, by rock'
+          : 'Prices: rising, classic');
     setPrices();
     prices.addEventListener('click', () => {
-      this.cmd('setRockPrices', !this.state.rockPrices);
+      const s = this.state;
+      if (s.fixedCosts) {
+        this.cmd('setFixedCosts', false);
+        this.cmd('setRockPrices', true);
+      } else if (s.rockPrices) this.cmd('setRockPrices', false);
+      else this.cmd('setFixedCosts', true);
       this.save();
       setPrices();
     });
@@ -1200,7 +1207,10 @@ export class RockhopperApp {
         angle: rim.angle + Math.PI / 2,
         why: rim.why || undefined,
         slot: rim.slot,
-        price: price > 0 && (this.state.rockPrices || moving === undefined) ? price : undefined,
+        price:
+          price > 0 && (this.state.fixedCosts || this.state.rockPrices || moving === undefined)
+            ? price
+            : undefined,
       };
       return { at, sock: rim.why ? null : rim };
     }

@@ -39,6 +39,10 @@ import {
   FACTORY_STOCK,
   factoryInputs,
   factoryPrice,
+  FIXED_DRILL,
+  FIXED_FACTORY,
+  FIXED_SMELTER,
+  FIXED_WIDEN,
   factoryTime,
   factoryUpgradeCost,
   FLIGHT_MAX,
@@ -317,6 +321,8 @@ export interface State {
   crossingsNotice?: boolean;
   /** Drills priced by the rock tier they stand on (the drill-prices experiment), else classic. */
   rockPrices: boolean;
+  /** Fixed costs (the fixed-costs experiment): overrides rock and classic prices when on. */
+  fixedCosts?: boolean;
   /** The factories experiment: the tray offers factories (off by default during the prototype). */
   factories: boolean;
   /** The joins experiment: links may end in open space or on another belt (off by default). */
@@ -706,6 +712,7 @@ export function freshState(seed = 1, sector = false, slowRocks = false): State {
     seed,
     crossings: true,
     rockPrices: true,
+    fixedCosts: true,
     factories: false,
     sector,
     ...(slowRocks ? { slowRocks: true } : {}),
@@ -744,7 +751,11 @@ const rockPrice = (s: State, slot: number, except?: number) =>
 
 /** Price of a new drill on slot `slot`: by its rock (or classic, with the switch off). */
 export const drillPriceOn = (s: State, slot: number) =>
-  s.rockPrices ? rockPrice(s, slot) : classicDrillPrice(drills(s).length);
+  s.fixedCosts
+    ? FIXED_DRILL[SLOTS[slot].tier]
+    : s.rockPrices
+      ? rockPrice(s, slot)
+      : classicDrillPrice(drills(s).length);
 
 /**
  * Price shown in the tray. Drills: the cheapest unlocked rock (the drag ghost shows the price
@@ -752,10 +763,10 @@ export const drillPriceOn = (s: State, slot: number) =>
  */
 export function priceOf(s: State, kind: Machine['kind']): number {
   if (kind === 'join') return 0;
-  if (kind === 'smelter') return smelterPrice(smelters(s).length);
-  if (kind === 'factory') return factoryPrice(factories(s).length);
-  if (!s.rockPrices) return classicDrillPrice(drills(s).length);
-  return Math.min(...SLOTS.flatMap((_, i) => (s.slots[i].unlocked ? [rockPrice(s, i)] : [])));
+  if (kind === 'smelter') return s.fixedCosts ? FIXED_SMELTER : smelterPrice(smelters(s).length);
+  if (kind === 'factory') return s.fixedCosts ? FIXED_FACTORY : factoryPrice(factories(s).length);
+  if (!s.fixedCosts && !s.rockPrices) return classicDrillPrice(drills(s).length);
+  return Math.min(...SLOTS.flatMap((_, i) => (s.slots[i].unlocked ? [drillPriceOn(s, i)] : [])));
 }
 
 /**
@@ -764,7 +775,11 @@ export function priceOf(s: State, kind: Machine['kind']): number {
  */
 export function moveDrillCost(s: State, id: number, slot: number): number {
   const m = byId(s, id);
-  if (!s.rockPrices || !m || m.kind !== 'drill' || m.slot === slot) return 0;
+  if (!m || m.kind !== 'drill' || m.slot === slot) return 0;
+  // Fixed costs: free within a tier, and up a tier the difference between the two tier prices.
+  if (s.fixedCosts)
+    return Math.max(0, FIXED_DRILL[SLOTS[slot].tier] - FIXED_DRILL[SLOTS[m.slot].tier]);
+  if (!s.rockPrices) return 0;
   return Math.max(0, rockPrice(s, slot, id) - rockPrice(s, m.slot, id));
 }
 
@@ -782,12 +797,14 @@ export const tiersBought = (s: State) => s.machines.reduce((n, m) => n + m.tierB
 export function widenPrice(s: State, m: Machine): number | null {
   // A join's belt is as wide as the widest belt it takes (`loadBelts`): never bought.
   if (m.kind === 'join') return null;
-  return m.tier >= BELT_TIER_MAX ? null : widenCost(tiersBought(s));
+  if (m.tier >= BELT_TIER_MAX) return null;
+  return s.fixedCosts ? FIXED_WIDEN[m.tier - 1] : widenCost(tiersBought(s));
 }
 
 export function hubCost(s: State, what: HubUpgrade): number | null {
   if (what === 'laser')
     return s.laserLevel >= LASER_POWER.length ? null : LASER_COST[s.laserLevel - 1];
+  // Docks are hub levels, like the laser: they keep their schedule under fixed costs too.
   if (what === 'docks') return s.docks >= DOCKS_MAX ? null : dockCost(s.docks);
   // Slow-burn rocks have no tow wait to shorten.
   if (s.slowRocks) return null;
@@ -1992,6 +2009,12 @@ export function setFactories(s: State, on: boolean): Result {
   return true;
 }
 
+/** Switch the fixed-costs experiment: every purchase of a kind costs the same, or rising prices. */
+export function setFixedCosts(s: State, on: boolean): Result {
+  s.fixedCosts = !!on;
+  return true;
+}
+
 /** Switch the drill-prices experiment: by rock tier, or classic 14 × 1.55^n with free moves. */
 export function setRockPrices(s: State, on: boolean): Result {
   s.rockPrices = !!on;
@@ -2716,6 +2739,7 @@ export const COMMANDS = {
   upgradeHub,
   setCrossings,
   setRockPrices,
+  setFixedCosts,
   setFactories,
   bend,
   linkToJoin,
