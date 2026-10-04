@@ -1,16 +1,24 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import {
+  beltsNear,
+  bend,
   buildDrill,
+  buildSmelter,
   dockPos,
   drills,
   freshState,
+  joinLinkWhy,
   machinePos,
+  pathLength,
+  pointAlong,
+  beltPath,
   route,
+  setJoins,
   swapPartner,
   type State,
 } from '../src/rockhopper/sim';
-import { serialize } from '../src/rockhopper/save';
+import { deserialize, serialize } from '../src/rockhopper/save';
 import { SLOTS } from '../src/rockhopper/config';
 
 const T1Y = SLOTS[0].y;
@@ -613,4 +621,199 @@ test('a link with a post pinned mid-drag lands on a busy dock, and that dock’s
   );
   expect(outs[2]).toEqual(dock);
   expect(outs[1]).toEqual({ kind: 'drill', id: a.id });
+});
+
+test('a smelter dragged near a bend post snaps into the knee', async ({ page }) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  buildDrill(s, 0, Math.PI * 0.6);
+  // Three drills show the smelter in the tray.
+  buildDrill(s, 0, Math.PI * 0.1);
+  buildDrill(s, 0, Math.PI * 0.9);
+  const [a] = drills(s);
+  // A post on a's belt with room for a smelter on it.
+  let post: { x: number; y: number } | null = null;
+  for (let y = -240; y <= 0 && !post; y += 10)
+    for (let x = -200; x <= 200 && !post; x += 10) {
+      const t = deserialize(serialize(s))!;
+      if (bend(t, a.id, [{ x, y }]) !== true) continue;
+      // Clear of every other belt, so the drop isn't on a crossing.
+      if (beltsNear(t, { x, y }, 30).some((b) => b.id !== a.id)) continue;
+      if (buildSmelter(t, { x, y }, a.id) === true) post = { x, y };
+    }
+  expect(post).not.toBeNull();
+  bend(s, a.id, [post!]);
+  const save = serialize(s);
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, save);
+  await open(page, '');
+  const P = await screen(page, post!.x, post!.y);
+  const btn = (await page.locator('.rh-tool[data-kind=smelter]').boundingBox())!;
+  await page.mouse.move(btn.x + btn.width / 2, btn.y + btn.height / 2);
+  await page.mouse.down();
+  // Aim a little off the post (the ghost sits 56 px above the finger): it snaps onto it.
+  await page.mouse.move(P.x + 8, P.y + 56 + 6, { steps: 12 });
+  await page.waitForTimeout(200);
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const after = await hook(page);
+  const sm = after.machines.find((m) => m.kind === 'smelter')!;
+  expect(sm).toBeTruthy();
+  expect({ x: (sm as { x: number }).x, y: (sm as { y: number }).y }).toEqual(post);
+  const owner = after.machines.find((m) => m.id === a.id)!;
+  expect(owner.out?.to).toEqual({ kind: 'smelter', id: sm.id });
+  expect(owner.out?.via).toBeUndefined();
+});
+
+test('a belt’s end can be dragged from its dock to another dock', async ({ page }) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  buildDrill(s, 0, Math.PI * 0.6);
+  buildDrill(s, 0, Math.PI * 0.4);
+  const [a, b] = drills(s);
+  const from = (a.out!.to as { index: number }).index;
+  const busy = (b.out!.to as { index: number }).index;
+  const free = [...Array(9).keys()].find(
+    (i) =>
+      i !== from &&
+      i !== busy &&
+      route(deserialize(serialize(s))!, a.id, { kind: 'dock', index: i }) === true
+  )!;
+  await page.addInitScript((t) => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v2', t);
+  }, serialize(s));
+  await open(page, '');
+  const docks = () =>
+    page.evaluate(() =>
+      (window as unknown as { __rockhopper: Hook }).__rockhopper.state.machines.map(
+        (m) => (m.out?.to as { index?: number } | undefined)?.index
+      )
+    );
+  async function drag(i: number, j: number) {
+    const A = await screen(page, dockPos(i).x, dockPos(i).y);
+    const D = await screen(page, dockPos(j).x, dockPos(j).y);
+    await page.mouse.move(A.x, A.y);
+    await page.mouse.down();
+    await page.mouse.move(D.x, D.y, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+  // Grabbed by its end on the dock, a's belt moves to a free dock...
+  await drag(from, free);
+  expect((await docks())[0]).toBe(free);
+  // ...and onto b's dock, the two trade.
+  await drag(free, busy);
+  expect(await docks()).toEqual([busy, free]);
+});
+
+test('with joins on, a link dropped on a belt joins it, and one on open space makes a hinge', async ({
+  page,
+}) => {
+  const s = freshState(1);
+  s.credits = 1e9;
+  s.docks = 9;
+  setJoins(s, true);
+  buildDrill(s, 0, Math.PI * 0.6);
+  buildDrill(s, 0, Math.PI * 0.4);
+  buildDrill(s, 0, Math.PI * 1.5);
+  const [a, b, c] = drills(s);
+  // A spot on b's belt that takes a join from a, clear of other belts and targets.
+  const path = beltPath(s, b)!;
+  const L = pathLength(path);
+  let onB: { x: number; y: number } | null = null;
+  for (let f = 0.35; f < 0.9 && !onB; f += 0.03) {
+    const q = pointAlong(path, L * f);
+    const p = { x: q.x, y: q.y };
+    const far = [a, c].every((m) => Math.hypot(machinePos(m).x - p.x, machinePos(m).y - p.y) > 60);
+    if (far && Math.hypot(p.x, p.y) > 110 && !joinLinkWhy(s, a.id, p, b.id)) onB = p;
+  }
+  expect(onB).not.toBeNull();
+  // Open space for c's hinge: away from belts, docks and machines.
+  let open_: { x: number; y: number } | null = null;
+  for (let y = T1Y + 200; y > T1Y - 200 && !open_; y -= 20)
+    for (let x = 220; x > 60 && !open_; x -= 20) {
+      const p = { x, y };
+      const clear =
+        beltsNear(s, p, 40).length === 0 &&
+        s.machines.every((m) => Math.hypot(machinePos(m).x - x, machinePos(m).y - y) > 70) &&
+        Math.hypot(x, y) > 130;
+      if (clear && !joinLinkWhy(s, c.id, p)) open_ = p;
+    }
+  expect(open_).not.toBeNull();
+  await page.addInitScript((t) => {
+    localStorage.setItem(
+      'rockhopper.settings.v1',
+      JSON.stringify({ sectors: false, slowRocks: false, joins: true })
+    );
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('rockhopper.save.v3', t);
+  }, serialize(s));
+  await open(page, '');
+  async function drag(from: { x: number; y: number }, to: { x: number; y: number }, pause = 0) {
+    const A = await screen(page, from.x, from.y);
+    const D = await screen(page, to.x, to.y);
+    await page.mouse.move(A.x, A.y);
+    await page.mouse.down();
+    await page.mouse.move(D.x, D.y, { steps: 12 });
+    if (pause) await page.waitForTimeout(pause);
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+  const outs = () =>
+    page.evaluate(() =>
+      (window as unknown as { __rockhopper: Hook }).__rockhopper.state.machines.map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        to: m.out?.to ?? null,
+      }))
+    );
+  // a's link dropped on b's belt: a join goes in there, and both belts feed it.
+  await drag(machinePos(a), onB!);
+  let ms = await outs();
+  const j = ms.find((m) => m.kind === 'join')!;
+  expect(j).toBeTruthy();
+  expect(ms.find((m) => m.id === a.id)!.to).toEqual({ kind: 'join', id: j.id });
+  expect(ms.find((m) => m.id === b.id)!.to).toEqual({ kind: 'join', id: j.id });
+  expect(j.to).toEqual(b.out!.to);
+  // A quick release on open space cancels, as before: c keeps its dock.
+  const before = ms.find((m) => m.id === c.id)!.to;
+  await drag(machinePos(c), open_!);
+  ms = await outs();
+  expect(ms.find((m) => m.id === c.id)!.to).toEqual(before);
+  expect(ms.filter((m) => m.kind === 'join')).toHaveLength(1);
+  // A pause there, then release: a hinge, with nowhere to go yet.
+  await drag(machinePos(c), open_!, 700);
+  ms = await outs();
+  const h = ms.find((m) => m.kind === 'join' && m.id !== j.id)!;
+  expect(h).toBeTruthy();
+  expect(h.to).toBeNull();
+  expect(ms.find((m) => m.id === c.id)!.to).toEqual({ kind: 'join', id: h.id });
+  // Dragging on from the hinge to a free dock finishes the line.
+  const t = await page.evaluate(() => {
+    const st = (window as unknown as { __rockhopper: Hook }).__rockhopper.state;
+    const used = new Set(st.machines.map((m) => (m.out?.to as { index?: number })?.index));
+    return [...Array(st.docks).keys()].filter((i) => !used.has(i));
+  });
+  let linked = false;
+  for (const i of t) {
+    await drag(open_!, dockPos(i));
+    ms = await outs();
+    if (ms.find((m) => m.id === h.id)!.to) {
+      expect(ms.find((m) => m.id === h.id)!.to).toEqual({ kind: 'dock', index: i });
+      linked = true;
+      break;
+    }
+  }
+  expect(linked).toBe(true);
+  // The switch is in the menu.
+  await page.locator('.rh-menu-btn, [aria-label="Menu"]').first().click();
+  await expect(page.getByRole('button', { name: 'Joins: on' })).toBeVisible();
 });

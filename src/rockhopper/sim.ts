@@ -125,7 +125,8 @@ export type Target =
   | { kind: 'dock'; index: number }
   | { kind: 'smelter'; id: number }
   | { kind: 'factory'; id: number }
-  | { kind: 'drill'; id: number };
+  | { kind: 'drill'; id: number }
+  | { kind: 'join'; id: number };
 
 /**
  * One bundle on a belt: up to the belt's tier of real chunks or bars travelling together.
@@ -228,7 +229,27 @@ export interface Factory extends MachineBase {
   rawT: number;
 }
 
-export type Machine = Drill | Smelter | Factory;
+/**
+ * A join (the joins experiment): a free hinge where belts meet. It zips every belt that ends at it
+ * onto its own belt, fairly, like a drill junction with no rock. Dropped on open space it is a
+ * hinge the player drags on from; dropped on a belt it goes into that line.
+ */
+export interface Join extends MachineBase {
+  kind: 'join';
+  x: number;
+  y: number;
+}
+
+export type Machine = Drill | Smelter | Factory | Join;
+
+/** A join's footprint. */
+export const JOIN_RADIUS = 9;
+/** Belts one join can take. */
+export const JOIN_INPUTS = 3;
+
+/** A machine's body radius, for lanes and spacing. */
+export const bodyRadius = (kind: Machine['kind']) =>
+  kind === 'drill' ? DRILL_RADIUS : kind === 'join' ? JOIN_RADIUS : SMELTER_RADIUS;
 
 export interface Flight {
   ore: Ore;
@@ -304,6 +325,8 @@ export interface State {
   fixedCosts?: boolean;
   /** The factories experiment: the tray offers factories (off by default during the prototype). */
   factories: boolean;
+  /** The joins experiment: links may end in open space or on another belt (off by default). */
+  joins?: boolean;
   /** The sectors prototype: this game's field was generated from its seed, else the classic one. */
   sector: boolean;
   /** Slow-burn rocks (docs/ROCKHOPPER_SLOW_ROCKS.md): deep rocks, auto-tow, no tractor. */
@@ -620,8 +643,20 @@ function endsBetween(m: Machine, p: Point, q: Point, t: Target['kind']) {
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len,
     uy = dy / len;
-  const start = m.kind === 'drill' ? DRILL_RADIUS * 0.6 : SMELTER_RADIUS * 0.8;
-  const end = t === 'dock' ? 0 : t === 'drill' ? DRILL_RADIUS * 0.75 : SMELTER_RADIUS * 0.8;
+  const start =
+    m.kind === 'drill'
+      ? DRILL_RADIUS * 0.6
+      : m.kind === 'join'
+        ? JOIN_RADIUS * 0.5
+        : SMELTER_RADIUS * 0.8;
+  const end =
+    t === 'dock'
+      ? 0
+      : t === 'drill'
+        ? DRILL_RADIUS * 0.75
+        : t === 'join'
+          ? JOIN_RADIUS * 0.5
+          : SMELTER_RADIUS * 0.8;
   return {
     a: { x: p.x + ux * start, y: p.y + uy * start },
     b: { x: q.x - ux * end, y: q.y - uy * end },
@@ -701,6 +736,7 @@ export const byId = (s: State, id: number) => s.machines.find((m) => m.id === id
 export const drills = (s: State) => s.machines.filter((m): m is Drill => m.kind === 'drill');
 export const smelters = (s: State) => s.machines.filter((m): m is Smelter => m.kind === 'smelter');
 export const factories = (s: State) => s.machines.filter((m): m is Factory => m.kind === 'factory');
+export const joins = (s: State) => s.machines.filter((m): m is Join => m.kind === 'join');
 
 /** The tray offers factories once the player owns 2 smelters (one seam for a tech tree). */
 export const factoryUnlocked = (s: State) => s.factories && smelters(s).length >= 2;
@@ -726,6 +762,7 @@ export const drillPriceOn = (s: State, slot: number) =>
  * where it would land). Smelters: 520 × 2^n.
  */
 export function priceOf(s: State, kind: Machine['kind']): number {
+  if (kind === 'join') return 0;
   if (kind === 'smelter') return s.fixedCosts ? FIXED_SMELTER : smelterPrice(smelters(s).length);
   if (kind === 'factory') return s.fixedCosts ? FIXED_FACTORY : factoryPrice(factories(s).length);
   if (!s.fixedCosts && !s.rockPrices) return classicDrillPrice(drills(s).length);
@@ -747,6 +784,7 @@ export function moveDrillCost(s: State, id: number, slot: number): number {
 }
 
 export function upgradeCost(m: Machine): number | null {
+  if (m.kind === 'join') return null;
   if (m.kind === 'drill') return m.level >= DRILL_MAX_LEVEL ? null : drillUpgradeCost(m.level);
   if (m.kind === 'factory')
     return m.level >= FACTORY_MAX_LEVEL ? null : factoryUpgradeCost(m.level);
@@ -757,6 +795,8 @@ export function upgradeCost(m: Machine): number | null {
 export const tiersBought = (s: State) => s.machines.reduce((n, m) => n + m.tierBought, 0);
 
 export function widenPrice(s: State, m: Machine): number | null {
+  // A join's belt is as wide as the widest belt it takes (`loadBelts`): never bought.
+  if (m.kind === 'join') return null;
   if (m.tier >= BELT_TIER_MAX) return null;
   return s.fixedCosts ? FIXED_WIDEN[m.tier - 1] : widenCost(tiersBought(s));
 }
@@ -789,9 +829,11 @@ export const smelterInputsOf = inputsOf;
 export const inputCap = (m: Machine) =>
   m.kind === 'drill'
     ? DRILL_INPUTS
-    : m.kind === 'factory'
-      ? factoryInputs(m.level)
-      : smelterInputs(m.level);
+    : m.kind === 'join'
+      ? JOIN_INPUTS
+      : m.kind === 'factory'
+        ? factoryInputs(m.level)
+        : smelterInputs(m.level);
 
 /** A drill junction: a drill that already takes at least one belt. */
 export const isJunction = (s: State, m: Machine) =>
@@ -862,7 +904,7 @@ function matrixOk(s: State, m: Machine, t: Target): boolean {
   // Factories take smelters and drill junctions, and feed only docks and drills.
   if (tm.kind === 'factory' && (m.kind === 'factory' || (m.kind === 'drill' && !isJunction(s, m))))
     return false;
-  if (m.kind === 'factory' && tm.kind !== 'drill') return false;
+  if (m.kind === 'factory' && tm.kind !== 'drill' && tm.kind !== 'join') return false;
   if (inputsOf(s, tm.id).filter((x) => x !== m).length >= inputCap(tm)) return false;
   return !reaches(s, t, m.id);
 }
@@ -889,12 +931,13 @@ function autoLink(s: State, m: Machine): boolean {
   return true;
 }
 
-const RELINK_ORDER: Record<Machine['kind'], number> = { smelter: 0, factory: 1, drill: 2 };
+const RELINK_ORDER: Record<Machine['kind'], number> = { smelter: 0, factory: 1, drill: 2, join: 3 };
 
 /** Unlinked machines retry a free dock (never a machine): smelters, factories, then drills. */
 function relinkAll(s: State) {
+  // A join with nowhere to go is a hinge waiting for the player to drag on from it.
   const waiting = s.machines
-    .filter((m) => !m.out)
+    .filter((m) => !m.out && m.kind !== 'join')
     .sort((a, b) => RELINK_ORDER[a.kind] - RELINK_ORDER[b.kind] || a.id - b.id);
   for (const m of waiting) autoLink(s, m);
 }
@@ -920,8 +963,7 @@ export function relayout(s: State) {
 // ---------------------------------------------------------------- lanes
 
 /** Belts run beside machines, never under them: a belt's centre line keeps this far away. */
-export const laneClear = (kind: Machine['kind']) =>
-  kind === 'drill' ? DRILL_RADIUS : SMELTER_RADIUS;
+export const laneClear = (kind: Machine['kind']) => bodyRadius(kind);
 
 function segDist(p: Point, a: Point, b: Point) {
   const dx = b.x - a.x,
@@ -1134,7 +1176,12 @@ export function drillSpotWhy(
   for (const m of s.machines) {
     if (m.id === except) continue;
     const q = machinePos(m);
-    const min = m.kind === 'drill' ? DRILL_SPACING : DRILL_SMELTER_GAP;
+    const min =
+      m.kind === 'drill'
+        ? DRILL_SPACING
+        : m.kind === 'join'
+          ? DRILL_RADIUS + JOIN_RADIUS + 4
+          : DRILL_SMELTER_GAP;
     if (Math.hypot(p.x - q.x, p.y - q.y) < min) return 'no room here';
   }
   if (lanes && s.crossings) {
@@ -1218,7 +1265,12 @@ export function smelterSpotWhy(
   for (const m of s.machines) {
     if (m.id === except) continue;
     const q = machinePos(m);
-    const min = m.kind !== 'drill' ? SMELTER_RADIUS * 2 + 8 : DRILL_SMELTER_GAP;
+    const min =
+      m.kind === 'drill'
+        ? DRILL_SMELTER_GAP
+        : m.kind === 'join'
+          ? SMELTER_RADIUS + JOIN_RADIUS + 4
+          : SMELTER_RADIUS * 2 + 8;
     if (Math.hypot(p.x - q.x, p.y - q.y) < min) return no;
   }
   if (lanes && s.crossings) {
@@ -1347,7 +1399,7 @@ export const SPLICE_REACH = 40;
 export const MIN_FEED = BELT_SPACING + 4;
 
 /** Machines that are placed freely and can be dropped into a line. */
-export type Placed = Smelter | Factory;
+export type Placed = Smelter | Factory | Join;
 
 /**
  * Can `sm` (or a new machine of `kind`, `sm` null) be put into `owner`'s belt near `p`? A smelter
@@ -1364,7 +1416,10 @@ export function canSplice(
 ) {
   if (!owner?.out) return false;
   const old = owner.out.to;
-  if (kind === 'smelter') {
+  if (kind === 'join') {
+    // A join goes into any line, on its own belt only once.
+    if (!s.joins && !sm) return false;
+  } else if (kind === 'smelter') {
     if (owner.kind !== 'drill' || old.kind === 'smelter') return false;
   } else {
     if (owner.kind === 'factory' || (owner.kind === 'drill' && !isJunction(s, owner))) return false;
@@ -1380,8 +1435,10 @@ export function canSplice(
     if (inputsOf(s, sm.id).length >= inputCap(sm)) return false;
     if (reaches(s, old, sm.id)) return false;
   }
-  // A smelter never lands on one of the belt's own bend posts.
+  // A smelter may sit exactly on one of the belt's bend posts (its knee), never half on one.
+  const knee = kneeAt(owner, p);
   if (
+    knee < 0 &&
     (owner.out.via ?? []).some(
       (v) => Math.hypot(v.x - p.x, v.y - p.y) < SMELTER_RADIUS + POST_RADIUS
     )
@@ -1409,10 +1466,37 @@ export function spliceLanesBlocked(s: State, owner: Machine, sm: Placed | null, 
   return false;
 }
 
-/** A splice at `p` splits `owner`'s bend posts: those before it stay, the rest go onward. */
+/** How close to a bend post a splice snaps onto it (the knee). */
+export const KNEE_SNAP = SMELTER_RADIUS + POST_RADIUS;
+
+/** The index of the bend post of `owner`'s belt that `p` sits on, or -1. */
+export function kneeAt(owner: Machine, p: Point): number {
+  return (owner.out?.via ?? []).findIndex((v) => Math.hypot(v.x - p.x, v.y - p.y) < 0.5);
+}
+
+/** The bend post of `owner`'s belt within `reach` of `p` (nearest first), or null. */
+export function kneeNear(owner: Machine, p: Point, reach = KNEE_SNAP): Point | null {
+  let best: Point | null = null,
+    bd = reach;
+  for (const v of owner.out?.via ?? []) {
+    const d = Math.hypot(v.x - p.x, v.y - p.y);
+    if (d < bd) {
+      bd = d;
+      best = { x: v.x, y: v.y };
+    }
+  }
+  return best;
+}
+
+/**
+ * A splice at `p` splits `owner`'s bend posts: those before it stay, the rest go onward. A
+ * splice on a post (its knee) uses that post up: the smelter stands where the belt turned.
+ */
 function splitVia(s: State, owner: Machine, p: Point): [Point[], Point[]] {
   const via = owner.out?.via ?? [];
   if (!via.length) return [[], []];
+  const j = kneeAt(owner, p);
+  if (j >= 0) return [via.slice(0, j), via.slice(j + 1)];
   const k = beltDistance(s, owner, p)?.piece ?? 0;
   return [via.slice(0, k), via.slice(k)];
 }
@@ -1607,6 +1691,7 @@ export function route(s: State, id: number, to: Target, via?: Point[]): Result {
     setVia(m.out!, vm);
     relayout(s);
     s.events.push({ type: 'route', id: o.id }, { type: 'route', id });
+    dropEmptyJoins(s);
     return true;
   }
   if (m.out) {
@@ -1620,7 +1705,23 @@ export function route(s: State, id: number, to: Target, via?: Point[]): Result {
   if (m.out.length === 1) m.out.length = beltLength(s, m);
   relinkAll(s);
   s.events.push({ type: 'route', id });
+  dropEmptyJoins(s);
   return true;
+}
+
+/**
+ * A join whose last input has left goes away (it is free), so no empty hinge lingers or holds a
+ * dock. Items still on its belt are lost, as when a machine is sold.
+ */
+function dropEmptyJoins(s: State) {
+  // Repeat: a join that fed only another join empties that one too.
+  const empty = () => joins(s).find((x) => !inputsOf(s, x.id).length);
+  for (let j = empty(); j; j = empty()) {
+    s.machines = s.machines.filter((x) => x !== j);
+    relayout(s);
+    relinkAll(s);
+    s.events.push({ type: 'sell', id: j.id, x: j.x, y: j.y, lost: onBelt(j.out) });
+  }
 }
 
 export function upgrade(s: State, id: number): Result {
@@ -1664,9 +1765,11 @@ export function sell(s: State, id: number): Result {
     onBelt(m.out) +
     (m.kind === 'drill'
       ? m.buffer.length
-      : m.kind === 'factory'
-        ? m.stock.length + 2 * m.pairs.length + (m.job ? 2 : 0) + m.ready.length
-        : m.queue.length + (m.job ? (m.job.pair ? 2 : 1) : 0) + m.ready.length);
+      : m.kind === 'join'
+        ? 0
+        : m.kind === 'factory'
+          ? m.stock.length + 2 * m.pairs.length + (m.job ? 2 : 0) + m.ready.length
+          : m.queue.length + (m.job ? (m.job.pair ? 2 : 1) : 0) + m.ready.length);
   const inputs = inputsOf(s, m.id);
   const target = m.out?.to ?? null;
   s.machines = s.machines.filter((x) => x !== m);
@@ -1694,6 +1797,7 @@ export function sell(s: State, id: number): Result {
   relayout(s);
   relinkAll(s);
   s.events.push({ type: 'sell', id, x: p.x, y: p.y, lost });
+  dropEmptyJoins(s);
   return true;
 }
 
@@ -1722,7 +1826,8 @@ export function moveDrill(s: State, id: number, slot: number, angle: number): Re
 export function moveSmelter(s: State, id: number, p: Point, splice?: number | null): Result {
   const m = byId(s, id);
   if (!m || m.kind === 'drill') return 'missing';
-  if (!smelterSpotOk(s, p, id, splice)) return 'blocked';
+  if (m.kind === 'join' ? joinSpotWhy(s, p, id, splice) : !smelterSpotOk(s, p, id, splice))
+    return 'blocked';
   const owner = splice == null ? undefined : byId(s, splice);
   if (splice != null && !canSplice(s, owner, m, p)) return 'invalid';
   m.x = p.x;
@@ -1730,6 +1835,141 @@ export function moveSmelter(s: State, id: number, p: Point, splice?: number | nu
   if (owner) spliceInto(s, m, owner);
   relayout(s);
   s.events.push({ type: 'move', id });
+  return true;
+}
+
+/**
+ * Why a join (or join `except`, being moved) can't stand at `p`, or ''. Like a smelter's spot,
+ * with a join's small footprint: off the hub, rocks and machines, and on no belt but `splice`.
+ */
+export function joinSpotWhy(
+  s: State,
+  p: Point,
+  except?: number,
+  splice?: number | null,
+  lanes = true
+): string {
+  const no = 'no room here';
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return no;
+  if (Math.hypot(p.x, p.y) < DOCK_RADIUS + JOIN_RADIUS + 6) return no;
+  if (p.x < -330 || p.x > 330 || p.y > 110 || p.y < -1150) return no;
+  for (let i = 0; i < SLOTS.length; i++) {
+    const d = SLOTS[i];
+    if (Math.hypot(p.x - d.x, p.y - d.y) < d.r * CELL + JOIN_RADIUS + 2) return no;
+  }
+  for (const m of s.machines) {
+    if (m.id === except) continue;
+    const q = machinePos(m);
+    if (Math.hypot(p.x - q.x, p.y - q.y) < bodyRadius(m.kind) + JOIN_RADIUS + 4) return no;
+  }
+  if (lanes && s.crossings) {
+    if (sitsOnBelt(s, 'join', p, except, splice)) return 'on a belt';
+    const m = except === undefined ? undefined : byId(s, except);
+    if (m && lanesBlockedAt(s, m, { x: p.x, y: p.y })) return 'belt blocked';
+  }
+  return '';
+}
+
+/**
+ * Why `linkToJoin(s, id, p, splice, via)` would be refused, in a few words, or ''. Changes
+ * nothing: the link is checked against a stand-in join that is taken away again.
+ */
+export function joinLinkWhy(
+  s: State,
+  id: number,
+  p: Point,
+  splice?: number | null,
+  via?: Point[]
+): string {
+  if (!s.joins) return 'unavailable';
+  const m = byId(s, id);
+  if (!m) return 'missing';
+  const q = { x: Number(p?.x), y: Number(p?.y) };
+  const spot = joinSpotWhy(s, q, undefined, splice);
+  if (spot) return spot;
+  const owner = splice == null ? undefined : byId(s, splice);
+  if (splice != null) {
+    if (!owner?.out || owner.id === m.id) return 'invalid';
+    // Merging into a line that already runs through `m` would loop.
+    if (reaches(s, owner.out.to, m.id)) return 'makes a loop';
+    if (!canSplice(s, owner, null, q, false, 'join')) return 'no room here';
+  }
+  const j: Join = { id: -1, kind: 'join', level: 1, spent: 0, out: null, ...base(), ...q };
+  const t: Target = { kind: 'join', id: j.id };
+  const old = owner?.out && { to: owner.out.to, via: owner.out.via };
+  s.machines.push(j);
+  try {
+    if (owner?.out && old) {
+      const [feedVia, onVia] = splitVia(s, owner, q);
+      j.out = { to: old.to, length: 1, items: [] };
+      if (onVia.length) j.out.via = onVia;
+      owner.out.to = t;
+      if (feedVia.length) owner.out.via = feedVia;
+      else delete owner.out.via;
+    }
+    return targetWhy(s, m, t, via?.length ? via : undefined);
+  } finally {
+    s.machines.pop();
+    if (owner?.out && old) {
+      owner.out.to = old.to;
+      if (old.via) owner.out.via = old.via;
+      else delete owner.out.via;
+    }
+  }
+}
+
+/**
+ * Link machine `id` to a new join at `p` (the joins experiment; joins are free). On open space
+ * the join is a hinge the player drags on from; with `splice` (a belt's owner) it goes into that
+ * line first, so the two belts merge there. `via` is the link's pinned bend posts.
+ */
+export function linkToJoin(
+  s: State,
+  id: number,
+  p: Point,
+  splice?: number | null,
+  via?: Point[]
+): Result {
+  const why = joinLinkWhy(s, id, p, splice, via);
+  if (why) return why;
+  const m = byId(s, id)!;
+  const q = { x: Number(p.x), y: Number(p.y) };
+  const owner = splice == null ? undefined : byId(s, splice);
+  const saved = owner?.out && { to: owner.out.to, via: owner.out.via };
+  const events = s.events.length;
+  const j: Join = {
+    id: s.nextId++,
+    kind: 'join',
+    level: 1,
+    spent: 0,
+    out: null,
+    ...base(),
+    x: q.x,
+    y: q.y,
+  };
+  s.machines.push(j);
+  if (owner) spliceInto(s, j, owner);
+  const r = route(s, m.id, { kind: 'join', id: j.id }, via);
+  if (r !== true) {
+    // Undo: the line the join went into runs on as before.
+    if (owner?.out && saved) {
+      owner.out.to = saved.to;
+      if (saved.via) owner.out.via = saved.via;
+      else delete owner.out.via;
+    }
+    s.machines = s.machines.filter((x) => x !== j);
+    s.nextId--;
+    s.events.length = events;
+    relayout(s);
+    return r;
+  }
+  s.events.push({ type: 'build', id: j.id });
+  return true;
+}
+
+/** Switch the joins experiment. Turning it off keeps every join already built. */
+export function setJoins(s: State, on: boolean): Result {
+  s.joins = !!on;
   return true;
 }
 
@@ -1998,20 +2238,24 @@ function loadBelts(s: State) {
     if (last && last.pos < BELT_SPACING) continue;
     const ores: Ore[] = [];
     let cls: Bar | null = null;
-    if (m.kind !== 'drill') {
+    if (m.kind !== 'drill' && m.kind !== 'join') {
       while (m.ready.length && ores.length < m.tier && (!cls || sameClass(m.ready[0], cls))) {
         const bar = m.ready.shift()!;
         cls = bar;
         ores.push(bar.ore);
       }
     } else {
+      // A drill's own buffer is source 0; a join has only its inputs (source 0 stays empty).
       const inputs = inputsOf(s, m.id);
       const n = 1 + inputs.length;
+      // A join's belt is as wide as the widest belt it takes.
+      if (m.kind === 'join') m.tier = Math.max(1, ...inputs.map((x) => x.tier));
       while (ores.length < m.tier) {
         let took = false;
         for (let k = 0; k < n; k++) {
           const idx = (m.rr + k) % n;
           if (idx === 0) {
+            if (m.kind === 'join') continue;
             if (!m.buffer.length || (cls && !sameClass(cls, { mult: 1 }))) continue;
             ores.push(m.buffer.shift()!);
             cls = { ore: ores[0], mult: 1 };
@@ -2039,9 +2283,10 @@ function loadBelts(s: State) {
     }
     // Saturation sample at each load chance: the bundle left full and items still wait.
     const left =
-      m.kind !== 'drill'
-        ? m.ready.length > 0
-        : m.buffer.length > 0 || inputsOf(s, m.id).some((x) => waiting(x.out));
+      m.kind === 'drill' || m.kind === 'join'
+        ? (m.kind === 'drill' && m.buffer.length > 0) ||
+          inputsOf(s, m.id).some((x) => waiting(x.out))
+        : m.ready.length > 0;
     // A belt whose front keeps waiting at a downstream machine is limited further down.
     const held = m.heldAgo < HELD_WINDOW;
     sample(m, ores.length >= m.tier && left && !held, FULL_LOAD_ALPHA);
@@ -2461,6 +2706,7 @@ export function inTransitValue(s: State): number {
   for (const m of s.machines) {
     for (const it of m.out?.items ?? []) for (const ore of it.ores) v += itemValue(ore, it);
     if (m.kind === 'drill') v += m.buffer.reduce((a, o) => a + ORES[o].value, 0);
+    else if (m.kind === 'join') continue;
     else if (m.kind === 'factory') {
       // Bars waiting count as bars; pairs already made count as the alloy they become.
       for (const b of [...m.stock, ...m.ready]) v += itemValue(b.ore, b);
@@ -2496,6 +2742,8 @@ export const COMMANDS = {
   setFixedCosts,
   setFactories,
   bend,
+  linkToJoin,
+  setJoins,
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;

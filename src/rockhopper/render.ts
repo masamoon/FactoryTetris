@@ -75,7 +75,7 @@ export interface Overlay {
   /** World point under the mining finger. */
   finger: Point | null;
   placing: {
-    kind: 'drill' | 'smelter' | 'factory';
+    kind: 'drill' | 'smelter' | 'factory' | 'join';
     /** The snapped spot; `splice` is the belt (owner id) it would go into. */
     at:
       | (Point & {
@@ -100,6 +100,11 @@ export interface Overlay {
     refused?: (Point & { why: string }) | null;
     /** Bend posts pinned so far by pausing mid-drag. */
     via?: Point[];
+    /**
+     * With no target in reach (the joins experiment): a join the link would make here, on the
+     * belt owned by `splice` or as a hinge on open space, and why not if refused.
+     */
+    join?: (Point & { splice?: number; why?: string; hint?: boolean }) | null;
   } | null;
   selected: number | 'hub' | null;
   /** Screen point of the drill tray button (for the drag hint). */
@@ -1081,6 +1086,39 @@ export class Renderer {
     }
   }
 
+  /**
+   * A join (the joins experiment): a mint hinge disc with a pip per input. One with no output yet
+   * pulses, since the player drags on from it.
+   */
+  private joinDisc(c: Ctx, used: number, cap: number, open: boolean, ghost = false) {
+    c.save();
+    if (ghost) c.globalAlpha = 0.75;
+    if (open && !ghost) {
+      c.globalAlpha = 0.35 + 0.25 * Math.sin(this.time * 5);
+      c.strokeStyle = MINT;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(0, 0, 14, 0, Math.PI * 2);
+      c.stroke();
+      c.globalAlpha = 1;
+    }
+    c.beginPath();
+    c.arc(0, 0, 9, 0, Math.PI * 2);
+    c.fillStyle = ghost ? CREAM : MINT;
+    c.fill();
+    c.lineWidth = 2.6;
+    c.strokeStyle = INK;
+    c.stroke();
+    for (let k = 0; k < cap; k++) {
+      const a = -Math.PI / 2 + ((k - (cap - 1) / 2) * Math.PI) / 4;
+      c.beginPath();
+      c.arc(Math.cos(a) * 4, Math.sin(a) * 4 + 1, 1.7, 0, Math.PI * 2);
+      c.fillStyle = k < used ? INK : 'rgba(30,20,60,0.35)';
+      c.fill();
+    }
+    c.restore();
+  }
+
   /** A bend post: a small ink-rimmed peg the belt wraps around. */
   private post(c: Ctx, p: Point, dim = false, ghost = false) {
     c.save();
@@ -1393,6 +1431,9 @@ export class Renderer {
         c.scale(pop * land.sx, pop * land.sy);
         const bmp = sprite('drill', 100, 120, DRILL_W * zp * pop, drawDrill);
         c.drawImage(bmp, -DRILL_W / 2, -DRILL_W * 0.6, DRILL_W, DRILL_W * 1.2);
+      } else if (m.kind === 'join') {
+        c.scale(pop, pop);
+        this.joinDisc(c, inputsOf(s, m.id).length, inputCap(m), !m.out);
       } else {
         this.drawPad(c, SMELTER_W * 0.56, land.shadow);
         c.translate(0, -land.lift);
@@ -1435,9 +1476,12 @@ export class Renderer {
         if (m.stalled) this.stalledAt.set(m.id, this.time);
         if (this.time - (this.stalledAt.get(m.id) ?? -10) < 0.6 && m.buffer.length) this.pile(c, m);
       }
-      if (!m.out) this.badge(c, p.x + 10, p.y - 18);
-      else if (m.full) this.chip(c, p.x + 12, p.y - (m.kind === 'drill' ? 16 : 26), 'full');
-      if (o.selected === m.id) this.selectRing(c, p.x, p.y, m.kind === 'drill' ? 24 : 34);
+      // A hinge with nowhere to go yet pulses instead of badging: drag on from it.
+      if (!m.out && m.kind !== 'join') this.badge(c, p.x + 10, p.y - 18);
+      else if (m.full)
+        this.chip(c, p.x + 12, p.y - (m.kind === 'drill' || m.kind === 'join' ? 16 : 26), 'full');
+      if (o.selected === m.id)
+        this.selectRing(c, p.x, p.y, m.kind === 'drill' ? 24 : m.kind === 'join' ? 16 : 34);
     }
   }
 
@@ -1716,11 +1760,13 @@ export class Renderer {
           const q = machinePos(x);
           this.targetRing(c, q.x, q.y, x.kind !== 'drill' ? 32 : 20);
         }
-        const b = o.reroute.target ? this.targetPoint(s, o.reroute.target) : o.reroute.at;
+        const hint = !o.reroute.target && o.reroute.join?.hint ? o.reroute.join : null;
+        const j = !o.reroute.target && !hint ? o.reroute.join : null;
+        const b = o.reroute.target ? this.targetPoint(s, o.reroute.target) : (j ?? o.reroute.at);
         c.save();
         c.setLineDash([7, 6]);
         c.lineDashOffset = -this.time * 40;
-        c.strokeStyle = o.reroute.target ? MINT : CREAM;
+        c.strokeStyle = o.reroute.target || (j && !j.why) ? MINT : CREAM;
         c.lineWidth = 4 / z;
         c.beginPath();
         c.moveTo(a.x, a.y);
@@ -1729,6 +1775,20 @@ export class Renderer {
         c.stroke();
         c.restore();
         for (const v of o.reroute.via ?? []) this.post(c, v, false, true);
+        if (hint)
+          this.refusals.push({ x: hint.x, y: hint.y + (36 * Math.max(1, z)) / z, why: hint.why! });
+        if (j) {
+          // The join the link would make: a ghost hinge, labelled with what it does.
+          c.save();
+          c.translate(j.x, j.y);
+          this.joinDisc(c, j.splice === undefined ? 1 : 2, 3, true, true);
+          c.restore();
+          this.refusals.push({
+            x: j.x,
+            y: j.y + (30 * Math.max(1, z)) / z,
+            why: j.why ?? (j.splice === undefined ? 'hinge' : 'join belts'),
+          });
+        }
         const t = o.reroute.target;
         const pinned = o.reroute.via?.length ? o.reroute.via : undefined;
         if (t?.kind === 'dock' && !canTarget(s, m, t, pinned) && swapPartner(s, m, t, pinned))
@@ -1792,12 +1852,12 @@ export class Renderer {
    */
   private hologram(
     c: Ctx,
-    kind: 'drill' | 'smelter' | 'factory',
+    kind: 'drill' | 'smelter' | 'factory' | 'join',
     at: Point & { ok?: boolean; angle?: number; splice?: number }
   ) {
     const z = this.cam.z;
     const ok = at.ok !== false;
-    const R = kind === 'drill' ? 16 : 28;
+    const R = kind === 'drill' ? 16 : kind === 'join' ? 11 : 28;
     const lift = 16 + Math.sin(this.time * 5) * 3;
     c.save();
     c.translate(at.x, at.y);
@@ -1844,6 +1904,11 @@ export class Renderer {
     c.setLineDash([]);
     // The hologram itself: a flat cream silhouette, lifted.
     c.translate(0, -lift);
+    if (kind === 'join') {
+      this.joinDisc(c, 0, 3, false, true);
+      c.restore();
+      return;
+    }
     if (kind === 'drill' && at.angle !== undefined) c.rotate(at.angle);
     const bmp =
       kind === 'drill'

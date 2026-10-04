@@ -113,7 +113,7 @@ Round 2 passed L5, L6 and P1, and accepted a PASS scoped to an experiment once t
 ## Rejected or deferred
 
 - **A rock sifter** (drop rock filler to save belt capacity) is deferred until L1–L7 are playtested.
-- **Hand-drawn polyline belts** are rejected: fiddly on a phone, and straight links already read well.
+- **Hand-drawn polyline belts** are rejected: fiddly on a phone, and straight links already read well. (Joins and hinges, 2026-10-03, keep belts as straight pieces between machines, posts and joins: `docs/ROCKHOPPER_JOINS.md`.)
 - **Charging per unit of belt length** is rejected: it makes experimenting costly (see L6).
 - **Ore-specific recipes and alloys** are deferred: too much at once.
 

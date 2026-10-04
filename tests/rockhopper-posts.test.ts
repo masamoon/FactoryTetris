@@ -228,3 +228,30 @@ test('a link bent mid-drag can still take a busy dock: that dock’s belt takes 
   assert.deepEqual(b.out!.to, { kind: 'drill', id: a.id }, 'b took c’s place in the junction');
   for (const m of [a, b, c]) assert.ok(canTarget(s, m, m.out!.to, m.out!.via ?? []));
 });
+
+test('a smelter dropped on a bend post sits in the knee: the post is used up, the line runs on', () => {
+  const { s, a } = crossed();
+  // Some post that bends a's belt and has room for a smelter on it.
+  let done: { t: State; p: Point } | null = null;
+  for (let y = -300; y <= 60 && !done; y += 20)
+    for (let x = -300; x <= 300 && !done; x += 20) {
+      const t = deserialize(serialize(s))!;
+      const p = { x, y };
+      if (bend(t, a.id, [p]) !== true) continue;
+      if (buildSmelter(t, p, a.id) === true) done = { t, p };
+    }
+  assert.ok(done, 'a knee with room for a smelter');
+  const { t, p } = done;
+  const a2 = drills(t).find((d) => d.id === a.id)!;
+  const sm = smelters(t).at(-1)!;
+  assert.deepEqual(machinePos(sm), p, 'the smelter stands on the post');
+  assert.deepEqual(a2.out!.to, { kind: 'smelter', id: sm.id });
+  assert.equal(a2.out!.via, undefined, 'the post is used up');
+  assert.equal(sm.out!.via, undefined);
+  assert.deepEqual(sm.out!.to, { kind: 'dock', index: 2 });
+  assert.ok(canTarget(t, a2, a2.out!.to, []) && canTarget(t, sm, sm.out!.to, []));
+  // Half on a post is still refused.
+  const u = deserialize(serialize(s))!;
+  bend(u, a.id, [p]);
+  assert.notEqual(buildSmelter(u, { x: p.x + 8, y: p.y }, a.id), true);
+});
