@@ -364,7 +364,9 @@ test('a belt caps what it carries until it is widened, and drills say so', () =>
 });
 
 test('the widen price counts owned tier steps only, never belt length', () => {
+  // Rising prices (fixed costs price every step the same: tests/rockhopper-fixed-costs.test.ts).
   const s = freshState(1);
+  s.fixedCosts = false;
   s.credits = 1e9;
   buildDrill(s, 0, legacySocketAngle(0, 0));
   buildDrill(s, 0, legacySocketAngle(0, 1));
@@ -639,7 +641,8 @@ test('credits only come from delivered chunks', () => {
 });
 
 test('pacing bot (scripted upper bound) hits the provisional beats', () => {
-  const { beats } = runBot({ minutes: 13, laser: true, seed: 1 });
+  // Rising prices: these are the classic design's beats (fixed costs have their own check).
+  const { beats } = runBot({ minutes: 13, laser: true, seed: 1, rising: true });
   const at = (l: string) => beats.find((b) => b.label === l)?.seconds ?? Infinity;
   // The design's own targets (docs/ROCKHOPPER_DESIGN.md), not bounds widened to fit the bot.
   assert.ok(at('drill #1') >= 3 && at('drill #1') <= 6, `first drill ${at('drill #1')}`);

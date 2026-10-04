@@ -1368,7 +1368,7 @@ export class RockhopperApp {
     if (b.kind === 'machine') {
       const m = byId(s, b.id);
       if (!m) return this.closeBubble();
-      const c = upgradeCost(m);
+      const c = upgradeCost(s, m);
       const wc = widenPrice(s, m);
       const limited = m.full && !!m.out;
       const crossing = m.cross && !!m.out;

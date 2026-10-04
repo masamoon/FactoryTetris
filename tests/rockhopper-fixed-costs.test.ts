@@ -4,6 +4,9 @@ import {
   FIXED_DRILL,
   FIXED_FACTORY,
   FIXED_SMELTER,
+  FIXED_DOCK,
+  FIXED_LASER,
+  FIXED_LEVEL,
   FIXED_WIDEN,
   SLOTS,
   classicDrillPrice,
@@ -22,12 +25,15 @@ import {
   priceOf,
   sell,
   sellValue,
+  upgrade,
+  upgradeCost,
   upgradeHub,
   widen,
   widenPrice,
   type State,
 } from '../src/rockhopper/sim';
 import { deserialize, serialize } from '../src/rockhopper/save';
+import { runBot } from '../tools/rockhopper-bot';
 
 const T2 = SLOTS.findIndex((d) => d.tier === 2);
 
@@ -72,7 +78,7 @@ test('every drill on a tier costs the same, however many are owned', () => {
   assert.equal(priceOf(s, 'drill'), FIXED_DRILL[1]);
 });
 
-test('smelters and factories keep one price; docks keep their hub-level schedule', () => {
+test('smelters, factories, docks and laser levels keep one price', () => {
   const s = rich();
   for (let k = 0; k < 4; k++) {
     const before = s.credits;
@@ -81,23 +87,30 @@ test('smelters and factories keep one price; docks keep their hub-level schedule
   }
   assert.equal(priceOf(s, 'factory'), FIXED_FACTORY);
   for (let k = 0; k < 3; k++) {
-    assert.equal(hubCost(s, 'docks'), dockCost(s.docks));
+    assert.equal(hubCost(s, 'docks'), FIXED_DOCK);
     upgradeHub(s, 'docks');
+    assert.equal(hubCost(s, 'laser'), FIXED_LASER);
+    upgradeHub(s, 'laser');
   }
 });
 
-test('widening is priced by the step bought, not by steps bought elsewhere', () => {
+test('every widening step and every level costs the same', () => {
   const s = rich();
   const ia = drillOn(s, 0);
   const ib = drillOn(s, 0);
   const a = s.machines.find((m) => m.id === ia)!;
   const b = s.machines.find((m) => m.id === ib)!;
   for (let step = 0; step < 3; step++) {
-    assert.equal(widenPrice(s, a), FIXED_WIDEN[step]);
+    assert.equal(widenPrice(s, a), FIXED_WIDEN);
     widen(s, a.id);
   }
   assert.equal(widenPrice(s, a), null, 'tier 4 is the top');
-  assert.equal(widenPrice(s, b), FIXED_WIDEN[0], 'other belts are unaffected');
+  assert.equal(widenPrice(s, b), FIXED_WIDEN);
+  for (let l = 1; l < 7; l++) {
+    assert.equal(upgradeCost(s, a), FIXED_LEVEL.drill);
+    upgrade(s, a.id);
+  }
+  assert.equal(upgradeCost(s, a), null, 'max level');
 });
 
 test('a move up a tier pays the difference; within a tier or down is free', () => {
@@ -137,4 +150,13 @@ test('the switch brings back rising prices', () => {
   applyCommand(s, 'setRockPrices', [false]);
   assert.equal(priceOf(s, 'drill'), classicDrillPrice(1));
   assert.equal(priceOf(s, 'smelter'), smelterPrice(1));
+  assert.equal(hubCost(s, 'docks'), dockCost(s.docks));
+});
+
+test('the default game keeps its opening under fixed costs (pacing bot, an upper bound)', () => {
+  const { beats } = runBot({ minutes: 10, laser: true, seed: 1, slowRocks: true });
+  const at = (l: string) => beats.find((b) => b.label === l)?.seconds ?? Infinity;
+  assert.ok(at('drill #1') <= 10, `first drill ${at('drill #1')}`);
+  assert.ok(at('smelter #1') >= 30 && at('smelter #1') <= 120, `first smelter ${at('smelter #1')}`);
+  assert.ok(at('T2 reached') <= 8 * 60, `T2 ${at('T2 reached')}`);
 });

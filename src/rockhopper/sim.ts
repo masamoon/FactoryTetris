@@ -43,6 +43,10 @@ import {
   FIXED_FACTORY,
   FIXED_SMELTER,
   FIXED_WIDEN,
+  FIXED_DOCK,
+  FIXED_LASER,
+  FIXED_LEVEL,
+  FIXED_TRACTOR,
   factoryTime,
   factoryUpgradeCost,
   FLIGHT_MAX,
@@ -783,12 +787,19 @@ export function moveDrillCost(s: State, id: number, slot: number): number {
   return Math.max(0, rockPrice(s, slot, id) - rockPrice(s, m.slot, id));
 }
 
-export function upgradeCost(m: Machine): number | null {
+export function upgradeCost(s: State, m: Machine): number | null {
   if (m.kind === 'join') return null;
-  if (m.kind === 'drill') return m.level >= DRILL_MAX_LEVEL ? null : drillUpgradeCost(m.level);
-  if (m.kind === 'factory')
-    return m.level >= FACTORY_MAX_LEVEL ? null : factoryUpgradeCost(m.level);
-  return m.level >= SMELTER_MAX_LEVEL ? null : smelterUpgradeCost(m.level);
+  const max =
+    m.kind === 'drill'
+      ? DRILL_MAX_LEVEL
+      : m.kind === 'factory'
+        ? FACTORY_MAX_LEVEL
+        : SMELTER_MAX_LEVEL;
+  if (m.level >= max) return null;
+  if (s.fixedCosts) return FIXED_LEVEL[m.kind];
+  if (m.kind === 'drill') return drillUpgradeCost(m.level);
+  if (m.kind === 'factory') return factoryUpgradeCost(m.level);
+  return smelterUpgradeCost(m.level);
 }
 
 /** Tier steps bought and still owned across the factory: the only input to the widen price. */
@@ -798,17 +809,20 @@ export function widenPrice(s: State, m: Machine): number | null {
   // A join's belt is as wide as the widest belt it takes (`loadBelts`): never bought.
   if (m.kind === 'join') return null;
   if (m.tier >= BELT_TIER_MAX) return null;
-  return s.fixedCosts ? FIXED_WIDEN[m.tier - 1] : widenCost(tiersBought(s));
+  return s.fixedCosts ? FIXED_WIDEN : widenCost(tiersBought(s));
 }
 
 export function hubCost(s: State, what: HubUpgrade): number | null {
-  if (what === 'laser')
-    return s.laserLevel >= LASER_POWER.length ? null : LASER_COST[s.laserLevel - 1];
-  // Docks are hub levels, like the laser: they keep their schedule under fixed costs too.
-  if (what === 'docks') return s.docks >= DOCKS_MAX ? null : dockCost(s.docks);
+  const fixed = !!s.fixedCosts;
+  if (what === 'laser') {
+    if (s.laserLevel >= LASER_POWER.length) return null;
+    return fixed ? FIXED_LASER : LASER_COST[s.laserLevel - 1];
+  }
+  if (what === 'docks') return s.docks >= DOCKS_MAX ? null : fixed ? FIXED_DOCK : dockCost(s.docks);
   // Slow-burn rocks have no tow wait to shorten.
   if (s.slowRocks) return null;
-  return s.tractorLevel >= TRACTOR_MAX ? null : tractorCost(s.tractorLevel);
+  if (s.tractorLevel >= TRACTOR_MAX) return null;
+  return fixed ? FIXED_TRACTOR : tractorCost(s.tractorLevel);
 }
 
 export const sellValue = (m: Machine) => Math.floor(m.spent * SELL_REFUND);
@@ -1727,7 +1741,7 @@ function dropEmptyJoins(s: State) {
 export function upgrade(s: State, id: number): Result {
   const m = byId(s, id);
   if (!m) return 'missing';
-  const cost = upgradeCost(m);
+  const cost = upgradeCost(s, m);
   if (cost === null) return 'max';
   if (!pay(s, cost)) return 'credits';
   m.level++;
