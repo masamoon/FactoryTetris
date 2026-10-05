@@ -78,7 +78,7 @@ import {
 type Ctx = CanvasRenderingContext2D;
 
 /** How high a lifted piece's deck runs (world units), and over what length it eases down at each end. */
-const DECK_H = 12;
+const DECK_H = 16;
 const DECK_EASE = 24;
 
 /** The deck's height at distance `d` along a belt with these lifted ranges. */
@@ -100,6 +100,8 @@ export interface Overlay {
   liftMode?: boolean;
   /** The piece a finger is on in the Lift tool, before release (its ghost). */
   liftGhost?: { id: number; piece: number } | null;
+  /** The Lift tool's line above the tray: lifts free and the smoothed income (research). */
+  liftInfo?: string | null;
   placing: {
     kind: 'drill' | 'smelter' | 'factory' | 'join';
     /** The snapped spot; `splice` is the belt (owner id) it would go into. */
@@ -665,6 +667,7 @@ export class Renderer {
     this.drawBelts(c, s, alpha, o);
     this.drawPlates(c, s, o);
     this.drawDecks(c);
+    this.drawLiftMode(c, s, o);
     this.drawHubAndDocks(c, s, o);
     this.drawMachines(c, s, o);
     this.drawLab(c, s, o);
@@ -676,6 +679,16 @@ export class Renderer {
     c.setTransform(d, 0, 0, d, 0, 0);
     this.drawLockedTags(c, s);
     this.drawLabTag(c);
+    if (o.liftMode && o.liftInfo) {
+      label(c, o.liftInfo, this.w / 2, this.h - this.insetBottom - 40, 16, MINT);
+      label(
+        c,
+        'Tap a belt piece to lift it · tap away to finish',
+        this.w / 2,
+        this.h - this.insetBottom - 16,
+        13
+      );
+    }
     this.drawPops(c, dt, o.placing ? 0.25 : 1);
     this.drawTurnChips(c, s, o);
     this.flashes = this.flashes.filter((f) => f.until > this.time);
@@ -1229,19 +1242,23 @@ export class Renderer {
         c.globalAlpha = b.dim ? 0.35 : 1;
         c.lineCap = 'round';
         c.lineJoin = 'round';
-        // Shadow, cast down and to the right of the deck.
-        line((p) => ({ x: p.x + 0.45 * p.h, y: p.y + 0.35 * p.h }));
-        c.strokeStyle = 'rgba(10,6,24,0.7)';
+        // The ground belt under the deck turns into its shadow, cast down and to the right.
+        line((p) => p);
+        c.strokeStyle = 'rgba(10,6,24,0.88)';
+        c.lineWidth = 13 + wide;
+        c.stroke();
+        line((p) => ({ x: p.x + 0.8 * p.h, y: p.y + 0.35 * p.h }));
+        c.strokeStyle = 'rgba(10,6,24,0.6)';
         c.lineWidth = 12 + wide;
         c.stroke();
         // Pylons.
         c.strokeStyle = MUTED;
-        c.lineWidth = 2.4;
-        for (let i = 2; i < pts.length - 2; i += 8) {
+        c.lineWidth = 3;
+        for (let i = 2; i < pts.length - 2; i += 6) {
           const p = pts[i];
           if (p.h < DECK_H * 0.6) continue;
           c.beginPath();
-          c.moveTo(p.x + 0.45 * p.h, p.y + 0.35 * p.h);
+          c.moveTo(p.x + 0.8 * p.h, p.y + 0.35 * p.h);
           c.lineTo(p.x, p.y - p.h);
           c.stroke();
         }
@@ -1267,6 +1284,35 @@ export class Renderer {
     }
     for (const d of this.deckItems)
       this.drawItem(c, d.it, { ...d.at, y: d.at.y - d.h }, d.dim, d.spin);
+    // Cream rails along both edges, over the bundles, so a busy deck still reads as a bridge.
+    for (const b of this.decks)
+      for (const [d0, d1] of b.decks) {
+        c.save();
+        c.globalAlpha = b.dim ? 0.35 : 1;
+        c.lineCap = 'round';
+        for (const side of [-1, 1]) {
+          c.beginPath();
+          for (let d = d0, i = 0; d <= d1 + 1e-6; d += 3, i++) {
+            const at = Math.min(d, d1);
+            const q = pointAlong(b.path, at);
+            const n = pointAlong(b.path, Math.min(at + 1, d1 + 1));
+            const m = pointAlong(b.path, Math.max(at - 1, 0));
+            const L = Math.hypot(n.x - m.x, n.y - m.y) || 1;
+            const off = (6 + b.wide / 2) * side;
+            const x = q.x - ((n.y - m.y) / L) * off,
+              y = q.y + ((n.x - m.x) / L) * off - deckHeight([[d0, d1]], at);
+            if (i) c.lineTo(x, y);
+            else c.moveTo(x, y);
+          }
+          c.strokeStyle = INK;
+          c.lineWidth = 4.2;
+          c.stroke();
+          c.strokeStyle = CREAM;
+          c.lineWidth = 2.2;
+          c.stroke();
+        }
+        c.restore();
+      }
     this.decks = [];
     this.deckItems = [];
   }
@@ -1352,6 +1398,45 @@ export class Renderer {
       draw({ x: ghost.x, y: ghost.y - 16 }, !ghost.ok, true);
       if (!ghost.ok)
         this.refusals.push({ x: ghost.x, y: ghost.y, why: ghost.why ?? 'drop it on a belt' });
+    }
+  }
+
+  /**
+   * The Lift tool: every belt piece shows a tap marker at its middle (mint once raised), and the
+   * piece under the finger glows, so a piece reads as the unit a lift takes.
+   */
+  private drawLiftMode(c: Ctx, s: State, o: Overlay) {
+    if (!o.liftMode) return;
+    const z = this.cam.z;
+    for (const m of s.machines) {
+      const path = m.out && beltPath(s, m);
+      if (!path) continue;
+      const up = new Set(raisedPieces(s, m));
+      for (let k = 0; k < path.length - 1; k++) {
+        const a = path[k],
+          b = path[k + 1];
+        const ghost = o.liftGhost?.id === m.id && o.liftGhost.piece === k;
+        if (ghost) {
+          c.save();
+          c.globalAlpha = 0.45 + 0.2 * Math.sin(this.time * 8);
+          c.strokeStyle = up.has(k) ? CORAL : MINT;
+          c.lineCap = 'round';
+          c.lineWidth = 16 + 2 * (m.tier - 1);
+          c.beginPath();
+          c.moveTo(a.x, a.y);
+          c.lineTo(b.x, b.y);
+          c.stroke();
+          c.restore();
+        }
+        const q = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        c.beginPath();
+        c.arc(q.x, q.y, Math.max(5, 6 / z), 0, Math.PI * 2);
+        c.fillStyle = up.has(k) ? MINT : CREAM;
+        c.fill();
+        c.lineWidth = 2;
+        c.strokeStyle = INK;
+        c.stroke();
+      }
     }
   }
 

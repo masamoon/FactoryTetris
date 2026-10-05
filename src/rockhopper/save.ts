@@ -421,6 +421,8 @@ export interface Settings {
   joins: boolean;
   /** The ore picks experiment: drills dig their picked ore first, kept across restarts (default off). */
   orePicks: boolean;
+  /** The research Lab and lifts (needs factories), kept across restarts (default off). */
+  research: boolean;
 }
 
 export function loadSettings(): Settings {
@@ -433,6 +435,7 @@ export function loadSettings(): Settings {
       factories: raw.factories === true,
       joins: raw.joins === true,
       orePicks: raw.orePicks === true,
+      research: raw.research === true,
     };
   } catch {
     return {
@@ -442,6 +445,7 @@ export function loadSettings(): Settings {
       factories: false,
       joins: false,
       orePicks: false,
+      research: false,
     };
   }
 }
