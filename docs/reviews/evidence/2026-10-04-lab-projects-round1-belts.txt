@@ -1,0 +1,121 @@
+# Lab projects round 1 scratch runs (2026-10-04). Slow rocks, fixed costs, crossings on. Per dock-bound belt: kind, tier, length, mean items per bundle (fill), share of bundles waiting at a plate, and paired bars/min by ore (1 rock, 2 copper, 3 ice, 4 gold, 5 crystal). 'force 6' sets every tier>=4 belt to tier 6 from 30:00. w15 = 15-25 min, w30 = 30-40 min, r_* = 40-60 min, f1 = factories on, 40-60 min.
+# Note: in w15_*/w30_* files the "income" fields on the seed line are not meaningful (the window moved); ignore them.
+== r_1_0
+seed 1 force 0 income30-40 1542/s income40-end 1568/s
+#4 smelter t3 len76 fill 1.71 waitShare 0.00 | bar6:1 562 bar6:2 122 bar6:3 52 bar3:1 0 bar3:3 0
+#5 smelter t4 len138 fill 3.94 waitShare 0.08 | bar6:1 621 bar6:2 222 bar6:3 123 bar3:1 0
+#6 smelter t3 len138 fill 1.80 waitShare 0.00 | bar6:1 716 bar6:2 50 bar6:3 40 bar6:4 2
+#10 smelter t4 len131 fill 3.60 waitShare 0.08 | bar6:1 658 bar6:2 98 bar6:3 47
+#14 smelter t4 len131 fill 3.07 waitShare 0.08 | bar6:1 425 bar6:3 132 bar6:2 122 bar3:1 0
+#19 smelter t4 len191 fill 3.49 waitShare 0.07 | bar6:1 508 bar6:3 163 bar6:4 92 bar6:5 7 bar6:2 16
+#24 smelter t4 len191 fill 1.98 waitShare 0.05 | bar6:4 109 bar6:1 259 bar6:3 66 bar6:2 11 bar3:2 0 bar3:4 0 bar3:1 0
+#32 smelter t4 len516 fill 1.80 waitShare 0.04 | bar6:1 208 bar6:4 75 bar6:5 58 bar6:3 6
+== r_1_6
+seed 1 force 6 income30-40 1613/s income40-end 1668/s
+#4 smelter t3 len76 fill 1.75 waitShare 0.00 | bar6:1 592 bar6:2 120 bar6:3 37 bar3:1 1 bar3:2 0
+#5 smelter t6 len138 fill 3.92 waitShare 0.07 | bar6:2 226 bar6:1 640 bar6:3 103
+#6 smelter t6 len138 fill 2.39 waitShare 0.00 | bar6:1 921 bar6:2 64 bar6:3 90
+#10 smelter t6 len131 fill 3.95 waitShare 0.08 | bar6:2 130 bar6:1 706 bar6:3 46
+#14 smelter t6 len131 fill 2.96 waitShare 0.08 | bar6:2 132 bar6:1 374 bar6:3 147 bar3:1 0
+#19 smelter t6 len191 fill 3.99 waitShare 0.08 | bar6:3 167 bar6:1 593 bar6:4 101 bar6:5 15 bar6:2 21
+#24 smelter t6 len191 fill 1.96 waitShare 0.05 | bar6:1 258 bar6:3 59 bar6:4 114 bar6:2 11 bar3:1 0 bar3:4 0
+#32 smelter t6 len516 fill 1.82 waitShare 0.04 | bar6:1 210 bar6:4 75 bar6:5 57 bar6:3 6 bar3:4 0
+== r_2_0
+seed 2 force 0 income30-40 1666/s income40-end 1684/s
+#4 smelter t3 len76 fill 1.66 waitShare 0.00 | bar6:1 516 bar3:1 1 bar6:2 117 bar6:3 80 bar3:2 0
+#5 smelter t4 len138 fill 3.92 waitShare 0.07 | bar6:1 670 bar6:3 122 bar6:2 215
+#6 smelter t3 len138 fill 1.85 waitShare 0.00 | bar6:1 704 bar6:4 54 bar6:3 44 bar6:2 31
+#10 smelter t4 len131 fill 3.89 waitShare 0.08 | bar6:1 624 bar6:2 125 bar6:3 114
+#14 smelter t4 len131 fill 3.19 waitShare 0.08 | bar6:1 492 bar6:2 87 bar6:3 124 bar3:2 0 bar3:1 0 bar3:3 0
+#19 smelter t4 len191 fill 3.63 waitShare 0.07 | bar6:2 40 bar6:1 547 bar6:3 129 bar6:4 91 bar6:5 10
+#24 smelter t4 len191 fill 2.09 waitShare 0.05 | bar6:4 114 bar6:1 335 bar6:3 13 bar3:1 0 bar6:2 6 bar3:4 0
+#32 smelter t4 len516 fill 1.80 waitShare 0.04 | bar6:1 190 bar6:4 36 bar6:5 83 bar6:3 16 bar3:5 0 bar3:4 0 bar3:1 0 bar3:3 0
+== r_2_6
+seed 2 force 6 income30-40 1773/s income40-end 1759/s
+#4 smelter t3 len76 fill 1.65 waitShare 0.00 | bar6:1 509 bar6:2 114 bar6:3 85 bar3:1 0 bar3:2 1
+#5 smelter t6 len138 fill 3.92 waitShare 0.07 | bar6:1 677 bar6:3 114 bar6:2 216
+#6 smelter t6 len138 fill 2.39 waitShare 0.00 | bar6:1 871 bar6:4 89 bar6:3 72 bar6:2 43
+#10 smelter t6 len131 fill 3.93 waitShare 0.08 | bar6:1 645 bar6:2 115 bar6:3 115
+#14 smelter t6 len131 fill 3.20 waitShare 0.08 | bar6:2 89 bar6:1 497 bar6:3 121 bar3:1 0 bar3:3 0
+#19 smelter t6 len191 fill 3.98 waitShare 0.07 | bar6:1 586 bar6:4 88 bar6:3 158 bar6:5 8 bar6:2 57
+#24 smelter t6 len191 fill 2.20 waitShare 0.05 | bar6:3 19 bar6:1 362 bar3:4 0 bar6:4 104 bar6:2 9 bar3:3 0
+#32 smelter t6 len516 fill 1.79 waitShare 0.04 | bar6:1 191 bar6:4 36 bar6:5 83 bar6:3 16 bar3:5 0
+== w15_1
+seed 1 force 0 income30-40 1475/s income40-end 1416/s
+#4 smelter t3 len76 fill 1.73 waitShare 0.00 | bar6:2 130 bar6:1 569 bar6:3 41 bar3:1 0 bar3:2 0 bar3:3 0
+#5 smelter t4 len138 fill 3.45 waitShare 0.04 | bar6:3 153 bar6:1 709 bar6:2 245
+#6 smelter t3 len138 fill 1.88 waitShare 0.00 | bar6:1 759 bar6:2 52 bar6:3 35 bar6:4 2
+#10 smelter t4 len131 fill 3.94 waitShare 0.08 | bar6:1 733 bar6:2 98 bar6:3 45
+#14 smelter t4 len131 fill 3.05 waitShare 0.08 | bar6:2 123 bar6:3 136 bar6:1 417 bar3:1 0
+#19 smelter t4 len191 fill 3.61 waitShare 0.06 | bar6:3 172 bar6:1 520 bar6:4 104 bar6:2 18 bar6:5 1
+#24 smelter t4 len191 fill 1.97 waitShare 0.05 | bar6:3 60 bar6:4 114 bar6:2 11 bar3:3 0 bar6:1 256 bar3:2 0 bar3:4 0 bar3:1 0
+#31 drill t1 len712 fill 1.00 waitShare 0.00 | 
+#32 smelter t4 len516 fill 1.86 waitShare 0.04 | bar6:1 132 bar6:3 12 bar6:4 63 bar6:5 8
+== w15_2
+seed 2 force 0 income30-40 1449/s income40-end 1501/s
+#4 smelter t3 len76 fill 1.67 waitShare 0.00 | bar6:3 77 bar6:1 528 bar6:2 110 bar3:1 0
+#5 smelter t4 len138 fill 3.41 waitShare 0.04 | bar6:1 759 bar6:2 241 bar6:3 131
+#6 smelter t3 len138 fill 1.86 waitShare 0.00 | bar6:1 705 bar6:4 63 bar6:3 35 bar6:2 33
+#10 smelter t4 len131 fill 3.78 waitShare 0.08 | bar6:1 592 bar6:2 113 bar6:3 135
+#14 smelter t4 len131 fill 3.17 waitShare 0.08 | bar6:3 127 bar6:1 488 bar6:2 85 bar3:1 0 bar3:3 0 bar3:2 0
+#19 smelter t4 len191 fill 3.41 waitShare 0.06 | bar6:4 83 bar6:1 490 bar6:2 48 bar6:5 9 bar6:3 142
+#24 smelter t4 len191 fill 2.33 waitShare 0.05 | bar6:4 91 bar6:1 409 bar6:3 12 bar6:2 6
+#31 drill t1 len712 fill 1.00 waitShare 0.00 | 
+#32 smelter t4 len516 fill 2.04 waitShare 0.04 | bar6:1 148 bar6:5 43 bar6:4 8 bar6:3 4
+== w15_3
+seed 3 force 0 income30-40 1556/s income40-end 1709/s
+#4 smelter t3 len76 fill 1.68 waitShare 0.00 | bar6:1 525 bar6:2 150 bar6:3 49 bar3:1 0 bar3:2 0
+#5 smelter t4 len138 fill 3.71 waitShare 0.05 | bar6:2 243 bar6:1 731 bar6:3 127 bar6:4 42
+#6 smelter t3 len138 fill 1.99 waitShare 0.00 | bar6:1 706 bar6:2 134 bar6:3 55
+#10 smelter t4 len131 fill 3.95 waitShare 0.08 | bar6:1 751 bar6:2 130
+#14 smelter t4 len131 fill 3.13 waitShare 0.08 | bar6:1 435 bar6:2 170 bar6:3 84 bar3:1 0 bar3:2 0
+#19 smelter t4 len191 fill 3.81 waitShare 0.05 | bar6:1 558 bar6:4 84 bar6:5 15 bar6:3 197 bar6:2 6
+#24 smelter t4 len191 fill 3.04 waitShare 0.05 | bar6:3 84 bar6:4 90 bar6:1 480 bar6:2 37
+#31 drill t1 len712 fill 1.00 waitShare 0.00 | 
+#32 smelter t4 len516 fill 2.57 waitShare 0.03 | bar6:5 93 bar6:1 228 bar6:4 24
+== w30_1
+seed 1 force 0 income30-40 0/s income40-end 1542/s
+#4 smelter t3 len76 fill 1.73 waitShare 0.00 | bar6:1 578 bar6:2 123 bar6:3 44 bar3:1 0 bar3:2 0 bar3:3 0
+#5 smelter t4 len138 fill 3.93 waitShare 0.08 | bar6:3 105 bar6:1 608 bar6:2 224
+#6 smelter t3 len138 fill 1.98 waitShare 0.00 | bar6:3 48 bar6:1 795 bar6:4 4 bar6:2 45
+#10 smelter t4 len131 fill 3.95 waitShare 0.08 | bar6:1 727 bar6:2 106 bar6:3 46
+#14 smelter t4 len131 fill 3.02 waitShare 0.08 | bar6:1 405 bar6:3 140 bar6:2 122 bar3:1 0
+#19 smelter t4 len191 fill 3.69 waitShare 0.08 | bar6:5 11 bar6:1 547 bar6:4 104 bar6:2 21 bar6:3 151
+#24 smelter t4 len191 fill 1.99 waitShare 0.05 | bar6:1 285 bar6:4 108 bar3:4 0 bar3:1 0 bar6:3 51 bar6:2 6
+#32 smelter t4 len516 fill 1.94 waitShare 0.04 | bar6:1 236 bar6:4 68 bar6:3 44 bar6:5 48
+== w30_2
+seed 2 force 0 income30-40 0/s income40-end 1666/s
+#4 smelter t3 len76 fill 1.66 waitShare 0.00 | bar6:2 117 bar6:1 522 bar6:3 78 bar3:1 0 bar3:2 0
+#5 smelter t4 len138 fill 3.89 waitShare 0.07 | bar6:1 693 bar6:2 225 bar6:3 129
+#6 smelter t3 len138 fill 1.83 waitShare 0.00 | bar6:1 709 bar6:2 29 bar6:4 56 bar6:3 31
+#10 smelter t4 len131 fill 3.90 waitShare 0.08 | bar6:3 135 bar6:1 612 bar6:2 118
+#14 smelter t4 len131 fill 3.14 waitShare 0.08 | bar6:3 133 bar6:1 466 bar6:2 91 bar3:2 0 bar3:1 0 bar3:3 0
+#19 smelter t4 len191 fill 3.58 waitShare 0.07 | bar6:1 486 bar6:4 91 bar6:5 5 bar6:3 149 bar6:2 73
+#24 smelter t4 len191 fill 2.26 waitShare 0.05 | bar6:1 387 bar6:4 100 bar6:3 16 bar3:4 0 bar6:2 6
+#32 smelter t4 len516 fill 1.92 waitShare 0.04 | bar6:5 97 bar6:1 192 bar6:4 16 bar6:3 4
+== w30_3
+seed 3 force 0 income30-40 0/s income40-end 1968/s
+#4 smelter t3 len76 fill 1.66 waitShare 0.00 | bar6:1 502 bar6:3 55 bar6:2 157 bar3:2 0 bar3:3 0 bar3:1 0
+#5 smelter t4 len138 fill 3.99 waitShare 0.08 | bar6:2 188 bar6:1 587 bar6:4 26 bar6:5 8 bar6:3 90
+#6 smelter t3 len138 fill 1.97 waitShare 0.00 | bar6:1 696 bar6:2 134 bar6:3 58
+#10 smelter t4 len131 fill 3.95 waitShare 0.08 | bar6:2 122 bar6:1 758
+#14 smelter t4 len131 fill 3.14 waitShare 0.08 | bar6:1 441 bar6:3 84 bar6:2 167 bar3:1 0 bar3:2 0
+#19 smelter t4 len191 fill 3.44 waitShare 0.08 | bar6:5 9 bar6:1 520 bar6:3 145 bar6:4 90 bar6:2 10
+#24 smelter t4 len191 fill 3.05 waitShare 0.05 | bar6:1 485 bar6:2 30 bar6:4 90 bar6:3 90
+#32 smelter t4 len516 fill 2.82 waitShare 0.03 | bar6:5 155 bar6:1 379 bar6:4 88 bar6:3 12 bar3:1 0
+== f1
+seed 1 force 0 income30-40 1375/s income40-end 1603/s
+#15 factory t3 len20 fill 1.71 waitShare 0.00 | bar6:1 516 bar6:2 98 bar6:3 97 alloy 4 bar3:1 0 bar3:3 0
+#16 factory t4 len74 fill 3.83 waitShare 0.15 | bar6:3 60 bar6:1 667 bar6:2 131 alloy 3
+#17 factory t4 len74 fill 3.17 waitShare 0.15 | bar6:2 99 bar6:1 485 bar6:3 110 alloy 6 bar3:1 0
+#22 smelter t4 len191 fill 3.74 waitShare 0.08 | bar6:3 166 bar6:4 98 bar6:1 548 bar6:5 7 bar6:2 23
+#27 smelter t4 len191 fill 3.20 waitShare 0.05 | bar6:3 96 bar6:1 445 bar6:4 163 bar6:2 24
+#36 factory t4 len344 fill 4.00 waitShare 0.03 | bar6:1 624 bar6:4 44 bar6:2 93 bar6:3 27 bar6:5 113
+== f1x
+seed 1 force 6 income30-40 1423/s income40-end 1667/s
+#15 factory t3 len20 fill 1.70 waitShare 0.00 | bar6:1 508 bar6:3 99 bar6:2 100 alloy 4 bar3:1 0 bar3:3 0
+#16 factory t6 len74 fill 3.92 waitShare 0.15 | bar6:3 56 bar6:1 695 bar6:2 127 alloy 2
+#17 factory t6 len74 fill 3.19 waitShare 0.15 | bar6:1 493 bar6:3 108 bar6:2 97 alloy 5 bar3:1 0
+#22 smelter t6 len191 fill 3.99 waitShare 0.08 | bar6:1 580 bar6:3 176 bar6:5 16 bar6:4 103 bar6:2 24
+#27 smelter t6 len191 fill 3.62 waitShare 0.05 | bar6:1 539 bar6:3 100 bar6:4 162 bar6:2 26
+#36 factory t6 len344 fill 4.00 waitShare 0.03 | bar6:3 23 bar6:1 626 bar6:4 44 bar6:2 92 bar6:5 116

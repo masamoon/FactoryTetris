@@ -6,15 +6,15 @@ This review authorizes only a bounded playable experiment. It does not establish
 
 ## Initial individual verdicts
 
-| Decision | Verdict | Authorized scope or blocking objection |
-| --- | --- | --- |
-| I1: remote exposed-block tap/hold, paused build, drag navigation | PASS | A remote command interface, with no simulated astronaut locomotion. Movement cancels mining. Holding and repeated taps share a rate cap. Visibility pause and explicit pause prevent unintended production. |
-| I2: deterministic finite 36 × 14 terrain, manual bootstrap | PASS | An authored experimental map, not a procedural-content or balance claim. Manual finite ore is collected into starter construction storage with a visible collection effect. No collapse, survival, or gravity mechanics. |
-| I3: east-facing drill, eight-cell reach, internal return rail | PASS | Actual terrain excavation, finite ore payloads, finite return travel, bounded output capacity and backpressure. Extended rail occupies its corridor. Another shaft needs another rig; automatic indefinite excavation is outside scope. |
-| I4: directed belts, physical ore/plate/part chain, construction dock | REVISE | The proposed reversible rerouting conflicts with the prohibition on removing or editing installed belts. A completed ore-to-dock line can prevent placing processing without rewinding all subsequent progress. No automatic junction means this cannot claim simultaneous automatic allocation between plate stocks and parts. |
-| I5: full-state checkpoint undo, no salvage or machine relocation | REVISE | Whole-state undo is valid recovery, but using it as the only routing edit creates a reconstruction tax and erases earned production. Scope needs a narrow belt-edit operation or a different explicit route-change design. |
-| I6: sequential milestones without resetting the factory | PASS | Manual ore, first drill, automatic delivery, plate delivery, part delivery, optional second shaft. Milestones guide without halting production. Thirty seconds to a working first drill is an unmeasured target. |
-| I7: portrait controls, camera navigation, inspection and truthful effects | PASS | Explicit paused editing, preview/confirm, dock navigation and buffer/status inspection. Test actual phone-size screenshots and interactions; a UI specification alone does not prove usability. |
+| Decision                                                                  | Verdict | Authorized scope or blocking objection                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| I1: remote exposed-block tap/hold, paused build, drag navigation          | PASS    | A remote command interface, with no simulated astronaut locomotion. Movement cancels mining. Holding and repeated taps share a rate cap. Visibility pause and explicit pause prevent unintended production.                                                                                                                     |
+| I2: deterministic finite 36 × 14 terrain, manual bootstrap                | PASS    | An authored experimental map, not a procedural-content or balance claim. Manual finite ore is collected into starter construction storage with a visible collection effect. No collapse, survival, or gravity mechanics.                                                                                                        |
+| I3: east-facing drill, eight-cell reach, internal return rail             | PASS    | Actual terrain excavation, finite ore payloads, finite return travel, bounded output capacity and backpressure. Extended rail occupies its corridor. Another shaft needs another rig; automatic indefinite excavation is outside scope.                                                                                         |
+| I4: directed belts, physical ore/plate/part chain, construction dock      | REVISE  | The proposed reversible rerouting conflicts with the prohibition on removing or editing installed belts. A completed ore-to-dock line can prevent placing processing without rewinding all subsequent progress. No automatic junction means this cannot claim simultaneous automatic allocation between plate stocks and parts. |
+| I5: full-state checkpoint undo, no salvage or machine relocation          | REVISE  | Whole-state undo is valid recovery, but using it as the only routing edit creates a reconstruction tax and erases earned production. Scope needs a narrow belt-edit operation or a different explicit route-change design.                                                                                                      |
+| I6: sequential milestones without resetting the factory                   | PASS    | Manual ore, first drill, automatic delivery, plate delivery, part delivery, optional second shaft. Milestones guide without halting production. Thirty seconds to a working first drill is an unmeasured target.                                                                                                                |
+| I7: portrait controls, camera navigation, inspection and truthful effects | PASS    | Explicit paused editing, preview/confirm, dock navigation and buffer/status inspection. Test actual phone-size screenshots and interactions; a UI specification alone does not prove usability.                                                                                                                                 |
 
 ## Requested revision
 
@@ -32,15 +32,15 @@ The opening authoring was clarified: manually clear three exposed rock blocks fo
 
 Drill timings were revised to two seconds per rock block and three per rich ore block, with finite payload return at four cells per second. These values are prototype authoring choices, not release balance or measured playtest results.
 
-| Decision | Final verdict | Scope |
-| --- | --- | --- |
-| I1 | PASS | Remote tap/hold exposed-block controls as initially specified. |
-| I2 | PASS | Finite authored terrain and the clarified manual-to-automatic resource budget. |
-| I3r | PASS | Bounded real excavation with revised timings and finite internal return. |
-| I4r | PASS | Directed physical transport, three-stage recipes, collection dock and explicit empty-belt edits; no automatic split. |
-| I5r | PASS | Complete-state checkpoint undo plus empty-belt edits; no machine relocation, cargo destruction or salvage. |
-| I6 | PASS | Sequential non-resetting guidance milestones. |
-| I7 | PASS | Paused preview/confirm, inspection, camera controls and truthful production effects. |
+| Decision | Final verdict | Scope                                                                                                                |
+| -------- | ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| I1       | PASS          | Remote tap/hold exposed-block controls as initially specified.                                                       |
+| I2       | PASS          | Finite authored terrain and the clarified manual-to-automatic resource budget.                                       |
+| I3r      | PASS          | Bounded real excavation with revised timings and finite internal return.                                             |
+| I4r      | PASS          | Directed physical transport, three-stage recipes, collection dock and explicit empty-belt edits; no automatic split. |
+| I5r      | PASS          | Complete-state checkpoint undo plus empty-belt edits; no machine relocation, cargo destruction or salvage.           |
+| I6       | PASS          | Sequential non-resetting guidance milestones.                                                                        |
+| I7       | PASS          | Paused preview/confirm, inspection, camera controls and truthful production effects.                                 |
 
 All seven decisions now pass for this bounded playable experiment. Required implementation validation below is not yet completed by these design verdicts. None of these decisions establishes long-term incremental depth.
 

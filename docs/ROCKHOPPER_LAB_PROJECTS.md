@@ -1,0 +1,73 @@
+# Rockhopper: Lab projects (late-game proposal, revision 4, 2026-10-05)
+
+Status: **revision 4, pending round 4.** Round 1 gave revision 1 (bills of bars unlocking pad docks, belt tiers 5–6 and drill levels 8–9) REVISE; round 2 gave revision 2 (six researched bridges, one per plate) REVISE; round 3 gave revision 3 (four researched lifts) REVISE on the cue (LL2) and the count (LL5), with the rest PASS or PASS with conditions ([review](reviews/2026-10-04-rockhopper-lab-projects-adversary.md)). On 2026-10-05 the user chose to keep the Lab aimed at untangling the hub with routing pieces. How this revision answers round 2 is at the end. Nothing here is implemented. It extends the research Lab ([ROCKHOPPER_RESEARCH.md](ROCKHOPPER_RESEARCH.md), scoped PASS for a prototype, not built) and would ship behind the same off-by-default "Research" switch. A PASS would authorise only that prototype; it is not evidence of fun or balance.
+
+## Why
+
+The user, 2026-10-04: "What's the core loop after docks are full? Can we buy more stations?" They then chose the Lab over pad docks or a second hub, and the project found that the Lab as designed does not reach the late game: it skims about 1 % of output, and its five recipes are done by early T3. Its own doc says "18–30 min has nothing to research" and it "does nothing for the stretch after about 45 min".
+
+What the greedy bot shows today (simulation, not a playtest; `npm run bot:rockhopper -- --slow`, fixed costs, crossings on, 60 min, seeds 1–2):
+
+- All nine docks are bought before 25 min; T3 opens at about 13 min and T4 at about 39 min.
+- Income stops growing at about 15 min and stays near 1.5 K/s to 60 min, even as T3 and T4 drills are added. The bot spends 83–85 % of the game in gaps over 30 s without a purchase and ends with 1.5–1.9 M unspent credits and nothing left to buy.
+- Docks are not the limit: the bot uses 8 of 9, at about 40 % of belt capacity. With crossings off, income keeps climbing to 2.5–3 K/s and T4 comes about 9 min sooner, so the cap is (inferred) belts taking turns at plates near the hub.
+- With factories on (research needs them), the same runs look alike: income flat near 1.4–1.7 K/s from about 15 min, 83–85 % of the game in gaps over 30 s, 1.45–1.71 M unspent at 60 min.
+- Paired bars reaching the hub per minute, 40–60 min, seeds 1–3: rock 3 960–4 290, copper 620–810, ice 570–640, gold 270–300, crystal 65–270. Crystal stays scarce even with T4 open, because hard crystal (hardness 4) drills slowly.
+
+So the late game lacks **things to build** once rocks, docks and belts are maxed, while **the knot of plates round the hub** holds dock belts at about half capacity, and nothing rewards fixing it bit by bit. Round 2 measured the knot's share: with every plate in the bot's late factory removed from 20 min, late income rises 20–30 %, against +70–90 % for crossings off from the start, so most of the on/off gap is layout and pace, not plates still waiting.
+
+## The idea in one line
+
+**The Lab researches lifts: a lifted belt piece runs one level up and no longer crosses belts on the ground.** Two lifted pieces that touch still share a plate, so lifting everything gains nothing; the player decides which belts go up and which stay down.
+
+## Decisions
+
+| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LL1 | **A lift raises one straight belt piece a level.** Plates form only between pieces on the same level (`crossings.ts` gets a level per segment). A lifted piece is drawn on short pylons with a shadow below, over ground belts, and under nothing. Everything else is unchanged: its bundles, its tier, its ends at machines, posts, joins and docks, and the rule that belts never run under machines. Plates against a shared machine are already excluded (`CROSS_SHARED_CLEAR`), so a lift needs no ramps.                                                                                                                                                                                                                                                                                                   |
+| LL2 | **Lifting is free to try, and the plates answer.** In the Lift tool (from the Lab bubble, once a lift is owned), a tap on a belt piece (belt hit test, 22 px, as for bend posts) raises it at once; a tap on a raised piece lowers it, free. Moving a lift is free and unlimited, so trial is the intended way to choose. Before the tap, the ghost shows the piece raised: plates it would leave go dim, plates it would make with raised pieces light coral, and every plate that would remain shows its current waiting as its ⇄ chip does, so a triangle of three belts reads as "one plate will stay, and it is this hot". No projected income is shown. After a lift, the remaining chips and the dock's flow update live; the prototype measures how many seconds that takes to show (target: under 5 s). |
+| LL3 | **A lift belongs to its piece's endpoints and comes back when they change.** A raised piece is stored as its owner, piece index and both endpoints. Any change to either endpoint returns the lift to stock: the owner or the target re-targeted, moved, sold (heir re-target) or swapped at a dock, a splice, a join, or a bend post added or removed anywhere on that belt (which renumbers pieces, so every lift on that belt returns). A "lift returned" pop shows where it was, and the Lab's tag reads "1 lift to place" while any bought lift is unplaced. It never follows a belt to a new place.                                                                                                                                                                                                        |
+| LL4 | **Each lift is researched, then bought.** After the three T1/T2 recipes (copper + ice, ice + gold, copper + gold), not the crystal ones, the Lab bubble gains a row "Lift n · ore 0 / count", a one-ore bill of paired bars taken by the clamp as in revision 2 (TT1/TT2 placement; every owed bar taken, everything else passes, the belt never waits, taken bars earn nothing). When it is met, lift n can be bought, and the next row appears at once (research doesn't wait for the purchase). Bills: ice 400, then gold 400 (no crystal, protecting the copper + crystal premium). Target: 2–5 min each on the best legal belt.                                                                                                                                                                             |
+| LL5 | **Two lifts, sized to what the knot is worth.** Round 3's frozen saves found the best single lift reaches 80–95 % of the reachable gain on 5 of 6 saves, and lifts 3–4 added 1 point or less. So there are two: 60 K and 240 K. They are a routing piece, not the late game's credit sink; that need stays open (Honest scope). The count is fixed (tying it to plates would reward making plates), and the layer rule, not scarcity, stops "lift everything". Prices are an exception to fixed costs, like docks (F2).                                                                                                                                                                                                                                                                                          |
+| LL6 | **What stays out.** No reward multiplies throughput by itself (no wider belts, deeper drills or bigger bundles). Docks aren't gated (pad docks remain S5's own build). Research gates nothing else. Auto-links and new machines build on the ground, and `platesIf` counts only ground plates for them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| LL7 | **Switch and saves.** Behind "Research" (off by default, needs Factories on). The optional `research` field gains `lifts: { bill, counts, bought, raised: { owner, piece, a, b }[] }`. A malformed field resets research (TT7(b)). On load, and when research or crossings is turned back on, a raised entry whose piece no longer has those endpoints returns to stock. While either is off, raised pieces are drawn and treated as ground (inert) and kept. Bought lifts stay bought, and lifts are never sold.                                                                                                                                                                                                                                                                                                |
+
+## Why a layer instead of a bridge per plate
+
+- **The tap target is a belt, not a plate.** Belts are long, while hub plates sit 23 u (13 px at zoom 0.58) apart (round 2).
+- **One lift clears a whole chain.** Round 2 found single plates aren't additive: belt 16 waits at two hub plates, so bridging one gained −1 to +6 %. Lifting belt 16's piece clears both.
+- **The decision can't be "all of them".** With every piece up in a knot where they cross each other, the plates simply move up a level. The useful question is which belts to separate, and the ghost shows the plates gained and lost, so the player reads the answer rather than computing it.
+
+## What it gives the player
+
+- **A late loop that compounds.** Feed the Lab (one placement, 2–5 min), buy a lift, raise the piece that clears the most waiting, watch the line speed up; the next bill fills faster.
+- **A reason to read the knot,** with the answer shown as plates lost and made, not as income.
+
+## Honest scope
+
+- The Lab's part is still a light placement (the busiest legal belt carrying the ore).
+- Two purchases and two bills, at roughly 20–25 min, are not "always something to build". They add one routing piece aimed at the measured knot. The late game's empty stretch (about 30–60 min) and its unspent credits remain unsolved by this proposal.
+- The knot's worth varies a lot: removing every plate was worth 2–47 % across six frozen saves (round 3), so on some maps lifts barely matter.
+- A repeatable last project (hopping to a new sector) stays deferred.
+
+## Evidence the prototype must produce (the first two before any UI)
+
+- **Frozen-save A/B, the pass rule.** Bot saves at 30 and 40 min, at least 8 seeds on each field (classic and sectors), tidy and `--messy`; each variant runs 2 min with no purchases from the same save. **Pass:** on the median save, the best first lift is worth at least 3 points of income and the best second lift (given the first) at least 1 point more, and trial is enough: the first lift a player would try by the ghost's remaining-waiting cue (the piece leaving the hottest remaining plate least waiting) gets at least half of the best first lift's gain on most saves.
+- **Live bot, as context only** (live runs drift ±20–30 %): when each lift arrives at real bills and prices, copper bars reaching a crystal factory (premium not lowered), and lift returns per hour in tidy and messy play.
+- The legal Lab anchor length on every dock belt (owed since round 1).
+- Tests: plates only within a level; a lift returns on every endpoint change in LL3, including a post added elsewhere on the same belt; lowering and re-lifting are free; auto-links stay on the ground; inert with crossings or research off, with changed pieces returned on switching back on; bills take only owed paired bars of one ore; the belt never waits; save round-trip, changed endpoints on load, malformed field. The crossings stress tool with random lifts: 0 locks, 0 stalls.
+- 390 px screenshots: a lifted piece over the hub knot at zoom 0.58 (how "up" reads on a 6 px belt, and where it meets a post or machine), and the Lift ghost on the classic triangle.
+
+## Open questions
+
+- Does a raised belt read as "up" on a small screen without a perspective cue?
+- Is two the right count on sectors, where the hub can knot more?
+- Do players untangle less once lifts exist?
+
+## Round 3 answered
+
+1. LL2 cue: the ghost now shows the waiting left on the plates that would remain, and lifting is free to try with live feedback; both are measured in the pass rule.
+2. LL5 count: two lifts, sized to round 3's finding that one lift does most of the work; the doc no longer calls them the late game's sink.
+3. LL3 and LL7: lifts are stored by endpoints and return on any endpoint change, on load and on switching back on.
+4. Pass rule: frozen-save A/B over at least 8 seeds on both fields replaces the live-bot rule.
+5. The screenshots and the Lab anchor measurement stay on the evidence list for the prototype (they need the built Lab).

@@ -1,0 +1,63 @@
+# Lab projects round 2 (bridges) scratch runs, 2026-10-04. Classic field, slow rocks, fixed costs, factories on, 60 min.
+# N = bridges: from 20:00, every 60 s, the N plates with the highest heat (crossings.ts heat, smoothed waiting share) are removed from the plate list and gates (runtime patch in an onTick hook); a bridge whose plate vanishes returns to stock. Bridges are free and all available at 20:00 (upper bound on timing). N -1 = crossings off. cuCr = copper delivered in crystal alloys.
+seed 1 N -1 income/s 15-20 2043 20-30 2062 30-45 3089 45-60 3628 earned60 8.91M unspent 5.35M swaps 0 cuCr 0 cuBars 34081
+seed 1 N 0 income/s 15-20 1418 20-30 1352 30-45 1458 45-60 1596 earned60 4.89M unspent 1.45M swaps 0 cuCr 0 cuBars 30929
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.23,341],["24:35",0,491]]}
+seed 1 N 1 income/s 15-20 1418 20-30 1362 30-45 1439 45-60 1577 earned60 4.86M unspent 1.42M swaps 0 cuCr 0 cuBars 30637
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.08,341],["24:35",0.03,491]]}
+  20m bridge 16:22 heat 1.00 r83
+seed 1 N 3 income/s 15-20 1418 20-30 1630 30-45 1905 45-60 1990 earned60 5.81M unspent 2.37M swaps 0 cuCr 36 cuBars 34455
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.19,341],["24:35",0.04,491]]}
+  20m bridge 16:22 heat 1.00 r83
+  20m bridge 16:36 heat 1.00 r60
+  20m bridge 22:36 heat 1.00 r50
+seed 1 N 6 income/s 15-20 1418 20-30 1638 30-45 1949 45-60 2012 earned60 5.88M unspent 2.43M swaps 0 cuCr 91 cuBars 34412
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.16,341],["24:35",0.02,491]]}
+  20m bridge 16:22 heat 1.00 r83
+  20m bridge 16:36 heat 1.00 r60
+  20m bridge 22:36 heat 1.00 r50
+  20m bridge 17:27 heat 1.00 r83
+  20m bridge 13:23 heat 0.16 r341
+  20m bridge 24:35 heat 0.02 r491
+seed 2 N -1 income/s 15-20 2227 20-30 2633 30-45 2702 45-60 2720 earned60 8.08M unspent 4.58M swaps 0 cuCr 0 cuBars 38604
+seed 2 N 0 income/s 15-20 1378 20-30 1609 30-45 1613 45-60 1609 earned60 5.15M unspent 1.71M swaps 0 cuCr 730 cuBars 30368
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.5,341],["24:35",0,491]]}
+seed 2 N 1 income/s 15-20 1378 20-30 1597 30-45 1611 45-60 1596 earned60 5.13M unspent 1.69M swaps 0 cuCr 693 cuBars 30266
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",1,83],["16:36",1,60],["22:36",1,50],["17:27",0.9,83],["13:23",0.48,341],["24:35",0,491]]}
+  20m bridge 17:27 heat 1.00 r83
+seed 2 N 3 income/s 15-20 1378 20-30 1644 30-45 1638 45-60 1671 earned60 5.25M unspent 1.81M swaps 0 cuCr 851 cuBars 30672
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["16:22",0.9,83],["17:27",0.9,83],["22:36",0.86,50],["16:36",0.58,60],["13:23",0.37,341],["24:35",0,491]]}
+  20m bridge 17:27 heat 1.00 r83
+  20m bridge 16:22 heat 0.93 r83
+  20m bridge 16:36 heat 0.57 r60
+seed 2 N 6 income/s 15-20 1378 20-30 1862 30-45 1895 45-60 1928 earned60 5.84M unspent 2.40M swaps 0 cuCr 1685 cuBars 33770
+  plates@30 {"plates":6,"near150":4,"dock0dist":49,"heats":[["17:27",0.93,83],["16:22",0.9,83],["22:36",0.85,50],["16:36",0.58,60],["13:23",0.46,341],["24:35",0.14,491]]}
+  20m bridge 17:27 heat 1.00 r83
+  20m bridge 16:22 heat 0.93 r83
+  20m bridge 16:36 heat 0.57 r60
+  20m bridge 13:23 heat 0.47 r341
+  20m bridge 24:35 heat 0.16 r491
+  21m bridge 22:36 heat 0.85 r50
+seed 3 N -1 income/s 15-20 2638 20-30 2802 30-45 3298 45-60 3338 earned60 9.45M unspent 5.91M swaps 0 cuCr 170 cuBars 50862
+seed 3 N 0 income/s 15-20 1436 20-30 1733 30-45 1632 45-60 1903 earned60 5.56M unspent 2.11M swaps 0 cuCr 175 cuBars 45093
+  plates@30 {"plates":7,"near150":5,"dock0dist":49,"heats":[["5:36",1,119],["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",0.74,50],["13:23",0.2,341],["24:35",0.12,491]]}
+seed 3 N 1 income/s 15-20 1436 20-30 1860 30-45 1777 45-60 2016 earned60 5.86M unspent 2.42M swaps 0 cuCr 502 cuBars 48812
+  plates@30 {"plates":7,"near150":5,"dock0dist":49,"heats":[["5:36",1,119],["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.21,341],["24:35",0.05,491]]}
+  20m bridge 5:36 heat 1.00 r119
+seed 3 N 3 income/s 15-20 1436 20-30 1860 30-45 1735 45-60 2005 earned60 5.82M unspent 2.37M swaps 0 cuCr 522 cuBars 48250
+  plates@30 {"plates":7,"near150":5,"dock0dist":49,"heats":[["5:36",1,119],["16:22",1,83],["16:36",1,60],["17:27",1,83],["22:36",1,50],["13:23",0.26,341],["24:35",0.04,491]]}
+  20m bridge 5:36 heat 1.00 r119
+  20m bridge 16:22 heat 1.00 r83
+  20m bridge 17:27 heat 1.00 r83
+seed 3 N 6 income/s 15-20 1436 20-30 2190 30-45 2414 45-60 2476 earned60 7.05M unspent 3.60M swaps 0 cuCr 1320 cuBars 50328
+  plates@30 {"plates":7,"near150":5,"dock0dist":49,"heats":[["5:36",1,119],["16:22",1,83],["17:27",1,83],["16:36",0.74,60],["24:35",0.37,491],["13:23",0.27,341],["22:36",0.14,50]]}
+  20m bridge 5:36 heat 1.00 r119
+  20m bridge 16:22 heat 1.00 r83
+  20m bridge 17:27 heat 1.00 r83
+  20m bridge 16:36 heat 0.74 r60
+  20m bridge 13:23 heat 0.27 r341
+  20m bridge 22:36 heat 0.14 r50
+# Plate positions at 30:00 (same bot, factories on):
+seed 1 plates 13:23@(129,-316) 16:22@(-58,-60) 16:36@(-43,-43) 17:27@(58,-60) 22:36@(-46,-19) 24:35@(24,-490) minDist 23.2u (16:22/16:36) = 13.4 css px at zoom 0.58
+seed 2 plates 13:23@(129,-316) 16:22@(-58,-60) 16:36@(-43,-43) 17:27@(58,-60) 22:36@(-46,-19) 24:35@(24,-490) minDist 23.2u (16:22/16:36) = 13.4 css px at zoom 0.58
+seed 3 plates 5:36@(-32,-114) 13:23@(129,-316) 16:22@(-58,-60) 16:36@(-43,-43) 17:27@(58,-60) 22:36@(-46,-19) 24:35@(24,-490) minDist 23.2u (16:22/16:36) = 13.4 css px at zoom 0.58

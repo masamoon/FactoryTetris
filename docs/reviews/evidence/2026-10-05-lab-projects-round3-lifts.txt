@@ -1,0 +1,302 @@
+# Lab projects round 3 (lifts) scratch runs, 2026-10-05. Slow rocks, fixed costs, factories on, laser on. Runtime patch: a plate is dropped when exactly one of its two pieces is lifted (plates between two lifted pieces stay).
+
+## Part 1: live bot, 60 min. Lifts from 20:00, re-checked every 60 s. best = greedy by waiting removed (heat of plates removed minus plates made); rand = 4 random dock-belt pieces; all = every dock-belt piece; real = lifts researched from 15:00 (assumed bills 2.5/2.5/3/4 min), bought at 50K x 2.5^(n-1) out of the bot's credits, placed greedily; off = crossings off. A lift returns to stock when its owner's belt target or path changes (LL3). messy = runBot's messy option (one dock belt re-routed every 10 s).
+classic tidy seed 1 none: income/s 20-30 1352 30-45 1458 45-60 1596 earned60 4.89M unspent 1.45M maxLifted 0 returns 0 cuCr 0 | plates@30 6 (near hub 4) active 6 dockBeltPieces 6 lifted 0
+classic tidy seed 1 off: income/s 20-30 2062 30-45 3089 45-60 3628 earned60 8.91M unspent 5.35M maxLifted 0 returns 0 cuCr 0 | 
+classic tidy seed 1 best: income/s 20-30 1407 30-45 1492 45-60 1628 earned60 4.98M unspent 1.54M maxLifted 4 returns 0 cuCr 0 | plates@30 6 (near hub 4) active 1 dockBeltPieces 6 lifted 4
+  20m lift 16.0 score 2.00
+  20m lift 17.0 score 1.00
+  20m lift 13.0 score 0.16
+  20m lift 24.0 score 0.02
+classic tidy seed 1 rand: income/s 20-30 1624 30-45 1914 45-60 2036 earned60 5.86M unspent 2.41M maxLifted 4 returns 0 cuCr 46 | plates@30 6 (near hub 4) active 4 dockBeltPieces 6 lifted 4
+classic tidy seed 1 all: income/s 20-30 1352 30-45 1458 45-60 1596 earned60 4.89M unspent 1.45M maxLifted 6 returns 0 cuCr 0 | plates@30 6 (near hub 4) active 6 dockBeltPieces 6 lifted 6
+classic tidy seed 1 real: income/s 20-30 1424 30-45 1461 45-60 1530 earned60 4.88M unspent 0.17M maxLifted 4 returns 0 cuCr 0 | plates@30 6 (near hub 4) active 2 dockBeltPieces 6 lifted 3
+  21.0m lift 1 bought
+  21m lift 16.0 score 2.00
+  24.0m lift 2 bought
+  24m lift 17.0 score 1.00
+  27.0m lift 3 bought
+  27m lift 13.0 score 0.03
+  35.0m lift 4 bought
+  36m lift 24.0 score 0.15
+classic tidy seed 2 none: income/s 20-30 1609 30-45 1613 45-60 1609 earned60 5.15M unspent 1.71M maxLifted 0 returns 0 cuCr 730 | plates@30 6 (near hub 4) active 6 dockBeltPieces 7 lifted 0
+classic tidy seed 2 off: income/s 20-30 2633 30-45 2702 45-60 2720 earned60 8.08M unspent 4.58M maxLifted 0 returns 0 cuCr 0 | 
+classic tidy seed 2 best: income/s 20-30 1673 30-45 1683 45-60 1680 earned60 5.31M unspent 1.87M maxLifted 4 returns 0 cuCr 898 | plates@30 6 (near hub 4) active 1 dockBeltPieces 7 lifted 4
+  20m lift 16.0 score 1.50
+  20m lift 17.0 score 1.00
+  20m lift 13.0 score 0.47
+  20m lift 24.0 score 0.16
+classic tidy seed 2 rand: income/s 20-30 1649 30-45 1664 45-60 1663 earned60 5.27M unspent 1.83M maxLifted 4 returns 0 cuCr 883 | plates@30 6 (near hub 4) active 4 dockBeltPieces 7 lifted 4
+classic tidy seed 2 all: income/s 20-30 1609 30-45 1613 45-60 1609 earned60 5.15M unspent 1.71M maxLifted 7 returns 0 cuCr 730 | plates@30 6 (near hub 4) active 6 dockBeltPieces 7 lifted 7
+classic tidy seed 2 real: income/s 20-30 1803 30-45 1873 45-60 1950 earned60 5.81M unspent 1.10M maxLifted 4 returns 0 cuCr 1692 | plates@30 6 (near hub 4) active 2 dockBeltPieces 7 lifted 3
+  22.0m lift 1 bought
+  22m lift 36.0 score 2.00
+  25.0m lift 2 bought
+  25m lift 17.0 score 1.00
+  28.0m lift 3 bought
+  28m lift 13.0 score 0.37
+  32.0m lift 4 bought
+  32m lift 24.0 score 0.08
+classic tidy seed 3 none: income/s 20-30 1733 30-45 1632 45-60 1903 earned60 5.56M unspent 2.11M maxLifted 0 returns 0 cuCr 175 | plates@30 7 (near hub 5) active 7 dockBeltPieces 7 lifted 0
+classic tidy seed 3 off: income/s 20-30 2802 30-45 3298 45-60 3338 earned60 9.45M unspent 5.91M maxLifted 0 returns 0 cuCr 170 | 
+classic tidy seed 3 best: income/s 20-30 1905 30-45 1818 45-60 2022 earned60 5.93M unspent 2.49M maxLifted 4 returns 0 cuCr 654 | plates@30 7 (near hub 5) active 2 dockBeltPieces 7 lifted 4
+  20m lift 36.0 score 1.88
+  20m lift 17.0 score 1.00
+  20m lift 22.0 score 0.50
+  20m lift 13.0 score 0.27
+classic tidy seed 3 rand: income/s 20-30 1857 30-45 1776 45-60 2028 earned60 5.87M unspent 2.43M maxLifted 4 returns 0 cuCr 523 | plates@30 7 (near hub 5) active 3 dockBeltPieces 7 lifted 4
+classic tidy seed 3 all: income/s 20-30 1733 30-45 1632 45-60 1903 earned60 5.56M unspent 2.11M maxLifted 7 returns 0 cuCr 175 | plates@30 7 (near hub 5) active 7 dockBeltPieces 7 lifted 7
+classic tidy seed 3 real: income/s 20-30 2054 30-45 1837 45-60 2097 earned60 6.11M unspent 1.39M maxLifted 4 returns 0 cuCr 428 | plates@30 7 (near hub 5) active 3 dockBeltPieces 7 lifted 3
+  21.0m lift 1 bought
+  21m lift 36.0 score 2.50
+  24.0m lift 2 bought
+  24m lift 17.0 score 1.00
+  27.0m lift 3 bought
+  27m lift 22.0 score 0.50
+  31.0m lift 4 bought
+  31m lift 13.0 score 0.31
+classic messy seed 1 none: income/s 20-30 1243 30-45 1268 45-60 1317 earned60 3.92M unspent 0.54M maxLifted 0 returns 0 cuCr 3 | plates@30 3 (near hub 1) active 3 dockBeltPieces 5 lifted 0
+classic messy seed 1 off: income/s 20-30 3114 30-45 3416 45-60 3397 earned60 9.51M unspent 5.95M maxLifted 0 returns 0 cuCr 0 | 
+classic messy seed 1 best: income/s 20-30 1437 30-45 1388 45-60 1597 earned60 4.40M unspent 1.01M maxLifted 4 returns 26 cuCr 28 | plates@30 3 (near hub 1) active 0 dockBeltPieces 5 lifted 3
+  20m lift 16.0 score 1.00
+  20m lift 15.0 score 1.00
+  20m lift 28.0 score 0.19
+  21m lift 16.0 score 2.00
+  23m lift 16.0 score 1.00
+  24m lift 15.0 score 1.00
+  26m lift 18.0 score 1.72
+  26m lift 30.0 score 0.86
+  27m lift 15.0 score 0.07
+  28m lift 18.0 score 0.03
+  31m lift 16.0 score 1.58
+  31m lift 30.0 score 0.26
+classic messy seed 1 all: income/s 20-30 1359 30-45 1343 45-60 1406 earned60 4.14M unspent 0.75M maxLifted 5 returns 65 cuCr 12 | plates@30 3 (near hub 1) active 2 dockBeltPieces 5 lifted 3
+classic messy seed 2 none: income/s 20-30 820 30-45 1078 45-60 979 earned60 3.09M unspent 0.03M maxLifted 0 returns 0 cuCr 0 | plates@30 7 (near hub 5) active 7 dockBeltPieces 6 lifted 0
+classic messy seed 2 off: income/s 20-30 3870 30-45 3949 45-60 4021 earned60 11.34M unspent 7.80M maxLifted 0 returns 0 cuCr 144 | 
+classic messy seed 2 best: income/s 20-30 843 30-45 854 45-60 834 earned60 2.78M unspent 1.54M maxLifted 4 returns 27 cuCr 0 | plates@30 4 (near hub 4) active 2 dockBeltPieces 5 lifted 1
+  20m lift 6.0 score 1.00
+  20m lift 5.0 score 1.00
+  22m lift 6.0 score 1.00
+  23m lift 6.0 score 1.00
+  23m lift 21.0 score 0.03
+  24m lift 15.0 score 2.00
+  26m lift 16.0 score 0.36
+  28m lift 5.0 score 0.03
+  30m lift 6.0 score 1.00
+  30m lift 15.0 score 0.21
+  31m lift 21.0 score 0.13
+  32m lift 5.0 score 0.05
+classic messy seed 2 all: income/s 20-30 837 30-45 854 45-60 818 earned60 2.76M unspent 1.53M maxLifted 5 returns 62 cuCr 0 | plates@30 4 (near hub 4) active 2 dockBeltPieces 5 lifted 2
+classic messy seed 3 none: income/s 20-30 880 30-45 969 45-60 1088 earned60 3.19M unspent 0.05M maxLifted 0 returns 0 cuCr 0 | plates@30 8 (near hub 5) active 8 dockBeltPieces 5 lifted 0
+classic messy seed 3 off: income/s 20-30 2330 30-45 2403 45-60 2372 earned60 7.11M unspent 3.63M maxLifted 0 returns 0 cuCr 0 | 
+classic messy seed 3 best: income/s 20-30 1077 30-45 1106 45-60 1158 earned60 3.49M unspent 0.15M maxLifted 4 returns 27 cuCr 0 | plates@30 8 (near hub 5) active 2 dockBeltPieces 5 lifted 3
+  20m lift 15.0 score 3.34
+  21m lift 5.0 score 0.50
+  21m lift 24.0 score 0.19
+  22m lift 4.0 score 1.90
+  22m lift 14.0 score 0.09
+  24m lift 15.0 score 0.13
+  26m lift 15.0 score 0.30
+  27m lift 14.0 score 1.00
+  27m lift 4.0 score 1.00
+  28m lift 5.0 score 1.00
+  29m lift 5.0 score 1.00
+  30m lift 14.0 score 1.00
+classic messy seed 3 all: income/s 20-30 973 30-45 1044 45-60 1086 earned60 3.31M unspent 0.02M maxLifted 5 returns 68 cuCr 0 | plates@30 8 (near hub 5) active 5 dockBeltPieces 5 lifted 3
+sector tidy seed 1 none: income/s 20-30 1448 30-45 1487 45-60 1959 earned60 4.99M unspent 1.61M maxLifted 0 returns 0 cuCr 0 | plates@30 6 (near hub 2) active 6 dockBeltPieces 5 lifted 0
+sector tidy seed 1 off: income/s 20-30 2484 30-45 3652 45-60 3610 earned60 9.05M unspent 5.51M maxLifted 0 returns 0 cuCr 3067 | 
+sector tidy seed 1 best: income/s 20-30 1475 30-45 1520 45-60 1895 earned60 4.98M unspent 1.59M maxLifted 4 returns 0 cuCr 0 | plates@30 6 (near hub 2) active 0 dockBeltPieces 5 lifted 4
+  20m lift 30.0 score 1.12
+  20m lift 15.0 score 1.00
+  20m lift 19.0 score 0.04
+  20m lift 27.0 score 0.03
+sector tidy seed 1 rand: income/s 20-30 1446 30-45 1491 45-60 1975 earned60 5.00M unspent 1.62M maxLifted 4 returns 0 cuCr 0 | plates@30 6 (near hub 2) active 3 dockBeltPieces 5 lifted 4
+sector tidy seed 1 all: income/s 20-30 1457 30-45 1498 45-60 1898 earned60 4.95M unspent 1.57M maxLifted 5 returns 0 cuCr 1 | plates@30 6 (near hub 2) active 4 dockBeltPieces 5 lifted 5
+sector tidy seed 1 real: income/s 20-30 1468 30-45 1478 45-60 1471 earned60 4.55M unspent 0.01M maxLifted 4 returns 0 cuCr 1 | plates@30 6 (near hub 2) active 1 dockBeltPieces 5 lifted 3
+  20.0m lift 1 bought
+  20m lift 30.0 score 1.12
+  25.0m lift 2 bought
+  25m lift 15.0 score 1.00
+  29.0m lift 3 bought
+  29m lift 19.0 score 0.07
+  38.0m lift 4 bought
+  38m lift 27.0 score 0.13
+sector tidy seed 2 none: income/s 20-30 1106 30-45 1084 45-60 1111 earned60 3.66M unspent 0.28M maxLifted 0 returns 0 cuCr 0 | plates@30 6 (near hub 5) active 6 dockBeltPieces 5 lifted 0
+sector tidy seed 2 off: income/s 20-30 2888 30-45 2792 45-60 2678 earned60 8.54M unspent 5.07M maxLifted 0 returns 0 cuCr 1732 | 
+sector tidy seed 2 best: income/s 20-30 1586 30-45 1591 45-60 1466 earned60 4.73M unspent 1.34M maxLifted 3 returns 0 cuCr 739 | plates@30 6 (near hub 5) active 1 dockBeltPieces 5 lifted 2
+  20m lift 16.0 score 2.36
+  20m lift 27.0 score 1.08
+  44m lift 6.0 score 0.05
+sector tidy seed 2 rand: income/s 20-30 1225 30-45 1203 45-60 1191 earned60 3.91M unspent 0.53M maxLifted 4 returns 0 cuCr 0 | plates@30 6 (near hub 5) active 2 dockBeltPieces 5 lifted 4
+sector tidy seed 2 all: income/s 20-30 1108 30-45 1073 45-60 1107 earned60 3.65M unspent 0.27M maxLifted 5 returns 0 cuCr 3 | plates@30 6 (near hub 5) active 5 dockBeltPieces 5 lifted 5
+sector tidy seed 2 real: income/s 20-30 1360 30-45 1733 45-60 1631 earned60 4.87M unspent 0.21M maxLifted 3 returns 0 cuCr 675 | plates@30 6 (near hub 5) active 2 dockBeltPieces 5 lifted 2
+  20.0m lift 1 bought
+  20m lift 16.0 score 2.36
+  23.0m lift 2 bought
+  23m lift 17.0 score 1.09
+  30.0m lift 3 bought
+  30m lift 13.0 score 0.80
+  37.0m lift 4 bought
+sector tidy seed 3 none: income/s 20-30 1427 30-45 1550 45-60 1812 earned60 4.61M unspent 1.26M maxLifted 0 returns 0 cuCr 0 | plates@30 3 (near hub 1) active 3 dockBeltPieces 5 lifted 0
+sector tidy seed 3 off: income/s 20-30 3567 30-45 4646 45-60 4862 earned60 11.66M unspent 8.15M maxLifted 0 returns 0 cuCr 2646 | 
+sector tidy seed 3 best: income/s 20-30 1357 30-45 1270 45-60 1406 earned60 3.95M unspent 0.61M maxLifted 3 returns 0 cuCr 0 | plates@30 3 (near hub 1) active 0 dockBeltPieces 5 lifted 3
+  20m lift 15.0 score 1.00
+  20m lift 19.0 score 0.08
+  23m lift 26.0 score 0.08
+sector tidy seed 3 rand: income/s 20-30 1361 30-45 1275 45-60 1370 earned60 3.93M unspent 0.58M maxLifted 4 returns 0 cuCr 0 | plates@30 3 (near hub 1) active 2 dockBeltPieces 5 lifted 4
+sector tidy seed 3 all: income/s 20-30 1427 30-45 1550 45-60 1812 earned60 4.61M unspent 1.26M maxLifted 5 returns 0 cuCr 0 | plates@30 3 (near hub 1) active 3 dockBeltPieces 5 lifted 5
+sector tidy seed 3 real: income/s 20-30 1330 30-45 1286 45-60 1282 earned60 3.84M unspent 1.34M maxLifted 3 returns 0 cuCr 0 | plates@30 3 (near hub 1) active 0 dockBeltPieces 5 lifted 3
+  21.0m lift 1 bought
+  21m lift 15.0 score 1.00
+  24.0m lift 2 bought
+  24m lift 19.0 score 0.08
+  27.0m lift 3 bought
+  28m lift 26.0 score 0.06
+  44.0m lift 4 bought
+sector messy seed 1 none: income/s 20-30 761 30-45 732 45-60 737 earned60 2.49M unspent 1.27M maxLifted 0 returns 0 cuCr 6 | plates@30 1 (near hub 1) active 1 dockBeltPieces 4 lifted 0
+sector messy seed 1 off: income/s 20-30 2241 30-45 2287 45-60 2290 earned60 6.81M unspent 3.34M maxLifted 0 returns 0 cuCr 0 | 
+sector messy seed 1 best: income/s 20-30 776 30-45 738 45-60 745 earned60 2.51M unspent 1.29M maxLifted 1 returns 0 cuCr 2 | plates@30 1 (near hub 1) active 0 dockBeltPieces 4 lifted 1
+  20m lift 14.0 score 1.00
+sector messy seed 1 all: income/s 20-30 761 30-45 732 45-60 737 earned60 2.49M unspent 1.27M maxLifted 4 returns 0 cuCr 6 | plates@30 1 (near hub 1) active 1 dockBeltPieces 4 lifted 4
+sector messy seed 2 none: income/s 20-30 958 30-45 986 45-60 977 earned60 3.36M unspent 0.01M maxLifted 0 returns 0 cuCr 117 | plates@30 4 (near hub 4) active 4 dockBeltPieces 5 lifted 0
+sector messy seed 2 off: income/s 20-30 2020 30-45 2918 45-60 3126 earned60 8.58M unspent 5.10M maxLifted 0 returns 0 cuCr 0 | 
+sector messy seed 2 best: income/s 20-30 1178 30-45 1240 45-60 1217 earned60 3.94M unspent 0.58M maxLifted 4 returns 36 cuCr 330 | plates@30 4 (near hub 4) active 2 dockBeltPieces 5 lifted 3
+  20m lift 16.0 score 3.80
+  20m lift 17.0 score 1.98
+  21m lift 15.0 score 1.00
+  22m lift 17.0 score 1.88
+  23m lift 16.0 score 2.00
+  23m lift 17.0 score 1.00
+  24m lift 6.0 score 0.09
+  25m lift 15.0 score 0.10
+  29m lift 16.0 score 0.07
+  30m lift 22.0 score 1.00
+  31m lift 22.0 score 0.79
+  31m lift 15.0 score 0.36
+sector messy seed 2 all: income/s 20-30 1088 30-45 1159 45-60 1137 earned60 3.74M unspent 0.38M maxLifted 5 returns 80 cuCr 355 | plates@30 4 (near hub 4) active 2 dockBeltPieces 5 lifted 3
+sector messy seed 3 none: income/s 20-30 623 30-45 934 45-60 1174 earned60 2.88M unspent 1.64M maxLifted 0 returns 0 cuCr 0 | plates@30 8 (near hub 7) active 8 dockBeltPieces 5 lifted 0
+sector messy seed 3 off: income/s 20-30 2244 30-45 2339 45-60 2277 earned60 6.64M unspent 3.17M maxLifted 0 returns 0 cuCr 0 | 
+sector messy seed 3 best: income/s 20-30 832 30-45 967 45-60 1032 earned60 2.91M unspent 1.69M maxLifted 4 returns 12 cuCr 0 | plates@30 8 (near hub 7) active 2 dockBeltPieces 5 lifted 3
+  20m lift 5.0 score 2.76
+  20m lift 22.0 score 0.82
+  20m lift 7.0 score 0.71
+  21m lift 13.0 score 0.16
+  22m lift 13.0 score 1.00
+  23m lift 5.0 score 0.03
+  24m lift 12.0 score 0.49
+  26m lift 13.0 score 0.36
+  27m lift 13.0 score 1.00
+  28m lift 5.0 score 1.60
+  28m lift 22.0 score 1.00
+  29m lift 13.0 score 1.62
+sector messy seed 3 all: income/s 20-30 663 30-45 998 45-60 1062 earned60 2.86M unspent 1.63M maxLifted 6 returns 33 cuCr 0 | plates@30 8 (near hub 7) active 4 dockBeltPieces 5 lifted 3
+
+## Part 2: frozen saves. The bot plays to 40:00, then the save is stepped for 2 min with no purchases and no laser, for every subset of up to 4 pieces that touch a plate. Same start each time, so there is no drift between runs.
+  fz_classic_1.txt: base 1590 best +20.4% | heat-greedy ['13.0', '16.0', '17.0', '24.0'] +2.9% | plate-count greedy ['13.0', '16.0', '17.0', '24.0'] +2.9% | random 4 dock pieces: median +2.0% min +0.0% max +19.4% (n=15) | subsets>=90% of best 22%
+  fz_classic_2.txt: base 1352 best +19.8% | heat-greedy ['13.0', '16.0', '17.0', '24.0'] +6.5% | plate-count greedy ['13.0', '16.0', '17.0', '24.0'] +6.5% | random 4 dock pieces: median +4.4% min +0.0% max +15.5% (n=35) | subsets>=90% of best 9%
+  fz_classic_3.txt: base 1724 best +45.2% | heat-greedy ['13.0', '17.0', '22.0', '36.0'] +17.9% | plate-count greedy ['13.0', '17.0', '24.0', '36.0'] +45.2% | random 4 dock pieces: median +9.9% min +0.0% max +42.5% (n=35) | subsets>=90% of best 13%
+  fz_sector_1.txt: base 1378 best +1.9% | heat-greedy ['15.0', '19.0', '27.0', '30.0'] +1.8% | plate-count greedy ['15.0', '19.0', '27.0', '30.0'] +1.8% | random 4 dock pieces: median +0.1% min +-0.9% max +0.5% (n=5) | subsets>=90% of best 10%
+  fz_sector_2.txt: base 945 best +46.1% | heat-greedy ['16.0', '27.0'] +42.4% | plate-count greedy ['16.0', '27.0'] +42.4% | random 4 dock pieces: median +10.0% min +0.1% max +37.9% (n=5) | subsets>=90% of best 14%
+  fz_sector_3.txt: base 1405 best +6.4% | heat-greedy ['15.0', '19.0', '26.0'] +6.4% | plate-count greedy ['15.0', '19.0', '26.0'] +6.4% | random 4 dock pieces: median +0.0% min +0.0% max +5.9% (n=5) | subsets>=90% of best 54%
+### fz_classic_1.txt
+classic seed 1 @40m frozen 2m (no purchases, no laser after the save): plates 13:23[h0.26 r341] 16:22[h1.00 r83] 16:36[h1.00 r60] 17:27[h1.00 r83] 22:36[h1.00 r50] 24:35[h0.02 r491]; pieces 13.0,16.0,17.0,22.0,23.0,24.0,27.0,35.0,36.0; dock belts 15.0,16.0,17.0,22.0,27.0,36.0
+  none 1590/s  (one run 1s)
+  13.0+16.0+17.0+22.0          1914/s 20.4% activePlates 2
+  16.0+17.0+22.0+23.0          1914/s 20.4% activePlates 2
+  13.0+16.0+22.0+27.0          1914/s 20.4% activePlates 2
+  16.0+22.0+23.0+27.0          1914/s 20.4% activePlates 2
+  13.0+17.0+36.0               1914/s 20.4% activePlates 2
+  17.0+23.0+36.0               1914/s 20.4% activePlates 2
+  13.0+27.0+36.0               1914/s 20.4% activePlates 2
+  23.0+27.0+36.0               1914/s 20.4% activePlates 2
+  13.0+17.0+24.0+36.0          1913/s 20.3% activePlates 1
+  17.0+23.0+24.0+36.0          1913/s 20.3% activePlates 1
+  13.0+24.0+27.0+36.0          1913/s 20.3% activePlates 1
+  23.0+24.0+27.0+36.0          1913/s 20.3% activePlates 1
+  every dock-belt piece 1590/s 0.0%
+  no plates at all 1916/s 20.5%
+### fz_classic_2.txt
+classic seed 2 @40m frozen 2m (no purchases, no laser after the save): plates 13:23[h0.27 r341] 16:22[h1.00 r83] 16:36[h1.00 r60] 17:27[h1.00 r83] 22:36[h1.00 r50] 24:35[h0.02 r491]; pieces 13.0,16.0,17.0,22.0,23.0,24.0,27.0,35.0,36.0; dock belts 6.0,15.0,16.0,17.0,22.0,27.0,36.0
+  none 1352/s  (one run 1s)
+  13.0+17.0+24.0+36.0          1620/s 19.8% activePlates 1
+  17.0+23.0+24.0+36.0          1620/s 19.8% activePlates 1
+  13.0+24.0+27.0+36.0          1620/s 19.8% activePlates 1
+  23.0+24.0+27.0+36.0          1620/s 19.8% activePlates 1
+  13.0+17.0+35.0+36.0          1620/s 19.8% activePlates 1
+  17.0+23.0+35.0+36.0          1620/s 19.8% activePlates 1
+  13.0+27.0+35.0+36.0          1620/s 19.8% activePlates 1
+  23.0+27.0+35.0+36.0          1620/s 19.8% activePlates 1
+  13.0+16.0+22.0+24.0          1614/s 19.4% activePlates 2
+  16.0+22.0+23.0+24.0          1614/s 19.4% activePlates 2
+  13.0+16.0+22.0+35.0          1614/s 19.4% activePlates 2
+  16.0+22.0+23.0+35.0          1614/s 19.4% activePlates 2
+  every dock-belt piece 1352/s 0.0%
+  no plates at all 1624/s 20.1%
+### fz_classic_3.txt
+classic seed 3 @40m frozen 2m (no purchases, no laser after the save): plates 5:36[h1.00 r119] 13:23[h0.27 r341] 16:22[h1.00 r83] 16:36[h1.00 r60] 17:27[h1.00 r83] 22:36[h0.87 r50] 24:35[h0.09 r491]; pieces 13.0,16.0,17.0,22.0,23.0,24.0,27.0,35.0,36.0,5.0; dock belts 5.0,15.0,16.0,17.0,22.0,27.0,36.0
+  none 1724/s  (one run 1s)
+  13.0+17.0+24.0+36.0          2504/s 45.2% activePlates 1
+  17.0+23.0+24.0+36.0          2504/s 45.2% activePlates 1
+  13.0+24.0+27.0+36.0          2504/s 45.2% activePlates 1
+  23.0+24.0+27.0+36.0          2504/s 45.2% activePlates 1
+  13.0+17.0+35.0+36.0          2504/s 45.2% activePlates 1
+  17.0+23.0+35.0+36.0          2504/s 45.2% activePlates 1
+  13.0+27.0+35.0+36.0          2504/s 45.2% activePlates 1
+  23.0+27.0+35.0+36.0          2504/s 45.2% activePlates 1
+  13.0+24.0+36.0               2501/s 45.1% activePlates 2
+  23.0+24.0+36.0               2501/s 45.1% activePlates 2
+  13.0+35.0+36.0               2501/s 45.1% activePlates 2
+  23.0+35.0+36.0               2501/s 45.1% activePlates 2
+  every dock-belt piece 1724/s 0.0%
+  no plates at all 2507/s 45.4%
+### fz_sector_1.txt
+sector seed 1 @40m frozen 2m (no purchases, no laser after the save): plates 2:30[h0.02 r263] 15:22[h1.00 r76] 16:30[h1.00 r74] 18:30[h0.08 r418] 19:20[h0.20 r464] 27:29[h0.03 r666]; pieces 15.0,16.0,18.0,19.0,2.0,20.0,22.0,27.0,29.0,30.0; dock belts 14.0,15.0,16.0,22.0,30.0
+  none 1378/s  (one run 1s)
+  15.0+16.0+27.0               1405/s 1.9% activePlates 3
+  15.0+16.0+18.0+27.0          1405/s 1.9% activePlates 2
+  16.0+22.0+27.0               1405/s 1.9% activePlates 3
+  16.0+18.0+22.0+27.0          1405/s 1.9% activePlates 2
+  15.0+16.0+29.0               1405/s 1.9% activePlates 3
+  15.0+16.0+18.0+29.0          1405/s 1.9% activePlates 2
+  16.0+22.0+29.0               1405/s 1.9% activePlates 3
+  16.0+18.0+22.0+29.0          1405/s 1.9% activePlates 2
+  15.0+2.0+27.0+30.0           1405/s 1.9% activePlates 2
+  2.0+22.0+27.0+30.0           1405/s 1.9% activePlates 2
+  15.0+2.0+29.0+30.0           1405/s 1.9% activePlates 2
+  2.0+22.0+29.0+30.0           1405/s 1.9% activePlates 2
+  every dock-belt piece 1367/s -0.9%
+  no plates at all 1403/s 1.8%
+### fz_sector_2.txt
+sector seed 2 @40m frozen 2m (no purchases, no laser after the save): plates 6:16[h1.00 r77] 6:17[h0.13 r49] 13:27[h0.05 r221] 15:16[h1.00 r58] 16:17[h0.24 r48] 17:27[h1.00 r69]; pieces 13.0,15.0,16.0,17.0,27.0,6.0; dock belts 6.0,15.0,16.0,17.0,27.0
+  none 945/s  (one run 1s)
+  13.0+15.0+16.0+17.0          1381/s 46.1% activePlates 2
+  27.0+6.0                     1381/s 46.1% activePlates 2
+  13.0+16.0+17.0               1378/s 45.8% activePlates 1
+  15.0+27.0+6.0                1378/s 45.8% activePlates 1
+  16.0+27.0                    1346/s 42.4% activePlates 1
+  13.0+15.0+17.0+6.0           1346/s 42.4% activePlates 1
+  15.0+16.0+27.0               1345/s 42.3% activePlates 2
+  13.0+17.0+6.0                1345/s 42.3% activePlates 2
+  13.0+15.0+17.0               1304/s 38.0% activePlates 1
+  16.0+27.0+6.0                1304/s 38.0% activePlates 1
+  13.0+17.0                    1303/s 37.9% activePlates 2
+  15.0+16.0+27.0+6.0           1303/s 37.9% activePlates 2
+  every dock-belt piece 945/s 0.0%
+  no plates at all 1389/s 47.0%
+### fz_sector_3.txt
+sector seed 3 @40m frozen 2m (no purchases, no laser after the save): plates 15:29[h1.00 r83] 19:20[h0.04 r529] 26:27[h0.12 r757]; pieces 15.0,19.0,20.0,26.0,27.0,29.0; dock belts 4.0,14.0,15.0,16.0,29.0
+  none 1405/s  (one run 1s)
+  15.0+26.0                    1495/s 6.4% activePlates 1
+  15.0+19.0+26.0               1495/s 6.4% activePlates 0
+  15.0+20.0+26.0               1495/s 6.4% activePlates 0
+  15.0+19.0+20.0+26.0          1495/s 6.4% activePlates 1
+  15.0+27.0                    1495/s 6.4% activePlates 1
+  15.0+19.0+27.0               1495/s 6.4% activePlates 0
+  15.0+20.0+27.0               1495/s 6.4% activePlates 0
+  15.0+19.0+20.0+27.0          1495/s 6.4% activePlates 1
+  26.0+29.0                    1495/s 6.4% activePlates 1
+  19.0+26.0+29.0               1495/s 6.4% activePlates 0
+  20.0+26.0+29.0               1495/s 6.4% activePlates 0
+  19.0+20.0+26.0+29.0          1495/s 6.4% activePlates 1
+  every dock-belt piece 1405/s 0.0%
+  no plates at all 1495/s 6.4%
