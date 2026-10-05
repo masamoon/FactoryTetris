@@ -2139,6 +2139,14 @@ function pieceOf(s: State, owner: number, piece: number) {
   return { a: path[piece], b: path[piece + 1], pieces: path.length - 1 };
 }
 
+/** The pieces of `m`'s belt that are raised and in effect now (for drawing). */
+export function raisedPieces(s: State, m: Machine): number[] {
+  if (!liftsActive(s)) return [];
+  return segmentsOf(s, m)
+    .filter((g) => g.level === 1)
+    .map((g) => g.piece ?? 0);
+}
+
 export const liftsFree = (s: State) =>
   s.research ? s.research.lifts.owned - s.research.lifts.raised.length : 0;
 
@@ -3285,6 +3293,12 @@ export const COMMANDS = {
   setJoins,
   setPick,
   setOrePicks,
+  setResearch,
+  placeLab,
+  setLabActive,
+  buyLift,
+  raisePiece,
+  lowerPiece,
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;

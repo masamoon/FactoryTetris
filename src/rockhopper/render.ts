@@ -11,6 +11,8 @@ import {
   TICK_HZ,
   TOW_SECONDS,
   AUTO_TOW_SECONDS,
+  LAB_R,
+  RECIPES,
 } from './config';
 import {
   beltPath,
@@ -46,6 +48,9 @@ import {
   DOWNSTREAM_TICKS,
   inputCap,
   inputsOf,
+  raisedPieces,
+  labRows,
+  type BeltItem,
 } from './sim';
 import {
   CORAL,
@@ -72,9 +77,29 @@ import {
 
 type Ctx = CanvasRenderingContext2D;
 
+/** How high a lifted piece's deck runs (world units), and over what length it eases down at each end. */
+const DECK_H = 12;
+const DECK_EASE = 24;
+
+/** The deck's height at distance `d` along a belt with these lifted ranges. */
+function deckHeight(decks: [number, number][], d: number): number {
+  for (const [d0, d1] of decks) {
+    if (d < d0 - 1e-6 || d > d1 + 1e-6) continue;
+    const e = Math.max(0, Math.min(1, (d - d0) / DECK_EASE, (d1 - d) / DECK_EASE));
+    return DECK_H * e * e * (3 - 2 * e);
+  }
+  return 0;
+}
+
 export interface Overlay {
   /** World point under the mining finger. */
   finger: Point | null;
+  /** The Lab being placed or moved: where it would clamp, or why not (research). */
+  labGhost?: (Point & { ok: boolean; why?: string }) | null;
+  /** The Lift tool is open: belts read as pieces to tap (research). */
+  liftMode?: boolean;
+  /** The piece a finger is on in the Lift tool, before release (its ghost). */
+  liftGhost?: { id: number; piece: number } | null;
   placing: {
     kind: 'drill' | 'smelter' | 'factory' | 'join';
     /** The snapped spot; `splice` is the belt (owner id) it would go into. */
@@ -481,6 +506,39 @@ export class Renderer {
             rot: 0,
           });
         }
+      } else if (e.type === 'skim') {
+        // A taken entry arcs up into the Lab's dome.
+        this.particles.push({
+          x: e.x,
+          y: e.y,
+          vx: 0,
+          vy: -55,
+          life: 0,
+          max: 0.35,
+          size: e.bar ? 3.4 : 2.8,
+          color: ORES[e.ore].color,
+          spin: 0,
+          rot: 0,
+        });
+      } else if (e.type === 'learn') {
+        const name = e.id.startsWith('lift') ? 'Lift researched' : `${recipeName(e.id)} learned`;
+        this.labReveal = { x: e.x, y: e.y, text: name, until: this.time + 2 };
+      } else if (e.type === 'lift') {
+        this.particles.push({
+          x: e.x,
+          y: e.y,
+          vx: 0,
+          vy: 0,
+          life: 0,
+          max: 0.5,
+          size: 30,
+          color: e.returned ? CORAL : e.up ? MINT : LILAC,
+          spin: 0,
+          rot: 0,
+          ring: true,
+        });
+        if (e.returned)
+          this.flashes.push({ x: e.x, y: e.y, why: 'lift returned', until: this.time + 1.6 });
       } else if (e.type === 'route') {
         this.routedAt.set(e.id, this.time);
       } else if (e.type === 'build' || e.type === 'move') {
@@ -606,8 +664,10 @@ export class Renderer {
     this.drawArms(c, s);
     this.drawBelts(c, s, alpha, o);
     this.drawPlates(c, s, o);
+    this.drawDecks(c);
     this.drawHubAndDocks(c, s, o);
     this.drawMachines(c, s, o);
+    this.drawLab(c, s, o);
     this.drawFlights(c, s, tickF);
     this.drawParticles(c, dt);
     this.drawHopAndLaser(c, s, dt, o);
@@ -615,6 +675,7 @@ export class Renderer {
 
     c.setTransform(d, 0, 0, d, 0, 0);
     this.drawLockedTags(c, s);
+    this.drawLabTag(c);
     this.drawPops(c, dt, o.placing ? 0.25 : 1);
     this.drawTurnChips(c, s, o);
     this.flashes = this.flashes.filter((f) => f.until > this.time);
@@ -1050,52 +1111,254 @@ export class Renderer {
       if (toMachine) this.inPort(c, e.b, ux, uy, 5 + wide / 2);
       let max = m.out.length;
       const pathLen = pathLength(path);
+      const decks = this.deckRanges(s, m, path);
       for (const it of m.out.items) {
         // A bundle waiting its turn at a crossing stays put between ticks too.
         const pos = Math.min(it.pos + (it.w ? 0 : BELT_SPEED * DT * alpha), max);
         max = pos - BELT_SPACING;
-        const at = pointAlong(path, (pos / m.out.length) * pathLen);
-        c.save();
-        c.translate(at.x, at.y);
-        const n = it.ores.length;
-        if (it.alloy !== undefined) {
-          // An alloy is one item: a chunk split in its two ores' colours.
-          c.globalAlpha = dim ? 0.35 : 1;
-          drawAlloy(c, it.alloy, it.ores[0], 4.6);
-        } else if (it.mult > 1) {
-          // Bars stack into a small ingot pile across the belt.
-          c.rotate(Math.atan2(at.uy, at.ux));
-          c.globalAlpha = dim ? 0.12 : 0.35;
-          c.fillStyle = ORES[it.ores[0]].color;
-          c.beginPath();
-          c.arc(0, 0, 8.5 + n * 1.5, 0, Math.PI * 2);
-          c.fill();
-          c.globalAlpha = dim ? 0.35 : 1;
-          for (let k = 0; k < n; k++) {
-            const [ox, oy] = BAR_PILE[n - 1][k];
-            c.save();
-            c.translate(ox, oy);
-            drawChunk(c, it.ores[k], n > 1 ? 3.5 : 4.2, true);
-            c.restore();
-          }
-        } else {
-          // Chunks travel as a tumbling cluster; a bigger cluster is a bigger delivery.
-          if (!stopped || pos < m.out.length - 0.5) c.rotate((it.pos * 0.05) % 6.28);
-          for (let k = 0; k < n; k++) {
-            const [ox, oy] = CHUNK_PILE[n - 1][k];
-            c.save();
-            c.translate(ox, oy);
-            drawChunk(c, it.ores[k], n > 1 ? 3.3 : 3.8);
-            c.restore();
-          }
+        const d = (pos / m.out.length) * pathLen;
+        const at = pointAlong(path, d);
+        const h = deckHeight(decks, d);
+        // A bundle on a lifted piece is drawn on the deck, in the lifted pass.
+        if (h > 0) {
+          this.deckItems.push({ it, at, h, dim, spin: !stopped || pos < m.out.length - 0.5 });
+          continue;
         }
-        c.restore();
+        this.drawItem(c, it, at, dim, !stopped || pos < m.out.length - 0.5);
       }
+      if (decks.length) this.decks.push({ path, decks, wide, stopped, dim });
       c.globalAlpha = 1;
       for (const v of m.out.via ?? []) this.post(c, v, dim);
       if (blocked) this.chip(c, e.b.x - ux * 12, e.b.y - uy * 12, 'blocked');
     }
   }
+
+  /** One bundle on a belt at `at`: an alloy, a pile of bars or a tumbling cluster of chunks. */
+  private drawItem(
+    c: Ctx,
+    it: BeltItem,
+    at: { x: number; y: number; ux: number; uy: number },
+    dim: boolean,
+    spin: boolean
+  ) {
+    c.save();
+    c.translate(at.x, at.y);
+    const n = it.ores.length;
+    if (it.alloy !== undefined) {
+      // An alloy is one item: a chunk split in its two ores' colours.
+      c.globalAlpha = dim ? 0.35 : 1;
+      drawAlloy(c, it.alloy, it.ores[0], 4.6);
+    } else if (it.mult > 1) {
+      // Bars stack into a small ingot pile across the belt.
+      c.rotate(Math.atan2(at.uy, at.ux));
+      c.globalAlpha = dim ? 0.12 : 0.35;
+      c.fillStyle = ORES[it.ores[0]].color;
+      c.beginPath();
+      c.arc(0, 0, 8.5 + n * 1.5, 0, Math.PI * 2);
+      c.fill();
+      c.globalAlpha = dim ? 0.35 : 1;
+      for (let k = 0; k < n; k++) {
+        const [ox, oy] = BAR_PILE[n - 1][k];
+        c.save();
+        c.translate(ox, oy);
+        drawChunk(c, it.ores[k], n > 1 ? 3.5 : 4.2, true);
+        c.restore();
+      }
+    } else {
+      // Chunks travel as a tumbling cluster; a bigger cluster is a bigger delivery.
+      if (spin) c.rotate((it.pos * 0.05) % 6.28);
+      for (let k = 0; k < n; k++) {
+        const [ox, oy] = CHUNK_PILE[n - 1][k];
+        c.save();
+        c.translate(ox, oy);
+        drawChunk(c, it.ores[k], n > 1 ? 3.3 : 3.8);
+        c.restore();
+      }
+    }
+    c.restore();
+  }
+
+  /** Lifted pieces of `m`'s belt as distance ranges along its path (Lab lifts, LL1). */
+  private deckRanges(s: State, m: { out: unknown } & { id: number }, path: Point[]) {
+    const pieces = raisedPieces(s, m as never);
+    if (!pieces.length) return [];
+    const starts: number[] = [0];
+    for (let i = 1; i < path.length; i++)
+      starts.push(starts[i - 1] + Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y));
+    return pieces.map((k) => [starts[k], starts[k + 1]] as [number, number]);
+  }
+
+  private decks: {
+    path: Point[];
+    decks: [number, number][];
+    wide: number;
+    stopped: boolean;
+    dim: boolean;
+  }[] = [];
+  private deckItems: {
+    it: BeltItem;
+    at: { x: number; y: number; ux: number; uy: number };
+    h: number;
+    dim: boolean;
+    spin: boolean;
+  }[] = [];
+
+  /**
+   * The lifted pass (LL1): over the ground belts and their plates, each raised piece casts its
+   * shadow on the ground, stands on pylons and carries its bundles on the deck, easing down to the
+   * ground near both ends.
+   */
+  private drawDecks(c: Ctx) {
+    for (const b of this.decks) {
+      const wide = b.wide;
+      for (const [d0, d1] of b.decks) {
+        const pts: { x: number; y: number; h: number }[] = [];
+        for (let d = d0; d <= d1 + 1e-6; d += 3) {
+          const q = pointAlong(b.path, Math.min(d, d1));
+          pts.push({ x: q.x, y: q.y, h: deckHeight([[d0, d1]], Math.min(d, d1)) });
+        }
+        const line = (f: (p: { x: number; y: number; h: number }) => Point) => {
+          c.beginPath();
+          pts.forEach((p, i) => {
+            const q = f(p);
+            if (i) c.lineTo(q.x, q.y);
+            else c.moveTo(q.x, q.y);
+          });
+        };
+        c.save();
+        c.globalAlpha = b.dim ? 0.35 : 1;
+        c.lineCap = 'round';
+        c.lineJoin = 'round';
+        // Shadow, cast down and to the right of the deck.
+        line((p) => ({ x: p.x + 0.45 * p.h, y: p.y + 0.35 * p.h }));
+        c.strokeStyle = 'rgba(10,6,24,0.7)';
+        c.lineWidth = 12 + wide;
+        c.stroke();
+        // Pylons.
+        c.strokeStyle = MUTED;
+        c.lineWidth = 2.4;
+        for (let i = 2; i < pts.length - 2; i += 8) {
+          const p = pts[i];
+          if (p.h < DECK_H * 0.6) continue;
+          c.beginPath();
+          c.moveTo(p.x + 0.45 * p.h, p.y + 0.35 * p.h);
+          c.lineTo(p.x, p.y - p.h);
+          c.stroke();
+        }
+        // The deck: the belt's colours with a cream lip.
+        line((p) => ({ x: p.x, y: p.y - p.h }));
+        c.strokeStyle = INK;
+        c.lineWidth = 11 + wide;
+        c.stroke();
+        c.strokeStyle = CREAM;
+        c.lineWidth = 8.5 + wide;
+        c.stroke();
+        c.strokeStyle = DEEP;
+        c.lineWidth = 6 + wide;
+        c.stroke();
+        c.setLineDash(BELT_DASH);
+        c.lineDashOffset = b.stopped ? 0 : -this.time * BELT_SPEED;
+        c.strokeStyle = b.stopped ? LILAC : MINT;
+        c.globalAlpha = (b.dim ? 0.35 : 1) * (b.stopped ? 0.55 : 0.9);
+        c.lineWidth = 2.6;
+        c.stroke();
+        c.restore();
+      }
+    }
+    for (const d of this.deckItems)
+      this.drawItem(c, d.it, { ...d.at, y: d.at.y - d.h }, d.dim, d.spin);
+    this.decks = [];
+    this.deckItems = [];
+  }
+
+  /**
+   * The research Lab (TT8): a lavender dome on a cream clamp across its belt, with a mint bulb;
+   * two half-rings show the hold (solid while that ore is held, dashed while missing).
+   */
+  private drawLab(c: Ctx, s: State, o: Overlay) {
+    const r = s.research;
+    const ghost = o.labGhost;
+    if (!r?.on || !s.factories) return;
+    const draw = (p: Point, idle: boolean, holo: boolean) => {
+      c.save();
+      c.translate(p.x, p.y);
+      if (holo) c.globalAlpha = 0.7;
+      // Clamp feet.
+      c.fillStyle = CREAM;
+      c.strokeStyle = INK;
+      c.lineWidth = 2.4;
+      rrect(c, -LAB_R * 0.95, -4, LAB_R * 1.9, 8, 3);
+      c.fill();
+      c.stroke();
+      // Dome.
+      c.beginPath();
+      c.arc(0, -2, LAB_R * 0.72, Math.PI, 0);
+      c.closePath();
+      c.fillStyle = '#B7A6F2';
+      c.fill();
+      c.stroke();
+      c.globalAlpha = (holo ? 0.7 : 1) * 0.5;
+      c.fillStyle = CREAM;
+      c.beginPath();
+      c.ellipse(-4, -8, 3, 4.5, -0.5, 0, Math.PI * 2);
+      c.fill();
+      c.globalAlpha = holo ? 0.7 : 1;
+      // Antenna and bulb.
+      c.beginPath();
+      c.moveTo(0, -2 - LAB_R * 0.72);
+      c.lineTo(0, -2 - LAB_R * 0.72 - 6);
+      c.stroke();
+      c.beginPath();
+      c.arc(0, -2 - LAB_R * 0.72 - 8, 3, 0, Math.PI * 2);
+      c.fillStyle = idle ? MUTED : MINT;
+      c.fill();
+      c.stroke();
+      c.restore();
+    };
+    if (r.lab && !(ghost && o.placing === null && this.labMoving)) {
+      const idle = r.lab.owner < 0;
+      const rows = labRows(s);
+      const row = rows.find((x) => x.id === r.active);
+      // The hold: one half-ring per ore of the active recipe.
+      if (!idle && row && row.ores.length === 2) {
+        row.ores.forEach((ore, k) => {
+          const held = (r.hold ?? []).some((h) => h.ore === ore);
+          c.save();
+          c.strokeStyle = ORES[ore].color;
+          c.lineWidth = 3.4;
+          if (!held) c.setLineDash([4, 4]);
+          c.beginPath();
+          const a0 = k ? -Math.PI / 2 : Math.PI / 2;
+          c.arc(r.lab!.x, r.lab!.y - 2, LAB_R + 3, a0, a0 + Math.PI);
+          c.stroke();
+          c.restore();
+        });
+      }
+      draw(r.lab, idle, false);
+      this.labTag = {
+        x: r.lab.x,
+        y: r.lab.y,
+        text: idle
+          ? 'no belt'
+          : row
+            ? `${row.count} / ${row.of}`
+            : rows.some((x) => !x.done)
+              ? 'tap to pick'
+              : '',
+        color: idle ? CORAL : row ? CREAM : MINT,
+      };
+    } else this.labTag = null;
+    if (ghost) {
+      draw({ x: ghost.x, y: ghost.y - 16 }, !ghost.ok, true);
+      if (!ghost.ok)
+        this.refusals.push({ x: ghost.x, y: ghost.y, why: ghost.why ?? 'drop it on a belt' });
+    }
+  }
+
+  /** Set by the App while the Lab is being moved, so the old one isn't drawn twice. */
+  labMoving = false;
+  private labTag: { x: number; y: number; text: string; color: string } | null = null;
+  private labReveal: { x: number; y: number; text: string; until: number } | null = null;
 
   /**
    * A join (the joins experiment): a mint hinge disc with a pip per input. One with no output yet
@@ -2043,6 +2306,28 @@ export class Renderer {
     c.globalAlpha = 1;
   }
 
+  /** The Lab's count tag above it ("12 / 60", "tap to pick", "no belt") and a learned reveal. */
+  private drawLabTag(c: Ctx) {
+    const t = this.labTag;
+    if (t?.text) {
+      const p = this.toScreen({ x: t.x, y: t.y - LAB_R - 14 });
+      c.font = '14px "Lilita One", sans-serif';
+      const w = c.measureText(t.text).width + 18;
+      rrect(c, p.x - w / 2, p.y - 20, w, 22, 11);
+      c.fillStyle = INK;
+      c.fill();
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillStyle = t.color;
+      c.fillText(t.text, p.x, p.y - 9);
+    }
+    const r = this.labReveal;
+    if (r && r.until > this.time) {
+      const p = this.toScreen({ x: r.x, y: r.y - LAB_R - 14 });
+      label(c, r.text, p.x, p.y - 34, 16, MINT);
+    }
+  }
+
   private drawLockedTags(c: Ctx, s: State) {
     this.tags = [];
     SLOTS.forEach((def, i) => {
@@ -2251,6 +2536,14 @@ function label(c: Ctx, text: string, x: number, y: number, size = 20, fill = CRE
   c.strokeText(text, x, y);
   c.fillStyle = fill;
   c.fillText(text, x, y);
+}
+
+/** "Copper + ice" for a recipe id. */
+export function recipeName(id: string): string {
+  const r = RECIPES.find((x) => x.id === id);
+  if (!r) return id;
+  const n = (o: Ore) => ORES[o].name;
+  return `${n(r.a)} + ${n(r.b).toLowerCase()}`;
 }
 
 export function formatNumber(n: number): string {
