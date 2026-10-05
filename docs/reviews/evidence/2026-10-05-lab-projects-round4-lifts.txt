@@ -1,0 +1,47 @@
+# Lab projects round 4 (lifts, revision 4) scratch runs, 2026-10-05. The bot plays to 40:00 (slow rocks, fixed costs, factories on, laser on). Each variant then runs 2 min frozen (no purchases, no laser) from the same save. Plates are dropped when exactly one of their pieces is lifted. Heat = crossings.ts smoothed waiting share as saved (what the chip shows).
+# Cue max-remaining = the piece whose lift leaves the least waiting on the hottest remaining plate. Cue sum-remaining = the least total remaining waiting. Ties (within 0.02) are listed.
+# feedback = per-second earnings, lift minus no lift, for the first 30 s after lifting.
+classic seed 1 @40m: base 1590/s plates 13:23[h0.26] 16:22[h1.00] 16:36[h1.00] 17:27[h1.00] 22:36[h1.00] 24:35[h0.02]
+  singles: 36.0 18.8%, 16.0 2.0%, 17.0 0.6%, 27.0 0.6%, 13.0 0.3%, 23.0 0.3%, 24.0 0.0%, 35.0 0.0%, 22.0 -0.0%
+  best first 36.0 18.8% | best second given it 13.0+36.0 20.0% (+1.2 pts) | best pair overall 13.0+36.0 20.0%
+  cue max-remaining: picks {13.0, 16.0, 17.0, 22.0, 23.0, 24.0, 27.0, 35.0, 36.0} (score 1) -> 0.3%, 2.0%, 0.6%, -0.0%, 0.3%, 0.0%, 0.6%, 0.0%, 18.8%; 1/9 reach half of best first
+  cue sum-remaining: picks {16.0, 22.0, 36.0} (score 2.278) -> 2.0%, -0.0%, 18.8%; 1/3 reach half of best first
+  feedback: per-second earnings difference (lift 36.0 minus none), s1..30: 366 498 630 324 690 270 414 108 732 360 678 120 936 996 564 1165 558 -335 456 234 360 66 174 336 150 -240 -66 -174 24 -276
+classic seed 2 @40m: base 1352/s plates 13:23[h0.27] 16:22[h1.00] 16:36[h1.00] 17:27[h1.00] 22:36[h1.00] 24:35[h0.02]
+  singles: 36.0 15.2%, 16.0 4.4%, 13.0 2.9%, 23.0 2.9%, 24.0 0.7%, 35.0 0.7%, 17.0 0.3%, 27.0 0.3%, 22.0 0.0%
+  best first 36.0 15.2% | best second given it 13.0+36.0 17.6% (+2.4 pts) | best pair overall 13.0+36.0 17.6%
+  cue max-remaining: picks {13.0, 16.0, 17.0, 22.0, 23.0, 24.0, 27.0, 35.0, 36.0} (score 1) -> 2.9%, 4.4%, 0.3%, 0.0%, 2.9%, 0.7%, 0.3%, 0.7%, 15.2%; 1/9 reach half of best first
+  cue sum-remaining: picks {16.0, 22.0, 36.0} (score 2.291) -> 4.4%, 0.0%, 15.2%; 1/3 reach half of best first
+  feedback: per-second earnings difference (lift 36.0 minus none), s1..30: 78 126 186 216 -126 -48 174 527 -499 111 417 402 -150 222 474 372 192 603 300 -54 -18 906 1647 1299 1107 936 735 1356 939 216
+classic seed 3 @40m: base 1724/s plates 5:36[h1.00] 13:23[h0.27] 16:22[h1.00] 16:36[h1.00] 17:27[h1.00] 22:36[h0.87] 24:35[h0.09]
+  singles: 36.0 42.3%, 5.0 9.8%, 13.0 0.5%, 23.0 0.5%, 17.0 0.3%, 27.0 0.3%, 22.0 0.2%, 16.0 0.0%, 24.0 -0.0%, 35.0 -0.0%
+  best first 36.0 42.3% | best second given it 24.0+36.0 44.0% (+1.7 pts) | best pair overall 24.0+36.0 44.0%
+  cue max-remaining: picks {13.0, 16.0, 17.0, 22.0, 23.0, 24.0, 27.0, 35.0, 36.0, 5.0} (score 1) -> 0.5%, 0.0%, 0.3%, 0.2%, 0.5%, -0.0%, 0.3%, -0.0%, 42.3%, 9.8%; 1/10 reach half of best first
+  cue sum-remaining: picks {36.0} (score 2.358) -> 42.3%; 1/1 reach half of best first
+  feedback: per-second earnings difference (lift 36.0 minus none), s1..30: 210 282 168 459 219 741 948 834 666 90 576 -324 369 120 816 588 798 234 300 -318 59 -124 -6 -604 -269 -246 -90 108 1020 954
+sector seed 1 @40m: base 1378/s plates 2:30[h0.02] 15:22[h1.00] 16:30[h1.00] 18:30[h0.08] 19:20[h0.20] 27:29[h0.03]
+  singles: 15.0 0.9%, 22.0 0.9%, 16.0 0.5%, 30.0 0.4%, 19.0 -0.1%, 20.0 -0.1%, 18.0 -0.2%, 2.0 -0.4%, 27.0 -0.6%, 29.0 -0.6%
+  best first 15.0 0.9% | best second given it 15.0+16.0 1.4% (+0.5 pts) | best pair overall 15.0+16.0 1.4%
+  cue max-remaining: picks {15.0, 16.0, 18.0, 19.0, 2.0, 20.0, 22.0, 27.0, 29.0, 30.0} (score 1) -> 0.9%, 0.5%, -0.2%, -0.1%, -0.4%, -0.1%, 0.9%, -0.6%, -0.6%, 0.4%; 2/10 reach half of best first
+  cue sum-remaining: picks {30.0} (score 1.225) -> 0.4%; 0/1 reach half of best first
+  feedback: per-second earnings difference (lift 15.0 minus none), s1..30: 594 -30 -12 -102 162 -408 216 0 -12 -66 24 -6 36 -48 462 -72 -84 -132 48 96 96 -252 -48 186 30 -72 -24 168 -60 -276
+sector seed 2 @40m: base 945/s plates 6:16[h1.00] 6:17[h0.13] 13:27[h0.05] 15:16[h1.00] 16:17[h0.24] 17:27[h1.00]
+  singles: 27.0 36.8%, 17.0 13.9%, 6.0 8.9%, 16.0 8.7%, 15.0 0.1%, 13.0 0.0%
+  best first 27.0 36.8% | best second given it 27.0+6.0 46.1% (+9.3 pts) | best pair overall 27.0+6.0 46.1%
+  cue max-remaining: picks {13.0, 15.0, 16.0, 17.0, 27.0, 6.0} (score 1) -> 0.0%, 0.1%, 8.7%, 13.9%, 36.8%, 8.9%; 1/6 reach half of best first
+  cue sum-remaining: picks {16.0} (score 1.177) -> 8.7%; 0/1 reach half of best first
+  feedback: per-second earnings difference (lift 27.0 minus none), s1..30: 282 36 420 756 294 156 444 523 94 -90 345 24 -90 -210 43 363 294 150 36 411 54 136 769 382 231 375 33 222 130 502
+sector seed 3 @40m: base 1405/s plates 15:29[h1.00] 19:20[h0.04] 26:27[h0.12]
+  singles: 15.0 5.9%, 29.0 5.9%, 26.0 0.5%, 27.0 0.5%, 19.0 0.0%, 20.0 0.0%
+  best first 15.0 5.9% | best second given it 15.0+26.0 6.4% (+0.5 pts) | best pair overall 15.0+26.0 6.4%
+  cue max-remaining: picks {15.0, 29.0} (score 0.117) -> 5.9%, 5.9%; 2/2 reach half of best first
+  cue sum-remaining: picks {15.0, 29.0} (score 0.161) -> 5.9%, 5.9%; 2/2 reach half of best first
+  feedback: per-second earnings difference (lift 15.0 minus none), s1..30: 708 744 366 690 300 531 573 -54 -72 -156 -327 573 978 510 1551 348 -420 -492 279 -542 -460 -116 411 -184 -240 288 -87 -474 -666 -480
+
+# Part 2: per-plate waiting from the same saves over 60 s, counted two ways that don't saturate: bundle-ticks waiting / item-ticks waiting
+sector seed 1: per plate over 60 s, bundle-ticks waiting / item-ticks waiting: 2:30 522/1833, 15:22 2250/8075, 16:30 2250/7920, 18:30 59/222, 19:20 183/432, 27:29 57/105
+classic seed 1: per plate over 60 s, bundle-ticks waiting / item-ticks waiting: 13:23 271/968, 16:22 2248/8683, 16:36 2248/8853, 17:27 2250/6701, 22:36 2025/7960, 24:35 64/228
+classic seed 2: per plate over 60 s, bundle-ticks waiting / item-ticks waiting: 13:23 962/3638, 16:22 2215/8214, 16:36 2232/8582, 17:27 2159/6224, 22:36 2020/7405, 24:35 39/66
+classic seed 3: per plate over 60 s, bundle-ticks waiting / item-ticks waiting: 5:36 2250/9000, 13:23 484/1652, 16:22 2223/8065, 16:36 1764/6975, 17:27 2175/6754, 22:36 1080/4010, 24:35 170/680
+sector seed 2: per plate over 60 s, bundle-ticks waiting / item-ticks waiting: 6:16 2250/8870, 6:17 234/914, 13:27 178/703, 15:16 2144/8066, 16:17 505/1972, 17:27 2016/7976
+sector seed 3: per plate over 60 s, bundle-ticks waiting / item-ticks waiting: 15:29 2250/6997, 19:20 240/360, 26:27 87/169
