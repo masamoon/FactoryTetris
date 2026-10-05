@@ -33,12 +33,7 @@
           "x": 0,
           "y": 2,
           "rotation": 0,
-          "inputs": [
-            [
-              "blank",
-              "blank"
-            ]
-          ],
+          "inputs": [["blank", "blank"]],
           "output": [],
           "remaining": 1,
           "processing": "punched",
@@ -95,16 +90,8 @@
           "x": 5,
           "y": 5,
           "rotation": 2,
-          "inputs": [
-            [
-              "blank",
-              "blank"
-            ]
-          ],
-          "output": [
-            "clipped",
-            "clipped"
-          ],
+          "inputs": [["blank", "blank"]],
+          "output": ["clipped", "clipped"],
           "remaining": 0,
           "processing": null,
           "emitted": 4
@@ -128,12 +115,7 @@
                 "x": 0,
                 "y": 1,
                 "rotation": 0,
-                "inputs": [
-                  [
-                    "blank",
-                    "blank"
-                  ]
-                ],
+                "inputs": [["blank", "blank"]],
                 "output": [],
                 "remaining": 1,
                 "processing": "punched",
@@ -160,11 +142,7 @@
           "x": 1,
           "y": 1,
           "rotation": 0,
-          "inputs": [
-            [
-              "punched"
-            ]
-          ],
+          "inputs": [["punched"]],
           "output": [],
           "remaining": 1,
           "processing": "combined",
@@ -369,12 +347,8 @@
                       "x": 0,
                       "y": 2,
                       "rotation": 0,
-                      "inputs": [
-                        []
-                      ],
-                      "output": [
-                        "punched"
-                      ],
+                      "inputs": [[]],
+                      "output": ["punched"],
                       "remaining": 0,
                       "processing": null,
                       "emitted": 11
@@ -400,16 +374,8 @@
                 "x": 1,
                 "y": 2,
                 "rotation": 0,
-                "inputs": [
-                  [
-                    "punched",
-                    "punched"
-                  ]
-                ],
-                "output": [
-                  "combined",
-                  "combined"
-                ],
+                "inputs": [["punched", "punched"]],
+                "output": ["combined", "combined"],
                 "remaining": 0,
                 "processing": null,
                 "emitted": 4
@@ -443,12 +409,7 @@
           "x": 0,
           "y": 2,
           "rotation": 0,
-          "inputs": [
-            [
-              "blank",
-              "blank"
-            ]
-          ],
+          "inputs": [["blank", "blank"]],
           "output": [],
           "remaining": 1,
           "processing": "clipped",

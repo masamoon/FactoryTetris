@@ -6,15 +6,15 @@ I reran `npm run replay:asteroid`, traced its deterministic ticks through the fi
 
 The times below are **simulation time** (10 ticks per second). Tool selection and route drawing pause the simulation; real first-session wall time also includes the player's actions and has not been measured with players.
 
-| Moment in the straightforward first-part route | Tick | Simulation time |
-| --- | ---: | ---: |
-| Three exposed blocks mined; five belts and first drill built | 36 | 3.6 s |
-| First drill excavation | 57 | 5.7 s |
-| First ore reaches collection | 78 | 7.8 s |
-| Eight ore available and replacement belt empty; smelter built | 147 | 14.7 s |
-| First plate reaches collection | 198 | 19.8 s |
-| Six plates available and replacement belt empty; assembler built | 303 | 30.3 s |
-| First part reaches collection | 375 | 37.5 s |
+| Moment in the straightforward first-part route                   | Tick | Simulation time |
+| ---------------------------------------------------------------- | ---: | --------------: |
+| Three exposed blocks mined; five belts and first drill built     |   36 |           3.6 s |
+| First drill excavation                                           |   57 |           5.7 s |
+| First ore reaches collection                                     |   78 |           7.8 s |
+| Eight ore available and replacement belt empty; smelter built    |  147 |          14.7 s |
+| First plate reaches collection                                   |  198 |          19.8 s |
+| Six plates available and replacement belt empty; assembler built |  303 |          30.3 s |
+| First part reaches collection                                    |  375 |          37.5 s |
 
 The replay's three explicit waits after drill, smelter and assembler construction are 11.1, 15.6 and 7.2 simulation seconds. The factory is operating during these waits; the weakness is the gap between meaningful new decisions on this guided route, not a claim that nothing moves.
 
