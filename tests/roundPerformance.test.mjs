@@ -50,6 +50,12 @@ test('production locks construction but permits one picked-up relocation', () =>
 
 test('completed docks cannot advance round delivery rewards', () => {
   assert.equal(deliveryCountsForRound({ phase: 'ROUND_ACTIVE' }), true);
-  assert.equal(deliveryCountsForRound({ phase: 'ROUND_ACTIVE', filledDelivery: true }), false);
-  assert.equal(deliveryCountsForRound({ phase: 'ROUND_ACTIVE', countsForQuota: false }), false);
+  assert.equal(
+    deliveryCountsForRound({ phase: 'ROUND_ACTIVE', filledDelivery: true }),
+    false
+  );
+  assert.equal(
+    deliveryCountsForRound({ phase: 'ROUND_ACTIVE', countsForQuota: false }),
+    false
+  );
 });
