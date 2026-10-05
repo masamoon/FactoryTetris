@@ -27,6 +27,8 @@ export interface Segment {
    */
   src: number;
   dst: number;
+  /** Lab lifts (docs/ROCKHOPPER_LAB_PROJECTS.md): 1 for a raised piece; plates form within a level. */
+  level?: number;
 }
 
 /** One side of a plate: the stretch of a belt it covers. */
@@ -167,6 +169,8 @@ export function findPlates(segs: Segment[]): Plate[] {
         B = segs[j];
       // Pieces of one bent belt never share a plate with each other.
       if (A.id === B.id) continue;
+      // A lifted piece runs a level up: it never shares a plate with a piece on the ground.
+      if ((A.level ?? 0) !== (B.level ?? 0)) continue;
       const La = Ls[i],
         Lb = Ls[j];
       let [from, till] = [0, La];

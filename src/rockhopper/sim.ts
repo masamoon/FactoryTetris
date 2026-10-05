@@ -306,7 +306,16 @@ export type SimEvent =
   | { type: 'widen'; id: number }
   | { type: 'hub'; what: HubUpgrade }
   | { type: 'unlock'; slot: number }
-  | { type: 'route'; id: number };
+  | { type: 'route'; id: number }
+  | {
+      type: 'lift';
+      id: number;
+      piece: number;
+      up: boolean;
+      returned?: boolean;
+      x: number;
+      y: number;
+    };
 
 export type HubUpgrade = 'laser' | 'docks' | 'tractor';
 
@@ -339,6 +348,8 @@ export interface State {
   sector: boolean;
   /** Slow-burn rocks (docs/ROCKHOPPER_SLOW_ROCKS.md): deep rocks, auto-tow, no tractor. */
   slowRocks?: boolean;
+  /** Research (docs/ROCKHOPPER_RESEARCH.md, docs/ROCKHOPPER_LAB_PROJECTS.md): off by default. */
+  research?: Research;
   tick: number;
   credits: number;
   earned: number;
@@ -358,6 +369,24 @@ export interface State {
   stats: Stats;
   /** Transient: events from the latest ticks, drained by the presenter. */
   events: SimEvent[];
+}
+
+/**
+ * A raised belt piece (Lab lifts): the owner machine's belt, which straight piece of it, and that
+ * piece's ends and the belt's piece count when it was raised. Any change to them returns the lift.
+ */
+export interface RaisedPiece {
+  owner: number;
+  piece: number;
+  a: Point;
+  b: Point;
+  pieces: number;
+}
+
+export interface Research {
+  on: boolean;
+  /** Lifts bought, and the pieces currently raised (never more than bought). */
+  lifts: { owned: number; raised: RaisedPiece[] };
 }
 
 // ---------------------------------------------------------------- noise
@@ -1141,8 +1170,19 @@ function segmentsOf(s: State, m: Machine): Segment[] {
     });
     off += Math.hypot(b.x - a.x, b.y - a.y);
   }
+  if (liftsActive(s))
+    for (const r of s.research!.lifts.raised) {
+      if (r.owner !== m.id) continue;
+      const g = out[r.piece];
+      if (g && out.length === r.pieces && same(g.a, r.a) && same(g.b, r.b)) g.level = 1;
+    }
   return out;
 }
+
+const same = (p: Point, q: Point) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
+
+/** Lifts take effect only with research, factories (research needs them) and crossings on. */
+export const liftsActive = (s: State) => !!s.research?.on && s.factories && s.crossings;
 
 function gatesOf(plates: Plate[]): Map<number, Gate[]> {
   const sides = new Map<number, Gate['plates']>();
@@ -1179,7 +1219,9 @@ export function crossingsOf(s: State): Crossings {
   if (!s.crossings) return NO_CROSSINGS;
   const segs: Segment[] = [];
   for (const m of s.machines) segs.push(...segmentsOf(s, m));
-  const sig = segs.map((g) => `${g.id}:${g.dst}:${g.a.x},${g.a.y},${g.b.x},${g.b.y}`).join(';');
+  const sig = segs
+    .map((g) => `${g.id}:${g.dst}:${g.a.x},${g.a.y},${g.b.x},${g.b.y}:${g.level ?? 0}`)
+    .join(';');
   const hit = crossingCache.get(s);
   if (hit && hit.sig === sig) return hit;
   const plates = findPlates(segs);
@@ -2049,6 +2091,78 @@ export function setOrePicks(s: State, on: boolean): Result {
   return true;
 }
 
+/** Switch research. Off, raised pieces are kept but act as ground (and lifts stay bought). */
+export function setResearch(s: State, on: boolean): Result {
+  if (on && !s.factories) return 'needs factories';
+  s.research ??= { on: false, lifts: { owned: 0, raised: [] } };
+  s.research.on = !!on;
+  return true;
+}
+
+/** The ground geometry of piece `piece` of `owner`'s belt, and how many pieces that belt has. */
+function pieceOf(s: State, owner: number, piece: number) {
+  const m = byId(s, owner);
+  if (!m) return null;
+  const path = beltPath(s, m);
+  if (!path || !m.out || piece < 0 || piece >= path.length - 1) return null;
+  return { a: path[piece], b: path[piece + 1], pieces: path.length - 1 };
+}
+
+export const liftsFree = (s: State) =>
+  s.research ? s.research.lifts.owned - s.research.lifts.raised.length : 0;
+
+export const isRaised = (s: State, owner: number, piece: number) =>
+  !!s.research?.lifts.raised.some((r) => r.owner === owner && r.piece === piece);
+
+/** Raise one straight piece of a belt a level (LL1): it stops sharing plates with the ground. */
+export function raisePiece(s: State, owner: number, piece: number): Result {
+  if (!liftsActive(s)) return 'research is off';
+  if (isRaised(s, owner, piece)) return 'already lifted';
+  if (liftsFree(s) <= 0) return 'no lift to place';
+  const p = pieceOf(s, owner, piece);
+  if (!p) return 'no belt here';
+  s.research!.lifts.raised.push({ owner, piece, a: { ...p.a }, b: { ...p.b }, pieces: p.pieces });
+  s.events.push(liftEvent(owner, piece, p, true));
+  return true;
+}
+
+/** Lower a raised piece back to the ground; the lift goes back to stock, free (LL2). */
+export function lowerPiece(s: State, owner: number, piece: number): Result {
+  const list = s.research?.lifts.raised;
+  const k = list?.findIndex((r) => r.owner === owner && r.piece === piece) ?? -1;
+  if (k < 0) return 'not lifted';
+  const [r] = list!.splice(k, 1);
+  s.events.push(liftEvent(owner, piece, r, false));
+  return true;
+}
+
+const liftEvent = (id: number, piece: number, p: { a: Point; b: Point }, up: boolean) =>
+  ({
+    type: 'lift',
+    id,
+    piece,
+    up,
+    x: (p.a.x + p.b.x) / 2,
+    y: (p.a.y + p.b.y) / 2,
+  }) as const;
+
+/**
+ * A raised piece whose ends or belt changed returns its lift to stock (LL3): re-target, move,
+ * sell, dock swap, splice, join, or a post added or removed anywhere on that belt. Checked only
+ * while lifts are active, so switching research or crossings back on returns what changed.
+ */
+function liftsTick(s: State) {
+  if (!liftsActive(s) || !s.research!.lifts.raised.length) return;
+  const list = s.research!.lifts.raised;
+  for (let k = list.length - 1; k >= 0; k--) {
+    const r = list[k];
+    const p = pieceOf(s, r.owner, r.piece);
+    if (p && p.pieces === r.pieces && same(p.a, r.a) && same(p.b, r.b)) continue;
+    list.splice(k, 1);
+    s.events.push({ ...liftEvent(r.owner, r.piece, r, false), returned: true });
+  }
+}
+
 /** Switch the joins experiment. Turning it off keeps every join already built. */
 export function setJoins(s: State, on: boolean): Result {
   s.joins = !!on;
@@ -2785,6 +2899,7 @@ function flightsTick(s: State) {
 export function step(s: State) {
   useSector(s.seed, s.sector);
   s.tick++;
+  liftsTick(s);
   slotsTick(s);
   laserTick(s);
   drillsTick(s);

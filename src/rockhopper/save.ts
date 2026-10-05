@@ -25,6 +25,8 @@ import {
   type Point,
   type Rock,
   type State,
+  type Research,
+  type RaisedPiece,
 } from './sim';
 
 /**
@@ -185,6 +187,9 @@ export function deserialize(text: string): State | null {
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
+    // Research (Lab lifts): a malformed field resets research to off and empty, never the save.
+    state.research = parseResearch(raw.research);
+    if (!state.research) delete state.research;
     // Dock sites must be distinct, one per dock: anything else puts the docks back in the
     // classic order rather than refusing the save (links still name docks by index).
     const sites = raw.dockSites;
@@ -445,4 +450,44 @@ export function saveSettings(s: Settings) {
   } catch {
     /* Settings are a convenience. */
   }
+}
+
+function parseResearch(raw: unknown): Research | undefined {
+  if (raw === undefined) return undefined;
+  const off: Research = { on: false, lifts: { owned: 0, raised: [] } };
+  const r = raw as Record<string, unknown> | null;
+  const lifts = r?.lifts as Record<string, unknown> | undefined;
+  if (!r || typeof r.on !== 'boolean' || !lifts) return off;
+  const owned = lifts.owned;
+  const raised = lifts.raised;
+  if (!Number.isInteger(owned) || (owned as number) < 0 || !Array.isArray(raised)) return off;
+  const pt = (p: unknown) => {
+    const q = p as Record<string, unknown> | null;
+    return !!q && isNum(q.x) && isNum(q.y);
+  };
+  const ok = raised.every((x) => {
+    const q = x as Record<string, unknown> | null;
+    return (
+      !!q &&
+      Number.isInteger(q.owner) &&
+      Number.isInteger(q.piece) &&
+      Number.isInteger(q.pieces) &&
+      pt(q.a) &&
+      pt(q.b)
+    );
+  });
+  if (!ok || raised.length > (owned as number)) return off;
+  return {
+    on: r.on,
+    lifts: {
+      owned: owned as number,
+      raised: (raised as RaisedPiece[]).map((q) => ({
+        owner: q.owner,
+        piece: q.piece,
+        pieces: q.pieces,
+        a: { x: q.a.x, y: q.a.y },
+        b: { x: q.b.x, y: q.b.y },
+      })),
+    },
+  };
 }
