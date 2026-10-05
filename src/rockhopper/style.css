@@ -599,3 +599,46 @@ button:focus-visible {
   border-color: var(--mint, #3cf0a8);
   background: rgba(60, 240, 168, 0.18);
 }
+
+/* The research Lab's bubble: one row per recipe or lift bill, the active one in mint. */
+.rh-lab-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rh-lab-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  font-size: 15px;
+  padding: 4px 12px 4px 8px;
+}
+
+.rh-lab-row .rh-chip {
+  width: 22px;
+  height: 22px;
+}
+
+.rh-lab-name {
+  flex: 1;
+  margin-left: 4px;
+  text-align: left;
+}
+
+.rh-lab-count {
+  margin-left: 10px;
+}
+
+.rh-lab-row:disabled {
+  opacity: 0.55;
+}
+
+.rh-bubble:has(.rh-lab-rows) {
+  max-width: calc(100% - 16px);
+  flex-direction: column;
+  align-items: stretch;
+  border-radius: 26px;
+  gap: 6px;
+}

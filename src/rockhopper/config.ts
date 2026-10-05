@@ -234,3 +234,36 @@ export const FLIGHT_MIN = 0.35;
 export const FLIGHT_MAX = 1.1;
 
 export const SELL_REFUND = 0.5;
+
+/**
+ * Research (docs/ROCKHOPPER_RESEARCH.md): one free Lab clamped on a belt learns alloy recipes by
+ * counting pairs of their two ores; the first recipe learned unlocks factories. Copper + crystal
+ * is not a recipe: it pairs as soon as factories exist.
+ */
+export const RECIPES: readonly { id: string; a: Ore; b: Ore; count: number }[] = [
+  { id: 'cu-ice', a: COPPER, b: ICE, count: 50 },
+  { id: 'ice-au', a: ICE, b: GOLD, count: 60 },
+  { id: 'cu-au', a: COPPER, b: GOLD, count: 60 },
+  { id: 'ice-cr', a: ICE, b: CRYSTAL, count: 20 },
+  { id: 'au-cr', a: GOLD, b: CRYSTAL, count: 20 },
+];
+/** Seconds a held entry waits for its partner before the Lab drops it. */
+export const LAB_HOLD = 10;
+/** The Lab's dome radius and its clearances on a belt (TT2), in world units. */
+export const LAB_R = 18;
+export const LAB_END_CLEAR = 43;
+export const LAB_PLATE_CLEAR = 29;
+export const LAB_MACHINE_CLEAR = 22;
+/** How far from a belt a dropped Lab still snaps onto it. */
+export const LAB_SNAP = 34;
+/**
+ * Lab lifts (docs/ROCKHOPPER_LAB_PROJECTS.md): after the three T1/T2 recipes, each lift is a
+ * one-ore bill of paired bars the Lab takes, then a purchase. Two lifts.
+ */
+export const LIFT_BILLS: readonly { ore: Ore; count: number }[] = [
+  { ore: ICE, count: 400 },
+  { ore: GOLD, count: 400 },
+];
+export const LIFT_PRICES = [60000, 240000];
+/** The recipes whose learning opens the lift bills. */
+export const LIFT_AFTER = ['cu-ice', 'ice-au', 'cu-au'];

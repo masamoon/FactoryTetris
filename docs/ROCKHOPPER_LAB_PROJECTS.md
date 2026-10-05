@@ -59,6 +59,12 @@ So the late game lacks **things to build** once rocks, docks and belts are maxed
 - Tests: plates only within a level; a lift returns on every endpoint change in LL3, including a post added elsewhere on the same belt; lowering and re-lifting are free; auto-links stay on the ground; inert with crossings or research off, with changed pieces returned on switching back on; bills take only owed paired bars of one ore; the belt never waits; save round-trip, changed endpoints on load, malformed field. The crossings stress tool with random lifts: 0 locks, 0 stalls.
 - **Blocks adoption:** 390 px screenshots showing a lifted piece reads as "up" at zoom 0.58. A cheap mock of that look in `tools/rockhopper-lab-mock.ts` comes before the build. Screenshots: a lifted piece over the hub knot at zoom 0.58 (how "up" reads on a 6 px belt, and where it meets a post or machine), and the Lift ghost on the classic triangle.
 
+## Mock of "up" (2026-10-05)
+
+`npx tsx tools/rockhopper-lift-mock.ts` (needs `npm start`) loads a bot save (seed 1 at 40 min, slow rocks, factories on) at 390 × 844 px and zoom 0.58, and redraws one dock belt (#36, the 344 u crystal/gold factory belt, 2 hub plates) as lifted over the game: the ground belt turns into a shadow cast down and right, the deck sits 7 u up on pylons and eases down over 22 u at each end. Nothing is simulated; the game still draws that belt's plates, and the deck carries no items. [Ground](reviews/evidence/rockhopper-lift-mock-ground.png) · [lifted](reviews/evidence/rockhopper-lift-mock-lifted.png) · crops: [ground](reviews/evidence/rockhopper-lift-mock-ground-crop.png), [lifted](reviews/evidence/rockhopper-lift-mock-lifted-crop.png).
+
+What it shows: the lifted belt reads as a separate layer mainly because it is drawn over everything else (machines, chips and pops). The shadow offset and pylons, at about 4 px, are too small to read as height at this zoom. For the build: draw items on the deck, raise the deck to about 12 u, give each end a visible ramp, and draw pops above decks. Whether it reads as "up" rather than "a different belt" is for a phone, and stays an adoption blocker.
+
 ## Open questions
 
 - Does a raised belt read as "up" on a small screen without a perspective cue?

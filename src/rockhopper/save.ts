@@ -15,6 +15,7 @@ import {
 import {
   drillSpotWhy,
   freshState,
+  grantResearch,
   LEGACY_SOCKETS,
   legacySocketAngle,
   normAngle,
@@ -25,6 +26,8 @@ import {
   type Point,
   type Rock,
   type State,
+  type Research,
+  type RaisedPiece,
 } from './sim';
 
 /**
@@ -185,6 +188,10 @@ export function deserialize(text: string): State | null {
     };
     if (!state.slots[0].unlocked) return null;
     state.laser = null;
+    // Research (Lab lifts): a malformed field resets research to off and empty, never the save.
+    state.research = parseResearch(raw.research);
+    if (!state.research) delete state.research;
+    else grantResearch(state);
     // Dock sites must be distinct, one per dock: anything else puts the docks back in the
     // classic order rather than refusing the save (links still name docks by index).
     const sites = raw.dockSites;
@@ -414,6 +421,8 @@ export interface Settings {
   joins: boolean;
   /** The ore picks experiment: drills dig their picked ore first, kept across restarts (default off). */
   orePicks: boolean;
+  /** The research Lab and lifts (needs factories), kept across restarts (default off). */
+  research: boolean;
 }
 
 export function loadSettings(): Settings {
@@ -426,6 +435,7 @@ export function loadSettings(): Settings {
       factories: raw.factories === true,
       joins: raw.joins === true,
       orePicks: raw.orePicks === true,
+      research: raw.research === true,
     };
   } catch {
     return {
@@ -435,6 +445,7 @@ export function loadSettings(): Settings {
       factories: false,
       joins: false,
       orePicks: false,
+      research: false,
     };
   }
 }
@@ -445,4 +456,83 @@ export function saveSettings(s: Settings) {
   } catch {
     /* Settings are a convenience. */
   }
+}
+
+function parseResearch(raw: unknown): Research | undefined {
+  if (raw === undefined) return undefined;
+  const off: Research = { on: false, lifts: { owned: 0, raised: [] } };
+  const r = raw as Record<string, unknown> | null;
+  const lifts = r?.lifts as Record<string, unknown> | undefined;
+  if (!r || typeof r.on !== 'boolean' || !lifts) return off;
+  const owned = lifts.owned;
+  const raised = lifts.raised;
+  if (!Number.isInteger(owned) || (owned as number) < 0 || !Array.isArray(raised)) return off;
+  const pt = (p: unknown) => {
+    const q = p as Record<string, unknown> | null;
+    return !!q && isNum(q.x) && isNum(q.y);
+  };
+  const ok = raised.every((x) => {
+    const q = x as Record<string, unknown> | null;
+    return (
+      !!q &&
+      Number.isInteger(q.owner) &&
+      Number.isInteger(q.piece) &&
+      Number.isInteger(q.pieces) &&
+      pt(q.a) &&
+      pt(q.b)
+    );
+  });
+  if (!ok || raised.length > (owned as number)) return off;
+  // The Lab's fields (all optional): each must be well formed, or research resets.
+  const lab = r.lab as Record<string, unknown> | undefined;
+  if (
+    lab !== undefined &&
+    (!lab || !Number.isInteger(lab.owner) || !isNum(lab.frac) || !isNum(lab.x) || !isNum(lab.y))
+  )
+    return off;
+  const strs = (v: unknown) =>
+    v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+  const ores = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(isOre));
+  const counts = r.counts as Record<string, unknown> | undefined;
+  if (
+    !strs(r.learned) ||
+    !ores(r.known) ||
+    (r.active !== undefined && typeof r.active !== 'string') ||
+    (counts !== undefined &&
+      (!counts || typeof counts !== 'object' || !Object.values(counts).every(isNum))) ||
+    (r.hold !== undefined &&
+      (!Array.isArray(r.hold) ||
+        !r.hold.every((h: { ore?: unknown; t?: unknown }) => isOre(h?.ore) && isNum(h?.t))))
+  )
+    return off;
+  return {
+    ...(lab
+      ? {
+          lab: {
+            owner: lab.owner as number,
+            frac: lab.frac as number,
+            x: lab.x as number,
+            y: lab.y as number,
+          },
+        }
+      : {}),
+    ...(typeof r.active === 'string' ? { active: r.active } : {}),
+    ...(counts ? { counts: { ...(counts as Record<string, number>) } } : {}),
+    ...(r.learned ? { learned: [...(r.learned as string[])] } : {}),
+    ...(r.known ? { known: [...(r.known as Ore[])] } : {}),
+    ...(r.hold
+      ? { hold: (r.hold as { ore: Ore; t: number }[]).map((h) => ({ ore: h.ore, t: h.t })) }
+      : {}),
+    on: r.on,
+    lifts: {
+      owned: owned as number,
+      raised: (raised as RaisedPiece[]).map((q) => ({
+        owner: q.owner,
+        piece: q.piece,
+        pieces: q.pieces,
+        a: { x: q.a.x, y: q.a.y },
+        b: { x: q.b.x, y: q.b.y },
+      })),
+    },
+  };
 }

@@ -5,6 +5,7 @@ import {
   DT,
   SMELTER_RADIUS,
   HUB_RADIUS,
+  LAB_R,
   LASER_POWER,
   ORES,
   SLOTS,
@@ -14,9 +15,16 @@ import {
   TIER_ORE,
   type Ore,
 } from './config';
-import { Renderer, formatNumber, type Overlay } from './render';
+import { Renderer, formatNumber, recipeName, type Overlay } from './render';
 import {
   beltsNear,
+  isRaised,
+  labOffered,
+  labRows,
+  labSnap,
+  liftPrice,
+  liftsFree,
+  setResearch,
   beltPath,
   pathLength,
   pointAlong,
@@ -111,6 +119,7 @@ type Hit =
   | { kind: 'hub' }
   | { kind: 'locked'; slot: number }
   | { kind: 'post'; id: number; k: number }
+  | { kind: 'lab' }
   | { kind: 'empty' };
 
 type Gesture =
@@ -149,6 +158,10 @@ type Gesture =
       dragging: boolean;
       button: HTMLElement;
     }
+  /** Dragging the Lab from the tray (or the field, when moving it) onto a belt. */
+  | { type: 'lab'; x0: number; y0: number; dragging: boolean; tray: boolean }
+  /** The Lift tool: a press on a belt piece raises or lowers it on release, unless it pans. */
+  | { type: 'lift'; x0: number; y0: number; panning: boolean; belt?: { id: number; piece: number } }
   | { type: 'pinch'; d0: number; z0: number; mx: number; my: number }
   | { type: 'none' };
 
@@ -178,7 +191,11 @@ function spliceRefusal(
 }
 const splice = (p: object) => ('splice' in p ? (p.splice as number) : null);
 
-type Bubble = { kind: 'machine'; id: number } | { kind: 'hub' } | { kind: 'locked'; slot: number };
+type Bubble =
+  | { kind: 'machine'; id: number }
+  | { kind: 'hub' }
+  | { kind: 'locked'; slot: number }
+  | { kind: 'lab' };
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string) => {
   const e = document.createElement(tag);
@@ -198,6 +215,13 @@ export class RockhopperApp {
   private counterEl: HTMLElement;
   private tray: HTMLElement;
   private tools: Record<Tool, { button: HTMLButtonElement; price: HTMLElement }>;
+  /** The Lab's tray item (research): free, offered once until it is placed. */
+  private labTool: HTMLButtonElement;
+  /** The Lab is armed for a tap-to-place, or being moved. */
+  private labArmed = false;
+  /** Income per second, smoothed over about 10 s, for the Lift tool's readout. */
+  private rate = 0;
+  private lastEarned = -1;
   private bubbleEl: HTMLElement;
   private menuEl: HTMLElement;
   private bubble: Bubble | null = null;
@@ -287,6 +311,8 @@ export class RockhopperApp {
     if (this.settings.factories) this.state.factories = true;
     if (this.settings.joins) this.state.joins = true;
     if (this.settings.orePicks) this.state.orePicks = true;
+    if (this.settings.research && this.state.factories && !this.state.research?.on)
+      setResearch(this.state, true);
     this.shown = this.state.credits;
 
     this.root = el('div', 'rh');
@@ -315,6 +341,8 @@ export class RockhopperApp {
       factory: this.makeTool('factory', 'Factory: drag onto a smelter belt'),
     };
     this.tray.append(...TOOLS.map((k) => this.tools[k].button.parentElement!));
+    this.labTool = this.makeLabTool();
+    this.tray.append(this.labTool.parentElement!);
 
     this.bubbleEl = el('div', 'rh-bubble');
     this.bubbleEl.hidden = true;
@@ -376,6 +404,46 @@ export class RockhopperApp {
     return { button, price };
   }
 
+  /** The Lab's tray item: a lavender dome on its clamp, free. Drag it onto a belt, or tap then tap. */
+  private makeLabTool() {
+    const wrap = el('div', 'rh-tool-wrap rh-hidden');
+    const button = el('button', 'rh-tool');
+    button.setAttribute('aria-label', 'Lab: drag onto a belt');
+    button.dataset.kind = 'lab';
+    const icon = el('canvas', 'rh-tool-icon');
+    icon.width = 104;
+    icon.height = 104;
+    const c = icon.getContext('2d')!;
+    c.translate(52, 62);
+    c.scale(2.2, 2.2);
+    c.lineWidth = 2.4;
+    c.strokeStyle = '#16102E';
+    c.fillStyle = '#FFF4E0';
+    c.beginPath();
+    c.roundRect(-17, -4, 34, 8, 3);
+    c.fill();
+    c.stroke();
+    c.beginPath();
+    c.arc(0, -2, 13, Math.PI, 0);
+    c.closePath();
+    c.fillStyle = '#B7A6F2';
+    c.fill();
+    c.stroke();
+    c.beginPath();
+    c.moveTo(0, -15);
+    c.lineTo(0, -20);
+    c.stroke();
+    c.beginPath();
+    c.arc(0, -22, 3, 0, Math.PI * 2);
+    c.fillStyle = '#3CF0A8';
+    c.fill();
+    c.stroke();
+    button.append(icon);
+    const price = el('div', 'rh-price', '<span>Free</span>');
+    wrap.append(button, price);
+    return button;
+  }
+
   private makeMenu() {
     const menu = el('div', 'rh-menu');
     menu.hidden = true;
@@ -433,6 +501,7 @@ export class RockhopperApp {
       saveSettings(this.settings);
       this.save();
       setFact();
+      setRes();
     });
     // The joins experiment: a link dropped on a belt joins it, on open space it makes a hinge.
     const join = el('button', 'rh-pill');
@@ -458,6 +527,28 @@ export class RockhopperApp {
       this.save();
       this.bubbleKey = '';
       setPicks();
+    });
+    // Research: the Lab and its lifts (a prototype on top of factories).
+    const research = el('button', 'rh-pill');
+    const setRes = () =>
+      (research.textContent = !this.state.factories
+        ? 'Research: needs factories'
+        : this.state.research?.on
+          ? 'Research: on'
+          : 'Research: off');
+    setRes();
+    research.addEventListener('click', () => {
+      const r = this.cmd('setResearch', !this.state.research?.on);
+      if (r !== true) {
+        this.sfx.deny();
+        return;
+      }
+      this.settings.research = !!this.state.research?.on;
+      saveSettings(this.settings);
+      if (!this.state.research?.on) this.endLiftMode();
+      this.save();
+      this.bubbleKey = '';
+      setRes();
     });
     // The sectors prototype: a setting for the next new game, since a field can't change mid-game.
     const where = el('div', 'rh-menu-foot');
@@ -489,6 +580,7 @@ export class RockhopperApp {
       setCross();
       setPrices();
       setFact();
+      setRes();
       setSlow();
     };
     const restart = el('button', 'rh-pill rh-danger rh-hold', '<span>Hold to restart</span>');
@@ -520,6 +612,7 @@ export class RockhopperApp {
       cross,
       prices,
       fact,
+      research,
       join,
       picks,
       sectors,
@@ -546,6 +639,7 @@ export class RockhopperApp {
     s.factories = this.settings.factories;
     s.joins = this.settings.joins || undefined;
     s.orePicks = this.settings.orePicks || undefined;
+    if (this.settings.research && s.factories) setResearch(s, true);
     return s;
   }
 
@@ -632,6 +726,9 @@ export class RockhopperApp {
         }
       });
     if (post) return post;
+    const lab = s.research?.on && s.factories ? s.research.lab : undefined;
+    if (lab && Math.hypot(p.x - lab.x, p.y - (lab.y - 6)) < Math.max(LAB_R + 4, 22 / z))
+      return { kind: 'lab' };
     let best: Hit | null = null,
       bestD = Infinity;
     for (const m of s.machines) {
@@ -697,7 +794,7 @@ export class RockhopperApp {
           const cr = this.canvas.getBoundingClientRect();
           this.renderer.flash(
             this.renderer.toWorld(r.left + r.width / 2 - cr.left, r.top - cr.top - 40),
-            'needs 2 smelters'
+            this.state.research?.on ? 'learn a recipe in the Lab' : 'needs 2 smelters'
           );
           this.sfx.deny();
           return;
@@ -748,8 +845,54 @@ export class RockhopperApp {
         }
       });
     }
+    const lb = this.labTool;
+    lb.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.sfx.unlock();
+      this.endDockPick();
+      this.endLiftMode();
+      lb.setPointerCapture(e.pointerId);
+      const p = this.local(e);
+      this.gesture = { type: 'lab', x0: p.x, y0: p.y, dragging: false, tray: true };
+    });
+    lb.addEventListener('pointermove', (e) => {
+      const g = this.gesture;
+      if (g.type !== 'lab' || !g.tray) return;
+      const p = this.local(e);
+      if (!g.dragging && Math.hypot(p.x - g.x0, p.y - g.y0) > 12) {
+        g.dragging = true;
+        this.armed = null;
+        this.overlay.placing = null;
+        this.closeBubble();
+      }
+      if (g.dragging) this.labPreview(p);
+    });
+    const labFinish = (e: PointerEvent, cancel: boolean) => {
+      const g = this.gesture;
+      if (g.type !== 'lab' || !g.tray) return;
+      this.gesture = { type: 'none' };
+      const p = this.local(e);
+      if (g.dragging) {
+        const overTray = p.y > this.renderer.h - this.insetBottom + 10;
+        if (!cancel && !overTray) this.dropLab(p);
+        this.overlay.labGhost = null;
+      } else if (!cancel) {
+        // A tap arms it: the next press on the field aims it.
+        this.labArmed = !this.labArmed;
+        this.armed = null;
+        this.overlay.placing = null;
+        this.closeBubble();
+        this.sfx.tap();
+      }
+    };
+    lb.addEventListener('pointerup', (e) => labFinish(e, false));
+    lb.addEventListener('pointercancel', (e) => labFinish(e, true));
     addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        this.endLiftMode();
+        this.labArmed = false;
+        this.renderer.labMoving = false;
+        this.overlay.labGhost = null;
         this.endDockPick();
         this.closeBubble();
         this.armed = null;
@@ -783,6 +926,18 @@ export class RockhopperApp {
       // While choosing a dock site nothing else answers: no belt grabs, hub taps or panning.
       this.gesture = { type: 'dock' };
       this.aimDock(w);
+      return;
+    }
+    if (this.labArmed) {
+      this.gesture = { type: 'lab', x0: p.x, y0: p.y, dragging: true, tray: false };
+      this.labPreview(p);
+      return;
+    }
+    if (this.overlay.liftMode) {
+      const b = beltsNear(this.state, w, Math.max(10, 16 / this.renderer.cam.z))[0];
+      const belt = b ? { id: b.id, piece: b.piece } : undefined;
+      this.gesture = { type: 'lift', x0: p.x, y0: p.y, panning: false, belt };
+      this.overlay.liftGhost = belt ?? null;
       return;
     }
     if (this.armed) {
@@ -997,6 +1152,14 @@ export class RockhopperApp {
       this.preview(this.armed.kind, p, this.armed.moving);
     } else if (g.type === 'dock') {
       this.aimDock(w);
+    } else if (g.type === 'lab' && !g.tray) {
+      this.labPreview(p);
+    } else if (g.type === 'lift') {
+      if (!g.panning && Math.hypot(p.x - g.x0, p.y - g.y0) > 10) {
+        g.panning = true;
+        this.overlay.liftGhost = null;
+      }
+      if (g.panning) this.renderer.panBy(p.x - prev.x, p.y - prev.y);
     }
   }
 
@@ -1017,6 +1180,35 @@ export class RockhopperApp {
     }
     if (g.type === 'dock') {
       this.dropDock(this.renderer.toWorld(p.x, p.y));
+      return;
+    }
+    if (g.type === 'lab' && !g.tray) {
+      this.overlay.labGhost = null;
+      if (this.dropLab(p)) {
+        this.labArmed = false;
+        this.renderer.labMoving = false;
+      }
+      return;
+    }
+    if (g.type === 'lift') {
+      this.overlay.liftGhost = null;
+      if (g.panning) return;
+      if (!g.belt) {
+        // A tap off the belts puts the tool away.
+        this.endLiftMode();
+        return;
+      }
+      const { id, piece } = g.belt;
+      const r = isRaised(this.state, id, piece)
+        ? this.cmd('lowerPiece', id, piece)
+        : this.cmd('raisePiece', id, piece);
+      if (r !== true) {
+        this.sfx.deny();
+        this.renderer.flash(this.renderer.toWorld(p.x, p.y), String(r));
+      } else {
+        this.sfx.tap();
+        this.save();
+      }
       return;
     }
     if (g.type === 'mine') {
@@ -1056,6 +1248,7 @@ export class RockhopperApp {
       this.dropPost(g);
     } else if (g.type === 'tap' && !g.panning && performance.now() - g.t0 < 300) {
       if (g.hit.kind === 'hub') this.openBubble({ kind: 'hub' });
+      else if (g.hit.kind === 'lab') this.openBubble({ kind: 'lab' });
       else if (g.hit.kind === 'locked') this.openBubble({ kind: 'locked', slot: g.hit.slot });
       else this.closeBubble();
     } else if (g.type === 'place' && this.armed) {
@@ -1075,6 +1268,8 @@ export class RockhopperApp {
   private endGesture(g: Gesture = this.gesture) {
     if (g.type === 'mine') this.cmd('clearLaser');
     if (g.type === 'tray') this.overlay.placing = null;
+    if (g.type === 'lab') this.overlay.labGhost = null;
+    if (g.type === 'lift') this.overlay.liftGhost = null;
     if (g.type === 'dock' && this.overlay.dock) this.overlay.dock.at = null;
     this.overlay.finger = null;
     this.overlay.reroute = null;
@@ -1371,6 +1566,37 @@ export class RockhopperApp {
     return true;
   }
 
+  /** Where the Lab under the finger would clamp: held above the finger, like other ghosts. */
+  private labSpot(screen: Point) {
+    const w = this.renderer.toWorld(screen.x, screen.y - 44);
+    const at = labSnap(this.state, w);
+    return at
+      ? { x: at.x, y: at.y, ok: true }
+      : { x: w.x, y: w.y, ok: false, why: 'drop it on a belt' };
+  }
+
+  private labPreview(screen: Point) {
+    this.overlay.labGhost = this.labSpot(screen);
+  }
+
+  private dropLab(screen: Point): boolean {
+    const spot = this.labSpot(screen);
+    const r = spot.ok ? this.cmd('placeLab', { x: spot.x, y: spot.y }) : spot.why;
+    if (r !== true) {
+      this.sfx.deny();
+      this.renderer.flash(spot, String(r));
+      return false;
+    }
+    this.sfx.tap();
+    this.save();
+    return true;
+  }
+
+  private endLiftMode() {
+    this.overlay.liftMode = false;
+    this.overlay.liftGhost = null;
+  }
+
   private recoverFor: number | null = null;
   private recovered = false;
 
@@ -1529,6 +1755,10 @@ export class RockhopperApp {
     const b = this.bubble;
     if (!b) return null;
     if (b.kind === 'hub') return { x: 0, y: -HUB_RADIUS };
+    if (b.kind === 'lab') {
+      const lab = this.state.research?.lab;
+      return lab ? { x: lab.x, y: lab.y - LAB_R } : null;
+    }
     if (b.kind === 'locked')
       return { x: SLOTS[b.slot].x, y: SLOTS[b.slot].y - SLOTS[b.slot].r * CELL };
     const m = byId(this.state, b.id);
@@ -1760,6 +1990,113 @@ export class RockhopperApp {
             x.classList.toggle('rh-poor', this.state.credits < Number(x.dataset.cost))
           );
       };
+    } else if (b.kind === 'lab') {
+      const r = s.research;
+      if (!r?.on || !s.factories || !r.lab) return this.closeBubble();
+      const rows = labRows(s);
+      const lp = liftPrice(s);
+      const idle = r.lab.owner < 0;
+      key = `lab:${rows.map((x) => `${x.id}${x.done}`).join(',')}:${r.active}:${lp}:${r.lifts.owned}:${liftsFree(s)}:${idle}`;
+      build = () => {
+        const counts: [HTMLElement, string][] = [];
+        const note = el(
+          'div',
+          'rh-note',
+          idle
+            ? '<b>No belt</b>: move the Lab onto a belt'
+            : rows.some((x) => !x.done)
+              ? r.active
+                ? 'Takes the ores it needs as they pass; the rest go on'
+                : 'Pick what to research'
+              : ''
+        );
+        note.hidden = !note.innerHTML;
+        const list = el('div', 'rh-lab-rows');
+        const learned = rows.filter((x) => x.done && !x.id.startsWith('lift')).length;
+        if (learned)
+          list.append(el('div', 'rh-note', `${learned} recipe${learned > 1 ? 's' : ''} learned`));
+        for (const row of rows.filter((x) => !x.done)) {
+          const name = row.id.startsWith('lift')
+            ? `Lift ${Number(row.id.slice(4)) + 1}: ${ORES[row.ores[0]].name.toLowerCase()} bars`
+            : recipeName(row.id);
+          const btn = el('button', `rh-pill rh-lab-row${r.active === row.id ? ' rh-go' : ''}`);
+          for (const ore of row.ores) {
+            const chip = el('canvas', 'rh-chip');
+            chip.width = 36;
+            chip.height = 36;
+            const cc = chip.getContext('2d')!;
+            cc.translate(18, 18);
+            drawChunk(cc, ore, 9);
+            btn.append(chip);
+          }
+          btn.append(el('span', 'rh-lab-name', name));
+          const n = el('b', 'rh-lab-count');
+          btn.append(n);
+          counts.push([n, row.id]);
+          btn.disabled = row.done;
+          btn.setAttribute('aria-pressed', String(r.active === row.id));
+          btn.addEventListener('click', () => {
+            const res = this.cmd('setLabActive', r.active === row.id ? null : row.id);
+            if (res !== true) this.sfx.deny();
+            else {
+              this.sfx.tap();
+              this.save();
+            }
+          });
+          list.append(btn);
+        }
+        const row = el('div', 'rh-row');
+        let buy: HTMLElement | null = null;
+        if (lp !== null) {
+          buy = el(
+            'button',
+            'rh-pill rh-go rh-stack',
+            `<span class="rh-lv">Lift</span><span>${cost(lp)}</span>`
+          );
+          buy.setAttribute('aria-label', `Buy a lift for ${lp}`);
+          buy.addEventListener('click', () => {
+            const res = this.cmd('buyLift');
+            if (res === 'credits') this.flashCounter();
+            if (res !== true) this.sfx.deny();
+            else this.save();
+          });
+          row.append(buy);
+        }
+        if (r.lifts.owned > 0) {
+          const tool = el('button', 'rh-pill rh-go rh-stack');
+          tool.innerHTML = `<span class="rh-lv">Lifts ${liftsFree(s)}/${r.lifts.owned} free</span><span>Lift tool</span>`;
+          tool.setAttribute('aria-label', 'Lift tool: tap a belt piece to raise or lower it');
+          tool.addEventListener('click', () => {
+            this.overlay.liftMode = true;
+            this.closeBubble();
+            this.sfx.tap();
+          });
+          row.append(tool);
+        }
+        const move = el(
+          'button',
+          'rh-round rh-move',
+          '<svg viewBox="0 0 22 22" aria-hidden="true"><path d="M11 2 V20 M2 11 H20 M11 2 L8 5 M11 2 L14 5 M11 20 L8 17 M11 20 L14 17 M2 11 L5 8 M2 11 L5 14 M20 11 L17 8 M20 11 L17 14"/></svg>'
+        );
+        move.setAttribute('aria-label', 'Move the Lab');
+        move.title = 'Move';
+        move.addEventListener('click', () => {
+          this.labArmed = true;
+          this.renderer.labMoving = true;
+          this.closeBubble();
+        });
+        row.append(el('span', 'rh-gap'), move);
+        this.bubbleEl.replaceChildren(note, list, row);
+        this.bubbleRefresh = () => {
+          const now = labRows(this.state);
+          for (const [n, id] of counts) {
+            const x = now.find((y) => y.id === id);
+            const t = !x ? '' : x.done ? '✓' : `${x.count}/${x.of}`;
+            if (n.textContent !== t) n.textContent = t;
+          }
+          buy?.classList.toggle('rh-poor', lp === null || this.state.credits < lp);
+        };
+      };
     } else {
       const c = unlockCost(s, b.slot);
       if (c === null) return this.closeBubble();
@@ -1948,12 +2285,24 @@ export class RockhopperApp {
     const showFactory = s.factories || factories(s).length > 0;
     const factoryLocked = !factoryUnlocked(s);
     this.tools.factory.button.parentElement!.classList.toggle('rh-hidden', !showFactory);
+    this.labTool.parentElement!.classList.toggle('rh-hidden', !labOffered(s));
+    if (!labOffered(s) && !s.research?.lab) this.labArmed = false;
+    // Income smoothed over about 10 s: one lift changes it by a few percent at most.
+    if (dt > 0) {
+      if (this.lastEarned >= 0 && s.earned >= this.lastEarned)
+        this.rate += ((s.earned - this.lastEarned) / dt - this.rate) * (1 - Math.exp(-dt / 10));
+      this.lastEarned = s.earned;
+    }
+    if (this.overlay.liftMode && !s.research?.lifts.owned) this.endLiftMode();
+    this.overlay.liftInfo = this.overlay.liftMode
+      ? `Lifts ${liftsFree(s)}/${s.research?.lifts.owned ?? 0} free · ${formatNumber(Math.round(this.rate))}/s`
+      : null;
     for (const kind of TOOLS) {
       const price = priceOf(s, kind);
       const t = this.tools[kind];
       const span = t.price.querySelector('span')!;
       const locked = kind === 'factory' && factoryLocked;
-      const text = locked ? '2 smelters' : formatNumber(price);
+      const text = locked ? (s.research?.on ? 'Lab' : '2 smelters') : formatNumber(price);
       if (span.textContent !== text) span.textContent = text;
       t.price.classList.toggle('rh-locked', locked);
       const can = !locked && s.credits >= price;
@@ -2121,7 +2470,7 @@ export class RockhopperApp {
     if (this.crossHot < 3) return;
     this.crossShown += dt;
     if (this.crossShown > 20) this.taught.cross = true;
-    else if (!this.bubble && !o.placing) o.hintCross = { x: hot.x, y: hot.y };
+    else if (!this.bubble && !o.placing && !o.liftMode) o.hintCross = { x: hot.x, y: hot.y };
   }
 
   /** Draw a dot under every real pointer, so captured clips show what the player did. */
