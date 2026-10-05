@@ -15,6 +15,7 @@ import {
 import {
   drillSpotWhy,
   freshState,
+  grantResearch,
   LEGACY_SOCKETS,
   legacySocketAngle,
   normAngle,
@@ -190,6 +191,7 @@ export function deserialize(text: string): State | null {
     // Research (Lab lifts): a malformed field resets research to off and empty, never the save.
     state.research = parseResearch(raw.research);
     if (!state.research) delete state.research;
+    else grantResearch(state);
     // Dock sites must be distinct, one per dock: anything else puts the docks back in the
     // classic order rather than refusing the save (links still name docks by index).
     const sites = raw.dockSites;
@@ -477,7 +479,46 @@ function parseResearch(raw: unknown): Research | undefined {
     );
   });
   if (!ok || raised.length > (owned as number)) return off;
+  // The Lab's fields (all optional): each must be well formed, or research resets.
+  const lab = r.lab as Record<string, unknown> | undefined;
+  if (
+    lab !== undefined &&
+    (!lab || !Number.isInteger(lab.owner) || !isNum(lab.frac) || !isNum(lab.x) || !isNum(lab.y))
+  )
+    return off;
+  const strs = (v: unknown) =>
+    v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+  const ores = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(isOre));
+  const counts = r.counts as Record<string, unknown> | undefined;
+  if (
+    !strs(r.learned) ||
+    !ores(r.known) ||
+    (r.active !== undefined && typeof r.active !== 'string') ||
+    (counts !== undefined &&
+      (!counts || typeof counts !== 'object' || !Object.values(counts).every(isNum))) ||
+    (r.hold !== undefined &&
+      (!Array.isArray(r.hold) ||
+        !r.hold.every((h: { ore?: unknown; t?: unknown }) => isOre(h?.ore) && isNum(h?.t))))
+  )
+    return off;
   return {
+    ...(lab
+      ? {
+          lab: {
+            owner: lab.owner as number,
+            frac: lab.frac as number,
+            x: lab.x as number,
+            y: lab.y as number,
+          },
+        }
+      : {}),
+    ...(typeof r.active === 'string' ? { active: r.active } : {}),
+    ...(counts ? { counts: { ...(counts as Record<string, number>) } } : {}),
+    ...(r.learned ? { learned: [...(r.learned as string[])] } : {}),
+    ...(r.known ? { known: [...(r.known as Ore[])] } : {}),
+    ...(r.hold
+      ? { hold: (r.hold as { ore: Ore; t: number }[]).map((h) => ({ ore: h.ore, t: h.t })) }
+      : {}),
     on: r.on,
     lifts: {
       owned: owned as number,

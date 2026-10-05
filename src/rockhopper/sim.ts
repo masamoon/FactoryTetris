@@ -8,6 +8,17 @@ import {
   CELL,
   COPPER,
   CRYSTAL,
+  GOLD,
+  ICE,
+  LAB_END_CLEAR,
+  LAB_HOLD,
+  LAB_MACHINE_CLEAR,
+  LAB_PLATE_CLEAR,
+  LAB_SNAP,
+  LIFT_AFTER,
+  LIFT_BILLS,
+  LIFT_PRICES,
+  RECIPES,
   PICK_REACH,
   CRUMBLE_AT,
   CRUMBLE_FLIGHT_MAX,
@@ -315,7 +326,9 @@ export type SimEvent =
       returned?: boolean;
       x: number;
       y: number;
-    };
+    }
+  | { type: 'skim'; x: number; y: number; ore: Ore; bar: boolean }
+  | { type: 'learn'; id: string; x: number; y: number };
 
 export type HubUpgrade = 'laser' | 'docks' | 'tractor';
 
@@ -387,6 +400,20 @@ export interface Research {
   on: boolean;
   /** Lifts bought, and the pieces currently raised (never more than bought). */
   lifts: { owned: number; raised: RaisedPiece[] };
+  /**
+   * The Lab: clamped on `owner`'s belt at `frac` of its length, or idle where it stood
+   * (`owner` -1, "no belt"). Absent until the player places it.
+   */
+  lab?: { owner: number; frac: number; x: number; y: number };
+  /** The active row: a recipe id or `lift0`/`lift1`, or none. */
+  active?: string;
+  /** Pairs counted per recipe, and paired bars taken per lift bill. */
+  counts?: Record<string, number>;
+  learned?: string[];
+  /** Ores delivered by belt at least once this game (recipes become available from these). */
+  known?: Ore[];
+  /** The hold: at most one entry per ore of the active recipe, with the tick it was taken. */
+  hold?: { ore: Ore; t: number }[];
 }
 
 // ---------------------------------------------------------------- noise
@@ -829,7 +856,8 @@ export const factories = (s: State) => s.machines.filter((m): m is Factory => m.
 export const joins = (s: State) => s.machines.filter((m): m is Join => m.kind === 'join');
 
 /** The tray offers factories once the player owns 2 smelters (one seam for a tech tree). */
-export const factoryUnlocked = (s: State) => s.factories && smelters(s).length >= 2;
+export const factoryUnlocked = (s: State) =>
+  s.factories && (s.research?.on ? !!s.research.learned?.length : smelters(s).length >= 2);
 
 /** Drills standing on slot `slot`'s rock, leaving out drill `except`. */
 export const drillsOnRock = (s: State, slot: number, except?: number) =>
@@ -1699,6 +1727,8 @@ export function buildSmelter(s: State, p: Point, splice?: number | null): Result
  */
 export function buildFactory(s: State, p: Point, splice?: number | null): Result {
   if (!s.factories) return 'unavailable';
+  // With research on, the first recipe learned unlocks factories (TT4, TT7e).
+  if (s.research?.on && !factoryUnlocked(s)) return 'locked';
   if (!smelterSpotOk(s, p, undefined, splice)) return 'blocked';
   const owner = splice == null ? undefined : byId(s, splice);
   if (splice != null && !canSplice(s, owner, null, p, false, 'factory')) return 'invalid';
@@ -2096,6 +2126,7 @@ export function setResearch(s: State, on: boolean): Result {
   if (on && !s.factories) return 'needs factories';
   s.research ??= { on: false, lifts: { owned: 0, raised: [] } };
   s.research.on = !!on;
+  if (on) grantResearch(s);
   return true;
 }
 
@@ -2160,6 +2191,270 @@ function liftsTick(s: State) {
     if (p && p.pieces === r.pieces && same(p.a, r.a) && same(p.b, r.b)) continue;
     list.splice(k, 1);
     s.events.push({ ...liftEvent(r.owner, r.piece, r, false), returned: true });
+  }
+}
+
+// ---------------------------------------------------------------- the Lab (research)
+
+const researchOn = (s: State) => !!s.research?.on && s.factories;
+
+/** Whether a Lab could clamp at distance `d` along `owner`'s belt (TT2's clearances), or why not. */
+export function labSpotWhy(s: State, owner: number, d: number): string {
+  const m = byId(s, owner);
+  const path = m && beltPath(s, m);
+  if (!m || !path) return 'drop it on a belt';
+  const len = pathLength(path);
+  if (d < LAB_END_CLEAR || d > len - LAB_END_CLEAR) return 'too close to the end';
+  for (const pl of crossingsOf(s).plates)
+    for (const side of pl.sides)
+      if (side.id === owner && Math.abs(side.at - d) < LAB_PLATE_CLEAR)
+        return 'too close to a crossing';
+  const q = pointAlong(path, d);
+  for (const x of s.machines) {
+    if (x.kind === 'join') continue;
+    const c = machinePos(x);
+    const r = x.kind === 'drill' ? DRILL_RADIUS : SMELTER_RADIUS;
+    if (Math.hypot(q.x - c.x, q.y - c.y) < r + LAB_MACHINE_CLEAR) return 'too close to a machine';
+  }
+  return '';
+}
+
+/** The nearest legal Lab spot on `owner`'s belt to distance `d0` along it, or null. */
+function nearestLabSpot(s: State, owner: number, d0: number): number | null {
+  const m = byId(s, owner);
+  const path = m && beltPath(s, m);
+  if (!path) return null;
+  const len = pathLength(path);
+  for (let e = 0; e <= len; e += 2)
+    for (const d of e ? [d0 - e, d0 + e] : [d0])
+      if (d >= 0 && d <= len && labSpotWhy(s, owner, d) === '') return d;
+  return null;
+}
+
+/** Where a Lab dropped at `p` would clamp: the nearest legal spot on the nearest belt. */
+export function labSnap(
+  s: State,
+  p: Point
+): { owner: number; d: number; x: number; y: number } | null {
+  let best: { owner: number; d: number; dist: number } | null = null;
+  for (const m of s.machines) {
+    const path = beltPath(s, m);
+    if (!path || !m.out) continue;
+    let run = 0;
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1],
+        b = path[i];
+      const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const t = Math.max(
+        0,
+        Math.min(L, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / L)
+      );
+      const dist = Math.hypot(a.x + ((b.x - a.x) * t) / L - p.x, a.y + ((b.y - a.y) * t) / L - p.y);
+      if (dist <= LAB_SNAP && (!best || dist < best.dist)) best = { owner: m.id, d: run + t, dist };
+      run += L;
+    }
+  }
+  if (!best) return null;
+  const d = nearestLabSpot(s, best.owner, best.d);
+  if (d === null) return null;
+  const q = pointAlong(beltPath(s, byId(s, best.owner)!)!, d);
+  return { owner: best.owner, d, x: q.x, y: q.y };
+}
+
+/** The tray offers the Lab (free) once research is on and the player owns a smelter. */
+export const labOffered = (s: State) =>
+  researchOn(s) && !s.research!.lab && smelters(s).length >= 1;
+
+/** Place the Lab, or move it (TT2): it clamps at the nearest legal spot; a move empties the hold. */
+export function placeLab(s: State, p: Point): Result {
+  if (!researchOn(s)) return 'research is off';
+  const r = s.research!;
+  if (!r.lab && smelters(s).length < 1) return 'locked';
+  const at = labSnap(s, p);
+  if (!at) return 'drop it on a belt';
+  const len = pathLength(beltPath(s, byId(s, at.owner)!)!);
+  r.lab = { owner: at.owner, frac: at.d / len, x: at.x, y: at.y };
+  r.hold = [];
+  return true;
+}
+
+export interface LabRow {
+  id: string;
+  /** The two ores of a recipe, or the one ore of a lift bill. */
+  ores: Ore[];
+  count: number;
+  of: number;
+  done: boolean;
+}
+
+/** The rows the Lab bubble lists (TT3, LL4): available recipes, then lift bills. */
+export function labRows(s: State): LabRow[] {
+  const r = s.research;
+  if (!r) return [];
+  const known = new Set(r.known ?? []);
+  const learned = new Set(r.learned ?? []);
+  const counts = r.counts ?? {};
+  const rows: LabRow[] = RECIPES.filter((x) => known.has(x.a) && known.has(x.b)).map((x) => ({
+    id: x.id,
+    ores: [x.a, x.b],
+    count: counts[x.id] ?? 0,
+    of: x.count,
+    done: learned.has(x.id),
+  }));
+  if (LIFT_AFTER.every((id) => learned.has(id)))
+    for (let n = 0; n < LIFT_BILLS.length; n++) {
+      const id = `lift${n}`;
+      const b = LIFT_BILLS[n];
+      const c = counts[id] ?? 0;
+      rows.push({ id, ores: [b.ore], count: c, of: b.count, done: c >= b.count });
+      if (c < b.count) break;
+    }
+  return rows;
+}
+
+/** Make a row active (TT3): counts are kept per row; switching loses only the hold. */
+export function setLabActive(s: State, id: string | null): Result {
+  const r = s.research;
+  if (!r || !researchOn(s)) return 'research is off';
+  if (id !== null) {
+    const row = labRows(s).find((x) => x.id === id);
+    if (!row) return 'unavailable';
+    if (row.done) return 'done';
+  }
+  if (id === null) delete r.active;
+  else r.active = id;
+  r.hold = [];
+  return true;
+}
+
+/** Lift bills met so far, and the lifts that can be bought now. */
+export const liftBillsMet = (s: State) =>
+  LIFT_BILLS.filter((b, n) => (s.research?.counts?.[`lift${n}`] ?? 0) >= b.count).length;
+
+export function liftPrice(s: State): number | null {
+  const r = s.research;
+  if (!r || !researchOn(s) || r.lifts.owned >= liftBillsMet(s)) return null;
+  return LIFT_PRICES[r.lifts.owned] ?? null;
+}
+
+/** Buy the next researched lift (LL5). */
+export function buyLift(s: State): Result {
+  const c = liftPrice(s);
+  if (c === null) return 'unavailable';
+  if (!pay(s, c)) return 'credits';
+  s.research!.lifts.owned++;
+  return true;
+}
+
+/**
+ * TT7(a): when research comes on, or a save loads with it on, and the player already owns a
+ * factory, factories stay unlocked and every recipe now available, or already in a factory, is
+ * learned, so nothing built stops working.
+ */
+export function grantResearch(s: State) {
+  const r = s.research;
+  if (!r?.on || !factories(s).length) return;
+  if (!r.known) {
+    // An older save: any ore an unlocked slot's tier can carry counts as known.
+    const k = new Set<Ore>();
+    s.slots.forEach((x, i) => {
+      if (x.unlocked) for (const o of TIER_ORE[SLOTS[i].tier].ores) k.add(o);
+    });
+    r.known = [...k];
+  }
+  const learned = new Set(r.learned ?? []);
+  const known = new Set(r.known);
+  const inFactories = new Set<string>();
+  for (const f of factories(s)) {
+    const bars = [...f.stock, ...f.pairs.flat(), ...(f.job ? f.job.pair : [])];
+    for (const a of bars) for (const b of bars) inFactories.add(`${a.ore}:${b.ore}`);
+  }
+  for (const x of RECIPES)
+    if ((known.has(x.a) && known.has(x.b)) || inFactories.has(`${x.a}:${x.b}`)) learned.add(x.id);
+  r.learned = [...learned];
+}
+
+/** Items the Lab already looked at (a bundle waiting at the anchor is never counted twice). */
+const labSeen = new WeakSet<BeltItem>();
+
+function labTick(s: State) {
+  const r = s.research;
+  if (!r || !researchOn(s)) return;
+  // Ores delivered by belt make recipes available.
+  for (const e of s.events)
+    if (e.type === 'deliver' && e.ore !== ROCK && !(r.known ?? []).includes(e.ore))
+      (r.known ??= []).push(e.ore);
+  const lab = r.lab;
+  if (!lab) return;
+  // The anchor follows its belt; a change that leaves it on an illegal spot re-snaps it on the
+  // same belt, and a belt that is gone leaves the Lab idle ("no belt").
+  const m = lab.owner >= 0 ? byId(s, lab.owner) : undefined;
+  const path = m && beltPath(s, m);
+  if (!m || !path) {
+    lab.owner = -1;
+    r.hold = [];
+    return;
+  }
+  const len = pathLength(path);
+  let d = lab.frac * len;
+  if (labSpotWhy(s, m.id, d) !== '') {
+    const nd = nearestLabSpot(s, m.id, d);
+    if (nd === null) {
+      lab.owner = -1;
+      r.hold = [];
+      return;
+    }
+    d = nd;
+    lab.frac = d / len;
+  }
+  const q = pointAlong(path, d);
+  lab.x = q.x;
+  lab.y = q.y;
+  r.hold = (r.hold ?? []).filter((h) => s.tick - h.t < LAB_HOLD * TICK_HZ);
+  if (!r.active) return;
+  const counts = (r.counts ??= {});
+  const recipe = RECIPES.find((x) => x.id === r.active);
+  const bill = r.active.startsWith('lift') ? LIFT_BILLS[Number(r.active.slice(4))] : undefined;
+  const belt = m.out!;
+  for (let i = 0; i < belt.items.length; i++) {
+    const it = belt.items[i];
+    if (it.pos < d || labSeen.has(it)) continue;
+    labSeen.add(it);
+    if (it.alloy !== undefined) continue;
+    if (recipe) {
+      for (const ore of [recipe.a, recipe.b]) {
+        if (r.hold.some((h) => h.ore === ore)) continue;
+        const k = it.ores.indexOf(ore);
+        if (k < 0) continue;
+        it.ores.splice(k, 1);
+        r.hold.push({ ore, t: s.tick });
+        s.events.push({ type: 'skim', x: q.x, y: q.y, ore, bar: it.mult > 1 });
+      }
+      if (r.hold.length === 2) {
+        r.hold = [];
+        counts[recipe.id] = (counts[recipe.id] ?? 0) + 1;
+        if (counts[recipe.id] >= recipe.count) {
+          (r.learned ??= []).push(recipe.id);
+          delete r.active;
+          s.events.push({ type: 'learn', id: recipe.id, x: q.x, y: q.y });
+        }
+      }
+    } else if (bill && it.mult === BAR_VALUE) {
+      const id = r.active;
+      while ((counts[id] ?? 0) < bill.count) {
+        const k = it.ores.indexOf(bill.ore);
+        if (k < 0) break;
+        it.ores.splice(k, 1);
+        counts[id] = (counts[id] ?? 0) + 1;
+        s.events.push({ type: 'skim', x: q.x, y: q.y, ore: bill.ore, bar: true });
+      }
+      if ((counts[id] ?? 0) >= bill.count) {
+        delete r.active;
+        s.events.push({ type: 'learn', id, x: q.x, y: q.y });
+      }
+    }
+    if (!it.ores.length) belt.items.splice(i--, 1);
+    if (!r.active) break;
   }
 }
 
@@ -2760,10 +3055,26 @@ const reserved = (o: Ore) => o === COPPER || o === CRYSTAL;
  * The waiting bar `bar` pairs with. Copper and crystal are reserved for each other; the other
  * ores pair among themselves. `any` (a bar that has waited out `LONE_WAIT`) takes any other ore.
  */
-function partnerIndex(stock: Bar[], bar: Bar, any = false): number {
-  if (any) return stock.findIndex((x) => x.ore !== bar.ore);
+function partnerIndex(stock: Bar[], bar: Bar, any = false, ok = anyPair): number {
+  if (any) return stock.findIndex((x) => x.ore !== bar.ore && ok(bar.ore, x.ore));
   if (reserved(bar.ore)) return stock.findIndex((x) => reserved(x.ore) && x.ore !== bar.ore);
-  return stock.findIndex((x) => !reserved(x.ore) && x.ore !== bar.ore);
+  return stock.findIndex((x) => !reserved(x.ore) && x.ore !== bar.ore && ok(bar.ore, x.ore));
+}
+
+const anyPair = (_a: Ore, _b: Ore) => true;
+
+/**
+ * Which ore pairs a factory may make (TT5): with research on, only learned recipes, plus copper
+ * with crystal, which is never gated.
+ */
+function pairRule(s: State): (a: Ore, b: Ore) => boolean {
+  if (!s.research?.on) return anyPair;
+  const learned = new Set(s.research.learned ?? []);
+  return (a, b) =>
+    (reserved(a) && reserved(b)) ||
+    RECIPES.some(
+      (r) => learned.has(r.id) && ((r.a === a && r.b === b) || (r.a === b && r.b === a))
+    );
 }
 
 /** Take stock bar `k` out, without its arrival tick. */
@@ -2773,11 +3084,18 @@ function unstock(f: Factory, k: number): Bar {
 }
 
 /** Where an arriving item would go: 'pair', 'stock', 'pass', or null when there is no room. */
-function factoryFit(f: Factory, item: Bar): 'pair' | 'stock' | 'pass' | null {
+function factoryFit(
+  f: Factory,
+  item: Bar,
+  ok: (a: Ore, b: Ore) => boolean
+): 'pair' | 'stock' | 'pass' | null {
   // Rock never enters: it waits on the belt, so a line carrying rock needs it kept off.
   if (FACTORY_REFUSE_ROCK && item.ore === ROCK && item.alloy === undefined) return null;
-  if (pairable(item)) {
-    if (f.pairs.length < FACTORY_PAIRS && partnerIndex(f.stock, item) >= 0) return 'pair';
+  // A bar no learned recipe can pair passes at once (TT5), rather than waiting in the stock.
+  const learnable = ok === anyPair || ORE_IDS.some((o) => o !== item.ore && ok(item.ore, o));
+  if (pairable(item) && learnable) {
+    if (f.pairs.length < FACTORY_PAIRS && partnerIndex(f.stock, item, false, ok) >= 0)
+      return 'pair';
     if (f.stock.length < FACTORY_STOCK) return 'stock';
   }
   return f.ready.length < FACTORY_READY ? 'pass' : null;
@@ -2786,7 +3104,10 @@ function factoryFit(f: Factory, item: Bar): 'pair' | 'stock' | 'pass' | null {
 /** Smoothing per intake for the "smelt it first" hint (a few seconds of raw-only intake). */
 const RAW_ALPHA = DT / 2;
 
+const ORE_IDS: Ore[] = [COPPER, ICE, GOLD, CRYSTAL];
+
 function factoriesTick(s: State) {
+  const ok = pairRule(s);
   for (const f of factories(s)) {
     // Intake: as many items per tick as there is room for, one per input belt in turn. Paired
     // bars pair on arrival or wait in the stock; everything else passes straight through.
@@ -2802,10 +3123,11 @@ function factoriesTick(s: State) {
         const belt = inputs[idx].out!;
         const front = waiting(belt);
         if (!front) continue;
-        const fit = factoryFit(f, classOf(front.ores[0], front));
+        const fit = factoryFit(f, classOf(front.ores[0], front), ok);
         if (!fit) continue;
         const item = takeFront(belt);
-        if (fit === 'pair') f.pairs.push([unstock(f, partnerIndex(f.stock, item)), item]);
+        if (fit === 'pair')
+          f.pairs.push([unstock(f, partnerIndex(f.stock, item, false, ok)), item]);
         else if (fit === 'stock') f.stock.push({ ...item, t: s.tick });
         else f.ready.push(item);
         if (item.mult === 1) raw = true;
@@ -2818,7 +3140,7 @@ function factoriesTick(s: State) {
     if (raw || bar) f.rawT += ((raw && !bar ? 1 : 0) - f.rawT) * RAW_ALPHA;
     // Bars that waited while the pairs were full pair up as soon as there is room.
     for (let i = 0; i < f.stock.length && f.pairs.length < FACTORY_PAIRS; ) {
-      const j = partnerIndex(f.stock.slice(i + 1), f.stock[i]);
+      const j = partnerIndex(f.stock.slice(i + 1), f.stock[i], false, ok);
       if (j < 0) {
         i++;
         continue;
@@ -2829,7 +3151,7 @@ function factoriesTick(s: State) {
     // A bar that waited out LONE_WAIT takes any partner; with none it passes on, oldest first,
     // so nothing waits for ever.
     while (f.stock.length && s.tick - f.stock[0].t >= FACTORY_WAIT * TICK_HZ) {
-      const j = partnerIndex(f.stock.slice(1), f.stock[0], true);
+      const j = partnerIndex(f.stock.slice(1), f.stock[0], true, ok);
       if (j >= 0 && f.pairs.length < FACTORY_PAIRS) {
         const b = unstock(f, 1 + j);
         f.pairs.push([unstock(f, 0), b]);
@@ -2908,6 +3230,7 @@ export function step(s: State) {
   crossTick(s);
   smeltersTick(s);
   factoriesTick(s);
+  labTick(s);
   pressureTick(s);
   flightsTick(s);
 }
