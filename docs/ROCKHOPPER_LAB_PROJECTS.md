@@ -61,7 +61,7 @@ So the late game lacks **things to build** once rocks, docks and belts are maxed
 ## Open questions
 
 - Does a raised belt read as "up" on a small screen without a perspective cue?
-- Is four the right count on sectors, where the hub knots more?
+- Is two the right count on sectors, where the hub can knot more?
 - Do players untangle less once lifts exist?
 
 ## Round 3 answered
